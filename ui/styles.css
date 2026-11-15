@@ -15039,6 +15039,10 @@ html.keyboard-open .chat-funding-gate { gap: 8px; margin-top: 8px; padding: 12px
 }
 .sk-swipe-bar.disabled { opacity: .4; cursor: default; }
 .sk-swipe-bar:active:not(.disabled) { cursor: grabbing; }
+/* On a computer the bar is tapped, and a tap plays the swipe (send-kaspa-components.js). */
+.sk-swipe-bar.tapped:not(.disabled) { cursor: pointer; }
+.sk-swipe-bar.tapped:not(.disabled):hover { filter: brightness(1.06); }
+.sk-swipe-bar.tapped:active:not(.disabled) { cursor: pointer; filter: brightness(.94); }
 .sk-swipe-bar:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: 3px; }
 .sk-swipe-bar-icon { display: inline-flex; }
 .sk-swipe-bar-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }

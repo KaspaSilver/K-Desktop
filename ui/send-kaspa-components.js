@@ -1116,6 +1116,11 @@ export function closeSentConfirmation() {
 // the screen's error and Try Again, which brings the form back as it was. Let go sooner and it
 // springs back. Only the bar answers, so scrolling the form never sends. A keyboard press or a
 // screen reader's activation is the plain action (iOS accessibilityAction).
+//
+// On a computer (a mouse or trackpad: hover and a fine pointer) dragging up is awkward, so the bar
+// reads "Tap to Send" and a tap plays the swipe for you - the screen rises to the release point,
+// then lets go and sends - with the same animation. Dragging still works there; phones and tablets
+// keep swipe up (owner, 2026-11-15).
 
 /** The words a swipe-up screen uses (iOS SwipeUpLabels): a Kaspa send, a .kachat buy or claim. */
 export const SWIPE_UP_LABELS = {
@@ -1154,6 +1159,17 @@ const SWIPE_OPEN_ICON = '<svg class="sk-sent-open" viewBox="0 0 24 24" aria-hidd
 const SWIPE_FAIL_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 2.5 20h19L12 3.5Z"/><path d="M12 10v4.5M12 17.2v.1"/></svg>';
 /** iOS settle: spring(response 0.45, damping 0.86). */
 const SWIPE_SETTLE_MS = 450;
+/** A tap's played swipe: the rise to the release point, then a beat there before letting go. */
+const TAP_SWIPE_RISE_MS = 420;
+const TAP_SWIPE_HOLD_MS = 140;
+/** Moving less than this between press and release is a tap, not a drag. */
+const TAP_SLOP_PX = 8;
+
+const mediaMatches = (query) => typeof matchMedia === "function" && matchMedia(query).matches;
+/** A computer's mouse or trackpad (hover and a fine pointer): the bar is tapped, not swiped. */
+export function swipeBarIsTapped() { return mediaMatches("(hover: hover) and (pointer: fine)"); }
+/** The bar's words where it is tapped: "Swipe up to Send" -> "Tap to Send". */
+export function tapBarTitle(title) { return String(title || "").replace(/^Swipe up to /i, "Tap to "); }
 
 /**
  * Turns a sheet (`card`, a `.contact-modal`) into a swipe-up send screen. Its `.modal-header` is
@@ -1247,6 +1263,10 @@ export function createSwipeUpScreen(card, {
   let dragging = false;
   let pointerId = null;
   let startY = 0;
+  let moved = 0;
+  // a tap's played swipe is running (its rAF id while rising)
+  let autoSwiping = false;
+  let autoFrame = 0;
   const timers = new Set();
   const later = (ms, fn) => { const t = setTimeout(() => { timers.delete(t); fn(); }, ms); timers.add(t); };
   const clearTimers = () => { for (const t of timers) clearTimeout(t); timers.clear(); };
@@ -1260,9 +1280,13 @@ export function createSwipeUpScreen(card, {
   const dag = blockDagAnimation(canvas);
 
   function paintBar() {
+    const tapped = swipeBarIsTapped();
+    const shown = tapped ? tapBarTitle(title) : title;
     barIcon.innerHTML = armed ? SWIPE_BAR_ICONS.check : SWIPE_BAR_ICONS.up;
-    barText.textContent = armed ? words.release : title;
-    bar.setAttribute("aria-label", title);
+    // a played swipe never asks to let go: it already says what it's doing
+    barText.textContent = armed ? (autoSwiping ? words.working : words.release) : shown;
+    bar.classList.toggle("tapped", tapped);
+    bar.setAttribute("aria-label", shown);
     bar.setAttribute("aria-disabled", enabled ? "false" : "true");
     bar.classList.toggle("disabled", !enabled);
   }
@@ -1287,7 +1311,8 @@ export function createSwipeUpScreen(card, {
     const unknown = !done && outcomeUnknown();
     els.mark.innerHTML = done ? SWIPE_MARKS.done : (unknown ? SWIPE_MARKS.unknown : (failure ? SWIPE_MARKS.failed : ""));
     els.mark.className = `sk-swipe-mark${done ? " done" : unknown ? " unknown" : failure ? " failed" : ""}`;
-    els.big.textContent = done ? words.done : unknown ? "Not confirmed" : failure ? "Failed" : (sending ? words.working : (armed ? words.release : "Keep Swiping"));
+    const working = sending || autoSwiping;
+    els.big.textContent = done ? words.done : unknown ? "Not confirmed" : failure ? "Failed" : (working ? words.working : (armed ? words.release : "Keep Swiping"));
     const amount = sent?.amountSompi ?? preview.amountSompi;
     els.amount.hidden = amount == null;
     if (amount != null) els.amount.textContent = `${formatSompiPlain(amount)} ${unit}`;
@@ -1296,7 +1321,7 @@ export function createSwipeUpScreen(card, {
     if (to) { els.to.title = to; els.to.innerHTML = `<span class="sk-sent-to-word">${esc(words.recipientWord)}&nbsp;</span>${middleTruncatedHtml(to, 8)}`; }
     const showDetail = !(done || failure);
     els.detail.hidden = !showDetail;
-    if (showDetail) els.detail.textContent = sending ? words.workingDetail : words.hint;
+    if (showDetail) els.detail.textContent = working ? words.workingDetail : words.hint;
     els.failure.hidden = !failure;
     els.failure.classList.toggle("unknown", unknown);
     if (failure) els.failureText.textContent = failure;
@@ -1319,7 +1344,55 @@ export function createSwipeUpScreen(card, {
   }
   function paint(animate = false) { paintBar(); place(animate); paintProgress(); }
 
+  function stopAutoSwipe() {
+    if (autoFrame) cancelAnimationFrame(autoFrame);
+    autoFrame = 0;
+    autoSwiping = false;
+  }
+  /** A tap on a computer: the screen rises to just past the release point as a drag would, holds
+   *  there a beat, then lets go and sends. Anything that stops the send meanwhile (the bar turned
+   *  off, the sheet reset) springs it back instead. Reduced motion sends straight away. */
+  function playSwipe() {
+    if (!active() || phase !== "form" || autoSwiping) return;
+    preview = getPreview?.() || {};
+    dag.restart();
+    if (mediaMatches("(prefers-reduced-motion: reduce)") || typeof requestAnimationFrame !== "function") {
+      startSending();
+      return;
+    }
+    autoSwiping = true;
+    const from = lift;
+    const to = threshold() * 1.12;
+    const began = performance.now();
+    const step = (now) => {
+      autoFrame = 0;
+      if (!autoSwiping) return;
+      if (!active() || phase !== "form") { stopAutoSwipe(); springBack(); return; }
+      const t = Math.min(1, (now - began) / TAP_SWIPE_RISE_MS);
+      const eased = 1 - (1 - t) ** 3;
+      lift = from + (to - from) * eased;
+      armed = lift >= threshold();
+      paint(false);
+      if (t < 1) { autoFrame = requestAnimationFrame(step); return; }
+      later(TAP_SWIPE_HOLD_MS, () => {
+        if (!autoSwiping) return;
+        stopAutoSwipe();
+        if (active() && phase === "form") startSending();
+        else springBack();
+      });
+    };
+    autoFrame = requestAnimationFrame(step);
+    // A window the browser stops drawing (hidden) gets no frames: the tap still sends.
+    later(TAP_SWIPE_RISE_MS + TAP_SWIPE_HOLD_MS + 400, () => {
+      if (!autoSwiping) return;
+      stopAutoSwipe();
+      if (active() && phase === "form") startSending();
+      else springBack();
+    });
+  }
+
   function startSending() {
+    stopAutoSwipe();
     armed = false;
     dagShown = false;
     sendStarted = busy;
@@ -1356,18 +1429,20 @@ export function createSwipeUpScreen(card, {
   }
 
   bar.addEventListener("pointerdown", (event) => {
-    if (!active() || phase !== "form") return;
+    if (!active() || phase !== "form" || autoSwiping) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
     event.preventDefault();
     dragging = true;
     pointerId = event.pointerId;
     startY = event.clientY;
+    moved = 0;
     preview = getPreview?.() || {};
     try { bar.setPointerCapture(event.pointerId); } catch { /* fine */ }
     dag.restart();
   });
   bar.addEventListener("pointermove", (event) => {
     if (!dragging || event.pointerId !== pointerId) return;
+    moved = Math.max(moved, Math.abs(startY - event.clientY));
     lift = Math.max(0, startY - event.clientY);
     armed = lift >= threshold();
     paint(false);
@@ -1377,6 +1452,8 @@ export function createSwipeUpScreen(card, {
     dragging = false;
     pointerId = null;
     if (!cancelled && armed && active() && phase === "form") startSending();
+    // a tap where the bar is tapped (a computer): play the swipe
+    else if (!cancelled && moved < TAP_SLOP_PX && swipeBarIsTapped() && active() && phase === "form") playSwipe();
     else springBack();
   };
   bar.addEventListener("pointerup", (event) => end(event, false));
@@ -1386,9 +1463,14 @@ export function createSwipeUpScreen(card, {
   bar.addEventListener("click", (event) => {
     // Pointer clicks end a drag the handlers above already judged.
     if (event.detail !== 0 || !active() || phase !== "form") return;
+    if (swipeBarIsTapped()) { playSwipe(); return; }
     dag.restart();
     startSending();
   });
+  // a mouse plugged in or unplugged: the bar's words follow
+  if (typeof matchMedia === "function") {
+    try { matchMedia("(hover: hover) and (pointer: fine)").addEventListener("change", () => paintBar()); } catch { /* old engine */ }
+  }
   form.querySelector("[data-sk-swipe-cancel]").addEventListener("click", () => { if (phase === "form") onCancel?.(); });
   // A step-by-step send's review (KaPay 05db583): Back on the left, Cancel moves to the right.
   let onBack = null;
@@ -1443,6 +1525,7 @@ export function createSwipeUpScreen(card, {
     },
     reset() {
       clearTimers();
+      stopAutoSwipe();
       dragging = false;
       pointerId = null;
       armed = false;

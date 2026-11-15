@@ -44,7 +44,7 @@ import { normalize, p2pkScript, bytesEqual, hex, utf8, unhex32, yearMs, tier } f
 import { isRegistryUpgrading, registryUpgradingMessage } from "../engine/kachat-names/service.js";
 import {
   feeControlsHtml, feeControls, infoPillHtml, recipientCardHtml, recipientStatusHtml, refreshRecipientAddressBook,
-  otherDomainsHtml, pickOtherDomain, createSwipeUpScreen, SWIPE_UP_LABELS, NOT_CONFIRMED_ON_DEVICE,
+  otherDomainsHtml, pickOtherDomain, createSwipeUpScreen, SWIPE_UP_LABELS, NOT_CONFIRMED_ON_DEVICE, swipeBarIsTapped,
 } from "./send-kaspa-components.js";
 import {
   createStepFlow, createFeeEditorStep, keypadHtml, wireKeypad, applyKeypadKey, keypadAmountTextHtml, paintKeypadAmount,
@@ -1884,7 +1884,7 @@ function openTxSheet(cfg) {
     // and the device lock (iOS 778a8fc, IOS-075/DSK-047).
     if (sheet.combinesCoins && sheet.plan && !sheet.txId) {
       out += `<div class="kl-combine-note">${LI.merge}<span>${esc(
-        "Your KAS is in many small coins. When you swipe, KaChat first combines them into one (a separate transaction with its own small fee), then sends this.")}</span></div>`;
+        `Your KAS is in many small coins. When you ${swipeBarIsTapped() ? "tap" : "swipe"}, KaChat first combines them into one (a separate transaction with its own small fee), then sends this.`)}</span></div>`;
     }
     return out;
   };
@@ -3018,7 +3018,7 @@ function openClaimSheet({ name, gap, owner = "market" }) {
       swipe?.setBusy(false);
       render();
     };
-    const priceChanged = "The price changed. Check it and swipe again.";
+    const priceChanged = `The price changed. Check it and ${swipeBarIsTapped() ? "tap" : "swipe"} again.`;
     if (q.years !== BigInt(years) || tier !== feeTier) { fail(priceChanged); return; }
     if (!(await deviceLock())) { fail(NOT_CONFIRMED_ON_DEVICE); return; }
     if (closed) return;
