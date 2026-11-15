@@ -90,21 +90,28 @@
 .kmkt-search-result-copy strong { font-size: 17px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kmkt-search-result-copy small { font-size: 12px; color: var(--muted); }
 
-/* The cards (KaPay 99ab88a KachatHubCard): one per page, what it is and how many live there. */
-.kmkt-hub-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.kmkt-hub-card {
-  display: flex; flex-direction: column; align-items: stretch; gap: 10px; width: 100%; min-width: 0;
-  padding: 14px; border: 0; text-align: left; font: inherit; cursor: pointer; color: var(--text);
+/* The .kachat screen leads with the name search (KaPay 5848fb0): a larger field with an accent
+   outline, a clear button, .kachat in the accent colour. */
+.kmkt-hero-tagline { margin: 0; font-size: 15px; line-height: 20px; color: var(--muted); }
+.kmkt-search-lead .kmkt-search-field {
+  padding: 14px; border-radius: 16px;
+  box-shadow: inset 0 0 0 1.2px color-mix(in srgb, var(--kaspa) 60%, transparent);
 }
-.kmkt-hub-card:hover { background: color-mix(in srgb, var(--grouped-row) 92%, var(--text)); }
-.kmkt-hub-card:focus-visible { outline: 2px solid color-mix(in srgb, var(--kaspa) 55%, transparent); outline-offset: 2px; }
-.kmkt-hub-card-top { display: flex; align-items: center; justify-content: space-between; }
-.kmkt-hub-card-icon { display: inline-flex; color: var(--kaspa-ink); }
-.kmkt-hub-card-icon .kmkt-ico { width: 24px; height: 24px; }
-.kmkt-hub-card-chevron { display: inline-flex; color: var(--muted); }
-.kmkt-hub-card-chevron .kmkt-ico { width: 15px; height: 15px; stroke-width: 2.4; }
-.kmkt-hub-card-count { font-size: 28px; font-weight: 700; line-height: 34px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kmkt-hub-card-title { font-size: 15px; font-weight: 600; line-height: 20px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kmkt-search-lead .kmkt-search-field:focus-within { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--kaspa) 80%, transparent); }
+.kmkt-search-lead .kmkt-search-field > .kmkt-ico { color: var(--kaspa-ink); stroke-width: 2.4; }
+.kmkt-search-lead .kmkt-search-field input { font-size: 20px; }
+.kmkt-search-lead .kmkt-search-field input::-webkit-search-cancel-button { display: none; }
+.kmkt-search-lead .kmkt-search-suffix { font-size: 20px; color: var(--kaspa-ink); }
+.kmkt-search-clear {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 26px; height: 26px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer;
+}
+.kmkt-search-clear[hidden] { display: none; }
+.kmkt-search-clear .kmkt-ico { width: 20px; height: 20px; }
+
+/* Under the search: claims in progress, your names, then a short row of each page with See All. */
+.kmkt-hub-sections { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.kmkt-hub-sections:empty { display: none; }
 
 /* A card's page keeps an inline title at phone width (iOS navigationTitle, .inline), where the rest of
    .kachat's large titles give way to the toolbar: centred, clear of the back button on its left. */

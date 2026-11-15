@@ -672,6 +672,8 @@ export class KachatNamesRegistry {
       const j = IndexerAPI.nameJSON(await this._get(this.source.base, `/names/${name}`));
       const info = IndexerAPI.nameInfo(j, keyOf);
       if (info) return Lookup.registered(info);
+      // registered but a record that can't be read is no answer, never "free" (KaPay 5848fb0)
+      if (j.registered === true) throw new Failure(`the indexer's record of ${name} can't be read`);
       return Lookup.free(name, j.gap);
     }
     const st = this._readChainState();

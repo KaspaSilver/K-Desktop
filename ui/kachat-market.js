@@ -33,7 +33,7 @@ import { kachatNamesLaunched, kachatNamesUiEnabled } from "./kachat-names-runtim
 import {
   initKachatLive, liveEnabled, liveHubIsLive, liveHubShow, liveHubHide, liveHubRefresh, liveHubClick,
   liveHeroStatusHtml, liveRefreshButtonHtml, liveSearchInput, liveSearchResultHtml,
-  livePageHtml, livePageCount, createNameDetail, openLiveProfileEditor, renderKachatLiveDomainsTab,
+  livePageHtml, liveHubSectionsHtml, createNameDetail, openLiveProfileEditor, renderKachatLiveDomainsTab,
   kachatNameTileHtml, kachatNameGridHtml, liveClaimsButtonHtml, openClaimsList,
 } from "./kachat-names-live.js";
 
@@ -43,7 +43,8 @@ export { renderKachatLiveDomainsTab };
 let deps = null;
 let marketEl = null;
 
-// Market navigation (KaPay 99ab88a: the logo and a numbered card per page; a card opens its page).
+// Market navigation (KaPay 5848fb0: the logo, the name search, then claims in progress, your names
+// and a short row of each page with See All; See All opens its page).
 // view: "home" | "page" (a card's page) | "listing" | "name" (a live name, testnet). page: "market"
 // | "available" | "expired" | "activity", the page open or last opened. backTo: where a listing or
 // a name goes back to. detail: the live name detail while view is "name".
@@ -84,6 +85,7 @@ const esc = (v) => (deps?.escapeHtml ? deps.escapeHtml(String(v ?? "")) : fallba
 const svg = (body, cls = "kmkt-ico") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
 const ICON = {
   search: svg(`<circle cx="10.8" cy="10.8" r="6.3"/><path d="m20 20-4.7-4.7"/>`),
+  clear: svg(`<circle cx="12" cy="12" r="8.6"/><path d="m9.2 9.2 5.6 5.6M14.8 9.2l-5.6 5.6"/>`),
   question: svg(`<circle cx="12" cy="12" r="9.2"/><path d="M9.5 9.4a2.6 2.6 0 0 1 5.05.85c0 1.75-2.55 2.25-2.55 3.95"/><path d="M12 17.3h.01"/>`),
   tag: svg(`<path d="M3.5 12.2V4.6a1.1 1.1 0 0 1 1.1-1.1h7.6a1.1 1.1 0 0 1 .8.3l7.7 7.7a1.1 1.1 0 0 1 0 1.6l-7.6 7.6a1.1 1.1 0 0 1-1.6 0l-7.7-7.7a1.1 1.1 0 0 1-.3-.8Z"/><circle cx="8" cy="8" r="1.4"/>`),
   cart: svg(`<path d="M2.5 3.5h2.6l2.4 11.2a1.5 1.5 0 0 0 1.5 1.2h8.5a1.5 1.5 0 0 0 1.5-1.2l1.4-7.2H6.2"/><circle cx="9.6" cy="20" r="1.3"/><circle cx="17.4" cy="20" r="1.3"/>`),
@@ -234,12 +236,13 @@ function closeLayersOwnedBy(owner) {
 // Market: home (hero, search, tabs, page)
 // ---------------------------------------------------------------------------------------------
 
-/** The logo and the status (Testnet, Setting up, Coming soon): no title or description (iOS
- *  27a4f39), and the cards under it (KaPay 99ab88a). */
+/** The logo, "Claim your name on Kaspa" and the status (Testnet, Setting up, Coming soon); the
+ *  name search right under it (KaPay 5848fb0). */
 function heroHtml() {
   return `
     <section class="kmkt-hero kmkt-hero-compact">
       <span class="kmkt-hero-mark">${KACHAT_WORDMARK_SVG}</span>
+      <p class="kmkt-hero-tagline">Claim your name on Kaspa</p>
       <div class="kmkt-hero-status" data-kmkt-hero-status>${liveHeroStatusHtml(comingSoonPill())}</div>
     </section>`;
 }
@@ -258,37 +261,19 @@ function searchResultHtml() {
     </div>`;
 }
 
+/** The .kachat screen's search, first under the logo: type a name, and whether it's free (Claim)
+ *  or taken (it opens) (KaPay 5848fb0, 7daf3f1: the hint is the placeholder). */
 function searchCardHtml() {
   return `
-    <section class="kmkt-search">
+    <section class="kmkt-search kmkt-search-lead">
       <label class="kmkt-search-field">
         ${ICON.search}
-        <input type="text" data-kmkt-search placeholder="Find a name" value="${esc(state.search)}"
-          autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Find a name" />
+        <input type="search" enterkeyhint="search" data-kmkt-search placeholder="Type the name you want" value="${esc(state.search)}"
+          autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Type the name you want" />
+        <button class="kmkt-search-clear" type="button" data-kmkt-search-clear aria-label="Clear" ${state.search ? "" : "hidden"}>${ICON.clear}</button>
         <span class="kmkt-search-suffix">.kachat</span>
       </label>
       <div data-kmkt-search-result>${searchResultHtml()}</div>
-    </section>`;
-}
-
-/** How many live on a page, "-" until the registry has answered (KaPay 99ab88a count(of:)). */
-function pageCountText(page) {
-  return livePageCount(page) ?? "-";
-}
-
-/** One page's card: what it is and how many live there (KaPay 99ab88a KachatHubCard). */
-function pageCardsHtml() {
-  return `
-    <section class="kmkt-hub-cards">
-      ${PAGES.map((page) => `
-        <button class="kmkt-card kmkt-hub-card" type="button" data-kmkt-open-page="${page.id}">
-          <span class="kmkt-hub-card-top">
-            <span class="kmkt-hub-card-icon">${ICON[page.icon]}</span>
-            <span class="kmkt-hub-card-chevron">${ICON.chevron}</span>
-          </span>
-          <span class="kmkt-hub-card-count" data-kmkt-count="${page.id}">${esc(pageCountText(page.id))}</span>
-          <span class="kmkt-hub-card-title">${esc(page.title)}</span>
-        </button>`).join("")}
     </section>`;
 }
 
@@ -356,10 +341,10 @@ function pageHtml() {
   return marketPageHtml();
 }
 
-/** How it works, on testnet the refresh control (iOS pull to refresh), and the claims button with
- *  its count while names are being claimed (iOS b219bb0 KachatClaimsButton). */
+/** How it works and, live, the refresh control (iOS pull to refresh). Claims in progress show on
+ *  the screen itself (KaPay 5848fb0); a page keeps the claims button. */
 function headerActionsHtml() {
-  return `${liveRefreshButtonHtml()}${liveClaimsButtonHtml()}<button class="kaposts-icon-button" type="button" data-kmkt-how aria-label="How it works" title="How it works">${ICON.question}</button>`;
+  return `${liveRefreshButtonHtml()}<button class="kaposts-icon-button" type="button" data-kmkt-how aria-label="How it works" title="How it works">${ICON.question}</button>`;
 }
 
 /** On a card's page: the refresh control and the claims button (iOS's toolbar there has no help). */
@@ -376,12 +361,13 @@ function homeHtml() {
         <div class="kaposts-header-actions" data-kmkt-header-actions>${headerActionsHtml()}</div>
       </div>
       ${heroHtml()}
-      ${pageCardsHtml()}
+      ${searchCardHtml()}
+      <div class="kmkt-hub-sections" data-kmkt-hub-sections>${liveHubSectionsHtml()}</div>
     </div>`;
 }
 
-/** A card's page, pushed from the cards (KaPay 99ab88a pageScreen): its title and the claims button
- *  on top; only the Marketplace has the name search. */
+/** A section's full page, pushed from its See All (KaPay 5848fb0 pageScreen): its title and the
+ *  claims button on top; the name search is on the screen itself. */
 function pageScreenHtml() {
   const title = PAGES.find((page) => page.id === state.page)?.title || "";
   return `
@@ -391,7 +377,6 @@ function pageScreenHtml() {
         <h1 class="kaposts-title">${esc(title)}</h1>
         <div class="kaposts-header-actions" data-kmkt-header-actions>${pageHeaderActionsHtml()}</div>
       </div>
-      ${state.page === "market" ? searchCardHtml() : ""}
       <div data-kmkt-page-body>${pageHtml()}</div>
     </div>`;
 }
@@ -657,16 +642,28 @@ function onLiveChanged(kind) {
   const set = (selector, html) => { const part = el.querySelector(selector); if (part) part.innerHTML = html; };
   if (kind === "search") { set("[data-kmkt-search-result]", searchResultHtml()); return; }
   const actions = state.view === "page" ? pageHeaderActionsHtml() : headerActionsHtml();
-  // a claim in flight shows in its own progress sheet and the claims list (iOS b219bb0), not on
-  // this page: only the claims button's count follows it
-  if (kind === "pending") { set("[data-kmkt-header-actions]", actions); return; }
+  // a claim in flight: the claims button's count on a page, its card on the screen (KaPay 5848fb0)
+  if (kind === "pending") {
+    set("[data-kmkt-header-actions]", actions);
+    if (state.view === "home") setSections(el);
+    return;
+  }
   set("[data-kmkt-header-actions]", actions);
   set("[data-kmkt-hero-status]", liveHeroStatusHtml(comingSoonPill()));
   if (kind !== "refresh") {
     set("[data-kmkt-search-result]", searchResultHtml());
     set("[data-kmkt-page-body]", pageHtml());
-    el.querySelectorAll("[data-kmkt-count]").forEach((count) => { count.textContent = String(pageCountText(count.dataset.kmktCount)); });
+    if (state.view === "home") setSections(el);
   }
+}
+
+/** Repaints the sections under the search, keeping each row's sideways scroll. */
+function setSections(el) {
+  const part = el.querySelector("[data-kmkt-hub-sections]");
+  if (!part) return;
+  const rows = [...part.querySelectorAll(".kl-carousel")].map((row) => row.scrollLeft);
+  part.innerHTML = liveHubSectionsHtml();
+  part.querySelectorAll(".kl-carousel").forEach((row, i) => { if (rows[i]) row.scrollLeft = rows[i]; });
 }
 
 /** A live name (testnet): its detail replaces the screen, Back returns to what was there. */
@@ -688,7 +685,7 @@ function rememberPlace(el) {
   else if (state.view === "page") { state.pageScroll = el.scrollTop; state.backTo = "page"; }
 }
 
-/** A card opens its page (KaPay 99ab88a NavigationLink). */
+/** See All opens its page (KaPay 5848fb0 hubHeader). */
 function openPage(page) {
   const el = screen();
   if (!el || !PAGES.some((p) => p.id === page)) return;
@@ -716,6 +713,11 @@ function onMarketClick(event) {
   if (target.closest("[data-kmkt-how]")) { openHowItWorksSheet(); return; }
   if (target.closest("[data-kmkt-refresh]")) { liveHubRefresh(); return; }
   if (target.closest("[data-kl-claims]")) { openClaimsList("market"); return; }
+  if (target.closest("[data-kmkt-search-clear]")) {
+    const input = marketEl.querySelector("[data-kmkt-search]");
+    if (input) { input.value = ""; input.dispatchEvent(new Event("input", { bubbles: true })); input.focus(); }
+    return;
+  }
 
   const card = target.closest("[data-kmkt-open-page]");
   if (card) { openPage(card.dataset.kmktOpenPage); return; }
@@ -743,6 +745,8 @@ function onMarketInput(event) {
   const input = event.target.closest("[data-kmkt-search]");
   if (!input) return;
   state.search = input.value;
+  const clear = marketEl.querySelector("[data-kmkt-search-clear]");
+  if (clear) clear.hidden = !state.search;
   if (liveEnabled()) liveSearchInput(state.search);
   const result = marketEl.querySelector("[data-kmkt-search-result]");
   if (result) result.innerHTML = searchResultHtml();

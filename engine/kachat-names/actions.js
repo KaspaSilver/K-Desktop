@@ -116,7 +116,10 @@ export const Stage = Object.freeze({
  *    its output 0, the two gaps around the name merged - so the driver registers into it as soon
  *    as a node has it, iOS beb9c45), commitSentAt: Number|null (unix ms the current commit went out),
  *    commitResends: Number|null (how many times it was sent again after a node dropped it, iOS
- *    b219bb0), cancelTxId: hex|null, stage: Stage, createdAt: Number (unix ms), updatedAt: Number,
+ *    b219bb0), commitTxIds: hex[]|null (every commit sent: an earlier one can still be waiting in a
+ *    mempool and land instead of the resend, KaPay 5848fb0), registerTxIds: hex[]|null (every
+ *    register sent: a resend after two minutes replaces registerTxId, and one that lands late still
+ *    counts, KaPay 5848fb0), cancelTxId: hex|null, stage: Stage, createdAt: Number (unix ms), updatedAt: Number,
  *    lastError: string|null (an error, or while it still runs what the driver is doing),
  *    maxPrice: decimal sompi string|null (the price the person confirmed for the whole
  *    registration - it never pays more), feeTier: "normal" | "fast" | "priority" | null (the fee
@@ -1241,10 +1244,12 @@ export class KachatNamesActions {
       }));
     }
     // A name that leaves this owner takes no offers with it: the ones made to this owner can never
-    // be accepted any more, so they go straight back to their buyers.
-    if (op.kind === "transfer" || op.kind === "release") this.declineOpenOffers(op.name, null);
-    else if (op.kind === "accept") this.declineOpenOffers(op.name, op.offer);
-    this.follow(txId, plan);
+    // be accepted any more, so they go back to their buyers - once the change is in a block, never
+    // while it could still be dropped (KaPay 5848fb0).
+    let onAccepted = null;
+    if (op.kind === "transfer" || op.kind === "release") onAccepted = () => this.declineOpenOffers(op.name, null);
+    else if (op.kind === "accept") onAccepted = () => this.declineOpenOffers(op.name, op.offer);
+    this.follow(txId, plan, { onAccepted });
     return txId;
   }
 
@@ -1270,14 +1275,15 @@ export class KachatNamesActions {
    *  asked only when the output isn't found - spent again right away, or a transaction without a
    *  plan (`plan` null: a profile save), which only the mempool and the REST API can tell about.
    *  A transaction already being followed isn't followed twice. Returns the follower's promise,
-   *  resolving to its last stage (callers need not await it). */
-  follow(txId, plan = null) {
+   *  resolving to its last stage (callers need not await it). `onAccepted` runs once, when it is
+   *  in a block (KaPay 5848fb0). */
+  follow(txId, plan = null, { onAccepted = null } = {}) {
     const id = String(txId ?? "").trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(id)) return Promise.resolve(null);
     const running = this._follows.get(id);
     if (running) return running;
     this._setTxStage(id, TxStage.sent);
-    const run = this._follow(id, followTarget(plan))
+    const run = this._follow(id, followTarget(plan), onAccepted)
       .catch((e) => {
         this.engine?.log?.(`[KachatNames] following ${id} failed: ${errorMessage(e)}`);
         this._setTxStage(id, TxStage.dropped);
@@ -1288,12 +1294,13 @@ export class KachatNamesActions {
     return run;
   }
 
-  async _follow(id, { index, address }) {
+  async _follow(id, { index, address }, onAccepted = null) {
     const { now, sleep: wait } = this.clock;
     const started = now();
     let sawMempool = false;
     const landed = async (daa) => {
       this._setTxStage(id, TxStage.accepted);
+      try { onAccepted?.(); } catch (e) { this.engine?.log?.(`[KachatNames] after ${id}: ${errorMessage(e)}`); }
       // until the registry (indexer or walk) has caught up with the block it landed in
       try { await this._catchUp(id, daa); } catch { /* it shows on the next refresh */ }
       this._setTxStage(id, TxStage.shown);
@@ -1561,16 +1568,9 @@ export class KachatNamesActions {
     requireRegistrationOpen(manifest);
     this._loadPending(walletAddress);
     await this.registry.refresh();
-    const found = await this.registry.lookup(name);
     // Expired past grace: free to claim. The commit and the reclaim that frees the old record both
     // go out now; the driver registers once the commit has aged (iOS eea52b2, beb9c45).
-    let lapsed = null;
-    if (found.kind === "registered") {
-      if (found.info.status(this.registry.graceMs, BigInt(nowMs())) !== Status.lapsed) {
-        throw ActionError.notRegisterable(`${name}.kachat is already registered.`);
-      }
-      lapsed = found.info;
-    }
+    const lapsed = await this._claimable(name, manifest);
     let record = null;
     try {
       const rate = await this.feerateForTier(tier);
@@ -1585,7 +1585,7 @@ export class KachatNamesActions {
         record = {
           id: newId(), name, years: Number(years), owner: hex(s.me), commitTxId: hex(plan.txid),
           commitScript: hex(script), commitDaa: null, registerTxId: null, reclaimTxId: null, reclaimLo: null, reclaimHi: null,
-          commitSentAt: null, commitResends: null,
+          commitSentAt: null, commitResends: null, commitTxIds: null, registerTxIds: null,
           cancelTxId: null, stage: Stage.committing, createdAt: now, updatedAt: now, lastError: null, salt: hex(salt),
           maxPrice: cap.toString(), feeTier: tier,
         };
@@ -1593,7 +1593,7 @@ export class KachatNamesActions {
         // the awaits above or the submit below (its salt is the only way to register or cancel).
         this._upsertFor(walletAddress, record);
         const txId = await this.service.signAndSubmit(plan, { privateKey: s.privateKey, env });
-        record = { ...record, commitTxId: txId, commitSentAt: nowMs(), stage: Stage.waiting, updatedAt: nowMs() };
+        record = { ...record, commitTxId: txId, commitTxIds: [txId], commitSentAt: nowMs(), stage: Stage.waiting, updatedAt: nowMs() };
         this._upsertFor(walletAddress, record);
       });
     } catch (error) {
@@ -1617,6 +1617,26 @@ export class KachatNamesActions {
     return record.commitTxId;
   }
 
+  /** What claiming `name` starts from: null when it is free in a gap a node holds right now, the
+   *  old record when it has lapsed. Throws when it is taken, or when the answer can't be checked:
+   *  the commit costs money, so a "free" from a registry that is behind isn't enough (KaPay 5848fb0
+   *  claimable). */
+  async _claimable(name, m) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const found = await this.registry.lookup(name);
+      if (found.kind === "registered") {
+        if (found.info.status(this.registry.graceMs, BigInt(nowMs())) === Status.lapsed) return found.info;
+        throw ActionError.notRegisterable(`${name}.kachat is already registered.`);
+      }
+      // the gap must still be live: spent means someone registered into it since
+      if (found.gap) {
+        try { await this._liveGap(found.gap, m); return null; } catch { /* out of date: read again */ }
+      }
+      if (attempt === 0) await this.registry.refresh();
+    }
+    throw new Failure("The registry can't be checked right now. Try again in a moment.");
+  }
+
   /** Spends the commit back (the name was taken, or the person changed their mind). `p` is a
    *  record from `pending` (or its id). Returns the cancel txid. */
   async cancel(p) {
@@ -1629,13 +1649,18 @@ export class KachatNamesActions {
     const txId = await enqueueSend(s.address, async () => {
       const b = await this.service.builder();
       const env = await this.service.environment({ privateKey: s.privateKey, feerate: await this.feerate() });
-      const commitUtxo = await this.service.liveUtxo({ script: unhex(stored.commitScript), outpoint: commitOutpoint(stored) });
+      // whichever send of the commit landed; with none found, the node's own answer (KaPay 5848fb0)
+      const found = await this._findCommit(stored);
+      const commitUtxo = found.kind === "live"
+        ? found.utxo
+        : await this.service.liveUtxo({ script: unhex(stored.commitScript), outpoint: commitOutpoint(stored) });
       const plan = b.cancelCommit({ env, commit: { name: stored.name, owner: s.me, salt, value: commitUtxo.entry.amount, utxo: commitUtxo } });
-      return this.service.signAndSubmit(plan, { privateKey: s.privateKey, env });
+      const sent = await this.service.signAndSubmit(plan, { privateKey: s.privateKey, env });
+      return { sent, commitTxId: hex(commitUtxo.outpoint.txid) };
     });
-    this._set(stored, (q) => { q.cancelTxId = txId; q.stage = Stage.cancelling; });
+    this._set(this._find(stored.id) ?? stored, (q) => { q.commitTxId = txId.commitTxId; q.cancelTxId = txId.sent; q.stage = Stage.cancelling; });
     this._startDriver();
-    return txId;
+    return txId.sent;
   }
 
   /** Try a failed registration again. */
@@ -1713,13 +1738,36 @@ export class KachatNamesActions {
     })();
   }
 
-  /** The commit UTXO when a node has it (null when spent or not yet accepted). */
-  async _liveCommit(p) {
-    try {
-      return await this.service.liveUtxo({ script: unhex(p.commitScript), outpoint: commitOutpoint(p) });
-    } catch {
-      return null;
+  /** The commit UTXO from whichever send of it landed (KaPay 5848fb0 findCommit): a resend changes
+   *  `commitTxId`, and the first send can still land after it. The salt makes the commit script
+   *  unique, but anyone can pay the commit address, so only this claim's own sends count. When the
+   *  one that landed isn't the latest send, `commitTxId` follows it, so the register or cancel
+   *  spends the commit that is really there and no 0.2 KAS is stranded.
+   *  -> `{ kind: "live", utxo }` | `{ kind: "gone" }` (spent, or not accepted yet) |
+   *  `{ kind: "unknown" }` (the node couldn't be asked). */
+  async _findCommit(p) {
+    let script;
+    try { script = unhex(p.commitScript); } catch { return { kind: "unknown" }; }
+    let found;
+    try { found = await this.service.liveUtxos(script); } catch { return { kind: "unknown" }; }
+    const latest = String(p.commitTxId ?? "").toLowerCase();
+    const sent = new Set((p.commitTxIds?.length ? p.commitTxIds : [p.commitTxId]).map((t) => String(t ?? "").toLowerCase()));
+    const mine = found.filter((u) => u.outpoint.index === 0 && sent.has(hex(u.outpoint.txid)));
+    const u = mine.find((x) => hex(x.outpoint.txid) === latest) ?? mine[0];
+    if (!u) return { kind: "gone" };
+    const txId = hex(u.outpoint.txid);
+    const stored = this._find(p.id);
+    if (stored && String(stored.commitTxId).toLowerCase() !== txId) {
+      this.engine?.log?.(`[KachatNames] the commit for ${p.name} that landed is ${txId}`);
+      this._set(stored, (q) => { q.commitTxId = txId; });
     }
+    return { kind: "live", utxo: u };
+  }
+
+  /** The commit UTXO when a node has it (null when spent, not yet accepted or not answered). */
+  async _liveCommit(p) {
+    const found = await this._findCommit(p);
+    return found.kind === "live" ? found.utxo : null;
   }
 
   /** One step of one registration. */
@@ -1728,12 +1776,30 @@ export class KachatNamesActions {
     switch (p.stage) {
       case Stage.committing:
       case Stage.waiting: {
-        const commit = await this._liveCommit(p);
+        const found = await this._findCommit(p);
+        if (found.kind === "unknown") return; // the node couldn't be asked: the next tick
+        const commit = found.kind === "live" ? found.utxo : null;
         if (!commit) {
           if (p.commitDaa == null && await this._commitStillPending(p)) return;
           // the commit is gone: registered by us (another device?), or never confirmed
+          const registers = p.registerTxIds?.length ? p.registerTxIds : (p.registerTxId ? [p.registerTxId] : []);
+          // a register sent earlier that landed late spent it: the network says so before a
+          // lagging registry does (KaPay 5848fb0)
+          for (const tx of registers) {
+            if (!(await this._restAccepted(tx))) continue;
+            this._finishRegistered(p);
+            (async () => {
+              let daa = null;
+              try { daa = (await this.engine?.currentVirtualDaaScore?.()) ?? null; } catch { daa = null; }
+              await this._catchUp(tx, daa);
+            })().catch(() => {});
+            return;
+          }
           if (await this._ownsName(p.name)) {
             this._finishRegistered(p);
+          } else if (registers.length && sinceUpdate < 1_800_000) {
+            // only this owner's register or cancel can spend the commit, and a register was sent:
+            // the registry is behind it, so it gets half an hour to catch up
           } else {
             const why = p.commitDaa == null ? "The commit never reached the chain." : "The commit is no longer on chain.";
             this._set(p, (q) => { q.stage = Stage.failed; q.lastError = why; });
@@ -1783,7 +1849,8 @@ export class KachatNamesActions {
       case Stage.cancelling: {
         if (p.cancelTxId && await this.registry.isAccepted(p.cancelTxId)) {
           this._finishCancelled(p);
-        } else if (sinceUpdate > 120_000 && !(await this._liveCommit(p))) {
+        } else if (sinceUpdate > 120_000 && (await this._commitSpent(p)) === true) {
+          // a node that couldn't be asked says nothing: only a commit seen gone is cancelled
           this._finishCancelled(p);
         }
         return;
@@ -1796,15 +1863,9 @@ export class KachatNamesActions {
   /** true: the node says the commit is no longer in the UTXO set; false: it still is; null: the
    *  node couldn't be asked - never read as "spent" (iOS e426432 commitSpent). */
   async _commitSpent(p) {
-    let script;
-    let outpoint;
-    try { script = unhex(p.commitScript); outpoint = commitOutpoint(p); } catch { return null; }
-    try {
-      await this.service.liveUtxo({ script, outpoint });
-      return false;
-    } catch (e) {
-      return e instanceof ServiceError && e.code === "notOnChain" ? true : null;
-    }
+    const found = await this._findCommit(p);
+    if (found.kind === "live") return false;
+    return found.kind === "gone" ? true : null;
   }
 
   /** The rate the registration's chosen speed pays now (its claim-time choice); a claim from
@@ -1823,7 +1884,11 @@ export class KachatNamesActions {
   async _commitStillPending(p) {
     const sinceSent = nowMs() - (p.commitSentAt ?? p.createdAt);
     if (sinceSent < 30_000) return true; // just sent: give it time to show up
-    if (await this._inMempool(p.commitTxId)) {
+    let inMempool = false;
+    for (const tx of (p.commitTxIds?.length ? p.commitTxIds : [p.commitTxId])) {
+      if (await this._inMempool(tx)) { inMempool = true; break; }
+    }
+    if (inMempool) {
       if (sinceSent > 60_000 && p.lastError == null) {
         this._set(p, (q) => { q.lastError = "The network is busy. Your commit is waiting for a block."; });
       }
@@ -1872,6 +1937,7 @@ export class KachatNamesActions {
       });
       this.engine?.log?.(`[KachatNames] commit for ${p.name} sent again: ${txId}`);
       this._set(p, (q) => {
+        q.commitTxIds = [...(q.commitTxIds?.length ? q.commitTxIds : [q.commitTxId]), txId];
         q.commitTxId = txId;
         q.commitSentAt = nowMs();
         q.commitResends = (q.commitResends ?? 0) + 1;
@@ -1974,7 +2040,12 @@ export class KachatNamesActions {
         this._set(p, (q) => { q.lastError = null; });
         return;
       }
-      this._set(p, (q) => { q.stage = Stage.registering; q.registerTxId = txId; q.lastError = null; });
+      this._set(p, (q) => {
+        q.stage = Stage.registering;
+        q.registerTxId = txId;
+        q.registerTxIds = [...(q.registerTxIds ?? []), txId];
+        q.lastError = null;
+      });
       this.registry.refreshAfter(txId);
     } catch (error) {
       const message = errorMessage(error);

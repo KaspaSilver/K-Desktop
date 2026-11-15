@@ -504,3 +504,24 @@ a.kl-receipt-txid:hover { background: var(--primary-08, var(--row-hover)); }
    card, then why the app should stay open. */
 .kl-claim-outcome { display: flex; flex-direction: column; gap: 12px; text-align: left; }
 .kl-claim-outcome .kl-progress-note { margin: 0; text-align: center; }
+
+/* The .kachat screen's sections (KaPay 5848fb0 liveSections): a title with See All, then a row of
+   tiles that scrolls sideways, the claims in progress as cards, or the latest activity. */
+.kl-hub-section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.kl-hub-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.kl-hub-header h2 { margin: 0; font-size: 20px; font-weight: 700; line-height: 25px; color: var(--text); }
+.kl-see-all {
+  padding: 0; border: 0; background: transparent; cursor: pointer;
+  font: inherit; font-size: 15px; font-weight: 600; color: var(--kaspa-ink);
+}
+.kl-see-all:hover { text-decoration: underline; }
+.kl-carousel {
+  display: flex; align-items: flex-start; gap: 12px; min-width: 0;
+  overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
+  padding: 2px 2px 6px; margin: -2px -2px -6px; scrollbar-width: none;
+}
+.kl-carousel::-webkit-scrollbar { display: none; }
+.kl-carousel > .kl-tile { flex: 0 0 158px; width: 158px; scroll-snap-align: start; }
+.kl-hub-claims { display: flex; flex-direction: column; gap: 10px; }
+.kl-hub-loading { display: flex; justify-content: center; padding: 12px 0; }
+.kl-hub-error { margin: 0; padding: 0 32px; text-align: center; font-size: 13px; line-height: 18px; color: var(--muted); }

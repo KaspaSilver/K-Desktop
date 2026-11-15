@@ -472,6 +472,23 @@ export class KachatNamesService {
     return live;
   }
 
+  /** Every live UTXO holding `script`, whatever transaction made it: a commit's salt makes its
+   *  script unique, so this finds a commit sent more than once by whichever send landed (KaPay
+   *  5848fb0 liveUtxos). */
+  async liveUtxos(script) {
+    this.requireLaunched();
+    const address = p2shAddress(script);
+    if (!address) throw ServiceError.notOnChain("a non-P2SH script");
+    const utxos = await this.engine.getUtxosWithCovenants([address]);
+    const out = [];
+    for (const u of utxos ?? []) {
+      let live;
+      try { live = convert(u); } catch { continue; }
+      if (bytesEqual(live.entry.script, script)) out.push(live);
+    }
+    return out;
+  }
+
   /** `liveUtxo` for a gap or name, which must also carry the registry covenant id. */
   async liveRegistryUtxo({ script, outpoint }) {
     const m = await this.loadManifest();

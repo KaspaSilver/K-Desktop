@@ -1109,6 +1109,7 @@ async function cancelRegistration(id) {
   registrationUi.set(id, { working: true, error: null });
   renderRegistrationProgress();
   renderClaimsList();
+  hubChanged("pending");
   try {
     // no receipt: a cancelled claim leaves the list, and its card with it (iOS KachatRegistrationCard)
     await rt.actions.cancel(id);
@@ -1118,6 +1119,7 @@ async function cancelRegistration(id) {
   }
   renderRegistrationProgress();
   renderClaimsList();
+  hubChanged("pending");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1148,21 +1150,8 @@ export function kachatNameGridHtml(tilesHtml) {
  *  on mainnet, the renewal window on testnet), so a buyer sees what they get before opening it
  *  (iOS ad184c3). */
 function marketPageHtml() {
-  const p = params();
-  const soonMs = p ? paramsExpiresSoonMs(p) : 30n * 86_400_000n;
-  const now = BigInt(Date.now());
   const listings = hub.listings.length
-    ? kachatNameGridHtml(hub.listings.map((n) => {
-      rememberName(n);
-      const soon = n.expiresAt - soonMs < now;
-      return `
-        <button class="kmkt-card kl-tile" type="button" data-kl-open-name="${esc(n.name)}" aria-label="${esc(n.display)}">
-          ${kachatNameTileHtml(esc(n.name), `
-            <span class="kl-tile-price">${esc(amountText(n.price))}</span>
-            <span class="kl-tile-expiry">${esc(`Expires ${dayText(n.expiresAt)}`)}</span>
-            ${soon ? `<span class="kl-tile-soon">Expires soon</span>` : ""}`)}
-        </button>`;
-    }).join(""))
+    ? kachatNameGridHtml(hub.listings.map(listingTileHtml).join(""))
     : emptyCard(hubLoaded() ? "No names are listed right now." : null);
   return `
     <div class="kmkt-page">
@@ -1171,23 +1160,74 @@ function marketPageHtml() {
     </div>`;
 }
 
+/** A name for sale: its price and when its paid time runs out, flagged when that's soon. Opens the
+ *  name. The Marketplace page's grid and the .kachat screen's row (KaPay 5848fb0 KachatListingTile). */
+function listingTileHtml(n) {
+  rememberName(n);
+  const p = params();
+  const soonMs = p ? paramsExpiresSoonMs(p) : 30n * 86_400_000n;
+  const soon = n.expiresAt - soonMs < BigInt(Date.now());
+  return `
+    <button class="kmkt-card kl-tile" type="button" data-kl-open-name="${esc(n.name)}" aria-label="${esc(n.display)}">
+      ${kachatNameTileHtml(esc(n.name), `
+        <span class="kl-tile-price">${esc(amountText(n.price))}</span>
+        <span class="kl-tile-expiry">${esc(`Expires ${dayText(n.expiresAt)}`)}</span>
+        ${soon ? `<span class="kl-tile-soon">Expires soon</span>` : ""}`)}
+    </button>`;
+}
+
+/** An expired name back on the market: its price and a Claim button that keeps its own click; the
+ *  tile itself opens the name (KaPay 5848fb0 KachatLapsedTile). */
+function lapsedTileHtml(n) {
+  rememberName(n);
+  const price = priceOf(n.name);
+  return `
+    <div class="kmkt-card kl-tile kl-tile-split">
+      <button class="kl-tile-open" type="button" data-kl-open-name="${esc(n.name)}" aria-label="${esc(n.display)}"></button>
+      ${kachatNameTileHtml(esc(n.name), `
+        ${price != null ? `<span class="kl-tile-price">${esc(amountText(price))}</span>` : ""}
+        <button class="primary-button kmkt-small-button kl-tile-button" type="button" data-kl-claim-expired="${esc(n.name)}">Claim</button>`)}
+    </div>`;
+}
+
+/** A name in its grace period, counting down to its release (then the hub reloads and it moves to
+ *  Available). Opens the name (KaPay 5848fb0 KachatGraceTile). */
+function graceTileHtml(n) {
+  rememberName(n);
+  const releaseAt = n.expiresAt + graceMs();
+  const price = priceOf(n.name);
+  return `
+    <button class="kmkt-card kl-tile" type="button" data-kl-open-name="${esc(n.name)}" aria-label="${esc(n.display)}">
+      ${kachatNameTileHtml(esc(n.name), `
+        <span class="kl-tile-release">
+          <small>Released in</small>
+          ${countdownHtml(releaseAt, { reloadKey: `${n.name}:${releaseAt}` })}
+        </span>
+        ${price != null ? `<span class="kl-tile-expiry">${esc(amountText(price))}</span>` : ""}`)}
+    </button>`;
+}
+
+/** One of your names: Listed / Expired and when it expires (or its grace ends). Opens its page -
+ *  renew, list, transfer, the profile (KaPay 5848fb0 yourNames). */
+function ownTileHtml(n) {
+  rememberName(n);
+  const badge = domainBadge(n);
+  const line = domainExpiryLine(n);
+  return `
+    <button class="kmkt-card kl-tile" type="button" data-kl-open-name="${esc(n.name)}" aria-label="${esc(n.display)}">
+      ${kachatNameTileHtml(esc(n.name), `
+        ${badge ? `<span class="kl-tile-soon">${esc(badge)}</span>` : ""}
+        ${line ? `<span class="kl-tile-expiry">${esc(line)}</span>` : ""}`)}
+    </button>`;
+}
+
 /** KachatLiveAvailablePage (iOS eea52b2): names that expired and stayed unrenewed through the
  *  grace period - back on the market at the normal price. A tile opens the name; its Claim button
  *  keeps its own click and starts the claim (the driver frees the old record and registers it in
  *  one go, with the progress sheet). The price is the registration price for its length. */
 function availablePageHtml() {
   const lapsed = hub.lapsed.length
-    ? kachatNameGridHtml(hub.lapsed.map((n) => {
-      rememberName(n);
-      const price = priceOf(n.name);
-      return `
-        <div class="kmkt-card kl-tile kl-tile-split">
-          <button class="kl-tile-open" type="button" data-kl-open-name="${esc(n.name)}" aria-label="${esc(n.display)}"></button>
-          ${kachatNameTileHtml(esc(n.name), `
-            ${price != null ? `<span class="kl-tile-price">${esc(amountText(price))}</span>` : ""}
-            <button class="primary-button kmkt-small-button kl-tile-button" type="button" data-kl-claim-expired="${esc(n.name)}">Claim</button>`)}
-        </div>`;
-    }).join(""))
+    ? kachatNameGridHtml(hub.lapsed.map(lapsedTileHtml).join(""))
     : emptyCard(hubLoaded() ? "No expired names right now." : null);
   return `
     <div class="kmkt-page">
@@ -1201,22 +1241,8 @@ function availablePageHtml() {
  *  moment it is released to Available and its claim price. When one reaches zero the hub reloads
  *  and it moves to Available. A tile opens the name. */
 function expiredPageHtml() {
-  const grace = graceMs();
   const names = hub.grace.length
-    ? kachatNameGridHtml(hub.grace.map((n) => {
-      rememberName(n);
-      const releaseAt = n.expiresAt + grace;
-      const price = priceOf(n.name);
-      return `
-        <button class="kmkt-card kl-tile" type="button" data-kl-open-name="${esc(n.name)}" aria-label="${esc(n.display)}">
-          ${kachatNameTileHtml(esc(n.name), `
-            <span class="kl-tile-release">
-              <small>Released in</small>
-              ${countdownHtml(releaseAt, { reloadKey: `${n.name}:${releaseAt}` })}
-            </span>
-            ${price != null ? `<span class="kl-tile-expiry">${esc(amountText(price))}</span>` : ""}`)}
-        </button>`;
-    }).join(""))
+    ? kachatNameGridHtml(hub.grace.map(graceTileHtml).join(""))
     : emptyCard(hubLoaded() ? "No names are in their grace period right now." : null);
   return `
     <div class="kmkt-page">
@@ -1268,6 +1294,59 @@ export function livePageHtml(page) {
   return marketPageHtml();
 }
 
+/** A section's title on the .kachat screen, with See All when it has a full page (KaPay 5848fb0
+ *  hubHeader). */
+function hubHeaderHtml(title, seeAll = null) {
+  return `
+    <div class="kl-hub-header">
+      <h2>${esc(title)}</h2>
+      ${seeAll ? `<button class="kl-see-all" type="button" data-kmkt-open-page="${esc(seeAll)}">See All</button>` : ""}
+    </div>`;
+}
+
+/** A short row of tiles that scrolls sideways (KaPay 5848fb0 carousel). */
+function carouselHtml(tilesHtml) {
+  return `<div class="kl-carousel">${tilesHtml}</div>`;
+}
+
+/** The .kachat screen under the search (KaPay 5848fb0 liveSections): any claims in progress, your
+ *  names, then a short row of each page - Available, For sale, Expired - and the latest activity,
+ *  each with See All for the full page. Live only (the screen shows the hero and search alone where
+ *  the registry isn't open). */
+export function liveHubSectionsHtml() {
+  if (!liveHubIsLive()) return "";
+  const parts = [];
+  const open = kachatNames()?.actions.openRegistrations ?? [];
+  if (open.length) {
+    parts.push(`<section class="kl-hub-section">${hubHeaderHtml("Claiming")}<div class="kl-hub-claims">${open.map((p) => registrationCardHtml(p)).join("")}</div></section>`);
+  }
+  const grace = graceMs();
+  const own = hub.mine.filter((n) => n.status(grace) !== Status.lapsed);
+  if (own.length) {
+    parts.push(`<section class="kl-hub-section">${hubHeaderHtml("Your Names")}${carouselHtml(own.map(ownTileHtml).join(""))}</section>`);
+  }
+  if (!hub.loaded) {
+    parts.push(`<div class="kl-hub-loading">${spinner()}</div>`);
+  } else if (hub.loadError) {
+    parts.push(`<p class="kl-hub-error">${esc(hub.loadError)}</p>`);
+  } else {
+    if (hub.lapsed.length) {
+      parts.push(`<section class="kl-hub-section">${hubHeaderHtml("Available", "available")}${carouselHtml(hub.lapsed.slice(0, 12).map(lapsedTileHtml).join(""))}</section>`);
+    }
+    parts.push(`<section class="kl-hub-section">${hubHeaderHtml("For sale", hub.listings.length ? "market" : null)}${hub.listings.length
+      ? carouselHtml(hub.listings.slice(0, 12).map(listingTileHtml).join(""))
+      : emptyCard("No names are listed right now.")}</section>`);
+    if (hub.grace.length) {
+      parts.push(`<section class="kl-hub-section">${hubHeaderHtml("Expired", "expired")}${carouselHtml(hub.grace.slice(0, 12).map(graceTileHtml).join(""))}</section>`);
+    }
+    if (hub.activity.length) {
+      const latest = hub.activity.slice(0, 4);
+      parts.push(`<section class="kl-hub-section">${hubHeaderHtml("Recent activity", "activity")}${listCard(latest.map((e) => eventRowHtml(e, { showName: true })).join(""), 56)}</section>`);
+    }
+  }
+  return parts.join("");
+}
+
 /** Clicks on the live hub (search result, registrations, pages). True when handled. */
 export function liveHubClick(event) {
   const target = event.target;
@@ -1278,8 +1357,13 @@ export function liveHubClick(event) {
     if (info) claimExpired(info, "market");
     return true;
   }
-  // the claims button next to How it works (iOS b219bb0)
+  // the claims button on a page (iOS b219bb0)
   if (target.closest("[data-kl-claims]")) { openClaimsList("market"); return true; }
+  // a claim card on the .kachat screen (KaPay 5848fb0: claims in progress show on the screen)
+  if (target.closest("[data-kl-reg-view], [data-kl-reg-done], [data-kl-reg-retry], [data-kl-reg-cancel]")) {
+    registrationActionClick(target);
+    return true;
+  }
   const open = target.closest("[data-kl-open-name]");
   if (open) {
     const info = nameIndex.get(open.dataset.klOpenName);
