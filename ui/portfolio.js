@@ -41,7 +41,7 @@ import {
   PORTFOLIO_SEED_NAME, isPortfolioUuid, newPortfolioUuid, stampPortfolioChanges, mergePortfolioTombstones,
   mergePortfolioSync, portfolioSyncFromDesktop, portfolioSyncToDesktop, portfolioSyncFromArchive,
   portfolioSyncToArchive, portfolioSyncForArchive, portfolioSyncForUpload, isPortfolioSyncEmpty,
-  portfolioCsvText, importPortfolioCsv, portfolioCsvImportMessage,
+  portfolioCsvText, importPortfolioCsv, portfolioCsvImportMessage, PORTFOLIO_MAX_KAS,
 } from "./portfolio-sync.js";
 // Imported, not a string path: Vite only rewrites and emits assets it can SEE, and a path inside
 // a template literal is invisible to it - which left this 404ing on the built site.
@@ -1307,10 +1307,27 @@ function statRowHtml(label, value, valueClass = "") {
 /// The change over the SELECTED range, not always 24h (iOS `priceRangeChange`): the badge beside
 /// the price has to answer the question the chart under it is asking. A 1Y chart with a 24h badge
 /// invites reading the year's move as a day's.
+/** Digits in any script read as ASCII digits (KaPay 5848fb0): an Arabic-Indic or Devanagari "5"
+ *  used to be deleted, so a number typed in those digits read as nothing. The Arabic decimal and
+ *  thousands marks become "." and ",". Unicode lays decimal digits out in runs of ten, each starting
+ *  at its zero, so a digit's value is how far it sits from the start of its run, mod ten. */
+const isDecimalDigit = (code) => /\p{Nd}/u.test(String.fromCodePoint(code));
+function asciiDigits(text) {
+  return String(text ?? "")
+    .replace(/٫/g, ".")
+    .replace(/٬/g, ",")
+    .replace(/\p{Nd}/gu, (d) => {
+      const code = d.codePointAt(0);
+      if (code >= 0x30 && code <= 0x39) return d;
+      let start = code;
+      while (start > 0 && isDecimalDigit(start - 1)) start -= 1;
+      return String((code - start) % 10);
+    });
+}
 /** Reads a number the way a person pasted or typed it (iOS 266131a): "1,234.56" (grouping
  *  commas), "1.234,56" or "1,5" (decimal-comma locales), "$ 9.60", " 12 ". Null when empty. */
 export function parsePortfolioNumber(text) {
-  let cleaned = String(text ?? "").replace(/[^0-9,.\-]/g, "");
+  let cleaned = asciiDigits(text).replace(/[^0-9,.\-]/g, "");
   if (!cleaned) return null;
   const commas = (cleaned.match(/,/g) || []).length;
   const dots = (cleaned.match(/\./g) || []).length;
@@ -2085,7 +2102,8 @@ function editorValues() {
   const rawType = modalsEl.querySelector("[data-portfolio-editor-type]")?.value;
   const type = rawType === "sell" || rawType === "transfer" ? rawType : "buy";
   // A transfer only needs its amount: it has no price that counts for anything.
-  const valid = quantity > 0 && (type === "transfer" || pricePerCoin > 0);
+  // no more than all the Kaspa there is (KaPay 5848fb0)
+  const valid = quantity > 0 && quantity <= PORTFOLIO_MAX_KAS && (type === "transfer" || pricePerCoin > 0);
   const base = quantity > 0 && pricePerCoin > 0 ? quantity * pricePerCoin : null;
   // A transfer's total is what the KAS was worth when it moved - a note on the row, counted nowhere.
   const total = base === null ? null : type === "buy" ? base + fee : type === "sell" ? base - fee : base;
@@ -3262,6 +3280,7 @@ export function addTransactionToPortfolio(portfolioId, {
   timestamp = null, sourceTxId = null, sourceAddress = null,
 } = {}) {
   const portfolio = state.portfolios.find((p) => p.id === portfolioId) || activePortfolio();
+  if (!(Math.abs(Number(amountKas) || 0) <= PORTFOLIO_MAX_KAS)) return;
   (portfolio.transactions ||= []).push({
     id: nowId(),
     type: type === "sell" || type === "transfer" ? type : "buy",

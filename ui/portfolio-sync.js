@@ -15,6 +15,9 @@
 // with every date in ms; toArchive / fromArchive convert at the file's edge, fromDesktop / toDesktop
 // at the store's (Desktop keeps rows inside their portfolio, in KAS, and orders by array position).
 
+/** Kaspa's whole supply: no Portfolio amount is ever more (KaPay 5848fb0). */
+export const PORTFOLIO_MAX_KAS = 29_000_000_000;
+
 export const PORTFOLIO_SEED_NAME = "Portfolio 1";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -773,6 +776,8 @@ export function importPortfolioCsv(state, content, { fees = [], maxPortfolios = 
     const [, y, mo, d, h, mi, s] = dateMatch.map(Number);
     const timestamp = Date.UTC(y, mo - 1, d, h, mi, s) - offsetMinutes * 60_000;
     const kas = parseLenientDouble(fields[4]);
+    // no more than all the Kaspa there is (KaPay 5848fb0): an absurd figure showed as Infinity
+    if (kas !== null && Math.abs(kas) > PORTFOLIO_MAX_KAS) continue;
     const totalValue = parseLenientDouble(fields[5]);
     if (kas === null || totalValue === null) continue;
 

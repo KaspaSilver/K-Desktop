@@ -136,6 +136,20 @@ function setColdUtxoLabel(address, outpointKey, label) {
   localStorage.setItem(deps.accountScopedKey(COLD_UTXO_LABELS_KEY), JSON.stringify(map));
 }
 
+/** Removes the coin labels of every address `account` derived (0..maxIndex). */
+function dropColdUtxoLabelsFor(account) {
+  let addresses = [];
+  try { addresses = deriveReceiveAddresses(account.kpub, 0, (Number(account.maxIndex) || 0) + 1); } catch { return; }
+  const map = loadColdUtxoLabelsMap();
+  let changed = false;
+  for (const entry of addresses) {
+    const address = typeof entry === "string" ? entry : entry?.address;
+    if (address && map[address]) { delete map[address]; changed = true; }
+  }
+  if (!changed) return;
+  try { localStorage.setItem(deps.accountScopedKey(COLD_UTXO_LABELS_KEY), JSON.stringify(map)); } catch { /* kept */ }
+}
+
 function utxoOutpointKey(outpoint) {
   return `${outpoint?.transactionId || ""}:${outpoint?.index ?? ""}`;
 }
@@ -1671,7 +1685,10 @@ async function sendBuild() {
     flow.frames = chunkQrFrames(unsignedToKsptBytes(unsigned));
     flow.frameIndex = 0;
     flow.playing = true;
-    flow.builtAmountSompi = amountSompi;
+    // what the transaction really sends (KaPay 5848fb0): a Max or a fee folded into the amount can
+    // make it differ from what was typed, and the review and receipt show this one
+    const builtOut = unsigned?.outputs?.[0]?.valueSompi;
+    flow.builtAmountSompi = builtOut != null ? BigInt(builtOut) : amountSompi;
     flow.builtRecipient = { address: toAddress, name: flow.resolvedDomain || null };
     flow.decoded = null;
     flow.building = false;
@@ -3377,6 +3394,8 @@ async function removeActiveAccount() {
   accounts = accounts.filter((a) => a.id !== account.id);
   saveState();
   dropPersistedAccountCache(account.id);
+  // its coin labels go too (KaPay 5848fb0) - unless another account here watches the same key
+  if (!accounts.some((a) => a.kpub === account.kpub)) dropColdUtxoLabelsFor(account);
   saveColdSpot(null);
   activeAccountId = null;
   render();

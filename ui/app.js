@@ -42,7 +42,7 @@ import { initKachatMarket, showKachatMarket, hideKachatMarket, openKachatProfile
 import { initKachatStats, showKachatStats, hideKachatStats } from "./kachat-stats.js";
 // Closed-app notifications (Web Push) and the app icon's badge.
 import { initWebPush, scheduleWebPushSync, webPushStatus, webPushStatusText, webPushSignOut, webPushForgetAccount, setAppIconBadge, takePendingNotificationClick, needsHomeScreenInstall } from "./web-push.js";
-import { authorKeyFromAddress, compressedPubkeyHex } from "./web-push-core.js";
+import { authorKeyFromAddress, compressedPubkeyHex, PUSH_LIMITS } from "./web-push-core.js";
 import { deriveBlindedGroupId as pushBlindedGroupId, bytesToHex as pushBytesToHex, hexToBytes as pushHexToBytes } from "../engine/group.js";
 import { broadcastPushWatch, activeBroadcastChannelName } from "./broadcasts.js";
 // The Chats dock tab's unread count (iOS 64d63846 / eec2e30) and the Select bar's room Mute.
@@ -9744,8 +9744,14 @@ function makeOutputAddressLookup() {
  *  addresses while the app is away (KaPay 34f4b45 pushShowsReceive): the app's own "Balance
  *  increased" then stays quiet. A "Received" for one transaction shares the push's tag, so the
  *  two replace each other. */
-function pushShowsReceive() {
-  try { return webPushStatus()?.state === "on" && document.visibilityState !== "visible"; } catch { return false; }
+// The watch-only addresses the push registration covers (the first PUSH_LIMITS.watchOnly of the
+// list it was given): only those get a push for a receive (KaPay 5848fb0).
+let pushWatchOnlyCovered = new Set();
+function pushShowsReceive(address = null) {
+  try {
+    if (!(webPushStatus()?.state === "on" && document.visibilityState !== "visible")) return false;
+    return address == null || pushWatchOnlyCovered.has(String(address).toLowerCase());
+  } catch { return false; }
 }
 
 async function attributeAndNotifyAddressActivity(increases, wallet = engine.address) {
@@ -9770,7 +9776,7 @@ async function attributeAndNotifyAddressActivity(increases, wallet = engine.addr
     if (nextFloor) saveActivityFloor(address, nextFloor);
     // The neutral fallback: not for the chatting address, whose balance moves with every chat
     // payment too (iOS 56b75c8), nor while the push announces receives (KaPay 34f4b45).
-    const mayFallBack = !isChatting && !pushShowsReceive();
+    const mayFallBack = !isChatting && !pushShowsReceive(address);
     // Newest first, and only as many receives as the balance grew by: anything older was already
     // in the baseline. Own change doesn't count against the increase (KaPay 34f4b45).
     let remaining = delta;
@@ -13199,7 +13205,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 295;
+const APP_BUILD = 296;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -31430,8 +31436,16 @@ async function collectWebPushRegistration() {
   // the chatting address - its payments already arrive as chat payments.
   let watchOnly = [];
   try {
-    if (addressActivityFeatureEnabled()) watchOnly = [...addressActivityWatchedMap().entries()].filter(([, kind]) => kind !== "chatting").map(([address]) => address);
+    if (addressActivityFeatureEnabled()) {
+      // Newest first within each kind (KaPay 5848fb0): the service takes the first 200, and the
+      // addresses most likely to receive are the newest - spending slots, then cold storage.
+      const entries = [...addressActivityWatchedMap().entries()].filter(([, kind]) => kind !== "chatting");
+      const ofKind = (match) => entries.filter(([, kind]) => match(kind)).map(([address]) => address).reverse();
+      watchOnly = [...ofKind((kind) => kind !== "cold"), ...ofKind((kind) => kind === "cold")];
+    }
   } catch { watchOnly = []; }
+  // what the push service will announce: an address past the cap never gets a push
+  pushWatchOnlyCovered = new Set(watchOnly.slice(0, PUSH_LIMITS.watchOnly).map((a) => String(a).toLowerCase()));
   return {
     watchedAddresses: watched,
     watchedGroupIds: groups.ids,

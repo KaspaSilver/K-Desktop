@@ -738,6 +738,8 @@ export async function broadcastSigned({ engine, unsigned, decoded }) {
     // Every submit holds its coins back, sent or with an unknown outcome (KaPay 1652437: Cold
     // Storage too), so no build here picks them again before a block shows them spent.
     spends: transactionSpends(tx),
+    // a signed send never waits in a node's orphan pool (KaPay 5848fb0)
+    escalateOrphan: false,
     label: "Cold storage broadcast",
     log: typeof engine.log === "function" ? engine.log : () => {},
   });
