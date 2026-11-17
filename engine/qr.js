@@ -1,5 +1,6 @@
 import QRCode from "qrcode";
 import jsQR from "jsqr";
+import { lowercasedKaspaAddress } from "./network.js";
 
 export function makeQrPayload(address) {
   if (!address) throw new Error("Generate or import a private key first.");
@@ -100,5 +101,6 @@ export function normalizeScannedKaspaAddress(text) {
     const query = value.indexOf("?");
     if (query !== -1) value = value.slice(0, query);
   }
-  return value.trim();
+  // a compact QR code writes the address in upper case: read it in lower case (iOS 5.3)
+  return lowercasedKaspaAddress(value.trim());
 }

@@ -14,6 +14,7 @@ const CONNECTION_ERROR_PATTERNS = [
   /not connected/i,
   /connection.*closed/i,
   /connection.*lost/i,
+  /connection.*reset/i,
   /network error/i,
   /broken pipe/i,
   /timed out/i,
@@ -168,6 +169,11 @@ async function connectCandidate(kaspa, {
     await withTimeout(rpc.connect(connectArgs), timeoutMs, source);
     const info = await withTimeout(rpc.getServerInfo(), 6000, `${role} RPC server verification`);
     if (info?.isSynced === false) throw new Error(`Connected ${role} node is not synced.`);
+    // a node on another network is never used, whichever way it was found (iOS 5.3 node
+    // eligibility): testnet means testnet-10
+    const net = String(info?.networkId ?? "").toLowerCase();
+    const wanted = IS_TESTNET ? "testnet-10" : "mainnet";
+    if (net && !net.includes(wanted)) throw new Error(`Connected ${role} node is on ${info.networkId}, not ${wanted}.`);
     const activeEndpoint = rpc.url || endpoint || "resolver-selected RPC";
     if (excludedEndpoints.includes(activeEndpoint)) {
       throw new Error(`${role} resolved to an endpoint already in use.`);

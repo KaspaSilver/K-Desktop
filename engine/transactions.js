@@ -63,6 +63,17 @@ export async function getBalance(kaspa, rpc, address) {
 export function sanitizeUtxoEntries(entries) {
   return (Array.isArray(entries) ? entries : []).filter((entry) => utxoAmountSompi(entry) != null);
 }
+/** A coin bound to a covenant (a .kachat registry record, an offer): only its contract can spend it,
+ *  so a plain send, message, Max or fee estimate never picks it (iOS 5.3, KaPay 5848fb0). The id is
+ *  read as engine/index.js reads it, from the entry or its inner `entry`. */
+export function isCovenantUtxo(entry) {
+  const cov = entry?.covenantId ?? entry?.entry?.covenantId ?? entry?.utxoEntry?.covenantId ?? null;
+  return cov != null && String(cov) !== "";
+}
+/** The entries without covenant coins. */
+export function excludeCovenantUtxos(entries) {
+  return (entries || []).filter((entry) => !isCovenantUtxo(entry));
+}
 /** The total of sanitized entries in sompi; throws when it does not fit a u64. */
 export function totalUtxoSompi(entries) {
   let total = 0n;
@@ -77,7 +88,7 @@ const bySompiDesc = (a, b) => bySompiAsc(b, a);
 async function fetchUtxoEntries({ rpc, withRpc, sourceAddress, label }) {
   const fetchUtxos = async (activeRpc) => checkedUtxoAnswer(await activeRpc.getUtxosByAddresses([sourceAddress]));
   const response = withRpc ? await withRpc(fetchUtxos, { retries: 1, label }) : await fetchUtxos(rpc);
-  const entries = excludeJustSpentUtxos(sanitizeUtxoEntries(response?.entries));
+  const entries = excludeCovenantUtxos(excludeJustSpentUtxos(sanitizeUtxoEntries(response?.entries)));
   totalUtxoSompi(entries);
   return entries;
 }
@@ -85,12 +96,35 @@ async function fetchUtxoEntries({ rpc, withRpc, sourceAddress, label }) {
 // Coins a transaction from this app has just spent (iOS 3942a5b7 reservedMessageOutpoints): the
 // node goes on listing them until that spend is in a block, so the next send, Max or fee estimate
 // would pick a coin already spent - refused, or a Max bigger than the address holds. Held back for
-// JUST_SPENT_HOLD_MS after a send that went out; never after a rejection or an unknown outcome.
-export const JUST_SPENT_HOLD_MS = 120_000;
+// JUST_SPENT_HOLD_MS (10 minutes, iOS 5.3: a busy network can take that long to mine it) from the
+// moment the send is submitted - so a second send queued right behind it can't pick the same coins
+// - and released again if the send is refused or never sent. A hold is never shortened.
+export const JUST_SPENT_HOLD_MS = 600_000;
 const justSpent = new Map(); // "txid:index" -> held until (ms)
+const heldKey = (key) => key && !String(key).startsWith("undefined:");
 /** Holds back these outpoints ("txid:index" keys) from the next builds. */
 export function noteSpentOutpoints(keys, now = Date.now()) {
-  for (const key of keys || []) if (key && !String(key).startsWith("undefined:")) justSpent.set(String(key), now + JUST_SPENT_HOLD_MS);
+  for (const key of keys || []) {
+    if (!heldKey(key)) continue;
+    const until = now + JUST_SPENT_HOLD_MS;
+    if ((justSpent.get(String(key)) ?? 0) < until) justSpent.set(String(key), until);
+  }
+}
+/** Holds `keys` for a submit about to go out; returns the keys this call newly held, the ones to
+ *  release if it fails (a coin another send already holds stays held). */
+function holdForSubmit(keys, now = Date.now()) {
+  const held = [];
+  for (const key of keys || []) {
+    if (!heldKey(key)) continue;
+    const k = String(key);
+    if ((justSpent.get(k) ?? 0) > now) continue;
+    justSpent.set(k, now + JUST_SPENT_HOLD_MS);
+    held.push(k);
+  }
+  return held;
+}
+function releaseHeld(keys) {
+  for (const key of keys || []) justSpent.delete(key);
 }
 export function excludeJustSpentUtxos(entries, now = Date.now()) {
   if (!justSpent.size) return entries;
@@ -116,15 +150,30 @@ export function restBaseForLookup(afterRejection = false) {
   if (afterRejection && base.toLowerCase() !== trim(ENDPOINT_DEFAULTS.kaspaApi).toLowerCase()) return "";
   return base;
 }
-/** One look for `id`: in a mempool, or accepted (REST API). */
-async function lookUpTransaction({ rpc, withRpc, id, afterRejection = false }) {
-  try {
+/** Whether a node's mempool answer really holds `id` (iOS 5.3, KaPay 5848fb0 verified mempool
+ *  answers): never an orphan (it may never be mined), and when the answer names its transaction's
+ *  id, that id must be the one asked about. */
+export function mempoolAnswerHolds(answer, id) {
+  const entry = answer?.mempoolEntry ?? answer?.entry ?? null;
+  if (!entry) return false;
+  if (entry.isOrphan === true) return false;
+  const tx = entry.transaction ?? null;
+  const named = tx?.verboseData?.transactionId ?? tx?.id ?? tx?.transactionId ?? null;
+  if (named != null && String(named).toLowerCase() !== String(id).toLowerCase()) return false;
+  return true;
+}
+/** One look for `id`: in a mempool, or accepted (REST API). `trustNode` false: the node's mempool
+ *  isn't asked - after its rejection, or when it answered with another transaction's id, a mempool
+ *  hit from that node proves nothing (iOS 5.3: the node that answered doesn't count). Desktop talks
+ *  to one node, so only the REST API is left then. */
+async function lookUpTransaction({ rpc, withRpc, id, afterRejection = false, trustNode = !afterRejection }) {
+  if (trustNode) try {
     const lookup = async (activeRpc) => {
       if (typeof activeRpc?.getMempoolEntry !== "function") return null;
-      return activeRpc.getMempoolEntry({ transactionId: id, includeOrphanPool: true, filterTransactionPool: false });
+      return activeRpc.getMempoolEntry({ transactionId: id, includeOrphanPool: false, filterTransactionPool: false });
     };
     const entry = withRpc ? await withRpc(lookup, { retries: 0, label: "Mempool lookup" }) : await lookup(rpc);
-    if (entry?.mempoolEntry || entry?.entry) return true;
+    if (mempoolAnswerHolds(entry, id)) return true;
   } catch { /* not in this node's mempool (or no answer): ask the REST API */ }
   try {
     const base = restBaseForLookup(afterRejection);
@@ -137,12 +186,12 @@ async function lookUpTransaction({ rpc, withRpc, id, afterRejection = false }) {
 }
 /** Whether the network already has `txid`: in a mempool, or accepted (REST API). `afterRejection`:
  *  a node turned it down, so only a mempool or the built-in REST server counts (restBaseForLookup). */
-export async function isTransactionKnown({ rpc = null, withRpc = null, txid, afterRejection = false } = {}) {
+export async function isTransactionKnown({ rpc = null, withRpc = null, txid, afterRejection = false, trustNode = !afterRejection } = {}) {
   const id = String(txid || "").trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(id)) return false;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0) await sleep(ACCEPTANCE_RECHECK_MS);
-    if (await lookUpTransaction({ rpc, withRpc, id, afterRejection })) return true;
+    if (await lookUpTransaction({ rpc, withRpc, id, afterRejection, trustNode })) return true;
   }
   return false;
 }
@@ -192,11 +241,11 @@ export function isLostSubmitAnswer(error) {
 const LOST_ANSWER_LOOKUPS = 6;
 export const LOST_ANSWER_WAIT_MS = 3000;
 /** Asks the network for longer than isTransactionKnown does, for one that's still on its way. */
-async function confirmAfterLostAnswer({ rpc, withRpc, txid, log, waitMs = LOST_ANSWER_WAIT_MS }) {
+async function confirmAfterLostAnswer({ rpc, withRpc, txid, log, waitMs = LOST_ANSWER_WAIT_MS, trustNode = true }) {
   const id = String(txid).trim().toLowerCase();
   for (let attempt = 0; attempt < LOST_ANSWER_LOOKUPS; attempt++) {
     await sleep(waitMs);
-    if (await lookUpTransaction({ rpc, withRpc, id })) return String(txid);
+    if (await lookUpTransaction({ rpc, withRpc, id, trustNode })) return String(txid);
   }
   log(`Submit of ${txid} got no answer and the network doesn't have it yet: outcome unknown.`);
   throw sendOutcomeUnknownError(String(txid));
@@ -211,6 +260,8 @@ function resendIfUnseen({ rpc, withRpc, txid, resend, log, waitMs }) {
   const check = async () => {
     round += 1;
     try {
+      // Desktop has one node, so a resend would go to the node that said "sent" anyway: its
+      // mempool still decides here (iOS asks other nodes)
       if (await isTransactionKnown({ rpc, withRpc, txid })) return;
       log(`The network can't see ${txid} yet: sending it again.`);
       await resend();
@@ -254,7 +305,20 @@ export function isVerdictRejection(error) {
  * can only take one of the two, where other coins would let both pay.
  */
 export async function submitConfirmingAcceptance({ rpc = null, withRpc = null, submit, txid, spends = null, label = "Transaction broadcast", log = () => {}, escalateOrphan = true, orphanWaitMs = ORPHAN_WAIT_MS, lostAnswerWaitMs = LOST_ANSWER_WAIT_MS, recheckMs = SUBMIT_RECHECK_MS }) {
-  const sent = await submitConfirmingAcceptanceNow({ rpc, withRpc, submit, txid, label, log, escalateOrphan, orphanWaitMs, lostAnswerWaitMs, recheckMs });
+  // held before the submit (iOS 5.3, KaPay 5848fb0): a send queued behind this one can't build on
+  // these coins while the node is still answering
+  const held = holdForSubmit(spends);
+  let sent;
+  try {
+    sent = await submitConfirmingAcceptanceNow({ rpc, withRpc, submit, txid, label, log, escalateOrphan, orphanWaitMs, lostAnswerWaitMs, recheckMs });
+  } catch (error) {
+    // Not after an unknown outcome: a resend then builds on the same coins, so the network can only
+    // take one of the two. After a refusal the coins are free again - unless the node said they
+    // are already spent, which another send of ours may have done.
+    const message = String(error?.message || error || "").toLowerCase();
+    if (error?.code === SEND_OUTCOME_UNKNOWN || !(message.includes("spent") || message.includes("double spend"))) releaseHeld(held);
+    throw error;
+  }
   noteSpentOutpoints(spends);
   return sent;
 }
@@ -282,8 +346,9 @@ async function submitConfirmingAcceptanceNow({ rpc, withRpc, submit, txid, label
     if (!txid) return sent;
     if (sent.toLowerCase() !== String(txid).toLowerCase()) {
       log(`${label}: a node answered with ${sent} instead of ${txid}.`);
-      if (await isTransactionKnown({ rpc, withRpc, txid })) return String(txid);
-      return confirmAfterLostAnswer({ rpc, withRpc, txid, log, waitMs: lostAnswerWaitMs });
+      // that node's mempool proves nothing now (iOS 5.3): only the REST API counts
+      if (await isTransactionKnown({ rpc, withRpc, txid, trustNode: false })) return String(txid);
+      return confirmAfterLostAnswer({ rpc, withRpc, txid, log, waitMs: lostAnswerWaitMs, trustNode: false });
     }
     resendIfUnseen({ rpc, withRpc, txid, resend: () => submitOnce(false), log, waitMs: recheckMs });
     return sent;
@@ -305,7 +370,9 @@ async function submitConfirmingAcceptanceNow({ rpc, withRpc, submit, txid, label
     }
     // After a node's rejection (no answer lost), a REST "accepted" counts only from the built-in
     // server (iOS d23e6f7a isTransactionKnown(afterRejection:)).
-    if (txid && await isTransactionKnown({ rpc, withRpc, txid, afterRejection: !answerLost })) {
+    // After a node's verdict on it (not "already in the mempool" or a spent input), that node's
+    // mempool proves nothing (iOS 5.3: two other sources; Desktop has one node, so REST only).
+    if (txid && await isTransactionKnown({ rpc, withRpc, txid, afterRejection: !answerLost, trustNode: !rejected })) {
       log(`${label}: the submit reported "${error?.message || error}" but the network has ${txid}; treated as sent.`);
       return String(txid);
     }
@@ -329,7 +396,7 @@ export function excludeReservedUtxos(entries) {
 /** The one coin an arena message spends (iOS builds every chess send with a single input): the
  *  largest coin that covers the amount plus a fee margin. Null when no single coin can. */
 export function singleInputFor(entries, amountSompi, marginSompi = 300_000n) {
-  const sorted = sanitizeUtxoEntries(entries).sort(bySompiDesc);
+  const sorted = excludeCovenantUtxos(sanitizeUtxoEntries(entries)).sort(bySompiDesc);
   const pick = sorted.find((e) => utxoAmountSompi(e) >= amountSompi + marginSompi) || null;
   return pick ? [pick] : null;
 }
@@ -514,7 +581,7 @@ export function maxSendEntries(entries, selectedOutpoints = null) {
  *  it before a bubble is written. Empty when nothing is left. */
 export function maxSendOutpointKeys(entries, selectedOutpoints = null, now = Date.now()) {
   const picked = selectedOutpoints && selectedOutpoints.length ? selectedOutpoints.map(String) : null;
-  try { return maxSendEntries(excludeJustSpentUtxos(sanitizeUtxoEntries(entries), now), picked).map(outpointKeyOf); }
+  try { return maxSendEntries(excludeCovenantUtxos(excludeJustSpentUtxos(sanitizeUtxoEntries(entries), now)), picked).map(outpointKeyOf); }
   catch { return []; }
 }
 
@@ -730,8 +797,11 @@ async function sendSelfPayloadFromEntries({ kaspa, rpc, withRpc, privateKey, sou
   const sorted = [...entries].sort(bySompiDesc);
   const chosen = [];
   let total = 0n;
+  // the coins ran out of room (80 inputs, or the standard mass) before the fee was covered: the
+  // balance may be plenty, just spread too thin for one transaction (iOS 5.3)
+  let capped = false;
   for (let i = 0; i < sorted.length; i += 1) {
-    if (chosen.length >= MAX_INPUTS_PER_SWEEP) break;
+    if (chosen.length >= MAX_INPUTS_PER_SWEEP) { capped = true; break; }
     chosen.push(sorted[i]);
     total += utxoAmountSompi(sorted[i]) ?? 0n;
     if (useAll && i < sorted.length - 1) continue;
@@ -739,7 +809,7 @@ async function sendSelfPayloadFromEntries({ kaspa, rpc, withRpc, privateKey, sou
     // is over the standard limit: take another coin.
     const draft = kaspa.createTransaction(chosen, [{ address: sourceAddress, amount: total - (total / 20n) }], 0n, payload);
     const draftFee = kaspa.calculateTransactionFee(NETWORK_ID, draft, 1);
-    if (draftFee == null) continue;
+    if (draftFee == null) { if (i === sorted.length - 1) capped = true; continue; }
     const fee = BigInt(draftFee) + priority;
     const amount = total - fee;
     if (amount <= 0n) continue;
@@ -752,6 +822,7 @@ async function sendSelfPayloadFromEntries({ kaspa, rpc, withRpc, privateKey, sou
     log(`${label} txid:`, txid, `(${chosen.length} input${chosen.length === 1 ? "" : "s"}, one output, fee ${fee} sompi)`);
     return { txids: [txid], amountSompi: amount, feeSompi: fee };
   }
+  if (!useAll && capped) throw new Error("This message needs too many coins for one transaction. Use Compound UTXOs on your chatting address, then try again.");
   throw new Error(useAll ? "The selected coins can't cover the network fee for this message." : "Balance too low to pay the network fee.");
 }
 

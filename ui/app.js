@@ -11,13 +11,13 @@ import { catchUpCandidates, spendsOwnFunds } from "./address-activity.js";
 import { isHiddenPlaceholder, isHiddenPlaceholderMessage, newestVisibleMessage, upgradesPlaceholder, isCallSignal } from "./message-placeholders.js";
 import { accountGuard, accountScopedValue, accountStillSaved } from "./account-guard.js";
 import { NETWORK, IS_TESTNET, ADDRESS_PREFIX, KAS_UNIT, kasLabel, preferredNetwork, setPreferredNetwork, isNetworkAddress, isOnActiveNetwork, toActiveNetworkAddress, canonicalAccountAddress, reencodeAddress } from "../engine/network.js";
-import { otherNetworkReason } from "../engine/network.js";
+import { otherNetworkReason, isValidKaspaAddress as isWellFormedKaspaAddress, lowercasedKaspaAddress } from "../engine/network.js";
 import { addressFromPrivateKey, passphraseFormForRecord, passphraseIsNfkd, normalizePassphraseForm, WALLET_SOURCE_FAMILIES, sourceFamilyDisplayName, sourceFamilyImportSearchDepth, sourceFamilySupportsIndexScan } from "../engine/wallet.js";
 import { QUANTUM_INDEX_BASE, QUANTUM_SCAN_FLOOR, QUANTUM_SCAN_LIMIT, QUANTUM_CHANGE_UNAVAILABLE, KIP22_SIGNATURE_SCRIPT_SIZE, isQuantumIndex, chainLocalIndex, addressNumber, spendingIndexTitle, visibilityPagerRange, spendingChainSummaries, spendingStateFromRecord, spendingRecordFromState, revealedSpendingIndices, spendingChangeIndex, freshChangeRequired, quantumSpentFromHistory } from "../engine/quantum.js";
 import { createGroupManager } from "../engine/group-store.js";
 import { sompiFromUserText, kasTextFromSompi, kasToSompi, fiatTextFloorFromSompi, checkedUtxoAnswer, kasExact8Text } from "../engine/amounts.js";
 import { makePaymentRequest, signPaymentRequest, parsePaymentRequestLink, paymentRequestAmountText, paymentRequestUniversalLink, clampMemoText, memoCharacters, PAYMENT_REQUEST_MEMO_LIMIT } from "../engine/payment-request.js";
-import { excludeReservedUtxos, excludeJustSpentUtxos, isTransactionKnown, maxSendOutpointKeys, MAX_AMOUNT_CHANGED, MAX_AMOUNT_CHANGED_MESSAGE, MAX_SEND_INPUT_LIMIT, SEND_FEE_CHANGED, SEND_OUTCOME_UNKNOWN, SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/transactions.js";
+import { excludeReservedUtxos, excludeJustSpentUtxos, excludeCovenantUtxos, isTransactionKnown, maxSendOutpointKeys, MAX_AMOUNT_CHANGED, MAX_AMOUNT_CHANGED_MESSAGE, MAX_SEND_INPUT_LIMIT, SEND_FEE_CHANGED, SEND_OUTCOME_UNKNOWN, SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/transactions.js";
 import { isLeftoverSend, undeliveredRowFor, settleLeftoverGroupRows } from "./leftover-sends.js";
 import { parsePaymentPoolEnvelope, validPaymentNotice, encodePaymentNotice, paymentNoticeText, paymentNoticePlacement, checkPaymentNoticeTx, chatPaymentNotificationBody } from "../engine/payment-notice.js";
 import { isScriptAddress, isKachatContractTransaction, legacyWireAliases, transactionBelongsInHistory, restPaymentSompiTo, restPaymentSender, fetchHeldPaymentRows, strangerPaymentStep } from "../engine/sync.js";
@@ -671,10 +671,11 @@ async function withVaultTarget(address, fn) {
   try { return await fn(); } finally { vaultTargetOverride = previous; }
 }
 configureKeyVault({ canonicalize: canonicalAccountAddress, target: currentVaultTarget });
-// Every KAS you send asks first (owner, 2026-10-23): Face ID where it is set up (the prompt's
-// "Use Face ID"), else the account's password. engine.confirmSpend calls this before any send,
-// sweep or .kachat transfer is built, so no screen can skip it; chat messages are not KAS sends.
-// Delete Account passes through the same gate with its own wording (iOS bfe9f022).
+// The sends that still ask first: Send Domain, and Delete Account with its own wording (iOS
+// bfe9f022) - Face ID where it is set up (the prompt's "Use Face ID"), else the account's password.
+// Plain Kaspa sends, chat payments, tips and .kas registration/profile saves no longer ask (owner,
+// 2026-11-17, iOS 5.3 "no Face ID on sends"); .kachat transactions ask through deviceLock, and
+// showing keys or words asks on its own.
 async function authorizeKasSpend({ to = "", amountKas = null, max = false, amountSompi = null, domain = "", confirm = null } = {}) {
   if (!hasAppPassword()) return true; // nothing to confirm with (every account sets one at creation)
   if (confirm) return requestPassword({ mode: "verify", title: confirm.title, message: confirm.message });
@@ -890,7 +891,7 @@ async function offerBiometricAfterPasswordSet() {
     const name = biometricDisplayName();
     const go = await confirmDialog({
       title: `Use ${biometricName()}?`,
-      message: `Unlock this account and confirm what you send with ${name} instead of typing your password. KaChat saves a passkey on this device; your password still works.`,
+      message: `Unlock this account and confirm Send Domain, .kachat transactions and showing your keys with ${name} instead of typing your password. KaChat saves a passkey on this device; your password still works.`,
       confirmLabel: `Turn On ${biometricName()}`,
       cancelLabel: "Not Now",
     });
@@ -4705,10 +4706,14 @@ function applyKnsPrimaryDomainToContact(contact) {
 }
 
 function validateContactAddress(value) {
-  const clean = String(value || "").trim();
+  // a compact QR code's upper-case address reads in lower case (iOS 5.3)
+  const clean = lowercasedKaspaAddress(String(value || "").trim());
   if (!clean) throw new Error("Enter a Kaspa address.");
   if (!engine.kaspa) throw new Error("Kaspa validation is still loading. Try again in a moment.");
   if (!clean.toLowerCase().startsWith(ADDRESS_PREFIX)) throw new Error(otherNetworkReason(clean) || (IS_TESTNET ? "Contact address must be a testnet kaspatest: address." : "Contact address must be a mainnet kaspa: address."));
+  // the plain check first: mixed case, an unknown prefix or a wrong-length payload is refused here,
+  // before the SDK (which panics on a wrong length) sees it (iOS 5.3 Bech32)
+  if (!isWellFormedKaspaAddress(clean)) throw new Error("That Kaspa address is not valid.");
 
   try {
     const parsed = new engine.kaspa.Address(clean);
@@ -9134,12 +9139,37 @@ async function spendingAddressUsedState(address, owner = engine.address) {
 /// answered takes the slot, so an unreachable server never blocks a send. Once the account has been
 /// removed it writes nothing more and the probe ends. The slots are derived from the captured seed
 /// (ui/spending-discovery.js probeFreshQuantumSlot). Returns { index, address }.
+// Change slots handed to sends still going out (iOS 83806b3d / KaPay 5848fb0: the fresh change slot
+// is picked inside the send queue). Two sends started close together - from different addresses,
+// so different queues - each probed past the same saved bound and put their change on one slot.
+// A slot handed out counts as taken for CHANGE_SLOT_CLAIM_MS (the send reveals it well before
+// then); a send that failed leaves a skipped slot, which the scan steps over.
+const CHANGE_SLOT_CLAIM_MS = 10 * 60 * 1000;
+const changeSlotClaims = new Map(); // owner -> Map(chain-local index -> claimed until)
+function claimedChangeBound(owner) {
+  const claims = changeSlotClaims.get(owner);
+  if (!claims) return -1;
+  let bound = -1;
+  const now = Date.now();
+  for (const [index, until] of claims) {
+    if (until <= now) claims.delete(index);
+    else bound = Math.max(bound, index);
+  }
+  return bound;
+}
+function claimChangeSlot(owner, index) {
+  if (!changeSlotClaims.has(owner)) changeSlotClaims.set(owner, new Map());
+  changeSlotClaims.get(owner).set(chainLocalIndex(index), Date.now() + CHANGE_SLOT_CLAIM_MS);
+}
+let changeSlotPicks = Promise.resolve();
+
 function freshQuantumSlotFor(account) {
   const owner = account.owner;
   return probeFreshQuantumSlot({
     account,
     deriveAt: deriveSpendingAddressFor,
-    readQMaxIndex: () => getSpendingState(owner).qMaxIndex,
+    // past every slot a send still going out was given
+    readQMaxIndex: () => Math.max(getSpendingState(owner).qMaxIndex, claimedChangeBound(owner)),
     writeQMaxIndex: (qMaxIndex) => saveSpendingState({ qMaxIndex }, owner),
     usedState: (address) => spendingAddressUsedState(address, owner),
     stillSaved: () => spendingAccountStillSaved(owner),
@@ -9176,8 +9206,15 @@ async function verifiedFreshQuantumIndexActive() {
 /// same account its keys and its later writes do.
 async function verifiedFreshQuantumSlot(account = captureActiveSpendingAccount()) {
   if (!account) return null;
-  const { index, address } = await freshQuantumSlotFor(account);
-  return address ? { index, address } : null;
+  // one pick at a time, and each one claims its slot before the next starts
+  const pick = changeSlotPicks.then(async () => {
+    const { index, address } = await freshQuantumSlotFor(account);
+    if (!address) return null;
+    claimChangeSlot(account.owner, index);
+    return { index, address };
+  });
+  changeSlotPicks = pick.catch(() => {});
+  return pick;
 }
 
 // Every send out of the PRIMARY spending address rotates it to a fresh one (iOS e53ea11): change
@@ -10215,6 +10252,7 @@ function isPaymentNeedingAttention(message) {
 }
 
 function isValidKaspaAddressString(address) {
+  if (!isWellFormedKaspaAddress(address)) return false;
   try { return engine.kaspa?.Address?.validate ? engine.kaspa.Address.validate(address) === true && isNetworkAddress(address) : isNetworkAddress(address); }
   catch { return false; }
 }
@@ -11133,7 +11171,7 @@ function renderKnsTransferFee() {
 // The usable recipient (iOS hasValidRecipient / effectiveAddress): a resolved name's address, or a
 // valid address once nothing is being looked up.
 function knsTransferRecipient() {
-  const raw = String(knsTransferRecipientInput?.value || "").trim();
+  const raw = lowercasedKaspaAddress(String(knsTransferRecipientInput?.value || "").trim());
   if (knsTransferName.typed !== raw) return null;
   if (knsTransferName.address) return knsTransferName.address;
   return knsTransferName.valid && !knsTransferName.resolving ? raw : null;
@@ -11153,7 +11191,7 @@ function setKnsTransferError(message) {
 // The lookup line under the field (iOS: Looking up domain... / the not-found reason / Resolved: +
 // the address / Valid address or why not), Other domains under it, and who the address is.
 function renderKnsTransferRecipient() {
-  const raw = String(knsTransferRecipientInput?.value || "").trim();
+  const raw = lowercasedKaspaAddress(String(knsTransferRecipientInput?.value || "").trim());
   if (knsTransferResolutionEl) {
     knsTransferResolutionEl.innerHTML = recipientStatusHtml({
       input: raw,
@@ -11180,7 +11218,7 @@ function useKnsTransferResolution(address, name, tld) {
   renderKnsTransferRecipient();
 }
 function updateKnsTransferRecipient() {
-  const raw = String(knsTransferRecipientInput?.value || "").trim();
+  const raw = lowercasedKaspaAddress(String(knsTransferRecipientInput?.value || "").trim());
   const token = ++knsTransferName.token;
   Object.assign(knsTransferName, { typed: raw, address: null, name: null, tld: null, results: [], resolving: false, error: null, valid: false });
   if (!raw) { renderKnsTransferRecipient(); return; }
@@ -13139,7 +13177,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 291;
+const APP_BUILD = 292;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -13306,7 +13344,7 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
   els.resolvedHint?.parentElement?.addEventListener("click", (event) => { if (!els.statusEl) onOtherDomainClick(event); });
   // Use one service's answer (the priority one, or a pick from Other domains).
   function useResolution(resolution) {
-    const raw = String(els.recipient?.value || "").trim();
+    const raw = lowercasedKaspaAddress(String(els.recipient?.value || "").trim());
     const amountValid = (sompiFromUserText(String(els.amount?.value || "")) ?? 0n) > 0n;
     resolvedAddress = resolution.ownerAddress;
     resolvedDomain = resolution.domain || raw || null;
@@ -13402,7 +13440,7 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
 
   async function updateValidity() {
     const token = ++resolveToken;
-    const raw = String(els.recipient?.value || "").trim();
+    const raw = lowercasedKaspaAddress(String(els.recipient?.value || "").trim());
     const amountValid = (sompiFromUserText(String(els.amount?.value || "")) ?? 0n) > 0n;
     // An amount keystroke keeps the name already resolved (and its Other domains pick).
     if (raw && raw === typedName && engine.looksLikeName(raw) && (resolvedAddress || nameResults.length)) {
@@ -13463,7 +13501,7 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
 
   async function submit() {
     if (els.error) els.error.hidden = true;
-    const raw = String(els.recipient?.value || "").trim();
+    const raw = lowercasedKaspaAddress(String(els.recipient?.value || "").trim());
     const destination = resolvedAddress || raw;
     let amountKas;
     try {
@@ -14411,6 +14449,7 @@ function sendKaspaMaxDestination() {
 // listed by the node, or held by a scheduled KaPost. Coin Control lists them greyed out.
 function coinUnavailableReason(entry) {
   if (!entry) return null;
+  if (!excludeCovenantUtxos([entry]).length) return "Locked by a covenant";
   if (!excludeJustSpentUtxos([entry]).length) return "Just spent by a send";
   if (!excludeReservedUtxos([entry]).length) return "Held by a scheduled post";
   return null;
@@ -14418,7 +14457,7 @@ function coinUnavailableReason(entry) {
 // Available and Max leave out coins a scheduled KaPost has reserved, as the send does (DSK-043),
 // and coins a send just spent (iOS d23e6f7a: Available counts only what a send can spend).
 function sendKaspaUnreservedBalance(balance) {
-  const entries = excludeJustSpentUtxos(excludeReservedUtxos(balance?.entries || []));
+  const entries = excludeCovenantUtxos(excludeJustSpentUtxos(excludeReservedUtxos(balance?.entries || [])));
   let sompi = 0n;
   for (const entry of entries) {
     try { sompi += BigInt(entry.amount || 0); } catch { /* an unreadable coin counts as nothing */ }
@@ -17647,7 +17686,7 @@ function renderCreateChatStatus(html) {
 
 function updateCreateChatAddState() {
   if (!createChatAddButton || !contactAddressInput) return;
-  const raw = String(contactAddressInput.value || "").trim();
+  const raw = lowercasedKaspaAddress(String(contactAddressInput.value || "").trim());
   const token = ++createChatResolveToken;
   createChatNameResults = [];
   createChatPickedName = "";
@@ -20876,7 +20915,7 @@ async function tipLoadAvailable(tip) {
     // e5a9b11 KaPostsScheduledStore.filterReserved).
     let sompi = 0n;
     // Nor coins a send just spent (iOS d23e6f7a: Available counts only what a send can spend).
-    for (const entry of excludeJustSpentUtxos(excludeReservedUtxos(balance?.entries || []))) {
+    for (const entry of excludeCovenantUtxos(excludeJustSpentUtxos(excludeReservedUtxos(balance?.entries || [])))) {
       try { sompi += BigInt(entry.amount || 0); } catch { /* an unreadable coin counts as nothing */ }
     }
     tip.availableSompi = sompi;
@@ -34831,7 +34870,7 @@ groupAddressStatus?.addEventListener("click", (event) => {
 // that "Add to Group" will use.
 function updateGroupAddressState() {
   if (!groupAddressInput) return;
-  const raw = String(groupAddressInput.value || "").trim();
+  const raw = lowercasedKaspaAddress(String(groupAddressInput.value || "").trim());
   const token = ++groupAddressResolveToken;
   groupAddressResolved = null;
   groupAddressNameResults = [];

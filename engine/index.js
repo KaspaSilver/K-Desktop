@@ -1336,9 +1336,11 @@ export class KaspaEngine {
 
   // options.manualUtxos: coin control (outpoints the build may pick from; null = automatic).
   // options.extraFeeSompi: a priority fee in sompi on top of the minimum (Fast / Priority / custom).
-  /** Every KAS this wallet sends is confirmed first (owner, 2026-10-23: Face ID for every
-   *  transaction): the app sets `authorizeSpend` ({ to, amountKas, max }) => Promise<boolean>.
-   *  Unset (tests, tools), sends go ahead as before. A refusal throws SEND_CANCELLED. */
+  /** The password (or Face ID) for the sends that still ask: Send Domain, and anything that passes
+   *  `confirm` (Delete Account). Plain Kaspa sends - Send Kaspa, Max, chat payments, tips - and
+   *  .kas registration and profile saves no longer ask (owner, 2026-11-17, iOS 5.3 "no Face ID on
+   *  sends"). The app sets `authorizeSpend`; unset (tests, tools), it goes ahead. A refusal throws
+   *  SEND_CANCELLED. */
   async confirmSpend(details) {
     if (typeof this.authorizeSpend !== "function") return;
     if (await this.authorizeSpend(details)) return;
@@ -1350,7 +1352,6 @@ export class KaspaEngine {
   async send(destinationAddress, amountKas, feeKas = "0", options = {}) {
     if (options.ownerAddress && options.ownerAddress !== this.address) throw new Error("The account changed before this could be sent.");
     this.requireWallet();
-    await this.confirmSpend({ to: destinationAddress, amountKas });
     await this.connect();
     return sendKaspa({
       kaspa: this.kaspa,
@@ -1383,7 +1384,6 @@ export class KaspaEngine {
   // feeSompi, outpoints }.
   async sendMax(destinationAddress, totalFeeKas = null, selectedOutpoints = null, options = {}) {
     this.requireWallet();
-    await this.confirmSpend({ to: destinationAddress, max: true, amountSompi: options?.expectedAmountSompi ?? null });
     await this.connect();
     return sendMaxKaspa({
       kaspa: this.kaspa,
@@ -1404,7 +1404,6 @@ export class KaspaEngine {
   // whose quantum spent mark it is (noteSpendingSpent); the active address at the call by default.
   async sendMaxFromSpending({ mnemonic, index, passphrase = "", passphraseForm = "nfkd", destinationAddress, totalFeeKas = null, selectedOutpoints = null, owner = this.address, ...options }) {
     this.requireSdk();
-    await this.confirmSpend({ to: destinationAddress, max: true, amountSompi: options?.expectedAmountSompi ?? null });
     await this.connect();
     const spending = deriveSpendingWallet(this.kaspa, mnemonic, index, passphrase, { passphraseForm });
     const result = await sendMaxKaspa({
@@ -1510,7 +1509,6 @@ export class KaspaEngine {
   // `manualUtxos` / `extraFeeSompi`: coin control and a priority fee on top, as for send().
   async sendFromSpending({ mnemonic, index, passphrase = "", passphraseForm = "nfkd", destinationAddress, amountKas, feeKas = "0", selectedOutpoints = null, manualUtxos = null, extraFeeSompi = 0, changeAddress = null, payload = null, exactAmount = false, expectedFeeSompi = null, owner = this.address }) {
     this.requireSdk();
-    await this.confirmSpend({ to: destinationAddress, amountKas });
     await this.connect();
     const spending = deriveSpendingWallet(this.kaspa, mnemonic, index, passphrase, { passphraseForm });
     const result = await sendKaspa({
@@ -2037,9 +2035,8 @@ export class KaspaEngine {
       network: NETWORK,
       // .kachat (testnet): the shared registry, registered by the app (setKachatNameHooks).
       resolveKachat: this.kachatHooks?.resolve || undefined,
-      resolveKas: async (name) => {
-        try { return (await this.resolveKnsDomain(name))?.ownerAddress || null; } catch { return null; }
-      },
+      // a KNS that can't be reached is "couldn't look up", never "not registered" (iOS 5.3)
+      resolveKas: async (name) => (await this.resolveKnsDomain(name, { strict: true }))?.ownerAddress || null,
     });
     return results;
   }
@@ -2249,10 +2246,9 @@ export class KaspaEngine {
     return clearPendingKnsCommit();
   }
 
-  // Registering a domain and editing its profile pay KAS like any send, so they are confirmed
-  // first too (owner, 2026-10-23: every transaction); transferKnsDomain already was.
+  // Registering a domain and editing its profile go out like any plain send, with no password
+  // (owner, 2026-11-17); Send Domain (transferKnsDomain) still asks.
   async inscribeKnsDomain(label, { onStatus = () => {} } = {}) {
-    await this.confirmSpend({ confirm: { title: "Confirm Registration", message: `Confirm registering ${String(label || "").trim().toLowerCase()}.kas. Registration pays the domain's price and network fees.` } });
     this.requireWallet();
     await this.connect();
     return knsInscribeDomain({ engine: this, label, onStatus, log: this.log });
@@ -2308,15 +2304,9 @@ export class KaspaEngine {
     return knsResumeTransfer({ engine: this, assetId, signer, onStatus, log: this.log });
   }
 
-  /** One confirmation for a batch of profile writes (each field is its own commit/reveal pair,
-   *  about 3 KAS), so a multi-field save asks once; the writes then pass `confirmed: true`. */
-  async confirmKnsProfileUpdate(fieldCount = 1) {
-    const count = Math.max(1, Number(fieldCount) || 1);
-    await this.confirmSpend({ confirm: {
-      title: "Confirm Profile Update",
-      message: `Confirm updating ${count === 1 ? "1 profile field" : `${count} profile fields`} on this domain. Each field costs about 3 KAS plus network fees.`,
-    } });
-  }
+  /** A profile save no longer asks for the password (owner, 2026-11-17: like a plain send). Kept
+   *  so a multi-field save's callers (which pass `confirmed: true` to each write) don't change. */
+  async confirmKnsProfileUpdate() {}
 
   async submitKnsProfileField(assetId, key, value, { onStatus = () => {}, confirmed = false } = {}) {
     if (!confirmed) await this.confirmKnsProfileUpdate(1);

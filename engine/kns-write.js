@@ -411,8 +411,13 @@ const PENDING_COMMIT_KEY = "kachat-kns-pending-commit-v1";
 // payload, so a commit whose id never came back is still found there. Spending it is the reveal.
 // Under the account's data prefix, so removing the account removes these too.
 const KNS_REVEALS_BASE_KEY = "kachat-kns-pending-reveals-v1";
-/** A commit that can't be found is dropped after this: it never landed, or its reveal did. */
-export const KNS_REVEAL_MISSING_LIFETIME_MS = 24 * 60 * 60 * 1000;
+/** A commit never seen on chain is dropped after this, and only after KNS_REVEAL_EMPTY_CHECKS looks
+ *  in a row found nothing (iOS 83806b3d): the record is the only copy of the script that frees the
+ *  coins, so a day was too soon - a busy network or a lagging node could still be holding it. */
+export const KNS_REVEAL_MISSING_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
+/** Empty looks in a row before a record goes: a commit once seen and now gone was spent by its
+ *  reveal (here or on another device), but one lagging node mustn't drop it. */
+export const KNS_REVEAL_EMPTY_CHECKS = 2;
 /** Commits made just now are left to the send that made them. */
 const KNS_REVEAL_LEFT_TO_SENDER_MS = 10 * 60 * 1000;
 const KNS_REVEAL_FAILED_MESSAGE = "The first of two transactions went through, but the second didn't. KaChat will finish it the next time it opens.";
@@ -431,6 +436,13 @@ function writeKnsReveals(account, list) {
 }
 function dropKnsReveal(account, id) {
   writeKnsReveals(account, readKnsReveals(account).filter((record) => record.id !== id));
+}
+function updateKnsReveal(account, id, fields) {
+  const list = readKnsReveals(account);
+  const i = list.findIndex((record) => record.id === id);
+  if (i < 0) return;
+  list[i] = { ...list[i], ...fields };
+  writeKnsReveals(account, list);
 }
 export function pendingKnsReveals(account) { return readKnsReveals(account); }
 
@@ -467,7 +479,9 @@ async function revealOrLeaveFiled(run) {
 const knsRevealsResuming = new Set();
 /** Finishes this account's reveals left by an earlier run: when an account is loaded and now and
  *  then after that. Each unspent output at a filed commit address is revealed the way the original
- *  would have been. Nothing is dropped unless its reveal landed or its commit stays gone for a day. */
+ *  would have been. A record goes once its reveal landed, once its commit - seen on chain before -
+ *  is found gone twice in a row, or once a commit never seen is 30 days old and found missing twice
+ *  in a row (iOS 83806b3d commitSeen / emptyChecks). A look that got no answer changes nothing. */
 export async function resumePendingKnsReveals({ engine, log = () => {} }) {
   const account = engine?.address;
   if (!engine?.kaspa || !engine?.privateKey || !account || knsRevealsResuming.has(account)) return 0;
@@ -488,9 +502,13 @@ export async function resumePendingKnsReveals({ engine, log = () => {} }) {
       const wanted = BigInt(record.commitAmountSompi);
       const owed = (Array.isArray(found?.entries) ? found.entries : []).filter((entry) => BigInt(entry?.amount ?? 0) === wanted);
       if (!owed.length) {
-        if (Date.now() - Number(record.createdAt || 0) >= KNS_REVEAL_MISSING_LIFETIME_MS) dropKnsReveal(account, record.id);
+        const emptyChecks = (Number(record.emptyChecks) || 0) + 1;
+        const old = Date.now() - Number(record.createdAt || 0) >= KNS_REVEAL_MISSING_LIFETIME_MS;
+        if (emptyChecks >= KNS_REVEAL_EMPTY_CHECKS && (record.commitSeen === true || old)) dropKnsReveal(account, record.id);
+        else updateKnsReveal(account, record.id, { emptyChecks });
         continue;
       }
+      if (record.commitSeen !== true || Number(record.emptyChecks) > 0) updateKnsReveal(account, record.id, { commitSeen: true, emptyChecks: 0 });
       let allIn = true;
       for (const entry of owed) {
         try {
@@ -813,7 +831,7 @@ export async function transferDomain({ engine, domain, assetId, toAddress, signe
   let recipient = String(toAddress || "").trim();
   if (recipient.toLowerCase().endsWith(".kas")) {
     onStatus({ status: "resolving-recipient" });
-    const resolution = await resolveDomain(recipient, { baseUrl: knsWriteUrl() });
+    const resolution = await resolveDomain(recipient, { baseUrl: knsWriteUrl(), strict: true });
     if (!resolution?.ownerAddress) throw new Error("Could not resolve the recipient KNS domain.");
     recipient = resolution.ownerAddress;
   }

@@ -1,4 +1,4 @@
-import { NETWORK_ID, ADDRESS_PREFIX, IS_TESTNET, otherNetworkReason } from "./network.js";
+import { NETWORK_ID, ADDRESS_PREFIX, IS_TESTNET, otherNetworkReason, isValidKaspaAddress, lowercasedKaspaAddress } from "./network.js";
 
 // The running network (engine/network.js): fixed for the life of the page.
 export { NETWORK_ID };
@@ -27,13 +27,16 @@ export function validatePrivateKeyHex(hex) {
 
 /** A destination on the running network (the name predates testnet support). */
 export function validateMainnetAddress(address) {
-  const clean = String(address || "").trim();
+  const clean = lowercasedKaspaAddress(String(address || "").trim());
   if (!clean.toLowerCase().startsWith(ADDRESS_PREFIX)) {
     // The other network's address names the same key on another chain (IOS-003): say so.
     const reason = otherNetworkReason(clean);
     if (reason) throw new Error(reason);
     throw new Error(IS_TESTNET ? "Destination must be a testnet kaspatest: address." : "Destination must be a mainnet kaspa: address.");
   }
+  // every send checks the whole address, not just its prefix (iOS 5.3 sendWithdrawal): a mixed-case
+  // or wrong-length one would reach the WASM SDK, which panics on it
+  if (!isValidKaspaAddress(clean)) throw new Error("That isn't a valid Kaspa address.");
   return clean;
 }
 

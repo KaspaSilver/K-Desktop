@@ -9,7 +9,7 @@
 // stays on the KasSigner device.
 
 import { getEndpoint } from "../engine/endpoints.js";
-import { NETWORK_ID, KAS_UNIT } from "../engine/network.js";
+import { NETWORK_ID, KAS_UNIT, lowercasedKaspaAddress } from "../engine/network.js";
 import { sompiFromUserText, kasToSompi, fiatTextFloorFromSompi, checkedUtxoAnswer } from "../engine/amounts.js";
 import { kachatOwnersOfNames } from "./kachat-names-live.js";
 import { renderAddressDomainsTab } from "./address-domains-tab.js";
@@ -1503,7 +1503,8 @@ function handleSendRecipientInput(raw) {
   // (iOS 6ac48a7 ColdSendFlowView).
   send.nameResolutions = [];
   send.selectedTld = null;
-  const trimmed = raw.trim();
+  // a compact QR code's upper-case address reads in lower case (iOS 5.3)
+  const trimmed = lowercasedKaspaAddress(raw.trim());
   const token = ++sendResolveToken;
 
   if (!trimmed) {

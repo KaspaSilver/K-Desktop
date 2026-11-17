@@ -15,8 +15,8 @@
 //   Output:  value(8)  spkVersion(2)  spkLen(1)  spkScript(spkLen)
 
 import { getEndpoint } from "../engine/endpoints.js";
-import { isNetworkAddress, otherNetworkReason } from "../engine/network.js";
-import { submitConfirmingAcceptance, transactionSpends } from "../engine/transactions.js";
+import { isNetworkAddress, otherNetworkReason, isValidKaspaAddress as isWellFormedKaspaAddress, lowercasedKaspaAddress } from "../engine/network.js";
+import { submitConfirmingAcceptance, transactionSpends, excludeCovenantUtxos, excludeJustSpentUtxos } from "../engine/transactions.js";
 import { maxFeerate } from "../engine/kachat-names/codec.js";
 
 // Matches firmware MAX_INPUTS=32 as of KasSigner v1.0.5 (was 8; devices on older
@@ -422,14 +422,17 @@ export function utxoKey(utxo) {
  *  query only returns mature, spendable outputs, matching iOS/Android exactly. */
 export async function fetchSpendableUtxos(engine, address) {
   const balance = await engine.balanceForAddress(address);
-  return (balance.entries || []).map(normalizeUtxo);
+  // never a coin a send just spent, nor one a covenant locks (KaPay 5848fb0)
+  return excludeCovenantUtxos(excludeJustSpentUtxos(balance.entries || [])).map(normalizeUtxo);
 }
 
 /** A usable recipient: a valid address of the running network (IOS-003). */
 export function isValidKaspaAddress(engine, address) {
-  if (!isNetworkAddress(address)) return false;
+  const clean = lowercasedKaspaAddress(address);
+  // the plain check first: the SDK panics on a wrong-length payload (iOS 5.3 Bech32)
+  if (!isNetworkAddress(clean) || !isWellFormedKaspaAddress(clean)) return false;
   try {
-    engine.kaspa.payToAddressScript(String(address || "").trim());
+    engine.kaspa.payToAddressScript(clean);
     return true;
   } catch {
     return false;

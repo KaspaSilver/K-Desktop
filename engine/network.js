@@ -96,16 +96,50 @@ function checksumChars(hrp, data5) {
   return out;
 }
 
-/** Whether `address` carries a valid checksum for its own prefix. */
+/** The prefixes a Kaspa address can carry (iOS 5.3 Bech32: any other is refused). */
+export const KASPA_ADDRESS_PREFIXES = ["kaspa", "kaspatest", "kaspasim", "kaspadev"];
+/** Payload length (bytes) for each address version: 0 Schnorr key, 1 ECDSA key, 8 script hash. */
+const ADDRESS_PAYLOAD_BYTES = { 0: 32, 1: 33, 8: 32 };
+
+/** Whether `address` is a well-formed Kaspa address (iOS 5.3, KaPay 5848fb0 Bech32): a known prefix,
+ *  a valid checksum, one case throughout (all lower, or all upper as a compact QR code writes it -
+ *  never mixed), and a payload the length its version needs (32 bytes for versions 0 and 8, 33 for
+ *  1). It used to check the checksum only, so a mixed-case or wrong-length address passed and the
+ *  WASM SDK panicked on it. */
 export function isValidKaspaAddress(address) {
-  const lower = String(address || "").trim().toLowerCase();
+  const raw = String(address || "").trim();
+  const lower = raw.toLowerCase();
+  if (raw !== lower && raw !== raw.toUpperCase()) return false;
   const colon = lower.indexOf(":");
   if (colon < 1) return false;
   const hrp = lower.slice(0, colon);
+  if (!KASPA_ADDRESS_PREFIXES.includes(hrp)) return false;
   const body = lower.slice(colon + 1);
   if (body.length < 9 || [...body].some((ch) => !CHARSET.includes(ch))) return false;
   const data5 = Array.from(body.slice(0, -8), (ch) => CHARSET.indexOf(ch));
-  return checksumChars(hrp, data5) === body.slice(-8);
+  if (checksumChars(hrp, data5) !== body.slice(-8)) return false;
+  // 5-bit groups to bytes: the version byte, then the payload; leftover bits must be zero padding
+  const bytes = [];
+  let acc = 0;
+  let bits = 0;
+  for (const v of data5) {
+    acc = (acc << 5) | v;
+    bits += 5;
+    while (bits >= 8) { bits -= 8; bytes.push((acc >> bits) & 0xff); }
+    acc &= (1 << bits) - 1;
+  }
+  if (bits >= 5 || acc !== 0) return false;
+  const want = ADDRESS_PAYLOAD_BYTES[bytes[0]];
+  return want != null && bytes.length - 1 === want;
+}
+
+/** An address as it should be kept: a compact QR code's all-upper-case "KASPA:QR..." read in lower
+ *  case (iOS 5.3 lowercasedKaspaAddress). Mixed case, anything with a query, and anything that isn't
+ *  a Kaspa address stay exactly as given (a mixed-case one is then refused as invalid). */
+export function lowercasedKaspaAddress(text) {
+  const value = String(text ?? "").trim();
+  if (value.includes("?") || !/^kaspa(test|sim|dev)?:/i.test(value)) return value;
+  return value === value.toUpperCase() ? value.toLowerCase() : value;
 }
 
 /** The same key's address with another prefix ("kaspa" | "kaspatest"); the input unchanged when

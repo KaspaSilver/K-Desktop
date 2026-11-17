@@ -1,5 +1,6 @@
-// Registering a .kas domain and editing its profile pay KAS, so they ask first like every send
-// (owner, 2026-10-23); a profile save of several fields asks once, and a refusal builds nothing.
+// Registering a .kas domain and editing its profile go out like any plain send, with no password
+// (owner, 2026-11-17, iOS 5.3 "no Face ID on sends" - iOS never asked here). Send Domain still asks
+// (tools/test-send-confirm.mjs).
 import assert from "node:assert/strict";
 import { KaspaEngine } from "../engine/index.js";
 
@@ -19,38 +20,27 @@ function fakeEngine(answer) {
   return { engine, asked, steps };
 }
 
-await test("registering a domain asks first, naming it", async () => {
-  const { engine, asked, steps } = fakeEngine(true);
+await test("registering a domain doesn't ask; it goes straight to the build", async () => {
+  const { engine, asked, steps } = fakeEngine(false);
   await assert.rejects(engine.inscribeKnsDomain(" MyName "), /stop here/);
-  assert.equal(asked.length, 1);
-  assert.match(asked[0].confirm.message, /myname\.kas/);
+  assert.equal(asked.length, 0);
   assert.deepEqual(steps, ["requireWallet", "connect"]);
 });
 
-await test("a refused registration builds nothing", async () => {
-  const { engine, steps } = fakeEngine(false);
-  await assert.rejects(engine.inscribeKnsDomain("myname"), (error) => error.code === "SEND_CANCELLED");
-  assert.deepEqual(steps, []);
-});
-
-await test("one profile field asks on its own; a batch asks once and its writes don't ask again", async () => {
-  const { engine, asked } = fakeEngine(true);
+await test("profile saves don't ask, one field or a batch", async () => {
+  const { engine, asked } = fakeEngine(false);
   await assert.rejects(engine.submitKnsProfileField("asset", "bio", "hi"), /stop here/);
-  assert.equal(asked.length, 1);
   await engine.confirmKnsProfileUpdate(3);
-  assert.match(asked[1].confirm.message, /3 profile fields/);
-  await assert.rejects(engine.submitKnsProfileField("asset", "bio", "hi", { confirmed: true }), /stop here/);
-  await assert.rejects(engine.submitKnsProfileFields("asset", { bio: "a", x: "b" }, { confirmed: true }), /stop here/);
-  assert.equal(asked.length, 2);
   await assert.rejects(engine.submitKnsProfileFields("asset", { bio: "a", x: "b" }), /stop here/);
-  assert.match(asked[2].confirm.message, /2 profile fields/);
+  await assert.rejects(engine.submitKnsProfileFields("asset", { bio: "a", x: "b" }, { confirmed: true }), /stop here/);
+  assert.equal(asked.length, 0);
 });
 
-await test("with no password set (no authorizeSpend) nothing asks", async () => {
-  const { engine, steps } = fakeEngine(true);
-  engine.authorizeSpend = undefined;
-  await assert.rejects(engine.inscribeKnsDomain("myname"), /stop here/);
-  assert.deepEqual(steps, ["requireWallet", "connect"]);
+await test("Send Domain still asks", async () => {
+  const { engine, asked, steps } = fakeEngine(false);
+  await assert.rejects(engine.transferKnsDomain({ domain: "alice.kas", assetId: "a", toAddress: "kaspa:qpdest" }), (error) => error.code === "SEND_CANCELLED");
+  assert.equal(asked.length, 1);
+  assert.deepEqual(steps, []);
 });
 
 console.log(`\n${passed} passed`);

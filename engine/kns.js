@@ -167,14 +167,25 @@ function apiUrl(baseUrl, path) {
 
 // --- forward resolution: "alice.kas" -> address ----------------------------
 
-export async function resolveDomain(domainInput, { baseUrl = KNS_DEFAULT_URL } = {}) {
+/** `strict` (iOS 5.3 NameServices: "free" told from "failed"): only a 404 or an answer with no owner
+ *  is "not registered" (null); KNS unreachable, an error answer, an unreadable one, or one about
+ *  another domain throws, so a lookup that failed is never shown as a name nobody holds. Without
+ *  `strict` every miss is null, as before. */
+export async function resolveDomain(domainInput, { baseUrl = KNS_DEFAULT_URL, strict = false } = {}) {
   const fullDomain = normalizeDomainName(domainInput);
   if (!fullDomain) return null;
   const url = apiUrl(baseUrl, `/${encodeURIComponent(fullDomain)}/owner`);
   const result = await fetchJson(url);
-  if (result.notFound || !result.ok || !result.json) return null;
+  if (result.notFound) return null;
+  const failed = () => {
+    if (!strict) return null;
+    throw new Error(`Couldn't look up ${fullDomain} right now.`);
+  };
+  if (!result.ok || !result.json) return failed();
   const data = result.json.data;
-  if (!result.json.success || !data?.owner || data?.asset !== fullDomain) return null;
+  if (result.json.success === false && !data) return null;
+  if (!data?.owner) return null;
+  if (data?.asset !== fullDomain) return failed();
   return { domain: fullDomain, ownerAddress: data.owner, inscriptionId: data.id || null };
 }
 

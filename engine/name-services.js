@@ -1,4 +1,4 @@
-import { NETWORK_ID } from "./network.js";
+import { NETWORK_ID, isNetworkAddress, isValidKaspaAddress } from "./network.js";
 import { supportedNetworks as kachatNetworks } from "./kachat-names/manifest.js";
 import { normalize as kachatNormalize, isValid as kachatIsValid } from "./kachat-names/codec.js";
 // The Kaspa name services besides KNS (which engine/kns.js covers for `.kas`), plus the
@@ -538,12 +538,24 @@ export function notFoundMessage(typedInput, results = []) {
   const kachatNotLive = (Array.isArray(results) && results.some((r) => r?.tld === "kachat" && r.state === "notLive"))
     || !SERVICE_TABLE.kachat.isLive;
   if (wanted === "kachat" && kachatNotLive) return ".kachat names aren't live on this network yet";
+  // the service couldn't be asked (iOS 5.3): say so, not "not found"
+  const asked = (Array.isArray(results) ? results : []).filter((r) => r?.tld === wanted);
+  if (asked.length && asked.every((r) => r.state === "failed")) return `Couldn't look up .${wanted} right now.`;
   return `No .${wanted} domain found`;
 }
 
+/** One service's answer. A service's address is checked before it is used (iOS 5.3: name-service
+ *  answers validated): trimmed and lower-cased, and only a well-formed address of the network the
+ *  app runs on counts - anything else is a failed lookup, never a payee. */
 function entry(tld, canonical, address, failed) {
-  const state = failed ? "failed" : address != null ? "resolved" : "notRegistered";
-  return { tld, name: `${canonical}.${tld}`, address: failed ? null : (address ?? null), state };
+  let checked = null;
+  if (!failed && address != null) {
+    const clean = String(address).trim().toLowerCase();
+    if (isNetworkAddress(clean) && isValidKaspaAddress(clean)) checked = clean;
+    else failed = true;
+  }
+  const state = failed ? "failed" : checked != null ? "resolved" : "notRegistered";
+  return { tld, name: `${canonical}.${tld}`, address: failed ? null : checked, state };
 }
 
 // `.kachat`: always listed first; where its registry isn't live it is reported as notLive under

@@ -168,8 +168,13 @@ test("an answer with another id doesn't count: the network has to have ours", ()
     submitConfirmingAcceptance({ rpc: NOT_FOUND, submit: async () => ({ transactionId: "cd".repeat(32) }), txid: TXID, lostAnswerWaitMs: 1 }),
     (error) => error.code === SEND_OUTCOME_UNKNOWN && error.txid === TXID,
   );
+  // iOS 5.3: the node that answered with another id isn't asked whether it has ours - its mempool
+  // "yes" proves nothing - so with no REST API the outcome stays unknown
   const known = { getMempoolEntry: async ({ transactionId }) => (transactionId === TXID ? { mempoolEntry: {} } : null) };
-  assert.equal(await submitConfirmingAcceptance({ rpc: known, submit: async () => ({ transactionId: "cd".repeat(32) }), txid: TXID, lostAnswerWaitMs: 1 }), TXID);
+  await assert.rejects(
+    submitConfirmingAcceptance({ rpc: known, submit: async () => ({ transactionId: "cd".repeat(32) }), txid: TXID, lostAnswerWaitMs: 1 }),
+    (error) => error.code === SEND_OUTCOME_UNKNOWN,
+  );
 }));
 test("a sent transaction the network can't see goes out again, at most twice", () => withNoRest(async () => {
   let submits = 0;
