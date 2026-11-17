@@ -159,6 +159,9 @@
 
     if (type === "kaposts") {
       if (m.childMode) out.suppress = true;
+      // someone this account muted or blocked on KaPost never rings (KaPost 369794e)
+      const actor = lower(p.actor_pubkey);
+      if (actor && Array.isArray(m.kapostsHidden) && m.kapostsHidden.includes(actor.length === 66 ? actor.slice(2) : actor)) out.suppress = true;
       out.title = "KaPost";
       out.options.body = joined(String(p.subtitle || "").trim(), tidy(p.body, ""), " ") || "New activity";
       out.options.tag = `kachat-kaposts-${p.tx_id || p.post_id || "activity"}`;

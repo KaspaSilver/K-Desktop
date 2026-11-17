@@ -134,7 +134,7 @@ assert.match(rooms, /if \(seen\.has\(row\.txId\)\) \{[\s\S]{0,200}settleRoomCopy
 assert.match(rooms, /pendingSendsThisRun\.delete\(pendingId\);\s*messageCache\[channel\] = markRoomRowUnconfirmed/);
 assert.match(rooms, /m\.status === ROOM_UNCONFIRMED \? ROOM_UNCONFIRMED : "confirmed"/, "the room row shows the Not confirmed label");
 assert.match(rooms, /m\.status === ROOM_UNCONFIRMED && String\(m\.txId\)\.startsWith\("pending-"\)/, "a Not confirmed row with no txid is matched by content");
-assert.match(rooms, /function retryBroadcastMessage\(m\) \{\s*if \(!activeChannel \|\| m\.status !== "failed"\) return;/, "no Retry for Not confirmed");
+assert.match(rooms, /if \(!live \|\| live\.status !== "failed" \|\| pendingSendsThisRun\.has\(live\.txId\)\) return;/, "no Retry for Not confirmed (the live row, KaPost 369794e)");
 
 const kaposts = readFileSync(new URL("../ui/kaposts.js", import.meta.url), "utf8");
 assert.match(kaposts, /kapostsKeptPageFresh\(\{ loadedAt: kept\.loadedAt, freshMs: PROFILE_FRESH_MS, changedAt: lastOwnKaPostActivityAt\(address\) \}\)/);

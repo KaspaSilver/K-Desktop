@@ -379,8 +379,9 @@ test("a scheduled KaPost is never signed on a coin a send just spent", async () 
   clearJustSpentOutpoints();
   const { buildScheduledPost } = await import("../engine/kaposts.js");
   const spent = coin(1n * KAS);   // the smallest coin, which the build would otherwise pick
-  const free = coin(5n * KAS);
-  const rpc = node([spent, free]);
+  const free = coin(3n * KAS);
+  // a third coin, so the post never holds every coin (that sets 1 KAS aside first, KaPost 369794e)
+  const rpc = node([spent, free, coin(5n * KAS)]);
   const engine = {
     kaspa, privateKey: key, privateKeyHex: key.toString(), address: me, log() {},
     async connect() {}, async withRpc(op) { return op(rpc); },

@@ -6447,6 +6447,9 @@ body.session-logged-out [data-account-rename-modal] {
   display: flex; flex-direction: column; gap: 3px;
   border: 1px solid var(--line); border-radius: 12px; padding: 10px; cursor: pointer;
 }
+/* a quoted post by someone muted or blocked (KaPost 369794e) */
+.kaposts-quote-embed.hidden-author { cursor: default; }
+.kaposts-quote-embed .kaposts-muted { color: var(--muted); font-size: 13px; }
 .kaposts-quote-embed strong { font-size: 12.5px; }
 .kaposts-quote-embed > span:not(.kaposts-quote-head), .kaposts-composer-quote > span:not(.kaposts-quote-head) { color: var(--muted); font-size: 13px; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
 /* The quoted author's face, name and time (iOS quotedPostCard). */

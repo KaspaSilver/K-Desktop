@@ -48,7 +48,7 @@ import { broadcastPushWatch, activeBroadcastChannelName } from "./broadcasts.js"
 // The Chats dock tab's unread count (iOS 64d63846 / eec2e30) and the Select bar's room Mute.
 import { chatListUnreadCount, chatsTabUnreadCount, debouncedCountPublisher } from "./chat-unread.js";
 import { setBroadcastRoomsNotify } from "./broadcasts.js";
-import { kaPostsWatchedAuthorAddresses } from "./kaposts.js";
+import { kaPostsWatchedAuthorAddresses, kaPostsHiddenXOnlyKeys } from "./kaposts.js";
 import { openKaPostComposerWithText } from "./kaposts.js";
 // Terms of Use, Block and tapped room links (KaPosts-iPhone 9e22075); Feed to its top (45de945).
 import { blockKaPostAccount, closeKaPostCovers, kaPostsBlockedAddresses, kaPostsFeedToTop } from "./kaposts.js";
@@ -4720,6 +4720,11 @@ function applyKnsPrimaryDomainToContact(contact) {
   return false;
 }
 
+/** A name a service resolved, as it is shown: a .kachat name follows Show .kachat Endings. */
+function resolvedNameShown(name, tld = null) {
+  const text = String(name || "");
+  return tld === "kachat" || /\.kachat$/i.test(text) ? kachatNameDisplay(text) : text;
+}
 function validateContactAddress(value) {
   // a compact QR code's upper-case address reads in lower case (iOS 5.3)
   const clean = lowercasedKaspaAddress(String(value || "").trim());
@@ -13194,7 +13199,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 293;
+const APP_BUILD = 294;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -13367,10 +13372,12 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
     resolvedDomain = resolution.domain || raw || null;
     selectedTld = resolution.tld || null;
     setValidRecipient(resolution.ownerAddress);
-    setRecipientStatus({ input: raw, resolvedAddress: resolution.ownerAddress, resolvedName: resolution.domain || raw, nameResolutions: nameResults, selectedTld });
+    // a .kachat name as Show .kachat Endings says (KaPost 369794e); other services keep their ending
+    const shownName = resolvedNameShown(resolution.domain || raw, resolution.tld);
+    setRecipientStatus({ input: raw, resolvedAddress: resolution.ownerAddress, resolvedName: shownName, nameResolutions: nameResults, selectedTld });
     if (els.resolvedHint) {
       // Show the domain AND the full resolved address below it, matching iOS's WithdrawKaspaView.
-      els.resolvedHint.innerHTML = `Resolved: ${escapeHtml(resolution.domain)}<br><span class="send-resolved-address">${escapeHtml(resolution.ownerAddress || "")}</span>`;
+      els.resolvedHint.innerHTML = `Resolved: ${escapeHtml(shownName)}<br><span class="send-resolved-address">${escapeHtml(resolution.ownerAddress || "")}</span>`;
       els.resolvedHint.hidden = false;
     }
     renderOtherDomains(true);
@@ -20652,6 +20659,8 @@ function openKaPostsSettings() {
       const entry = KAPOSTS_NOTIFY_TOGGLES.find(([, k]) => k === key);
       const mirror = entry ? document.querySelector(`[${entry[2]}]`) : null;
       if (mirror) mirror.checked = input.checked;
+      // the push service hears about it now, not at the next sync (KaPost 369794e)
+      scheduleWebPushSync({ force: true });
     });
   });
 }
@@ -31410,6 +31419,8 @@ async function collectWebPushRegistration() {
         comments: accountShellPrefs.kaPostsNotifyComments ?? true,
         reposts: accountShellPrefs.kaPostsNotifyReposts ?? true,
         follows: accountShellPrefs.kaPostsNotifyFollows ?? true,
+        // the Mentions switch reaches the push service too (KaPost 369794e)
+        mentions: accountShellPrefs.kaPostsNotifyMentions ?? true,
       };
     }
   }
@@ -31451,8 +31462,11 @@ function webPushMirror() {
   try { for (const [address, kind] of addressActivityWatchedMap()) addressLabels[address.toLowerCase()] = describeActivityAddress(kind, address); } catch { /* no labels */ }
   let blocked = [];
   try { blocked = [...chatRequestState().blocked]; } catch { blocked = []; }
+  let kapostsHidden = [];
+  try { kapostsHidden = kaPostsHiddenXOnlyKeys(); } catch { kapostsHidden = []; }
   return {
     account: (engine.address || "").toLowerCase(),
+    kapostsHidden,
     unit: KAS_UNIT,
     sound: (accountShellPrefs.notificationSound ?? true) !== false,
     childMode: isChildModeEnabled(),

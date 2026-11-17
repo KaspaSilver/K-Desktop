@@ -193,13 +193,14 @@ test("2: a post going out can't be cancelled", async () => {
   assert.deepEqual([removed, asked], [[], []]);
 });
 
-test("2: a heard Cancel removes it; a local post has no one to tell", async () => {
+test("2: a heard Cancel removes it; a local post is told to the indexer too (KaPost 369794e)", async () => {
   const held = entry({ onServer: true });
   const told = await cancel([held]);
   assert.deepEqual([told.problem, told.removed, told.asked], [null, [held.id], [held.id]]);
+  // a schedule whose answer was lost reached the indexer all the same
   const local = entry();
-  const silent = await cancel([local]);
-  assert.deepEqual([silent.problem, silent.removed, silent.asked], [null, [local.id], []]);
+  const alsoTold = await cancel([local]);
+  assert.deepEqual([alsoTold.problem, alsoTold.removed, alsoTold.asked], [null, [local.id], [local.id]]);
 });
 
 test("2: a cancel started first holds off a submit", async () => {

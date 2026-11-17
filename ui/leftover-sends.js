@@ -5,6 +5,8 @@
 // delivered later still replaces it. No DOM,
 // so tools/test-leftover-sends.mjs runs it under node.
 
+import { sniffPartTag } from "../engine/voice-parts.js";
+
 export const RUN_STARTED_AT = Date.now();
 
 // A delivered copy's time comes from the chain and a row's from this device's clock.
@@ -67,6 +69,24 @@ const ROOM_PENDING_ID = /^pending-/;
  *  changed. */
 export function settleLeftoverRoomRows(messages, { keeping = new Set() } = {}) {
   let changed = 0;
+  // A voice note's parts go one after another, so of a note's parts still pending only the first
+  // can have been submitted when the run ended: the later ones never went out and are Failed, for
+  // Retry (KaPost 369794e), not "Not confirmed".
+  const firstPending = new Map(); // note key -> lowest pending part index
+  const partOf = (row) => {
+    const tag = sniffPartTag(String(row?.content ?? ""));
+    return tag ? { key: `${String(row.senderAddress || "").toLowerCase()}|${tag.id}|${tag.count}`, index: tag.index } : null;
+  };
+  for (const row of messages) {
+    if (row?.status !== "pending" || keeping.has(row.txId)) continue;
+    const part = partOf(row);
+    if (part && !(firstPending.get(part.key) <= part.index)) firstPending.set(part.key, part.index);
+  }
+  for (const row of messages) {
+    if (row?.status !== "pending" || keeping.has(row.txId)) continue;
+    const part = partOf(row);
+    if (part && part.index > firstPending.get(part.key)) { row.status = FAILED; changed += 1; }
+  }
   for (let index = messages.length - 1; index >= 0; index--) {
     const row = messages[index];
     const leftover = row?.status === "pending"

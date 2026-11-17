@@ -63,6 +63,7 @@ import {
   applyScheduledOutcomes,
   submitDueScheduledPosts,
   cancelScheduledEntry,
+  flushPendingScheduledCancels,
   scheduledWaitingLine,
   draftSourceNotice,
   draftSourceIds,
@@ -76,7 +77,7 @@ import {
   followingAfterFailedFollow,
   feedPageLeavesGap,
 } from "../engine/kaposts.js";
-import { configureKaPostSavedPages, kapostLiveFeed, mergeOutageRows } from "../engine/kaposts-chain-fallback.js";
+import { configureKaPostSavedPages, kapostLiveFeed, mergeOutageRows, editAppliesTo, xOnlyKey } from "../engine/kaposts-chain-fallback.js";
 import { indexerKey, isIndexerDown, onIndexerAvailabilityChange } from "../engine/indexer-health.js";
 import { setReservedOutpoints, SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/transactions.js";
 import { getEndpoint } from "../engine/endpoints.js";
@@ -92,6 +93,8 @@ import {
 import {
   kapostsCharCount,
   kapostsClampChars,
+  kapostsPostLength,
+  kapostsClampBytes,
   kapostsFoldedPrefix,
   kapostsEditWindowText,
   kapostsLongRelativeTime,
@@ -276,7 +279,21 @@ function isWatchingAuthor(address) {
 /** The bell list, for the push registration (ui/web-push.js). Empty before KaPosts has started. */
 export function kaPostsWatchedAuthorAddresses() {
   if (!deps) return [];
-  try { return [...watchedAuthors()]; } catch { return []; }
+  // never someone muted or blocked (KaPost 369794e): their posts don't ring
+  try { return [...watchedAuthors()].filter((address) => !isHiddenAuthorLower(address)); } catch { return []; }
+}
+function isHiddenAuthorLower(address) {
+  const key = String(address || "").toLowerCase();
+  return prefs.muted.some((a) => String(a).toLowerCase() === key) || prefs.blocked.some((a) => String(a).toLowerCase() === key);
+}
+/** Turns the bell off for `address`, if it was on. */
+function unwatchAuthor(address) {
+  const key = String(address || "").toLowerCase();
+  const set = new Set(watchedAuthors());
+  if (!set.delete(key)) return;
+  const storageKey = deps.accountScopedKey(KAPOSTS_WATCH_KEY);
+  watchCache = { key: storageKey, addresses: set };
+  try { localStorage.setItem(storageKey, JSON.stringify([...set].sort())); } catch { /* kept for this session */ }
 }
 
 /** Turns the bell on or off for `address`; returns whether it is now on. */
@@ -737,6 +754,20 @@ function fetchFeedPage(before, limit = PAGER_PAGE_SIZE) {
 // people they already follow on-chain. Chain entries are only ever ADDED (never removed),
 // so a just-clicked local unfollow the indexer hasn't caught up on can't be resurrected.
 let followingChainSynced = false;
+// Follows tapped in this session, per account: they win over a chain list read before they landed.
+const followTapsThisSession = new Map(); // address -> true (follow) / false (unfollow)
+// The last complete follow list read from the chain, per account (KaPost 369794e: follows sync both
+// ways): an address on it that the chain no longer lists was unfollowed on another device.
+const KAPOSTS_CHAIN_FOLLOWING_KEY = "kachat-kaposts-chain-following-v1";
+function lastChainFollowing() {
+  try {
+    const list = JSON.parse(localStorage.getItem(deps.accountScopedKey(KAPOSTS_CHAIN_FOLLOWING_KEY)) || "null");
+    return Array.isArray(list) ? new Set(list.map(String)) : null;
+  } catch { return null; }
+}
+function saveChainFollowing(addresses) {
+  try { localStorage.setItem(deps.accountScopedKey(KAPOSTS_CHAIN_FOLLOWING_KEY), JSON.stringify([...addresses].sort())); } catch { /* next sync */ }
+}
 async function syncFollowingFromChain() {
   if (followingChainSynced) return;
   followingChainSynced = true;
@@ -744,16 +775,26 @@ async function syncFollowingFromChain() {
     const pubkey = safeRequesterPubkey();
     if (!pubkey) { followingChainSynced = false; return; }
     const raw = await fetchFollowListAll({ engine: deps.engine, pubkey, followers: false });
-    const merged = new Set(prefs.following);
-    // A stale self-follow (an early build let you follow yourself) inflates your own count.
-    merged.delete(deps.engine.address);
+    const onChain = new Set();
     for (const item of raw || []) {
       const rowPubkey = item?.userPublicKey || item?.publicKey || item?.pubkey || item?.followedPubkey || item?.user || "";
       const address = item?.address || kaspaAddressFromPubkey(deps.engine, rowPubkey) || "";
-      if (address) merged.add(address);
+      if (address) onChain.add(address);
     }
+    onChain.delete(deps.engine.address || "");
+    const before = lastChainFollowing();
+    const merged = new Set(prefs.following);
+    // A stale self-follow (an early build let you follow yourself) inflates your own count.
+    merged.delete(deps.engine.address);
+    for (const address of onChain) merged.add(address);
+    // gone from the chain since the last complete read: unfollowed elsewhere
+    if (before) for (const address of before) if (!onChain.has(address)) merged.delete(address);
+    // this session's taps win
+    for (const [address, follow] of followTapsThisSession) { if (follow) merged.add(address); else merged.delete(address); }
     merged.delete(deps.engine.address || "");
-    if (merged.size !== prefs.following.length) {
+    saveChainFollowing(onChain);
+    const changed = merged.size !== prefs.following.length || prefs.following.some((a) => !merged.has(a));
+    if (changed) {
       prefs.following = [...merged];
       savePrefs();
       renderAll();
@@ -874,7 +915,7 @@ async function loadFeed() {
     if (result.outage) {
       // Saved or chain rows can be older than the screen, and this load doesn't count as one:
       // the indexer, when it's back, has the final word.
-      remotePosts = mergeOutageRows(sameFeedOnScreen ? remotePosts : [], page);
+      remotePosts = applyLiveAmendments(mergeOutageRows(sameFeedOnScreen ? remotePosts : [], page));
       if (!sameFeedOnScreen) { pendingNewPosts = []; pendingNewPostsHaveGap = false; }
       seedPager(feedPager, result.posts, null);
     } else {
@@ -1503,8 +1544,30 @@ function renderStatus() {
 }
 
 /// New posts off the block stream while the indexer is down, into whichever feed is showing.
+/** Edits and deletes read off the block stream during an outage, applied to the posts on screen
+ *  (KaPost 369794e): a post removed or changed meanwhile doesn't stay as it was until the indexer
+ *  is back. Each counts only on a post by the key that signed it; edits never on a poll. */
+function applyLiveAmendments(posts) {
+  const amendments = kapostLiveFeed.amendments?.();
+  if (!amendments?.size) return posts;
+  let changed = false;
+  const out = [];
+  for (const post of posts) {
+    const found = post.remoteId && post.posterPubkey ? amendments.get(`${post.remoteId}|${xOnlyKey(post.posterPubkey)}`) : null;
+    if (!found) { out.push(post); continue; }
+    if (found.kind === "delete") { changed = true; continue; }
+    if (Number(post.editedAt) >= found.timestampMs || !editAppliesTo({ timestamp: Number(post.timestamp) || 0, poll: post.poll }, found.timestampMs)) { out.push(post); continue; }
+    const text = decodePostContent({ postContent: found.b64 });
+    if (text == null) { out.push(post); continue; }
+    out.push({ ...post, text, editedAt: found.timestampMs });
+    changed = true;
+  }
+  return changed ? out : posts;
+}
 function mergeLivePosts(live) {
   if (!deps || !loadedFeedSource) return;
+  const amended = applyLiveAmendments(remotePosts);
+  if (amended !== remotePosts) { remotePosts = amended; renderFeed(); }
   const known = new Set(remotePosts.map((post) => post.remoteId).filter(Boolean));
   const following = new Set(prefs.following);
   const fresh = live
@@ -1584,12 +1647,13 @@ function escapeWithMentions(rawText) {
 async function mentionAddress(token, signed = []) {
   const results = (await deps.engine.resolveNameEverywhere?.(token)) || [];
   if (signed.length) {
-    const keys = new Set(signed.map((k) => String(k).toLowerCase()));
+    // on the x-only key (KaPost 369794e): an 03 key and the 02 guess an address gives are one person
+    const keys = new Set(signed.map((k) => String(k).toLowerCase().slice(2)));
     const typed = splitTypedName(token).tld;
     const ordered = [...results.filter((r) => r.tld === typed), ...results.filter((r) => r.tld !== typed)];
     const match = ordered.find((r) => {
       const pk = r.address ? deps.engine.kapostPubkeyForAddress?.(r.address) : null;
-      return pk && keys.has(String(pk).toLowerCase());
+      return pk && keys.has(String(pk).toLowerCase().slice(2));
     });
     if (match) return match.address;
   }
@@ -1629,12 +1693,27 @@ async function mentionedPubkeysFor(text) {
       // everyone else: the mention rule (ending typed, else .kachat, else .kas; iOS e493c97)
       try {
         const address = await mentionAddress(token);
-        if (address) pubkey = deps.engine.kapostPubkeyForAddress?.(address) || null;
+        // the person's real 02/03 key (KaPost 369794e), not the 02 guess the address gives: an 03
+        // user was never notified
+        if (address) pubkey = (await realMentionKey(address)) || deps.engine.kapostPubkeyForAddress?.(address) || null;
       } catch { /* unresolvable: plain text */ }
     }
     if (pubkey) found.add(pubkey);
   }
-  return [...found];
+  // once per person, in the order written (the engine checks again on the x-only key)
+  const seen = new Set();
+  return [...found].filter((k) => { const x = String(k).toLowerCase().slice(2); if (seen.has(x)) return false; seen.add(x); return true; });
+}
+// Real mention keys, per x-only key, for this run: the lookup reads the indexer.
+const realMentionKeys = new Map();
+async function realMentionKey(address) {
+  const guess = deps.engine.kapostPubkeyForAddress?.(address);
+  if (!guess) return null;
+  const xOnly = String(guess).toLowerCase().slice(2);
+  if (realMentionKeys.has(xOnly)) return realMentionKeys.get(xOnly);
+  const real = await resolveKaPostsPubkey(address).catch(() => null);
+  if (real) realMentionKeys.set(xOnly, real);
+  return real;
 }
 
 // Tapped @mention anywhere in KaPosts: open the profile of whoever the author signed for the
@@ -1963,7 +2042,11 @@ function postCellHtml(post, { inThread = false, isRoot = false, replyInline = tr
         ? `<div class="kaposts-delivery sent" data-kaposts-sent-check="${(Number(post.timestamp) || 0) + 60_000}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg></div>`
         : "";
 
-  const quotedHtml = post.quoted
+  // a quoted post by someone muted or blocked isn't shown (KaPost 369794e)
+  const quotedHidden = post.quoted && isHiddenAuthorLower(post.quoted.posterAddress);
+  const quotedHtml = quotedHidden
+    ? `<div class="kaposts-quote-embed hidden-author"><span class="kaposts-muted">You muted or blocked this account</span></div>`
+    : post.quoted
     ? `<div class="kaposts-quote-embed" ${post.quoted.remoteId ? `data-kaposts-open-remote="${deps.escapeHtml(post.quoted.remoteId)}"` : ""}>
          ${quoteCardHeadHtml(post.quoted)}
          <span>${markdownPreviewHtml(post.quoted.text || "")}</span>
@@ -2237,7 +2320,8 @@ function renderThread() {
     // The exact chain from get-thread once it has answered; until then (and for a session post,
     // which is all it has) the in-memory walk (iOS ancestorChain).
     const fetched = fetchedAncestors.get(post.remoteId) || [];
-    const ancestors = fetched.length ? fetched : walkAncestorChain(post);
+    // a muted or blocked author's posts aren't shown above it either (KaPost 369794e)
+    const ancestors = (fetched.length ? fetched : walkAncestorChain(post)).filter((entry) => !isHiddenAuthorLower(entry.posterAddress));
     const ancestorsHtml = ancestors.length
       ? `<div class="kaposts-ancestors">${ancestors
           .map((entry) => `<div class="kaposts-ancestor" data-kaposts-ancestor="${deps.escapeHtml(String(entry.id))}">${postCellHtml(entry, { inThread: true, replyInline: true, truncates: true })}</div>`)
@@ -2545,6 +2629,18 @@ async function refreshPollNumbers(post) {
 // remoteId -> "its replies include one by the author" (thread root). false is cached too, so a
 // post is probed at most once per session.
 const threadRootProbe = new Map();
+// A "no thread" answer goes stale (KaPost 369794e): the author may add one later. It is asked again
+// after the post's age, at least 10 minutes and at most a day. remoteId -> ms.
+const threadRootNoUntil = new Map();
+function threadRootAnswerFresh(remoteId) {
+  if (!threadRootProbe.has(remoteId)) return false;
+  if (threadRootProbe.get(remoteId) !== false) return true;
+  const until = threadRootNoUntil.get(remoteId);
+  if (until == null || Date.now() < until) return true;
+  threadRootProbe.delete(remoteId);
+  threadRootNoUntil.delete(remoteId);
+  return false;
+}
 // root post local id -> [segment posts] (the author's own continuation, in order).
 const threadChains = new Map();
 
@@ -2557,7 +2653,7 @@ function isThreadRootPost(post) {
 // thread root (X's own "Show this thread" heuristic).
 function probeThreadRoots(posts) {
   const candidates = (posts || []).filter((p) => p.remoteId
-    && !threadRootProbe.has(p.remoteId)
+    && !threadRootAnswerFresh(p.remoteId)
     && ((p.remoteReplyCount || 0) > 0 || (p.comments || []).length > 0)).slice(0, 10);
   if (!candidates.length) return;
   (async () => {
@@ -2572,6 +2668,10 @@ function probeThreadRoots(posts) {
           return mapped && mapped.posterAddress === post.posterAddress;
         });
         if (isThread) { threadRootProbe.set(post.remoteId, true); found = true; }
+        else {
+          const age = Math.max(0, Date.now() - (Number(post.timestamp) || Date.now()));
+          threadRootNoUntil.set(post.remoteId, Date.now() + Math.min(Math.max(age, 600_000), 86_400_000));
+        }
       } catch {
         // No answer: the claim mustn't stop a later render from asking (iOS 33095ac unclaim).
         if (threadRootProbe.get(post.remoteId) === false) threadRootProbe.delete(post.remoteId);
@@ -2882,20 +2982,27 @@ function toggleFollow(post) {
   if (!address || address === deps.engine.address) return;
   const willFollow = !prefs.following.includes(address);
   prefs.following = willFollow ? [...prefs.following, address] : prefs.following.filter((a) => a !== address);
+  followTapsThisSession.set(address, willFollow);
   savePrefs();
   renderAll();
-  if (!post.posterPubkey) return;
   const owner = accountGuard(() => deps?.engine?.address); // prefs are the account's own
-  submitKaPostFollow({ engine: deps.engine, follow: willFollow, followedPubkey: post.posterPubkey })
+  // A post without its author's key still follows on chain (KaPost 369794e): the key the indexer's
+  // data names for that address; with none known, the follow stays on this device.
+  const keyFor = post.posterPubkey ? Promise.resolve(post.posterPubkey) : resolveKaPostsPubkey(address).catch(() => null);
+  keyFor.then((followedPubkey) => {
+    if (!followedPubkey || !owner.still()) return null;
+    return submitKaPostFollow({ engine: deps.engine, follow: willFollow, followedPubkey })
     .then((txid) => showActionToast(willFollow ? "Follow posted to the network" : "Unfollow posted to the network", txid))
     .catch((error) => {
       deps.appendEngineLog?.(`KaPost follow failed: ${error.message}`);
       if (kapostOutcomeUnknown(error) || !owner.still()) return;
       prefs.following = followingAfterFailedFollow(prefs.following, address, willFollow);
+      followTapsThisSession.delete(address);
       savePrefs();
       renderAll();
       showFailureToast(willFollow ? "Couldn't follow" : "Couldn't unfollow", error);
     });
+  });
 }
 
 /**
@@ -3110,14 +3217,15 @@ function retryPost(post) {
 // Composer + meter
 // ---------------------------------------------------------------------------
 
-// iOS KaPostCharacterMeter: a ring filling toward the 25,000-character limit, visible from the
-// first character, orange with a live remaining count in the final 10%, red at the wall.
+// iOS KaPostCharacterMeter: a ring filling toward the 25,000 limit, visible from the first
+// character, orange with a live remaining count in the final 10%, red at the wall.
 function updateMeter(input, meter, submit = null) {
   const limit = KAPOSTS_POST_CHARACTER_LIMIT;
-  // Counted in characters as the reader sees them (code points, so an emoji is one), as iOS
-  // counts `text.count` - not UTF-16 units, which charged an emoji twice.
-  if (input.value.length > limit && kapostsCharCount(input.value) > limit) input.value = kapostsClampChars(input.value, limit);
-  const count = kapostsCharCount(input.value);
+  // Counted in UTF-8 bytes, what the transaction carries (KaPost 369794e postLength): an emoji is
+  // four, a Chinese character three. Counted in characters, a post in a non-Latin script passed the
+  // meter and was too long for one transaction.
+  if (input.value.length * 3 > limit && kapostsPostLength(input.value) > limit) input.value = kapostsClampBytes(input.value, limit);
+  const count = kapostsPostLength(input.value);
   const remaining = limit - count;
   const progress = Math.min(1, count / limit);
   const nearLimit = progress >= 0.9;
@@ -3325,7 +3433,7 @@ export function openKaPostComposerWithText(text) {
   if (!composerEl.hidden) { pendingComposeText = text; return; }
   if (deps.isChattingBalanceZero?.()) { deps.showFundingGate?.(); return; }
   openComposer();
-  composerInput.value = String(text || "").slice(0, KAPOSTS_POST_CHARACTER_LIMIT);
+  composerInput.value = kapostsClampBytes(String(text || ""), KAPOSTS_POST_CHARACTER_LIMIT);
   composerInput.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
@@ -3488,10 +3596,16 @@ async function closeComposer({ keepDraft = null } = {}) {
 // the previous text back exactly, then the edit goes on chain; a failed transaction restores
 // the old text. The green check counts from the edit landing.
 function scheduleEdit(post, text) {
+  const next = String(text || "").trim();
+  if (!post.remoteId || !next || next === post.text) return;
+  // A second edit while the first is still in its undo window replaces it (KaPost 369794e): the
+  // held one is undone first - back to the text before both, which never left - so the new edit
+  // starts from there and its own Undo goes back to it. Cancelling it after showing the new text
+  // ran the first one's Undo over it, and the post showed its old text while the new one went out.
+  cancelUndoable(`edit:${post.id}`);
   const previous = post.text;
   const previousEditedAt = post.editedAt ?? null;
-  const next = String(text || "").trim();
-  if (!post.remoteId || !next || next === previous) return;
+  if (next === previous) return;
   // Shown at once as an edit in flight (iOS editPost): the new text, "· edited" and the spinner.
   // Undo, or a failed transaction, puts the text and its edited state back exactly.
   const restore = (p) => { p.text = previous; p.editedAt = previousEditedAt; p.delivery = "sent"; };
@@ -4060,6 +4174,17 @@ function loadMoreSearch() {
 function searchQuery(panel) {
   return String(panel.query || "").trim().toLowerCase();
 }
+/** Whether `query` names this author: the name shown, the saved contact name, and a .kachat name
+ *  in either form - "alice" or "alice.kachat" - whatever Show .kachat Endings says (KaPost 369794e). */
+function searchMatchesAuthor(address, query) {
+  if (!address || !query) return false;
+  const names = [posterName(address), deps.contactAliasFor?.(address) || ""];
+  if (kachatNamesUiEnabled()) {
+    const label = String(kachatCachedDisplayLabel(address) || "").replace(/\.kachat$/i, "");
+    if (label) names.push(label, `${label}.kachat`);
+  }
+  return names.some((name) => String(name || "").toLowerCase().includes(query));
+}
 
 function matchingSearchPosts(panel) {
   const query = searchQuery(panel);
@@ -4069,7 +4194,7 @@ function matchingSearchPosts(panel) {
     if (post.text.toLowerCase().includes(query)) return true;
     // A post also matches on WHO wrote it, so searching a name finds their posts without
     // having to switch tabs to find them first.
-    return posterName(post.posterAddress).toLowerCase().includes(query);
+    return searchMatchesAuthor(post.posterAddress, query);
   });
 }
 
@@ -4086,7 +4211,7 @@ function matchingSearchPeople(panel) {
     if (post.posterPubkey && !pubkeys.has(post.posterAddress)) pubkeys.set(post.posterAddress, post.posterPubkey);
   }
   return [...counts.entries()]
-    .filter(([address]) => posterName(address).toLowerCase().includes(query) || address.toLowerCase().includes(query))
+    .filter(([address]) => searchMatchesAuthor(address, query) || address.toLowerCase().includes(query))
     .map(([address, postCount]) => ({ address, postCount, pubkey: pubkeys.get(address) || null }))
     .sort((a, b) => (a.postCount === b.postCount
       ? posterName(a.address).localeCompare(posterName(b.address))
@@ -5215,8 +5340,23 @@ export function blockKaPostAccount(address) {
   if (!deps || !address) return;
   prefs = withBlockedAccount(prefs, address);
   savePrefs();
+  // blocking turns the bell off too (KaPost 369794e)
+  unwatchAuthor(address);
+  deps.onPushPreferencesChanged?.();
   renderAll();
   deps.onBlockedAccountsChanged?.();
+}
+
+/** The x-only keys of everyone this account muted or blocked on KaPost, for the push worker: their
+ *  likes, replies and mentions never ring (KaPost 369794e). */
+export function kaPostsHiddenXOnlyKeys() {
+  if (!deps) return [];
+  const keys = new Set();
+  for (const address of [...prefs.muted, ...prefs.blocked]) {
+    const key = deps.engine.kapostPubkeyForAddress?.(address);
+    if (key) keys.add(String(key).toLowerCase().slice(2));
+  }
+  return [...keys].slice(0, 2000);
 }
 
 /** Who this account has blocked. kaposts.js owns the list (iOS KaPostsModerationStore). */
@@ -5239,7 +5379,7 @@ function handlePopoverAction(action, post) {
   else if (action === "edit") openComposer(null, { editTarget: post });
   else if (action === "delete") scheduleDelete(post);
   else if (action === "bookmark") { mutatePost(post.id, (p) => { p.bookmarkedByMe = !p.bookmarkedByMe; }); renderAll(); }
-  else if (action === "mute") { prefs.muted = [...new Set([...prefs.muted, post.posterAddress])]; savePrefs(); renderAll(); }
+  else if (action === "mute") { prefs.muted = [...new Set([...prefs.muted, post.posterAddress])]; savePrefs(); renderAll(); deps.onPushPreferencesChanged?.(); }
   else if (action === "block") blockKaPostAccount(post.posterAddress);
 }
 
@@ -5450,7 +5590,30 @@ function sendDueScheduled() {
   dueInFlight = sendDueScheduledNow().finally(() => { dueInFlight = null; });
   return dueInFlight;
 }
+// Cancels the indexer missed (KaPost 369794e), per account: told to it before the next pass.
+const KAPOSTS_PENDING_CANCELS_KEY = "kachat-kaposts-pending-cancels-v1";
+function pendingScheduledCancels() {
+  try {
+    const list = JSON.parse(localStorage.getItem(deps.accountScopedKey(KAPOSTS_PENDING_CANCELS_KEY)) || "[]");
+    return Array.isArray(list) ? list.map(String) : [];
+  } catch { return []; }
+}
+function savePendingScheduledCancels(ids) {
+  try {
+    const key = deps.accountScopedKey(KAPOSTS_PENDING_CANCELS_KEY);
+    if (ids.length) localStorage.setItem(key, JSON.stringify([...new Set(ids)]));
+    else localStorage.removeItem(key);
+  } catch { /* kept for the next try */ }
+}
+async function flushScheduledCancels() {
+  const ids = pendingScheduledCancels();
+  if (!ids.length) return;
+  const generation = scheduledGeneration;
+  const left = await flushPendingScheduledCancels({ ids, cancel: (txId) => cancelScheduledOnServer({ engine: deps.engine, txId }) });
+  if (generation === scheduledGeneration) savePendingScheduledCancels(left);
+}
 async function sendDueScheduledNow() {
+  try { await flushScheduledCancels(); } catch { /* the next pass */ }
   if (scheduledPostsAwaitIndexer(scheduledPosts)) await refreshScheduledFromServer();
   const generation = scheduledGeneration;
   const changed = await submitDueScheduledPosts({
@@ -5459,6 +5622,7 @@ async function sendDueScheduledNow() {
     stillOurs: () => generation === scheduledGeneration,
     submit: (entry) => submitScheduledLocally({ engine: deps.engine, serialized: entry.serialized, safeJson: entry.safeJson || null }),
     handToIndexer: (entry) => scheduleOnServer({ engine: deps.engine, txId: entry.id, notBeforeMs: entry.notBefore, restJson: entry.restJson }),
+    isOnChain: async (entry) => Boolean(await fetchChainPost(entry.id)),
     onChange: saveScheduled,
     log: (line) => deps.appendEngineLog?.(line),
   });
@@ -5466,6 +5630,7 @@ async function sendDueScheduledNow() {
 }
 
 async function refreshScheduledFromServer() {
+  try { await flushScheduledCancels(); } catch { /* the next pass */ }
   // Only posts the server holds have anything to learn from it (iOS e5a9b11).
   if (!scheduledPosts.some((entry) => entry.onServer)) return;
   const generation = scheduledGeneration;
@@ -5485,6 +5650,7 @@ async function cancelScheduledPost(id) {
     inFlight: scheduledInFlight,
     cancelOnServer: (entry) => cancelScheduledOnServer({ engine: deps.engine, txId: entry.id }),
     remove: (entry) => { scheduledPosts = scheduledPosts.filter((e) => e.id !== entry.id); saveScheduled(); },
+    rememberCancel: (txId) => savePendingScheduledCancels([...pendingScheduledCancels(), txId]),
     log: (line) => deps.appendEngineLog?.(line),
   });
   if (problem) deps.alertDialog?.({ title: "KaPost", message: problem, confirmLabel: "OK" });
@@ -5774,8 +5940,16 @@ function readerLanguage() {
   return raw.split("-")[0].toLowerCase();
 }
 
+/** A translation belongs to the text it translated: an edited post's key carries a hash of its
+ *  current text, so an edit makes a fresh translation (KaPost 369794e), not the old one's. */
 function translationKeyFor(post) {
-  return post?.id || `text:${String(post?.text || "").slice(0, 120)}`;
+  const base = post?.id || `text:${String(post?.text || "").slice(0, 120)}`;
+  return post?.editedAt ? `${base}#${textHash(String(post.text || ""))}` : base;
+}
+function textHash(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(16);
 }
 
 /// What the service can actually translate. Cached per service URL, and a failure to answer is not
@@ -5861,7 +6035,9 @@ async function translatePost(post) {
     // translation refused with "Invalid post id. Must be 64 hex characters." A local session post
     // has no txid yet; sending no id at all is how iOS handles that, and the post is still
     // translated, just not cached for the next reader.
-    const txId = /^[0-9a-f]{64}$/i.test(String(post.remoteId || "")) ? String(post.remoteId) : null;
+    // An edited post is sent without its id (KaPost 369794e): the service caches by id, and would
+    // answer with the translation of the text before the edit.
+    const txId = !post.editedAt && /^[0-9a-f]{64}$/i.test(String(post.remoteId || "")) ? String(post.remoteId) : null;
     const body = { target, posts: [txId ? { id: txId, text: post.text } : { text: post.text }] };
     const response = await fetch(`${base}/translate`, {
       method: "POST",
@@ -6080,6 +6256,7 @@ export function resetKaPostsForAccount() {
   // failed thread of the old account has no card left to Retry from.
   dropAllUndoables();
   threadRemainders.clear();
+  followTapsThisSession.clear(); // the old account's taps aren't this one's
   closeFeedDrawer(); // the card was the old account's menu
   syncRailBadge();
   loadPrefs();
@@ -7185,6 +7362,7 @@ export function initKaPosts(dependencies) {
       renderPanel();
       renderFeed();
       if (unhide.dataset.kapostsUnhideKind !== "muted") deps.onBlockedAccountsChanged?.();
+      deps.onPushPreferencesChanged?.(); // their pushes ring again
       return;
     }
 

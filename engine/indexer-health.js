@@ -10,6 +10,11 @@ export const INDEXER_FAILURES_TO_GO_DOWN = 3;
 /** Failures further apart than this aren't a run. */
 export const INDEXER_FAILURE_WINDOW_MS = 120_000;
 export const INDEXER_RETRY_INTERVAL_MS = 60_000;
+/** Recovery probes that must answer in a row, with no failed read between, before an outage ends
+ *  (KaPost 369794e, KaPlay 077d777): the probe is one tiny read, which can pass in a partial outage
+ *  while real pages still fail - one pass reloaded everything, failed three times and went down
+ *  again about once a minute. A real read that answers ends it at once. */
+export const INDEXER_PROBE_PASSES_TO_RECOVER = 2;
 /** An aborted request this old was a timeout, not someone moving on (Desktop's timeouts are aborts). */
 export const INDEXER_TIMEOUT_ABORT_MS = 10_000;
 /** On recovery the sync cursors go back to the outage's start minus this (iOS catchUpAfterIndexerOutage). */
@@ -38,7 +43,7 @@ export function createIndexerHealth({ now = () => Date.now(), storage = globalTh
     let found = entries.get(key);
     if (!found) {
       const unfinished = Number(readStoredOutages(storage)[key]) || null;
-      found = { downSince: null, unfinished, failures: 0, lastFailureAt: -Infinity, retryAt: -Infinity };
+      found = { downSince: null, unfinished, failures: 0, lastFailureAt: -Infinity, retryAt: -Infinity, probing: false, probePasses: 0 };
       entries.set(key, found);
     }
     return found;
@@ -67,6 +72,7 @@ export function createIndexerHealth({ now = () => Date.now(), storage = globalTh
       const at = now();
       if (found.downSince == null || at < found.retryAt) return false;
       found.retryAt = at + INDEXER_RETRY_INTERVAL_MS;
+      found.probing = true; // the next answer is this probe's
       return true;
     },
     recordFailure(url) {
@@ -74,6 +80,9 @@ export function createIndexerHealth({ now = () => Date.now(), storage = globalTh
       if (!key) return;
       const found = entry(key);
       const at = now();
+      // a failed read while down breaks the probes' run
+      found.probePasses = 0;
+      found.probing = false;
       const sinceLast = at - found.lastFailureAt;
       if (sinceLast > INDEXER_FAILURE_WINDOW_MS) found.failures = 0;
       if (found.failures === 0 || sinceLast >= INDEXER_FAILURE_SPACING_MS) {
@@ -95,6 +104,14 @@ export function createIndexerHealth({ now = () => Date.now(), storage = globalTh
       found.failures = 0;
       const wentDownAt = found.downSince ?? found.unfinished;
       if (wentDownAt == null) return;
+      if (found.downSince != null && found.probing) {
+        // a recovery probe passed: one more in a row is needed, and it may go at once
+        found.probing = false;
+        found.probePasses += 1;
+        if (found.probePasses < INDEXER_PROBE_PASSES_TO_RECOVER) { found.retryAt = now(); return; }
+      }
+      found.probePasses = 0;
+      found.probing = false;
       found.downSince = null;
       found.unfinished = null;
       store();

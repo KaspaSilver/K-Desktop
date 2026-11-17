@@ -75,6 +75,7 @@ export function verifiedChainPost(payload, txId, timestampMs) {
   let signingString;
   let parentPostId = null;
   let mentionsJson = "[]";
+  let poll = null;
   if (action === "post") {
     b64 = fields[3];
     mentionsJson = fields[4];
@@ -89,6 +90,17 @@ export function verifiedChainPost(payload, txId, timestampMs) {
     if (fields.length < 6 || !/^[0-9a-f]{66}$/i.test(fields[5])) return null;
     b64 = fields[4];
     signingString = KAPOSTS_PROTOCOL.quoteSigningString(fields[3], b64, fields[5]);
+  } else if (action === "poll") {
+    // A poll is a post whose text is the question (KAPOSTS_INDEXER.md 5.9, KaPost 369794e). Only the
+    // indexer counts votes, so from the chain it shows its options and closing time, nothing counted.
+    if (fields.length < 7 || !/^\d+$/.test(fields[5])) return null;
+    const options = fields[4].split(",");
+    if (options.length < 2 || options.length > 4 || parsedMentions(fields[6]) === null) return null;
+    b64 = fields[3];
+    mentionsJson = fields[6];
+    signingString = KAPOSTS_PROTOCOL.pollSigningString(b64, fields[4], fields[5], mentionsJson);
+    // in the indexer's row shape: options stay base64, as get-poll sends them
+    poll = { options, counts: null, total: null, closesAt: Number(fields[5]), myVote: null };
   } else {
     return null;
   }
@@ -98,7 +110,7 @@ export function verifiedChainPost(payload, txId, timestampMs) {
     post: {
       id: txId, userPublicKey: pubkey.toLowerCase(), postContent: b64, timestamp: timestampMs,
       parentPostId, mentionedPubkeys: parsedMentions(mentionsJson) || [],
-      contentType: action, isQuote: action === "quote", quote: null, editedAt: null, poll: null,
+      contentType: action, isQuote: action === "quote", quote: null, editedAt: null, poll,
     },
     repeatKey: `${xOnlyKey(pubkey)}:${signature.toLowerCase()}`,
   };
@@ -121,6 +133,24 @@ function verifiedAmendment(payload, timestampMs, ofPubkey) {
   if (mentions === null || message === null || !showsText(message)) return null;
   if (!kaPostSignatureIsValid(signature, KAPOSTS_PROTOCOL.editSigningString(postId, fields[4], fields[5]), pubkey)) return null;
   return { kind: "edit", postId, b64: fields[4], mentions, timestampMs };
+}
+
+/** A verified `delete:` or `edit:` record and the x-only key that signed it, whoever that is (the
+ *  block stream doesn't know a post's author until it's matched, KaPost 369794e signedAmendment). */
+export function signedAmendment(payload, timestampMs) {
+  const text = String(payload || "");
+  if (!text.startsWith(KAPOSTS_PROTOCOL.prefix)) return null;
+  const fields = text.slice(KAPOSTS_PROTOCOL.prefix.length).split(":");
+  if (fields.length < 4) return null;
+  const amendment = verifiedAmendment(payload, timestampMs, fields[1]);
+  return amendment ? { signer: xOnlyKey(fields[1]), amendment } : null;
+}
+
+/** Whether an edit made at `editedAtMs` counts on a post (KaPost 369794e editApplies): within the
+ *  indexer's edit window, and never on a poll. */
+export function editAppliesTo({ timestamp, poll = null, contentType = null }, editedAtMs) {
+  if (poll || contentType === "poll") return false;
+  return editedAtMs >= timestamp && editedAtMs - timestamp <= KAPOSTS_EDIT_WINDOW_MS;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +191,8 @@ export function chainPostsFromTransactions(transactions, pubkey) {
     })
     .map(({ post }) => {
       const edit = latestEdits.get(post.id);
-      if (!edit || edit.timestampMs < post.timestamp || edit.timestampMs - post.timestamp > KAPOSTS_EDIT_WINDOW_MS) return post;
+      // never on a poll: its options are what people voted on (KAPOSTS_INDEXER.md 5.9)
+      if (!edit || post.poll || edit.timestampMs < post.timestamp || edit.timestampMs - post.timestamp > KAPOSTS_EDIT_WINDOW_MS) return post;
       return { ...post, postContent: edit.b64, mentionedPubkeys: edit.mentions, editedAt: edit.timestampMs };
     })
     .sort((a, b) => b.timestamp - a.timestamp);
@@ -217,7 +248,11 @@ export async function followedKaPostsFromChain(engine, addresses, options = {}) 
 
 const LIVE_FEED_KEEP = 300;
 // Spelled out: this runs while the module loads, before KAPOSTS_PROTOCOL can be read through the import cycle.
-const LIVE_PAYLOAD_PREFIXES = ["post:", "reply:", "quote:"].map((action) => hexOfBytes(encodeUtf8(`kchat:1:${action}`)));
+const LIVE_PAYLOAD_PREFIXES = ["post:", "reply:", "quote:", "poll:"].map((action) => hexOfBytes(encodeUtf8(`kchat:1:${action}`)));
+// edits and deletes too, so a post changed or removed during the outage doesn't stay as it was
+const LIVE_AMENDMENT_PREFIXES = ["edit:", "delete:"].map((action) => hexOfBytes(encodeUtf8(`kchat:1:${action}`)));
+const LIVE_SEEN_PAYLOADS_MAX = 3000;
+const LIVE_AMENDMENTS_MAX = 1000;
 
 const payloadHexOf = (payload) => {
   if (typeof payload === "string") return payload.trim().toLowerCase();
@@ -226,6 +261,24 @@ const payloadHexOf = (payload) => {
   }
   return "";
 };
+
+/** The verified edits and deletes in one block: `[{ signer, amendment }]`. */
+export function signedAmendmentsInBlock(event) {
+  const block = blockFromBlockAddedEvent(event);
+  const transactions = Array.isArray(block?.transactions) ? block.transactions : [];
+  const found = [];
+  for (const tx of transactions) {
+    const hex = payloadHexOf(tx?.payload);
+    if (!LIVE_AMENDMENT_PREFIXES.some((prefix) => hex.startsWith(prefix))) continue;
+    const payload = decodeUtf8Strict(bytesOfHex(hex));
+    if (payload === null) continue;
+    const verbose = tx?.verboseData || tx?.verbose_data || null;
+    const timestampMs = Number(verbose?.blockTime || verbose?.block_time || block?.header?.timestamp) || Date.now();
+    const signed = signedAmendment(payload, timestampMs);
+    if (signed) found.push(signed);
+  }
+  return found;
+}
 
 /** The verified posts in one block, or block-added event. A block with none costs a prefix check per transaction. */
 export function verifiedChainPostsInBlock(event) {
@@ -256,10 +309,23 @@ export function createKaPostLiveFeed() {
   let stopHandler = null;
   let active = false;
   const seenPayloads = new Set();
+  // Edits and deletes seen during the outage, by post id and the key that signed them: one counts
+  // only on a post by that key (KaPost 369794e). Newest edit per post; a delete wins.
+  const amendments = new Map(); // `${postId}|${signer}` -> amendment
+  const amendPosts = (list) => list.flatMap((post) => {
+    const author = xOnlyKey(post.userPublicKey);
+    const found = amendments.get(`${post.id}|${author}`);
+    if (!found) return [post];
+    if (found.kind === "delete") return [];
+    if (!editAppliesTo(post, found.timestampMs)) return [post];
+    return [{ ...post, postContent: found.b64, mentionedPubkeys: found.mentions, editedAt: found.timestampMs }];
+  });
   const listeners = new Set();
   const announce = () => { for (const listener of listeners) { try { listener(posts); } catch { /* the others still hear */ } } };
   const feed = {
     posts: () => posts,
+    /** The edits and deletes seen so far: `Map("postId|x-only signer" -> amendment)`. */
+    amendments: () => amendments,
     isActive: () => active,
     /** `listener(posts)`; returns the unsubscribe. */
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
@@ -276,18 +342,31 @@ export function createKaPostLiveFeed() {
       const hadPosts = posts.length > 0;
       posts = [];
       seenPayloads.clear();
+      amendments.clear();
       if (hadPosts) announce();
     },
     ingest(event) {
       if (!active) return;
+      let amended = false;
+      for (const { signer, amendment } of signedAmendmentsInBlock(event)) {
+        const key = `${amendment.postId}|${signer}`;
+        const before = amendments.get(key);
+        if (before?.kind === "delete") continue;
+        if (amendment.kind === "edit" && before && before.timestampMs > amendment.timestampMs) continue;
+        amendments.delete(key);
+        amendments.set(key, amendment);
+        while (amendments.size > LIVE_AMENDMENTS_MAX) amendments.delete(amendments.keys().next().value);
+        amended = true;
+      }
       const known = new Set(posts.map((post) => post.id));
       const fresh = verifiedChainPostsInBlock(event).filter(({ post, repeatKey }) => {
         if (known.has(post.id) || seenPayloads.has(repeatKey)) return false;
         seenPayloads.add(repeatKey);
+        while (seenPayloads.size > LIVE_SEEN_PAYLOADS_MAX) seenPayloads.delete(seenPayloads.values().next().value);
         return true;
       }).map(({ post }) => post);
-      if (!fresh.length) return;
-      posts = [...fresh, ...posts].sort((a, b) => b.timestamp - a.timestamp).slice(0, LIVE_FEED_KEEP);
+      if (!fresh.length && !amended) return;
+      posts = amendPosts([...fresh, ...posts]).sort((a, b) => b.timestamp - a.timestamp).slice(0, LIVE_FEED_KEEP);
       announce();
     },
   };

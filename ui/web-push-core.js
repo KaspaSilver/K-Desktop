@@ -302,6 +302,7 @@ export function buildRegistrationFields(input) {
     kaposts_notify_comments: kaposts ? kaposts.comments !== false : true,
     kaposts_notify_reposts: kaposts ? kaposts.reposts !== false : true,
     kaposts_notify_follows: kaposts ? kaposts.follows !== false : true,
+    kaposts_notify_mentions: kaposts ? kaposts.mentions !== false : true,
     kaposts_watch_authors: kaposts?.pubkey ? cappedUnique(input.kapostsWatchAuthors, PUSH_LIMITS.watchAuthors, (v) => String(v || "").trim().toLowerCase()).sort() : [],
     watch_only_addresses: cappedUnique(input.watchOnlyAddresses, PUSH_LIMITS.watchOnly),
     primary_address: input.primaryAddress || null,

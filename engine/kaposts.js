@@ -9,7 +9,7 @@
 // produces, so signatures verify server-side against the embedded compressed pubkey.
 
 import { getEndpoint } from "./endpoints.js";
-import { enqueueSend, sendPayloadTransaction, sanitizeUtxoEntries, totalUtxoSompi, submitConfirmingAcceptance, excludeJustSpentUtxos, excludeCovenantUtxos, SEND_OUTCOME_UNKNOWN } from "./transactions.js";
+import { enqueueSend, sendPayloadTransaction, sanitizeUtxoEntries, totalUtxoSompi, submitConfirmingAcceptance, excludeJustSpentUtxos, excludeCovenantUtxos, noteSpentOutpoints, SEND_OUTCOME_UNKNOWN } from "./transactions.js";
 import { isRpcConnectionError } from "./rpc.js";
 import { utxoAmountSompi, checkedUtxoAnswer } from "./amounts.js";
 import { NETWORK_ID } from "./utils.js";
@@ -232,7 +232,11 @@ async function kapostFetch(url, timeoutMs, onAnswer) {
     try { json = text ? JSON.parse(text) : null; } catch { json = null; }
     if (!response.ok) {
       const detail = json?.error ? `: ${json.error}` : "";
-      throw new Error(`KaPost indexer request failed (${response.status})${detail}.`);
+      const error = new Error(`KaPost indexer request failed (${response.status})${detail}.`);
+      // the indexer answered (not a network failure): what it said is its verdict
+      error.indexerAnswered = true;
+      error.status = response.status;
+      throw error;
     }
     // A proxy's page in the indexer's place, once that has confirmed an outage: not an empty feed.
     if (json === null && isIndexerDown(url.href)) throw new Error("KaPost indexer sent an unreadable answer.");
@@ -533,10 +537,24 @@ function signKaPostString(engine, message) {
   return String(signature).toLowerCase();
 }
 
+// The most payload one standard transaction carries with room for its inputs and outputs: compute
+// mass is about a gram per byte, and the standard limit is 100,000 grams.
+export const KAPOST_MAX_PAYLOAD_BYTES = 90_000;
+export const KAPOST_TOO_LONG = "KAPOST_TOO_LONG";
+/** Checked before any fee or submit (KaPost 369794e payloadFitsOneTransaction): a payload too big
+ *  for one transaction is refused with an answer that isn't retried - sending it again can't help. */
+export function checkKaPostPayloadFits(payloadBytes) {
+  if (payloadBytes <= KAPOST_MAX_PAYLOAD_BYTES) return;
+  const error = new Error("This post is too long for one transaction. Shorten it and try again.");
+  error.code = KAPOST_TOO_LONG;
+  throw error;
+}
+
 async function submitKaPostPayload(engine, protocolString) {
   if (!engine?.kaspa || !engine?.privateKey || !engine?.address) {
     throw new Error("Load WASM and generate/import a wallet first.");
   }
+  checkKaPostPayloadFits(new TextEncoder().encode(protocolString).length);
   await engine.connect();
   const sendResult = await sendPayloadTransaction({
     kaspa: engine.kaspa,
@@ -637,11 +655,21 @@ export async function submitKaPostReply({ engine, text, postId, parentAuthorPubk
   return submitKaPostPayload(engine, KAPOSTS_PROTOCOL.replyPayload(me, signature, postId, b64, mentions));
 }
 
+/** The mentions a post carries: real 02/03 keys, in the order written, once each and never yourself
+ *  - both compared on the x-only key (KaPost 369794e), since 02 and 03 forms of one key are one
+ *  person and the indexer matches on x-only. */
 function cleanMentions(engine, mentionedPubkeys) {
-  const me = requesterPubkeyFor(engine);
-  const clean = [...new Set((Array.isArray(mentionedPubkeys) ? mentionedPubkeys : [])
-    .map((p) => String(p || "").toLowerCase())
-    .filter((p) => /^0[23][0-9a-f]{64}$/.test(p) && p !== me))];
+  const meXOnly = String(requesterPubkeyFor(engine) || "").toLowerCase().slice(2);
+  const seen = new Set();
+  const clean = [];
+  for (const raw of Array.isArray(mentionedPubkeys) ? mentionedPubkeys : []) {
+    const p = String(raw || "").toLowerCase();
+    if (!/^0[23][0-9a-f]{64}$/.test(p)) continue;
+    const xOnly = p.slice(2);
+    if (xOnly === meXOnly || seen.has(xOnly)) continue;
+    seen.add(xOnly);
+    clean.push(p);
+  }
   return JSON.stringify(clean);
 }
 
@@ -690,7 +718,11 @@ async function kapostPostJson(path, body) {
     try { json = text ? JSON.parse(text) : null; } catch { json = null; }
     if (!response.ok) {
       const detail = json?.error ? `: ${json.error}` : "";
-      throw new Error(`KaPost indexer request failed (${response.status})${detail}.`);
+      const error = new Error(`KaPost indexer request failed (${response.status})${detail}.`);
+      // the indexer answered (not a network failure): what it said is its verdict
+      error.indexerAnswered = true;
+      error.status = response.status;
+      throw error;
     }
     return json;
   } finally {
@@ -736,13 +768,37 @@ export function scheduledTransactionRestJson(serialized) {
 /** Builds and signs the post transaction now, spending the smallest confirmed coin that can
  *  carry it (else the coins together). Nothing is submitted. Returns
  *  { txId, payload, spentOutpoints, serialized, safeJson, restJson }. */
-export function buildScheduledPost(args) {
+export async function buildScheduledPost(args) {
   const address = args?.engine?.address;
   if (!address) throw new Error("Load WASM and generate/import a wallet first.");
   // In the send queue, so a chat message going out at the same moment cannot pick this coin.
-  return enqueueSend(address, () => buildScheduledPostNow(args));
+  try {
+    return await enqueueSend(address, () => buildScheduledPostNow(args));
+  } catch (error) {
+    if (error?.code !== SCHEDULE_SPLIT_NEEDED) throw error;
+  }
+  // The post would hold every coin this account has until its time (KaPost 369794e): a 1 KAS coin
+  // is set aside first - a send to this same address - and the post is built on that, so the rest
+  // stays free for chats and payments meanwhile.
+  const sent = await args.engine.send(address, "1", "0", { exactAmount: true, ownerAddress: address });
+  const splitTxId = String(sent?.txids?.[0] || "").toLowerCase();
+  if (!splitTxId) throw new Error("Couldn't set aside a coin for the scheduled post. Try again in a moment.");
+  const deadline = Date.now() + SCHEDULE_SPLIT_WAIT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    let entries = [];
+    try {
+      entries = (await args.engine.withRpc(async (rpc) => checkedUtxoAnswer(await rpc.getUtxosByAddresses([address])), { retries: 0, label: "Scheduled post split check" }))?.entries || [];
+    } catch { continue; }
+    const landed = sanitizeUtxoEntries(entries).some((e) => String(e?.outpoint?.transactionId || "").toLowerCase() === splitTxId && Number(e.blockDaaScore ?? 0) > 0);
+    if (landed) return enqueueSend(address, () => buildScheduledPostNow({ ...args, noSplit: true }));
+  }
+  throw new Error("The coin set aside for the scheduled post hasn't confirmed yet. Try again in a moment.");
 }
-async function buildScheduledPostNow({ engine, text, mentionedPubkeys = [], reservedOutpoints = [] }) {
+export const SCHEDULE_SPLIT_NEEDED = "SCHEDULE_SPLIT_NEEDED";
+const SCHEDULE_SPLIT_WAIT_MS = 60_000;
+const SCHEDULE_SPLIT_ABOVE_SOMPI = 200_000_000n; // 2 KAS
+async function buildScheduledPostNow({ engine, text, mentionedPubkeys = [], reservedOutpoints = [], noSplit = false }) {
   if (!engine?.kaspa || !engine?.privateKey || !engine?.address) throw new Error("Load WASM and generate/import a wallet first.");
   const b64 = utf8ToBase64(KACHAT_MARKER + String(text || ""));
   const me = requesterPubkeyFor(engine);
@@ -774,9 +830,16 @@ async function buildScheduledPostNow({ engine, text, mentionedPubkeys = [], rese
     return kaspa.createTransaction(inputs, [{ address: engine.address, amount }], 0n, payload);
   };
   let tx = null;
+  let inputCount = 1;
   for (const candidate of usable) { tx = build([candidate]); if (tx) break; }
-  if (!tx) tx = build(usable.slice(0, 80));
+  if (!tx) { inputCount = Math.min(80, usable.length); tx = build(usable.slice(0, 80)); }
   if (!tx) throw new Error("Balance too low to schedule a post after network fees.");
+  // every confirmed coin (or the only one) would wait with the post: set 1 KAS aside first
+  if (!noSplit && inputCount === usable.length && totalUtxoSompi(usable) > SCHEDULE_SPLIT_ABOVE_SOMPI) {
+    const error = new Error("Setting aside a coin for the scheduled post.");
+    error.code = SCHEDULE_SPLIT_NEEDED;
+    throw error;
+  }
   const keyHex = engine.privateKeyHex || engine.privateKey;
   const signed = kaspa.signTransaction(tx, [keyHex], true);
   const serialized = typeof signed.serializeToObject === "function" ? signed.serializeToObject() : signed;
@@ -859,6 +922,8 @@ export function parseChainPayload(payload) {
   if (messageIndex < 0 || fields.length <= messageIndex) return null;
   const decoded = base64ToUtf8(fields[messageIndex]);
   if (decoded === null || decoded === undefined) return null;
+  // only a KaChat post (KaPost 369794e): one without the marker came from another K client
+  if (!isKaChatContent(decoded)) return null;
   return {
     action,
     authorPubkey: pubkey,
@@ -890,8 +955,9 @@ export async function fetchChainPost(txId) {
     const payload = hexToUtf8(tx?.payload);
     const parsed = payload ? parseChainPayload(payload) : null;
     if (!parsed) return null;
-    // With the indexer down nothing else has checked it: a payload can name anyone as its author.
-    if (isIndexerDown(kapostBaseUrl()) && !chainPayloadIsSigned(payload)) return null;
+    // A payload can name anyone as its author, so its Schnorr signature is checked whether or not the
+    // indexer is up (KaPost 369794e: it was only checked during an outage).
+    if (!chainPayloadIsSigned(payload)) return null;
     return { txId: id, ...parsed, blockTimeMillis: Number(tx?.block_time) || null };
   } catch { return null; }
   finally { clearTimeout(timer); }
@@ -994,6 +1060,9 @@ export function applyScheduledOutcomes(entries, remote, inFlight = new Set(), no
       continue;
     }
     const status = ["scheduled", "submitted", "failed", "cancelled"].includes(server.status) ? server.status : entry.status;
+    // Sent by the indexer: the node lists its coins until the spend is in a block, so they stay
+    // held from the next builds (KaPost 369794e).
+    if (status === "submitted" && entry.status === "scheduled") noteSpentOutpoints(entry.spentOutpoints);
     if (status !== entry.status || (server.error || null) !== (entry.error || null)) {
       entry.status = status;
       entry.error = server.error || null;
@@ -1009,7 +1078,7 @@ export function applyScheduledOutcomes(entries, remote, inFlight = new Set(), no
  *  ee5ec98 submitDue). `readEntries` is read afresh each turn, since each turn can wait on the
  *  network; `inFlight` keeps a post from being sent and cancelled at once. Returns whether anything
  *  changed. */
-export async function submitDueScheduledPosts({ readEntries, inFlight, now = Date.now(), stillOurs = () => true, submit, handToIndexer, onChange = () => {}, log = () => {} }) {
+export async function submitDueScheduledPosts({ readEntries, inFlight, now = Date.now(), stillOurs = () => true, submit, handToIndexer, isOnChain = null, onChange = () => {}, log = () => {} }) {
   let changed = false;
   for (const id of readEntries().map((entry) => entry.id)) {
     if (!stillOurs()) return changed;
@@ -1036,9 +1105,20 @@ export async function submitDueScheduledPosts({ readEntries, inFlight, now = Dat
             log(`Scheduled post submit deferred: ${message}`);
             continue;
           }
-          entry.status = "failed";
-          entry.error = message;
-          log(`Scheduled post failed to submit: ${message}`);
+          // Refused because it is already on chain - the indexer sent it after all and its answer
+          // never arrived - is a post that went out (KaPost 369794e), not "Failed to post".
+          let onChain = false;
+          try { onChain = Boolean(await isOnChain?.(entry)); } catch { onChain = false; }
+          if (!stillOurs()) return changed;
+          if (onChain) {
+            entry.status = "submitted";
+            entry.submittedAt = Date.now();
+            entry.onServer = false;
+          } else {
+            entry.status = "failed";
+            entry.error = message;
+            log(`Scheduled post failed to submit: ${message}`);
+          }
         }
         changed = true;
         onChange();
@@ -1061,18 +1141,25 @@ export async function submitDueScheduledPosts({ readEntries, inFlight, now = Dat
 /** Cancels a post that has not gone out: told to the indexer if it holds it, then removed. Returns
  *  what to tell the person when it couldn't be, with the post still scheduled: an indexer that didn't
  *  answer will still send it (iOS ee5ec98 cancel). */
-export async function cancelScheduledEntry({ id, readEntries, inFlight, cancelOnServer, remove, log = () => {} }) {
+export async function cancelScheduledEntry({ id, readEntries, inFlight, cancelOnServer, remove, rememberCancel = null, log = () => {} }) {
   if (inFlight.has(id)) return KAPOSTS_SCHEDULED_ON_ITS_WAY;
   inFlight.add(id);
   try {
     const current = readEntries().find((entry) => entry.id === id);
     if (!current) return null;
-    if (current.onServer && current.status === "scheduled") {
+    // Told to the indexer even when it's kept only here (KaPost 369794e): a schedule whose answer
+    // was lost reached it all the same.
+    if (current.status === "scheduled") {
       try {
         await cancelOnServer(current);
       } catch (error) {
-        log(`Scheduled post cancel on the indexer failed: ${error?.message || error}`);
-        return KAPOSTS_SCHEDULED_CANCEL_UNREACHED;
+        // the indexer answered that it doesn't hold it: nothing there to cancel
+        if (!error?.indexerAnswered) {
+          log(`Scheduled post cancel on the indexer failed: ${error?.message || error}`);
+          if (current.onServer) return KAPOSTS_SCHEDULED_CANCEL_UNREACHED;
+          // cancelled here now, and told to the indexer whenever it can be reached
+          rememberCancel?.(current.id);
+        }
       }
     }
     remove(current);
@@ -1080,6 +1167,17 @@ export async function cancelScheduledEntry({ id, readEntries, inFlight, cancelOn
   } finally {
     inFlight.delete(id);
   }
+}
+
+/** Tells the indexer about cancels it missed (KaPost 369794e flushPendingCancels). An id leaves the
+ *  list once the indexer has answered, either way; the ones it couldn't be reached for are
+ *  returned, to keep. */
+export async function flushPendingScheduledCancels({ ids, cancel }) {
+  const left = [];
+  for (const id of ids || []) {
+    try { await cancel(id); } catch (error) { if (!error?.indexerAnswered) left.push(id); }
+  }
+  return left;
 }
 
 /** The status line of a post still waiting: past its time, it's on its way (iOS scheduledLine). */

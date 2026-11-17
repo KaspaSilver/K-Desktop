@@ -332,12 +332,13 @@ test("down: Following reads the people followed; up, REST isn't touched", async 
   assert.equal(page.outage, true);
 });
 
-test("one post from REST: unchecked as before with the indexer up, checked while it's down", async () => {
+test("one post from REST: its signature is checked whether the indexer is up or down (KaPost 369794e)", async () => {
   freshWorld();
   const forged = postPayload(AUTHOR, "forged", { signer: A });
   world.rest.set(txId(51), { payload: hexOf(forged), block_time: clock });
   world.rest.set(txId(52), { payload: hexOf(postPayload(AUTHOR, "signed")), block_time: clock });
-  assert.ok(await fetchChainPost(txId(51)), "up: unchanged");
+  assert.equal(await fetchChainPost(txId(51)), null, "up: a forged author is refused too");
+  assert.equal((await fetchChainPost(txId(52))).message, "signed");
   await confirmOutage();
   assert.equal(await fetchChainPost(txId(51)), null);
   assert.equal((await fetchChainPost(txId(52))).message, "signed");
@@ -442,8 +443,12 @@ test("recovery: the minute's check finds it, and reads are the indexer's again, 
   clock += 61_000;
   assert.equal(kaPostIndexerIsDown(), true, "the check is on its way; still down until it answers");
   await new Promise((resolve) => setTimeout(resolve, 20));
+  // one pass isn't enough (KaPost 369794e: two in a row), and the second check may go at once
+  assert.equal(isIndexerDown(INDEXER), true, "one probe pass doesn't end it");
+  assert.equal(kaPostIndexerIsDown(), true, "the second check goes out without waiting a minute");
+  await new Promise((resolve) => setTimeout(resolve, 20));
   stop();
-  assert.equal(isIndexerDown(INDEXER), false, "the answer ended it");
+  assert.equal(isIndexerDown(INDEXER), false, "two passes in a row ended it");
   assert.deepEqual(changes.map(({ key, down }) => ({ key, down })), [{ key: indexerKey(INDEXER), down: false }]);
   world.respond = () => json(200, { posts: [indexerRow(3, "back with news")], pagination: { hasMore: true, nextCursor: "c3" } });
   const page = await fetchGlobalFeed({ engine: A.engine, limit: 9 });

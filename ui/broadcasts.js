@@ -168,7 +168,12 @@ function roomNoteKey(m) {
 function markChannelRead(channel) {
   if (!channel) return;
   const before = unreadFor(channel);
-  readMarkerByChannel[channel] = Date.now();
+  // Read up to the newest message shown, not this device's clock (KaPost 369794e): a message whose
+  // block time lands after "now" on a clock running fast stayed read when it shouldn't, and one
+  // that arrives later with an earlier block time counts. Never moves back; now for an empty room.
+  let newest = 0;
+  for (const m of messageCache[channel] || []) if (!m.status && Number(m.blockTime) > newest) newest = Number(m.blockTime);
+  readMarkerByChannel[channel] = newest ? Math.max(newest, Number(readMarkerByChannel[channel]) || 0) : Math.max(Date.now(), Number(readMarkerByChannel[channel]) || 0);
   delete markedUnread[channel];
   saveRead();
   if (before > 0) deps.onUnreadChanged?.();
@@ -833,6 +838,22 @@ export function broadcastBlockedAccountsChanged() {
 function reactionsFor(channel) {
   return reactionsCache[channel]?.byTarget || {};
 }
+/** The reactions a bubble shows: its own, and - for a voice note's bubble - those made on any of
+ *  its hidden parts, once per reactor (KaPost 369794e: reactions and replies on hidden parts go to
+ *  the bubble). The bubble's own reaction wins over a part's. */
+function reactionsOn(channel, txId) {
+  const byTarget = reactionsFor(channel);
+  const cluster = roomParts.clusters.get(txId);
+  if (!cluster) return byTarget[txId] || {};
+  const merged = { ...(byTarget[txId] || {}) };
+  for (const member of cluster.members) {
+    if (member.txId === txId) continue;
+    for (const [reactor, reaction] of Object.entries(byTarget[member.txId] || {})) {
+      if (!(reactor in merged)) merged[reactor] = reaction;
+    }
+  }
+  return merged;
+}
 
 // Edits (MESSAGING.md "Message Edits", iOS a55b79a): a plaintext broadcast row like a reaction,
 // applied on the scan, indexer-page and sweep paths (all through mergeMessages). Newest by
@@ -1134,7 +1155,10 @@ async function backfillChannel(channel, { quiet = true } = {}) {
           (min, m) => Math.min(min, Number(m.blockTime) || Infinity), Infinity);
         if (!Number.isFinite(oldest)) break;
         if (cutoff && oldest < cutoff) break; // older pages would be pruned anyway
-        before = oldest;
+        // Inclusive of the oldest millisecond (KaPost 369794e): rows sharing it past the page's
+        // end were skipped; the overlap dedupes by txid. A page all in one millisecond can't
+        // move on that way, so it steps past it.
+        before = oldest + 1 === before ? oldest : oldest + 1;
       }
       } finally { listRenderSuppressed = false; }
       // The whole history is in, so a send that did land has its copy to match (iOS e5a9b11).
@@ -1149,6 +1173,12 @@ async function backfillChannel(channel, { quiet = true } = {}) {
   } catch (error) {
     if (!quiet) deps.showToast?.(userFacingError(error));
     deps.appendEngineLog?.(`Broadcast backfill failed for #${channel}: ${error.message}`);
+    // With the indexer confirmed down no history is coming to match them against, so the rows an
+    // earlier run left pending settle now, once (KaPost 369794e), instead of showing Sending.
+    if (isIndexerDown(roomIndexerBase(channel)) && settlePendingFromEarlierRuns(channel)) {
+      if (activeChannel === channel) renderRoom();
+      renderChannelList();
+    }
     return -1;
   }
 }
@@ -1252,7 +1282,10 @@ async function sendRoomRowsInOrder(channel, ids) {
 /** Retry on a note's bubble: only its failed parts, in place and in order. */
 function retryRoomParts(channel, cluster) {
   if (!channel) return;
-  const failed = cluster.parts.filter((m) => m.status === "failed").map((m) => m.txId);
+  // the parts as they are now, and none already being sent again (KaPost 369794e)
+  const live = new Map((messageCache[channel] || []).map((m) => [m.txId, m]));
+  const failed = cluster.parts.map((m) => live.get(m.txId))
+    .filter((m) => m && m.status === "failed" && !pendingSendsThisRun.has(m.txId)).map((m) => m.txId);
   if (!failed.length) return;
   messageCache[channel] = (messageCache[channel] || []).map((m) => (failed.includes(m.txId) ? { ...m, status: "pending" } : m));
   for (const id of failed) pendingSendsThisRun.add(id);
@@ -1283,6 +1316,8 @@ async function sendRoomRow(channel, pendingId, text, { showBubble = true, feeKas
       messageCache[channel] = markRoomRowUnconfirmed(messageCache[channel], pendingId, error.txid);
       saveCache();
     } else if (showBubble) {
+      // failed: free for a Retry again
+      pendingSendsThisRun.delete(pendingId);
       messageCache[channel] = (messageCache[channel] || []).map((m) =>
         m.txId === pendingId ? { ...m, status: "failed" } : m);
     }
@@ -1689,7 +1724,7 @@ function buildMessageElement(m) {
   onDoubleGesture(el, (event) => {
     if (m.status) return;
     event.preventDefault();
-    const perReactor = reactionsFor(activeChannel)[m.txId] || {};
+    const perReactor = reactionsOn(activeChannel, m.txId);
     const myEntry = perReactor[deps.engine.address || ""];
     deps.openQuickReactionBar?.({
       anchor: el,
@@ -1705,6 +1740,8 @@ function buildMessageElement(m) {
 // Scrolls to the original a reply quotes and lights it up for a moment.
 function jumpToBroadcastMessage(txId) {
   if (!txId || !roomBodyEl) return;
+  // a reply to one of a voice note's hidden parts goes to the note's bubble (KaPost 369794e)
+  txId = roomParts.anchorKeyOf.get(txId) || txId;
   let row = null;
   try { row = roomBodyEl.querySelector(`[data-broadcast-txid="${CSS.escape(String(txId))}"]`); } catch { row = null; }
   if (!row) { deps.showToast?.("Original message not available."); return; }
@@ -1763,8 +1800,11 @@ function reportBroadcastMessage(m) {
 
 // A failed send of yours: drop the failed row and send the same content again.
 function retryBroadcastMessage(m) {
-  if (!activeChannel || m.status !== "failed") return;
-  messageCache[activeChannel] = (messageCache[activeChannel] || []).filter((row) => row.txId !== m.txId);
+  if (!activeChannel) return;
+  // the row as it is now, not as the bubble was drawn (KaPost 369794e): a second tap finds it gone
+  const live = (messageCache[activeChannel] || []).find((row) => row.txId === m?.txId);
+  if (!live || live.status !== "failed" || pendingSendsThisRun.has(live.txId)) return;
+  messageCache[activeChannel] = (messageCache[activeChannel] || []).filter((row) => row.txId !== live.txId);
   renderRoom();
   sendBroadcastText(activeChannel, m.content).then(() => renderChannelList()).catch((error) => {
     deps.showToast?.(roomSendErrorText(error));
@@ -1882,7 +1922,7 @@ function openBroadcastMessageMenu(m, x, y) {
   const mine = m.senderAddress === deps.engine.address;
   const pending = Boolean(m.status); // pending/failed/not confirmed rows aren't known on chain yet
   const myAddress = deps.engine.address || "";
-  const perReactor = reactionsFor(activeChannel)[m.txId] || {};
+  const perReactor = reactionsOn(activeChannel, m.txId);
   const myEntry = perReactor[myAddress];
   const current = myEntry && !myEntry.removed ? myEntry.emoji : null;
   const icons = deps.getMsgMenuIcons?.() || {};
@@ -1973,7 +2013,7 @@ function humanizeBroadcastContent(content) {
 
 function appendReactionUi(el, m) {
   if (m.status) return; // pending/failed rows have no on-chain txid to react to
-  const perReactor = reactionsFor(activeChannel)[m.txId] || {};
+  const perReactor = reactionsOn(activeChannel, m.txId);
 
   // No hover bar: reacting is the right-click menu (and double-click), like everywhere else.
 
@@ -2634,6 +2674,14 @@ function leaveChannel(name) {
   saveIndexerOverrides();
   delete joinedAtByChannel[name];
   saveJoinedAt();
+  // its edits and paging state go with it (KaPost 369794e: leaving a room deletes its data)
+  delete editsCache[name];
+  saveEdits();
+  for (const key of [...failedRoomEdits.keys()]) if (String(key).startsWith(`${name}:`)) failedRoomEdits.delete(key);
+  deepBackfilled.delete(name);
+  deepBackfillFloor.delete(name);
+  deepBackfillDone.delete(name);
+  roomNewestSeen.delete(name);
   if (activeChannel === name) closeRoom();
   syncScanWanted();
   renderChannelList();

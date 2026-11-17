@@ -48,6 +48,28 @@ export function kapostsCharCount(text) {
   return [...String(text || "")].length;
 }
 
+/** A post's length as the limit counts it: UTF-8 bytes (KaPost 369794e postLength), what the
+ *  transaction actually carries - an emoji is four, a Chinese character three. */
+export function kapostsPostLength(text) {
+  return new TextEncoder().encode(String(text || "")).length;
+}
+
+/** `text` cut to at most `limit` UTF-8 bytes, never inside a character (a whole code point, so an
+ *  emoji is kept or dropped whole). */
+export function kapostsClampBytes(text, limit) {
+  const value = String(text || "");
+  if (value.length * 3 <= limit) return value; // a UTF-16 unit is at most 3 bytes
+  let bytes = 0;
+  let out = "";
+  for (const ch of value) {
+    const size = new TextEncoder().encode(ch).length;
+    if (bytes + size > limit) break;
+    bytes += size;
+    out += ch;
+  }
+  return out;
+}
+
 /** `text` cut to at most `limit` code points, never inside a surrogate pair. */
 export function kapostsClampChars(text, limit) {
   const value = String(text || "");
