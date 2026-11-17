@@ -712,7 +712,10 @@ export function broadcastPayloadBytes(channel, content) {
   return new TextEncoder().encode(`${BROADCAST_PAYLOAD_PREFIX}${name}:${String(content || "")}`).length;
 }
 
-export async function sendBroadcastMessage({ engine, channel, content, feeKas = "0", singleInput = false }) {
+/** `expectedSender`: the account the message was made for (KaPlay 077d777): if another account is
+ *  on by the time it would be signed, nothing is sent. */
+export const BROADCAST_SENDER_CHANGED = "The account changed, so nothing was sent.";
+export async function sendBroadcastMessage({ engine, channel, content, feeKas = "0", singleInput = false, expectedSender = null }) {
   const name = normalizeBroadcastChannel(channel);
   if (!isValidBroadcastChannel(name)) throw new Error("Invalid channel name.");
   const text = String(content || "").trim();
@@ -720,7 +723,11 @@ export async function sendBroadcastMessage({ engine, channel, content, feeKas = 
   if (!engine?.kaspa || !engine?.privateKey || !engine?.address) {
     throw new Error("Load WASM and generate/import a wallet first.");
   }
+  const senderChanged = () => expectedSender && String(engine.address || "") !== String(expectedSender);
+  if (senderChanged()) throw new Error(BROADCAST_SENDER_CHANGED);
   await engine.connect();
+  // the connect was the last wait before the keys are read
+  if (senderChanged()) throw new Error(BROADCAST_SENDER_CHANGED);
   const protocolString = `kchat:1:bcast:${name}:${text}`;
   // The address that signs and pays: the post's sender, even if another account is active by the
   // time the node answers.

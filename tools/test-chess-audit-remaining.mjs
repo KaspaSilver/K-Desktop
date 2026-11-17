@@ -108,6 +108,8 @@ async function openArena(initialRows) {
     address: ME,
     onBroadcastBlockHits: () => () => {},
     getMempoolEntry: async () => null,
+    // a node that answers, holding no coin of a dropped row (KaPlay 077d777)
+    getUtxosWithCovenants: async () => [],
     verifyBroadcastRows: async (list) => ({
       accepted: list.filter((m) => !unknownRows.has(m.txId)),
       forged: [],
@@ -308,9 +310,9 @@ async function openArena(initialRows) {
   await a.tick();
   r.eq(claims(), 1, "the flag is claimed");
 
-  // It never lands: its row is dropped, and the game is undecided again. The arena is read before
-  // the next one is paid for.
-  advance(61_000);
+  // It never lands: its row is dropped (past the 75 s REST grace, KaPlay 077d777), and the game is
+  // undecided again. The arena is read before the next one is paid for.
+  advance(76_000);
   await a.tick();
   await a.tick();
   await a.tick();
@@ -323,7 +325,7 @@ async function openArena(initialRows) {
 
   // After four the app stops paying; the board's Claim win is still there.
   for (let i = 0; i < 6; i += 1) {
-    advance(61_000);
+    advance(76_000); // past the REST grace (KaPlay 077d777)
     await a.tick();
     await a.poll();
     await a.tick();

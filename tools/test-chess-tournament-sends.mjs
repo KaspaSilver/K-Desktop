@@ -131,9 +131,11 @@ const moveBy = (game, sender, blockTime, ply, from, to, txId) => ev(sender, bloc
   const g = game0;
   const flag = T.flagAt(g);
   const view = T.reduce(joins);
-  r.check(T.hasRecentUnclaimedFlag(view, whiteOf, flag - 60_000), "a game of mine still on: busy");
+  // A game still on is isBusyOnline's "playing" check, not this one's; only the winner of a recent
+  // flag is still on the board to claim it - the loser has nothing left there (KaPlay 077d777).
+  r.check(!T.hasRecentUnclaimedFlag(view, whiteOf, flag - 60_000), "a game still on: not this check's");
   r.check(T.hasRecentUnclaimedFlag(view, blackOf, flag + 60_000), "flagged a minute ago, no claim: busy (the winner)");
-  r.check(T.hasRecentUnclaimedFlag(view, whiteOf, flag + 60_000), "and the flagged loser too");
+  r.check(!T.hasRecentUnclaimedFlag(view, whiteOf, flag + 60_000), "the flagged loser: free");
   r.check(!T.hasRecentUnclaimedFlag(view, whiteOf, flag + T.AUTO_CLAIM_WINDOW_MS), "half an hour past the flag: free");
   r.check(!T.hasRecentUnclaimedFlag(view, "kaspa:someone", flag + 60_000), "someone else's game: free");
   r.check(!T.hasRecentUnclaimedFlag(view, "", flag), "no account: free");
@@ -208,7 +210,14 @@ const moveBy = (game, sender, blockTime, ply, from, to, txId) => ev(sender, bloc
   // The verdict.
   const verdict = (lookup, extra = {}) => T.unconfirmedRowVerdict({ lookup, sentAt, now: sentAt + 61_000, ...extra });
   r.eq(verdict({ status: "accepted", blockTime: 1 }), "confirm", "accepted: confirmed");
-  r.eq(verdict({ status: "notAccepted" }), "drop", "nowhere: dropped");
+  // KaPlay 077d777: a REST API running behind answers 404 too, so "nowhere" waits out the REST
+  // grace (75 s with the 60 s bound) before it's dropped, and a coin of ours from it means it landed.
+  r.eq(T.unconfirmedRestLagGrace(), 75_000, "the REST grace: the bound plus 15 s, at most two minutes");
+  r.eq(verdict({ status: "notAccepted" }), "laterAtGrace", "nowhere at 61 s: asked again at the grace");
+  r.eq(verdict({ status: "notAccepted" }, { now: sentAt + 75_001 }), "drop", "nowhere past the grace: dropped");
+  r.eq(verdict({ status: "notAccepted" }, { owned: true }), "confirm", "a coin of ours from it: landed");
+  r.eq(verdict({ status: "notAccepted" }, { owned: null }), "later", "no node to ask about coins: asked again");
+  r.eq(verdict({ status: "notAccepted" }, { owned: null, now: sentAt + 5 * 60_000 + 1 }), "drop", "and given up at five minutes");
   r.eq(verdict({ status: "notAccepted" }, { inMempool: true }), "later", "in a mempool: another round");
   r.eq(verdict({ status: "unanswered" }), "later", "no answer: asked again");
   r.eq(verdict({ status: "unanswered" }, { now: sentAt + 5 * 60_000 }), "later", "no answer at five minutes: still asked");

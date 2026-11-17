@@ -319,6 +319,8 @@ export const UNCONFIRMED_GIVE_UP_MS = 5 * 60_000;
 export const UNCONFIRMED_RECHECK_MS = 15_000;
 export const MOVE_DROPPED_MESSAGE = "Your move didn't reach the network. Play it again.";
 export const ROW_DROPPED_MESSAGE = "That didn't reach the network. Try again.";
+/** A join or a new room that never landed (KaPlay 077d777): nothing is owed, so no "try again". */
+export const JOIN_DROPPED_MESSAGE = "Your join didn't reach the network. Join again whenever you like.";
 /** The rows due a look-up at wall time `now`: `sentAt` maps txId -> when this device started
  *  waiting for it, `nextCheck` txId -> the earliest next look-up (wall ms). */
 export function unconfirmedRowsDue(sentAt, nextCheck, now, bound = UNCONFIRMED_ROW_MS) {
@@ -340,10 +342,27 @@ export function transactionLookupFromRest(httpStatus, json) {
 /** What becomes of a due row: "confirm" (the chain has it), "later" (ask again in
  *  UNCONFIRMED_RECHECK_MS) or "drop" (it never reached the network). `inMempool` is only asked
  *  for a row the REST API does not have; `now` is when the look-up round started. */
-export function unconfirmedRowVerdict({ lookup, inMempool = false, sentAt, now, giveUp = UNCONFIRMED_GIVE_UP_MS }) {
+/** How long a REST API that's behind gets before "not found" means gone (KaPlay 077d777
+ *  restLagGraceMs): at most two minutes, and at most 15 s past the first look-up. */
+export const UNCONFIRMED_REST_LAG_MAX_MS = 120_000;
+export const UNCONFIRMED_REST_LAG_PAST_LOOKUP_MS = 15_000;
+export function unconfirmedRestLagGrace(bound = UNCONFIRMED_ROW_MS) {
+  return Math.min(UNCONFIRMED_REST_LAG_MAX_MS, bound + UNCONFIRMED_REST_LAG_PAST_LOOKUP_MS);
+}
+/** `owned`: whether the address's coins include one of this transaction's outputs (true: it landed;
+ *  false: they don't; null: no node could be asked). A REST "not found" and no mempool entry aren't
+ *  enough on their own (KaPlay 077d777): a REST API running behind answers 404, and "no mempool
+ *  entry" also comes back when no node could be asked - so the row waits out the REST grace, and is
+ *  asked again just after it, before it's dropped. */
+export function unconfirmedRowVerdict({ lookup, inMempool = false, owned = false, sentAt, now, bound = UNCONFIRMED_ROW_MS, giveUp = UNCONFIRMED_GIVE_UP_MS }) {
   const status = lookup?.status || "unanswered";
   if (status === "accepted") return "confirm";
-  if (status === "notAccepted") return inMempool ? "later" : "drop";
+  if (status === "notAccepted") {
+    if (inMempool) return "later";
+    if (owned === true) return "confirm";
+    if (owned == null) return now - sentAt <= giveUp ? "later" : "drop";
+    return now - sentAt <= unconfirmedRestLagGrace(bound) ? "laterAtGrace" : "drop";
+  }
   return now - sentAt <= giveUp ? "later" : "drop";
 }
 /** Live with at least one game still undecided. */
@@ -360,13 +379,14 @@ export function isStillPlaying(t, address, now) {
     return winner != null && winner !== address;
   });
 }
-/** A game of `address`'s in a live room whose flag fell lately (or is still to fall) with no claim
- *  on chain: its winner is still on the board to claim it, so a challenge link waits (iOS 4922804
- *  ChessTournamentService.isBusyOnline). */
+/** A game `address` won on the clock lately, in a live room, with the claim not on chain yet: they
+ *  are still on the board to claim it, so a challenge link waits (iOS 4922804
+ *  ChessTournamentService.isBusyOnline). A game they lost on time keeps nobody busy - there's
+ *  nothing left for them there (KaPlay 077d777). */
 export function hasRecentUnclaimedFlag(tournaments, address, now) {
   if (!address) return false;
   return Object.values(tournaments || {}).some((t) => tournamentStatus(t) === "live" && Object.values(t.games).some((game) => {
-    if (!colorOf(game, address)) return false;
+    if (game.winner || decidedWinner(game, now) !== address) return false;
     const flag = flagAt(game);
     return flag != null && now - flag < AUTO_CLAIM_WINDOW_MS;
   }));

@@ -109,7 +109,8 @@ const cache = [
 store.set("kachat-chess-arena-v1", JSON.stringify(cache));
 
 const logs = [];
-const engine = { address: ME, onBroadcastBlockHits: () => () => {}, getMempoolEntry: async (txId) => stub.mempool[txId] ?? null };
+// getUtxosWithCovenants: a node that answers, holding no coin of a dropped row (KaPlay 077d777)
+const engine = { address: ME, onBroadcastBlockHits: () => () => {}, getMempoolEntry: async (txId) => stub.mempool[txId] ?? null, getUtxosWithCovenants: async () => [] };
 const scoped = (key, address = engine.address) => {
   const clean = String(address || "").trim();
   return clean ? `kachat-account-data-v1:${clean}:${key}` : key;

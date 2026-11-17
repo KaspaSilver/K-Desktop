@@ -155,8 +155,9 @@ function think(board, settings, avoiding) {
 async function sendContent(content, address) {
   const engine = deps().engine;
   // The game belongs to the address it started under: another account never signs its moves.
-  if (!engine?.address || engine.address !== address) throw new Error("This game belongs to another account.");
-  return sendBroadcastMessage({ engine, channel: CHESS_BOTS_CHANNEL, content, feeKas: "0", singleInput: true });
+  // KaPlay 077d777's wording, and checked again right before it is signed (expectedSender)
+  if (!engine?.address || engine.address !== address) throw new Error("This game was played on another account. Sign in to it to stamp the result.");
+  return sendBroadcastMessage({ engine, channel: CHESS_BOTS_CHANNEL, content, feeKas: "0", singleInput: true, expectedSender: address });
 }
 
 /** The "about 0.0017 KAS" figure (ChessBotCodec.stampFeeText): a game of 40 moves a side. */

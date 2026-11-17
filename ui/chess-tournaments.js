@@ -67,6 +67,21 @@ let historyReady = false;
 let historyDeadline = 0;
 let now = Date.now();
 let lastError = "";
+// The arena's error line clears itself after a few seconds (KaPlay 077d777); a token keeps an
+// older timer from wiping a newer error.
+const LAST_ERROR_SHOWN_MS = 3_000;
+let lastErrorToken = 0;
+const CLOCK_RAN_OUT_MESSAGE = "Your clock ran out before the move could be sent.";
+function setLastError(message) {
+  lastError = String(message || "");
+  const token = ++lastErrorToken;
+  if (!lastError) return;
+  setTimeout(() => {
+    if (token !== lastErrorToken || !lastError) return;
+    lastError = "";
+    if (active) render();
+  }, LAST_ERROR_SHOWN_MS);
+}
 const pendingMoveGames = new Set();   // "<tournament>|<game>" sent and not yet seen back
 /** When each pending move went out (wall ms): one the reducer still has not applied after
  *  T.PENDING_MOVE_TIMEOUT_MS stops showing as sending (iOS 4922804). */
@@ -89,6 +104,8 @@ const claimedGames = new Map();
  *  more until it is done. */
 const claimsInFlight = new Set();
 let queuedPublicRoomId = null;
+// When the queued join was asked for (KaPlay 077d777): its seat's clock, for a seat that ran out.
+let queuedAt = 0;
 // How many more full rooms this tap may move past on its own (KaPlay da59726).
 let autoRejoinsLeft = 0;
 const MAX_AUTO_REJOINS = 2;
@@ -126,6 +143,8 @@ let heldBotChallenge = null;
 /** The waiting room on screen (iOS 8d5f925 ChessWaitingRoomView): the reducer has shown this
  *  player seated there; their Leave went out; when it opened. */
 let waitingWasSeated = false;
+// The seat's expiry while it was shown (KaPlay 077d777): out before it, the join never landed.
+let waitingSeatExpiry = null;
 let waitingLeftByChoice = false;
 let waitingAppearedAt = 0;
 /** A join that never shows up (ignored, or never mined) does not hold the waiting room forever. */
@@ -298,9 +317,11 @@ async function backfillNow({ full = false } = {}) {
   if (backfilled && arenaCoveredUntil > 0 && askedAt - arenaCoveredUntil > T.POLL_LAPSE_MS) requestRepage(arenaCoveredUntil - T.REPAGE_MARGIN_MS);
   repageForGapIfDue();
   const serial = repageSerial;
+  const wholeWindow = full || !backfilled;
+  // A whole-window crawl that failed part way resumes from where it got to (KaPlay 077d777).
+  let before = wholeWindow ? backfillResumeBefore : null;
+  let pagedAny = false;
   try {
-    let before = null;
-    const wholeWindow = full || !backfilled;
     const cutoff = Math.max(askedAt - ARENA_RETENTION_MS, wholeWindow ? 0 : repageFloor ?? 0);
     const pages = wholeWindow || repageFloor !== null ? 20 : 1;
     for (let page = 0; page < pages; page += 1) {
@@ -311,13 +332,16 @@ async function backfillNow({ full = false } = {}) {
       mergeRows(accepted);
       // The REST API had no answer yet: past the newest page no poll would serve these again.
       if (pages > 1) holdUnverifiedRows(unknown);
-      if (page === 0) arenaCoveredUntil = askedAt;
+      if (page === 0 && before == null) arenaCoveredUntil = askedAt;
+      pagedAny = true;
       if (!result.hasMore || !result.messages?.length) break;
       const oldest = result.messages.reduce((min, m) => Math.min(min, Number(m.blockTime) || Infinity), Infinity);
       if (!Number.isFinite(oldest) || oldest < cutoff) break;
       before = oldest;
     }
     backfilled = true;
+    backfillResumeBefore = null;
+    backfillEmptyFailures = 0;
     // Asked for again while this ran (a merge above can find a gap): the next poll does that one.
     if (repageSerial === serial) {
       repageFloor = null;
@@ -329,8 +353,24 @@ async function backfillNow({ full = false } = {}) {
     // The indexer may not track the arena yet (CHESS_TOURNAMENTS.md §6): the lobby then shows
     // what this device scanned itself.
     deps.appendEngineLog?.(`Chess arena backfill failed: ${error.message}`);
+    // The pages already merged stay, and the crawl picks up from its cursor (KaPlay 077d777). A
+    // failing deep page mustn't hold the lobby on "Loading rooms" or flap: after three attempts
+    // that paged nothing the history counts as done, with a gap at its old end.
+    if (wholeWindow) {
+      if (pagedAny) { backfillResumeBefore = before; backfillEmptyFailures = 0; }
+      else backfillEmptyFailures += 1;
+      if (backfillEmptyFailures >= 3) {
+        deps.appendEngineLog?.("Chess arena: older history couldn't be read; the rooms show what's in");
+        backfilled = true;
+        backfillResumeBefore = null;
+        backfillEmptyFailures = 0;
+        if (!historyReady) { historyReady = true; render(); }
+      }
+    }
   }
 }
+let backfillResumeBefore = null;
+let backfillEmptyFailures = 0;
 
 function handleHits(hits) {
   // Live hits arrive with the sender already verified by the engine (DSK-045).
@@ -373,7 +413,21 @@ function reduceArenaNow() {
         joinPublicRoom(wasDuel, { automatic: true }).catch(() => {});
       } else deps.showToast?.(ROOM_FILLED_MESSAGE);
     } else if (room?.players.includes(my)) {
-      queuedPublicRoomId = null;
+      // Kept until the room is under way and the join is the chain's own row (KaPlay 077d777): a
+      // join still on this device's clock can still be dropped, and the queue then moves on.
+      const joinStillLocal = [...rows.values()].some((r) => r.local && r.senderAddress === my
+        && (() => { const m = T.decodeMessage(r.content); return m?.a === "join" && m.t === queuedPublicRoomId; })());
+      if (T.tournamentStatus(room) === "open") {
+        // waiting: a seat that ran out before anyone came ends the queue
+        const expiry = T.seatExpiry(room, my);
+        const ranOut = expiry != null && expiry - T.SEAT_TTL_MS >= queuedAt - 60_000
+          ? expiry <= Date.now()
+          : Date.now() - queuedAt > T.SEAT_TTL_MS;
+        if (ranOut) { queuedPublicRoomId = null; queuedAt = 0; autoRejoinsLeft = 0; }
+      } else if (!joinStillLocal) {
+        queuedPublicRoomId = null;
+        queuedAt = 0;
+      }
     }
   }
   // A move of ours that the chain now shows is no longer pending.
@@ -543,7 +597,9 @@ const joinLabel = () => (joinFeeText ? `Join (Fee: ${joinFeeText})` : "Join");
  *  of error is retried (T.isRetryableSendError): no KAS on the chatting address fails at once with
  *  its message (iOS 8d5f925). A send whose outcome is unknown (SEND_OUTCOME_UNKNOWN) is never
  *  retried: it counts as sent until the chain settles it (iOS 4922804). */
-async function send(message) {
+/** `stillWanted()`: asked before every attempt, retries too - a move whose player's clock ran out
+ *  meanwhile isn't sent (KaPlay 077d777). */
+async function send(message, { stillWanted = null } = {}) {
   if (deps.isChattingBalanceZero?.()) { deps.showFundingGate?.(); return false; }
   const content = T.encodeMessage(message);
   const sender = me();
@@ -561,9 +617,14 @@ async function send(message) {
     return me() === sender;
   };
   for (;;) {
+    if (stillWanted && !stillWanted()) {
+      setLastError(CLOCK_RAN_OUT_MESSAGE);
+      render();
+      return false;
+    }
     try {
       // One input, like every arena send on the phones: the fee is the one the Join button showed.
-      return keep(await sendBroadcastMessage({ engine: deps.engine, channel: T.ARENA_CHANNEL, content, feeKas: "0", singleInput: true }));
+      return keep(await sendBroadcastMessage({ engine: deps.engine, channel: T.ARENA_CHANNEL, content, feeKas: "0", singleInput: true, expectedSender: sender }));
     } catch (error) {
       // A node may hold it (SEND_OUTCOME_UNKNOWN): kept as sent - a move's ply stays taken - and
       // the unconfirmed-row check settles it: the chain shows it, or it is dropped (iOS 4922804).
@@ -577,7 +638,7 @@ async function send(message) {
       // A switched account: nothing more goes out for the old one.
       if (me() !== sender) return false;
       if (attempt > SEND_ATTEMPTS || !T.isRetryableSendError(error)) {
-        lastError = T.friendlySendErrorMessage(error);
+        setLastError(T.friendlySendErrorMessage(error));
         deps.appendEngineLog?.(`Chess send failed: ${error?.message || String(error)}`);
         deps.showToast?.(lastError);
         render();
@@ -676,11 +737,12 @@ async function joinPublicRoom(duel, { automatic = false } = {}) {
   const room = tournaments[id];
   if (room && T.isSeated(room, my, now)) { deps.showToast?.("You're already in this room."); return false; }
   queuedPublicRoomId = id;
+  queuedAt = Date.now();
   // A join that did not go out queues nothing: the next room must not be joined for it (iOS
   // 8d5f925) - unless the queue has already moved on to another room while it was being sent
   // (iOS 4922804).
   const ok = await send(T.messages.join(id));
-  if (!ok && queuedPublicRoomId === id) queuedPublicRoomId = null;
+  if (!ok && queuedPublicRoomId === id) { queuedPublicRoomId = null; queuedAt = 0; }
   return ok;
 }
 
@@ -791,7 +853,10 @@ async function leaveTournament(t) {
     confirmLabel: "Leave", cancelLabel: "Keep waiting", destructive: true,
   });
   if (!ok) return false;
+  // leaving ends the queue and its automatic rejoins (KaPlay 077d777)
   queuedPublicRoomId = null;
+  queuedAt = 0;
+  autoRejoinsLeft = 0;
   busy = true; render();
   const sent = await send(T.messages.leave(t.id));
   busy = false;
@@ -800,6 +865,13 @@ async function leaveTournament(t) {
   render();
   checkWaitingRoom();
   return sent;
+}
+
+/** A draw's reason as the result line says it (KaPlay 077d777): "the fifty-move rule", the others as
+ *  they are; "" for none. */
+function drawReasonText(reason) {
+  const text = String(reason || "").trim();
+  return text === "fifty-move rule" ? "the fifty-move rule" : text;
 }
 
 async function cancelTournament(t) {
@@ -813,13 +885,20 @@ async function cancelTournament(t) {
 async function play(t, game, mv) {
   const my = me();
   const key = keyOf(t.id, game.id);
-  // Not once the clock has decided it: a move after the flag is void on chain (iOS 4922804).
-  if (!my || T.playerToMove(game) !== my || T.isDecided(game, Date.now()) || pendingMoveGames.has(key)) return;
+  // Not once the clock has decided it: a move after the flag is void on chain (iOS 4922804). Nor once
+  // this player's own clock reads zero: isDecided allows the chain's 3 s of slack, and a move in
+  // that slack went out and was void (KaPlay 077d777).
+  const clockLeft = (g) => T.remainingMs(g, T.colorOf(g, my), Date.now()) > 0;
+  if (!my || T.playerToMove(game) !== my || T.isDecided(game, Date.now()) || !clockLeft(game) || pendingMoveGames.has(key)) return;
   if (!Chess.isLegalMove(game.board, mv)) return;
   const normalized = Chess.normalizingPromotion(game.board, mv);
   pendingMoveGames.add(key);
   render();
-  const sent = await send(T.messages.move(t.id, game.id, game.moves.length + 1, Chess.algebraic(normalized.from), Chess.algebraic(normalized.to), normalized.promotion ? Chess.promotionLetter(normalized.promotion) : null));
+  const stillWanted = () => {
+    const current = tournaments[t.id]?.games?.[game.id];
+    return Boolean(current) && !T.isDecided(current, Date.now()) && clockLeft(current);
+  };
+  const sent = await send(T.messages.move(t.id, game.id, game.moves.length + 1, Chess.algebraic(normalized.from), Chess.algebraic(normalized.to), normalized.promotion ? Chess.promotionLetter(normalized.promotion) : null), { stillWanted });
   // Another account now: its state was reset, nothing of this one's is kept (iOS 8d5f925).
   if (me() !== my) return;
   if (sent) {
@@ -841,7 +920,7 @@ function expirePendingMoves() {
     if (now - sentAt <= T.PENDING_MOVE_TIMEOUT_MS) continue;
     pendingMoveSentAt.delete(key);
     pendingMoveGames.delete(key);
-    lastError = T.PENDING_MOVE_EXPIRED_MESSAGE;
+    setLastError(T.PENDING_MOVE_EXPIRED_MESSAGE);
     expired = true;
   }
   if (expired && active) render();
@@ -866,6 +945,15 @@ async function lookUpArenaTransaction(txId) {
 }
 async function isInMempool(txId) {
   try { return (await deps.engine?.getMempoolEntry?.(txId)) != null; } catch { return false; }
+}
+/** Whether this account's coins include one of `txId`'s outputs (it landed), or null when no node
+ *  could be asked (KaPlay 077d777). */
+async function ownsOutputOf(txId, address) {
+  if (!address || typeof deps.engine?.getUtxosWithCovenants !== "function") return null;
+  try {
+    const entries = await deps.engine.getUtxosWithCovenants([address]);
+    return (entries || []).some((entry) => String(entry?.outpoint?.transactionId || "").toLowerCase() === String(txId).toLowerCase());
+  } catch { return null; }
 }
 
 /**
@@ -892,8 +980,16 @@ async function dropUnconfirmedRowsIfDue() {
       if (!sentRows.has(txId)) continue;
       const inMempool = lookup.status === "notAccepted" ? await isInMempool(txId) : false;
       if (!sentRows.has(txId)) continue;
-      const verdict = T.unconfirmedRowVerdict({ lookup, inMempool, sentAt, now: started });
+      const owned = lookup.status === "notAccepted" && !inMempool ? await ownsOutputOf(txId, rows.get(txId)?.senderAddress || me()) : false;
+      if (!sentRows.has(txId)) continue;
+      const verdict = T.unconfirmedRowVerdict({ lookup, inMempool, owned, sentAt, now: started });
       if (verdict === "later") { sentRowNextCheck.set(txId, Date.now() + T.UNCONFIRMED_RECHECK_MS); continue; }
+      if (verdict === "laterAtGrace") {
+        // asked again just after the REST grace ends, so the drop lands at it, not up to 15 s late
+        const atGrace = sentAt + T.unconfirmedRestLagGrace() + 1_000;
+        sentRowNextCheck.set(txId, Math.max(Date.now() + 1_000, Math.min(Date.now() + T.UNCONFIRMED_RECHECK_MS, atGrace)));
+        continue;
+      }
       confirmSentRow(txId);
       const row = rows.get(txId);
       if (!row?.local) continue; // the chain's copy landed meanwhile
@@ -921,10 +1017,18 @@ async function dropUnconfirmedRowsIfDue() {
       pendingMoveGames.delete(keyOf(message.t, message.g));
       pendingMoveSentAt.delete(keyOf(message.t, message.g));
     }
+    // The queued join never landed: the queue ends with it (KaPlay 077d777).
+    if ((message?.a === "join" || message?.a === "create") && message.t === queuedPublicRoomId && row.senderAddress === my) {
+      queuedPublicRoomId = null;
+      queuedAt = 0;
+      autoRejoinsLeft = 0;
+    }
     // This device's rows are device-wide: only the account on now hears about its own.
-    if (my && row.senderAddress === my && mineDropped !== "move") mineDropped = appliedMoves.has(row.txId) ? "move" : "other";
+    if (my && row.senderAddress === my && mineDropped !== "move") {
+      mineDropped = appliedMoves.has(row.txId) ? "move" : (message?.a === "join" || message?.a === "create") ? "join" : (mineDropped || "other");
+    }
   }
-  if (mineDropped) lastError = mineDropped === "move" ? T.MOVE_DROPPED_MESSAGE : T.ROW_DROPPED_MESSAGE;
+  if (mineDropped) setLastError(mineDropped === "move" ? T.MOVE_DROPPED_MESSAGE : mineDropped === "join" ? T.JOIN_DROPPED_MESSAGE : T.ROW_DROPPED_MESSAGE);
   saveCache();
   reduceArena();
 }
@@ -1043,7 +1147,12 @@ function outcomeText(game, { short = false } = {}) {
     case "checkmate": return short ? `${who} won by checkmate` : `Checkmate. ${who} won.`;
     case "resignation": return short ? `${who} won by resignation` : `${who} won by resignation.`;
     case "timeout": return short ? `${who} won on time` : `${who} won on time.`;
-    default: return short ? `${who} won on clock after a draw (${game.outcome.reason})` : `Draw by ${game.outcome.reason}. ${who} won on clock.`;
+    default: {
+      // KaPlay 077d777 ChessText: "after a draw by stalemate", and "the" before the fifty-move rule
+      const by = drawReasonText(game.outcome.reason);
+      if (short) return by ? `${who} won on clock after a draw by ${by}` : `${who} won on clock after a draw`;
+      return by ? `Draw by ${by}. ${who} won on clock.` : `Draw. ${who} won on clock.`;
+    }
   }
 }
 const modeIsDuel = () => view.mode === "duel";
@@ -1430,7 +1539,7 @@ function renderWaitingRoom() {
       ${T.isPublicId(t.id) ? "" : `
         <div class="chess-t-share">
           <small>Share this code</small>
-          <div><b>${esc(t.id)}</b><button class="secondary-button" type="button" data-chess-t-copy="${esc(t.id)}">Copy</button><button class="secondary-button" type="button" data-chess-t-share="${esc(t.id)}" data-kind="${duel ? "1v1" : "Tournaments"}">Share</button></div>
+          <div><b>${esc(t.id)}</b><button class="secondary-button" type="button" data-chess-t-copy="${esc(t.id)}">Copy</button><button class="secondary-button" type="button" data-chess-t-share="${esc(t.id)}" data-kind="${duel ? "1v1" : "Tournaments"}"${duel ? "" : ' data-invite="tournament"'}>Share</button></div>
         </div>`}
       <p class="field-hint center">${duel ? "You're paired with the next person who joins. The game starts by itself." : "The tournament starts by itself when all eight seats are taken."}</p>
       <button class="secondary-button chess-t-cta danger" type="button" data-chess-t-leave="${esc(t.id)}" ${busy || waitingLeftByChoice ? "disabled" : ""}>${busy || waitingLeftByChoice ? "Leaving…" : "Leave"}</button>
@@ -1443,7 +1552,20 @@ function checkWaitingRoom() {
   if (view.name !== "waiting") return;
   const t = tournaments[view.tournamentId];
   const my = me();
-  if (!t || !my) return;
+  if (!my) return;
+  if (!t) {
+    // The room is gone - a dropped create or first join (KaPlay 077d777): a seat that was shown
+    // closes with the join-not-landed note; one never shown closes quietly after 30 s.
+    if (waitingWasSeated) {
+      deps.showToast?.(T.JOIN_DROPPED_MESSAGE);
+      view = { ...view, name: "kind", tournamentId: null, gameId: null };
+      render();
+    } else if (now - (waitingAppearedAt || now) > 30_000) {
+      view = { ...view, name: "kind", tournamentId: null, gameId: null };
+      render();
+    }
+    return;
+  }
   const status = T.tournamentStatus(t);
   if (status === "live" || status === "finished") {
     // The room filled without us (our join lost the race and was requeued): back to the kind
@@ -1470,12 +1592,17 @@ function checkWaitingRoom() {
     render();
   } else if (T.isSeated(t, my, now)) {
     waitingWasSeated = true;
+    waitingSeatExpiry = T.seatExpiry(t, my);
   } else if (waitingWasSeated || now - (waitingAppearedAt || now) > SEAT_WAIT_MS) {
     // Not seated: only after the reducer showed the seat does that mean it ran out or was given
     // back, not "the join has not landed yet" - and a Leave that went out closes the room here,
     // by what the chain says, never by itself (iOS 8d5f925). The toast is for a seat that ran
-    // out (iOS: on the 1v1 / Tournaments screen).
-    if (waitingWasSeated && !waitingLeftByChoice) deps.showToast?.("No one joined in time. You're out of the queue - join again whenever you like.");
+    // out (iOS: on the 1v1 / Tournaments screen) - out before it could have run out, the join
+    // never landed (KaPlay 077d777).
+    if (waitingWasSeated && !waitingLeftByChoice) {
+      const ranOut = waitingSeatExpiry == null || now >= waitingSeatExpiry;
+      deps.showToast?.(ranOut ? "No one joined in time. You're out of the queue - join again whenever you like." : T.JOIN_DROPPED_MESSAGE);
+    }
     view = { ...view, name: "kind", tournamentId: null, gameId: null };
     render();
   }
@@ -1670,7 +1797,7 @@ function renderGame() {
   if (endOverlayFor === pendingKey && game.winner) {
     const iWon = myColor ? game.winner === my : null;
     const headline = iWon === true ? "You won!" : iWon === false ? "You lost" : `${nameFor(game.winner)} won`;
-    const detail = game.outcome?.kind === "checkmate" ? "Checkmate" : game.outcome?.kind === "resignation" ? "By resignation" : game.outcome?.kind === "timeout" ? "On time" : `Draw by ${game.outcome?.reason} - won on clock`;
+    const detail = game.outcome?.kind === "checkmate" ? "Checkmate" : game.outcome?.kind === "resignation" ? "By resignation" : game.outcome?.kind === "timeout" ? "On time" : `Draw by ${drawReasonText(game.outcome?.reason) || "agreement"} - won on clock`;
     endOverlay = `
       <div class="chess-t-end${iWon === true ? " won" : iWon === false ? " lost" : ""}">
         ${iWon === true ? Array.from({ length: 18 }, (_, i) => `<span class="chess-t-spark" style="--a:${(i / 18) * 360}deg">${["✨", "🎉", "⭐", "🎊", "💫"][i % 5]}</span>`).join("") : ""}
@@ -1835,6 +1962,7 @@ function openKind(mode) {
 function openWaitingRoom(id) {
   if (view.name !== "waiting" || view.tournamentId !== id) {
     waitingWasSeated = false;
+    waitingSeatExpiry = null;
     waitingLeftByChoice = false;
     waitingAppearedAt = now;
   }
@@ -2062,6 +2190,11 @@ function onClick(event) {
     // beaten by the last join is a game - checkWaitingRoom closes the room, or opens the board,
     // by what the chain says (iOS 8d5f925).
     if (t) leaveTournament(t).catch(() => {});
+    else if (view.name === "waiting") {
+      // no room to leave (KaPlay 077d777): just close the screen
+      view = { ...view, name: "kind", tournamentId: null, gameId: null };
+      render();
+    }
     return;
   }
   if (event.target.closest("[data-chess-t-claim]")) {
@@ -2078,8 +2211,8 @@ function onClick(event) {
     // KaPlay, the app's name now (iOS 1d23002). "open KaPlay" holds on Desktop (its dock item, no
     // Kaspa Hub since Build 281) and on iPhone (the KaPlay app).
     const text = share.dataset.invite === "tournament"
-      ? `Join my chess tournament in KaPlay: open KaPlay > ${share.dataset.kind} > Join with a code, and enter ${share.dataset.chessTShare}`
-      : `Play me at chess in KaPlay: open KaPlay > ${share.dataset.kind} > Join with a code, and enter ${share.dataset.chessTShare}`;
+      ? `Join my chess tournament in KaPlay: open KaPlay > Chess > ${share.dataset.kind} > Join with a code, and enter ${share.dataset.chessTShare}.`
+      : `Play me at chess in KaPlay: open KaPlay > Chess > ${share.dataset.kind} > Join with a code, and enter ${share.dataset.chessTShare}.`;
     if (navigator.share) navigator.share({ text }).catch(() => {});
     else navigator.clipboard?.writeText(text).then(() => deps.showToast?.("Invite copied"), () => {});
     return;
@@ -2118,8 +2251,14 @@ function onClick(event) {
 
 export function initChessTournaments(dependencies) {
   // Back from an outage: the arena is paged again, and the indexer has the last word.
-  onIndexerAvailabilityChange(({ down }) => {
-    if (!down && (arenaIndexerAnsweredAt > 0 || repageFloor !== null)) backfill({ full: true }).catch(() => {});
+  onIndexerAvailabilityChange(({ down, downSinceMs }) => {
+    if (down || !(arenaIndexerAnsweredAt > 0 || repageFloor !== null)) return;
+    // History complete before the outage: only the outage is paged again, not the whole 30 days
+    // (KaPlay 077d777).
+    if (backfilled && Number(downSinceMs) > 0) {
+      requestRepage(Number(downSinceMs) - T.REPAGE_MARGIN_MS);
+      backfill().catch(() => {});
+    } else backfill({ full: true }).catch(() => {});
   });
   deps = dependencies;
   screenEl = document.querySelector("[data-chess-tournaments]");
@@ -2260,10 +2399,12 @@ export function resetChessTournamentsForAccount() {
   lastGapRepageAt = 0;
   spectatorSwitchedFor = null;
   queuedPublicRoomId = null;
+  queuedAt = 0;
   joinFeeText = null;
   // The old account's error is not the next one's (iOS 8d5f925 accountChanged).
   lastError = "";
   waitingWasSeated = false;
+  waitingSeatExpiry = null;
   waitingLeftByChoice = false;
   paintedGameState = "";
   view = { name: "games", mode: "duel", tab: "play", tournamentId: null, gameId: null };

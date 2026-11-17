@@ -4,7 +4,9 @@
 // and the person sharing it shouldn't be handing out every address they and their contacts use.
 
 // `kaspa:`, `kaspatest:` (and the sim/dev prefixes), or the `_` form used in keys and file names.
-const ADDRESS_PATTERN = /\b(?:kaspa|kaspatest|kaspasim|kaspadev)[:_]([a-z0-9]{12,})/gi;
+// Not `\b` at the start (KaPlay 077d777): "_" is a word character, so an address right after one
+// (`wallet_kaspa:qr...`) wasn't shortened.
+const ADDRESS_PATTERN = /(?<![a-z0-9])(?:kaspa|kaspatest|kaspasim|kaspadev)[:_]([a-z0-9]{12,})/gi;
 
 /** `line` with every full address shortened to "…" + its last 8 characters. */
 export function shortenLogAddresses(line) {
