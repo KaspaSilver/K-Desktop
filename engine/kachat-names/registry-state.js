@@ -1758,6 +1758,9 @@ export const IndexerAPI = Object.freeze({
   nameInfo(j, keyOfFn = keyOf) {
     const d = j?.[decoded] ? j : IndexerAPI.nameJSON(j);
     if (d.registered === false || d.expiresAt == null || d.outpoint == null) return null;
+    // a time no real record has (past the year 2286, or negative) is junk (iOS 83806b3d)
+    const okTime = (t) => t == null || (Number(t) >= 0 && Number(t) <= 10_000_000_000_000);
+    if (!okTime(d.expiresAt) || !okTime(d.periodStart)) return null;
     const n = normalize(d.name);
     if (!isValid(n)) return null;
     const owner = (d.ownerKey != null ? tryUnhex32(d.ownerKey) : null) ?? (d.owner != null ? keyOfFn(d.owner) : null);

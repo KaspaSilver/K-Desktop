@@ -1,6 +1,7 @@
 import { originMigrationGate } from "./origin-migration.js";
 import { shortenLogAddresses } from "./log-addresses.js";
 import { KaspaEngine } from "../engine/index.js";
+import { SEND_ACCOUNT_CHANGED } from "../engine/messages.js";
 import { fitBackgroundBanner, installBannerImageFit } from "./banner-fit.js";
 import { safeCssUrl } from "./css-url.js";
 import { installGroupedAmountInputs } from "./grouped-amount.js";
@@ -4265,12 +4266,26 @@ async function showAppNotification({ title, body, tag, key = "", silent = false,
     } catch { /* fall back to a page notification */ }
   }
   const note = new Notification(title || "KaChat", options); // throws where only the worker may notify
+  pageNotifications.add(note);
+  note.onclose = () => pageNotifications.delete(note);
   note.onclick = () => {
     try { window.focus(); } catch {}
     try { onClick?.(); } catch {}
     note.close();
   };
   return true;
+}
+// The page's own notifications still up, so Log Out can take them down.
+const pageNotifications = new Set();
+/** Takes down every notification KaChat has up - the worker's and the page's - so Log Out and
+ *  Delete Account leave no message preview from that account on screen (iOS 83806b3d). */
+async function clearShownNotifications() {
+  for (const note of pageNotifications) { try { note.close(); } catch { /* gone */ } }
+  pageNotifications.clear();
+  try {
+    const registration = await notificationWorkerRegistration();
+    for (const note of (await registration?.getNotifications?.()) || []) { try { note.close(); } catch { /* gone */ } }
+  } catch { /* no worker */ }
 }
 window.addEventListener("kachat:notification-click", (event) => {
   routeNotificationClick(event.detail || {});
@@ -10572,7 +10587,9 @@ function updateSpendingTotalBalance(entries) {
   const known = entries.filter((e) => e.kas != null && Number.isFinite(Number(e.kas)));
   const chattingKas = Number(currentBalanceKas);
   const hasChatting = currentBalanceKas != null && currentBalanceKas !== "" && Number.isFinite(chattingKas);
-  if (!known.length && !hasChatting) { totalEl.textContent = `-- ${KAS_UNIT}`; return; }
+  // Not a total while the chatting balance is unknown: the spending addresses alone would read as
+  // the whole wallet (iOS 83806b3d).
+  if (!hasChatting) { totalEl.textContent = `-- ${KAS_UNIT}`; return; }
   const sum = known.reduce((total, e) => total + (Number(e.kas) || 0), 0) + (hasChatting ? chattingKas : 0);
   totalEl.textContent = `${formatKasExact(sum)} ${KAS_UNIT}`;
 }
@@ -13177,7 +13194,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 292;
+const APP_BUILD = 293;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -24117,10 +24134,41 @@ function paintPayAmountStep() {
 // The review: the swipe-up sheet, its "to <name>" line replaced by the To / From / Total card.
 paySheet?.querySelector(".pay-sheet-head")?.remove();
 paySheet?.querySelector(".sk-swipe-scroll")?.insertAdjacentHTML("afterbegin", '<div class="ss-review-stack" data-pay-review></div>');
+// From a spending address the chatting address sends the payment notice, a small message fee of
+// its own: the Review says so (iOS 83806b3d "Your chatting address also pays..."). Worked out from
+// the notice's own size; refreshed when the amount, memo or From changes. Not while the chatting
+// address is a confirmed zero (it can't send the notice yet; the From warning says so).
+let paymentNoticeFeeKas = null;
+let paymentNoticeFeeKey = "";
+let paymentNoticeFeeToken = 0;
+function refreshPaymentNoticeFee(sompi) {
+  const conversationEntry = state.conversations.find((entry) => entry.id === paySheetConversationId);
+  const contact = conversationEntry ? contactForConversation(conversationEntry) : null;
+  const memo = currentPaymentMemo();
+  const key = paymentSourceIndex == null || !contact || sompi == null || isChattingBalanceZero() ? "" : `${paymentSourceIndex}|${sompi}|${contact.address}|${memo}`;
+  if (key === paymentNoticeFeeKey) return;
+  paymentNoticeFeeKey = key;
+  paymentNoticeFeeKas = null;
+  const token = ++paymentNoticeFeeToken;
+  if (!key) return;
+  const payload = encodePaymentNotice({ txId: "0".repeat(64), amountSompi: sompi, address: contact.address, memo });
+  engine.estimateMessageFee(estimateCommPayloadBytes(payload)).then((feeKas) => {
+    if (token !== paymentNoticeFeeToken || feeKas == null) return;
+    paymentNoticeFeeKas = String(feeKas);
+    renderPayReview();
+  }).catch(() => {});
+}
+function paymentNoticeFeeLineHtml() {
+  if (paymentSourceIndex == null || paymentNoticeFeeKas == null || isChattingBalanceZero()) return "";
+  const contact = payContactName();
+  const name = contact.name || shortAddress(contact.address);
+  return `<p class="ss-review-note">${escapeHtml(`Your chatting address also pays ${trimKas8(Number(paymentNoticeFeeKas))} ${KAS_UNIT} to tell ${name} about this payment.`)}</p>`;
+}
 function renderPayReview() {
   const host = paySheet?.querySelector("[data-pay-review]");
   if (!host || !isPaySheetOpen()) return;
   const sompi = paymentSompiFromInput();
+  refreshPaymentNoticeFee(sompi);
   const fee = paymentTotalFeeSompi();
   const fiat = sompi != null && paymentPrice > 0 ? formatFiatValue(Number(sompi) / 1e8, paymentPrice) : "";
   const amount = sompi == null ? '<span class="sk-spinner" aria-hidden="true"></span>'
@@ -24134,7 +24182,8 @@ function renderPayReview() {
       ${reviewRowHtml("To", reviewAddressHtml(payContactName()))}
       ${reviewRowHtml("From", reviewAddressHtml({ name: paySourceTitle(), address: paymentFundingAddress() || "" }))}
       ${reviewRowHtml("Total", total)}
-    </div>`;
+    </div>
+    ${paymentNoticeFeeLineHtml()}`;
 }
 const payFeeEditor = createFeeEditorStep(paySteps, {
   onConfirm: (sompi) => {
@@ -28316,6 +28365,27 @@ function scheduleFeeEstimate({ typing = false } = {}) {
 let composerFeeEstimateKas = null;
 let composerFeeEstimateLength = null; // UTF-8 bytes of the text composerFeeEstimateKas is for
 let composerFeeOverrideKas = null;
+// A message fee set on the pill (iOS 83806b3d MessageFeeLimit): above 1 KAS it is refused, above
+// 0.01 KAS - about 100 times a typical message fee - it asks first. A slip of the decimal point
+// could otherwise send a message for a whole balance. Below the network minimum the build raises it.
+const MESSAGE_FEE_MAX_SOMPI = 100_000_000n;
+const MESSAGE_FEE_WARN_SOMPI = 1_000_000n;
+/** Whether a typed message fee may be used: true, or false after telling the person why not. */
+async function messageFeeAllowed(sompi) {
+  if (sompi > MESSAGE_FEE_MAX_SOMPI) {
+    await alertDialog({ title: "Fee Too High", message: `A message fee can be at most 1 ${KAS_UNIT}.` });
+    return false;
+  }
+  if (sompi > MESSAGE_FEE_WARN_SOMPI) {
+    return Boolean(await confirmDialog({
+      title: "Use a High Fee?",
+      message: `${kasTextFromSompi(sompi)} ${KAS_UNIT} is much more than the network needs to send a message.`,
+      confirmLabel: "Use It",
+      cancelLabel: "Cancel",
+    }));
+  }
+  return true;
+}
 function formatKasExact(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number.toFixed(8) : "--";
@@ -28355,6 +28425,7 @@ feeEstimateBanner?.addEventListener("click", async () => {
     return;
   }
   if (typedSompi == null) { showCopyToast(`Enter a fee in ${KAS_UNIT}.`); return; }
+  if (!(await messageFeeAllowed(typedSompi))) return;
   composerFeeOverrideKas = kasTextFromSompi(typedSompi);
   renderFeePill(composerFeeOverrideKas, { estimating: false });
 });
@@ -30693,6 +30764,7 @@ document.querySelectorAll('[data-shell-action="logout"]').forEach((button) => bu
 async function performLogout({ fromAnotherTab = false } = {}) {
   try {
     closeAccountBackup();
+    clearShownNotifications().catch(() => {});
     // Another tab's Delete Account also logs every tab out: an account no longer saved on this
     // device is not written back from here (as the account-deleted listener above).
     const mine = canonicalAccountAddress(String(engine.address || lockedSigningAddress || ""));
@@ -30774,6 +30846,7 @@ async function deleteCurrentAccount() {
     // can't be read after that.
     const removal = accountRemovalContext(address);
     closeAccountBackup();
+    clearShownNotifications().catch(() => {});
     // No more closed-app notifications for it; signed with the wallet key while it is still here.
     if (engine.privateKeyHex) webPushSignOut({ privateKeyHex: engine.privateKeyHex, address }).catch(() => {});
     localStorage.setItem(SESSION_LOGGED_OUT_KEY, "true");
@@ -32469,9 +32542,11 @@ function isExpiredGroupSystemMessage(message, now = Date.now()) {
   return now - Number(message.createdAt || 0) > GROUP_SYSTEM_MESSAGE_LIFETIME_MS;
 }
 
-function groupMessages(groupId) {
+/** `owner`: the account whose list is read - a send in flight passes the account it started on, so
+ *  a switch meanwhile never files its status under the other account (iOS 83806b3d). */
+function groupMessages(groupId, owner = engine.address) {
   const all = loadGroupMsgAll();
-  const list = all?.[engine.address || ""]?.[groupId];
+  const list = all?.[owner || ""]?.[groupId];
   return Array.isArray(list) ? list : [];
 }
 
@@ -32484,9 +32559,9 @@ function pruneExpiredGroupSystemMessages(groupId) {
   if (kept.length === list.length) return;
   saveGroupMessages(groupId, kept);
 }
-function saveGroupMessages(groupId, list) {
+function saveGroupMessages(groupId, list, owner = engine.address) {
   const all = loadGroupMsgAll();
-  const wallet = engine.address || "";
+  const wallet = owner || "";
   if (!all[wallet]) all[wallet] = {};
   all[wallet][groupId] = list;
   saveGroupMsgAll(all);
@@ -33297,12 +33372,19 @@ function groupVoicePartPayloads() {
     : voicePartSizes(Math.max(1, Math.floor((Date.now() - groupVoiceStartMs) / 1000)), VOICE_PATHS.group);
   return groupPartPayloadSizes(sizes);
 }
+/** A voice note or photo is waiting to go: its parts pay the estimate, never a fee typed on the
+ *  pill, so the pill shows the estimate and can't be changed then (iOS 83806b3d: the fee pill is
+ *  for text only). */
+function groupMediaPending() {
+  try { return Boolean(groupVoiceBusy() || groupPendingPhoto); } catch { return false; }
+}
 function scheduleGroupFeeEstimate({ typing = false } = {}) {
   const subject = groupFeeSubjectText();
   const partsPayloadBytes = typeof subject === "object" && subject ? subject.partsPayloadBytes : null;
   const text = partsPayloadBytes ? `parts:${partsPayloadBytes.join(",")}` : subject;
   if (!activeGroupId || !text) { hideGroupFeePill(); return; }
-  if (groupFeeOverrideKas != null) { renderGroupFeePill(groupFeeOverrideKas); return; }
+  document.querySelector("[data-group-fee]")?.classList.toggle("locked", groupMediaPending());
+  if (groupFeeOverrideKas != null && !groupMediaPending()) { renderGroupFeePill(groupFeeOverrideKas); return; }
   const length = partsPayloadBytes ? partsPayloadBytes.reduce((a, b) => a + b, 0) : utf8ByteLength(text);
   if (typing && !groupFeeTimer && !document.querySelector("[data-group-fee]")?.hidden
       && composerFeeEstimateIsCurrent(length, groupFeeEstimateLength, groupFeeEstimateKas)) return;
@@ -33329,7 +33411,7 @@ function scheduleGroupFeeEstimate({ typing = false } = {}) {
 }
 document.querySelector("[data-group-fee]")?.addEventListener("click", async () => {
   const pill = document.querySelector("[data-group-fee]");
-  if (!pill || pill.classList.contains("estimating")) return;
+  if (!pill || pill.classList.contains("estimating") || groupMediaPending()) return;
   const current = groupFeeOverrideKas ?? groupFeeEstimateKas;
   if (current == null) return;
   const typed = await promptDialog({
@@ -33346,6 +33428,7 @@ document.querySelector("[data-group-fee]")?.addEventListener("click", async () =
   const typedSompi = String(typed).trim() === "" ? 0n : sompiFromUserText(String(typed));
   if (typedSompi === 0n) { groupFeeOverrideKas = null; scheduleGroupFeeEstimate(); return; }
   if (typedSompi == null) { showCopyToast(`Enter a fee in ${KAS_UNIT}.`); return; }
+  if (!(await messageFeeAllowed(typedSompi))) return;
   groupFeeOverrideKas = kasTextFromSompi(typedSompi);
   renderGroupFeePill(groupFeeOverrideKas);
 });
@@ -35852,20 +35935,26 @@ function expandGroupPartKeys(groupId, keys) {
  *  one before; when one fails the rest are Failed for the next Retry (iOS sendGroupVoiceNoteParts). */
 async function sendGroupRowsInOrder(gid, localIds) {
   const mgr = getGroupManager();
+  const owner = engine.address;
   for (let i = 0; i < localIds.length; i += 1) {
-    const row = groupMessages(gid).find((m) => m.id === localIds[i]);
+    const row = groupMessages(gid, owner).find((m) => m.id === localIds[i]);
     if (!row || !mgr) return false;
+    groupSendsInFlight.add(row.id);
     try {
       const res = await mgr.sendGroupMessage(gid, row.text);
-      patchGroupMessage(gid, row.id, { txId: res?.txid || null, msgIdHex: res?.msgIdHex || null, status: MESSAGE_STATUSES.CONFIRMED });
+      patchGroupMessage(gid, row.id, { txId: res?.txid || null, msgIdHex: res?.msgIdHex || null, status: MESSAGE_STATUSES.CONFIRMED }, owner);
     } catch (error) {
+      // another account is loaded now: nothing went out, and nothing is written or failed here
+      if (groupSendAccountChanged(error)) return false;
       const unknown = error?.code === SEND_OUTCOME_UNKNOWN;
-      patchGroupMessage(gid, row.id, unknown ? groupUnconfirmedPatch(error) : { status: MESSAGE_STATUSES.FAILED });
-      for (const later of localIds.slice(i + 1)) patchGroupMessage(gid, later, { status: MESSAGE_STATUSES.FAILED });
+      patchGroupMessage(gid, row.id, unknown ? groupUnconfirmedPatch(error) : { status: MESSAGE_STATUSES.FAILED }, owner);
+      for (const later of localIds.slice(i + 1)) patchGroupMessage(gid, later, { status: MESSAGE_STATUSES.FAILED }, owner);
       setStatus(unknown ? SEND_OUTCOME_UNKNOWN_MESSAGE : `Group send failed: ${error.message}`);
       if (activeGroupId === gid) { setGroupSendError(userFacingError(error)); renderGroupMessages(); }
       renderGroupList();
       return false;
+    } finally {
+      groupSendsInFlight.delete(row.id);
     }
     if (activeGroupId === gid) renderGroupMessages();
   }
@@ -35894,7 +35983,10 @@ async function sendGroupParts(texts, { groupId = null } = {}) {
 }
 function retryGroupParts(gid, cluster) {
   if (!gid) return;
-  const failed = cluster.parts.filter((m) => m.direction !== "incoming" && m.status === MESSAGE_STATUSES.FAILED);
+  // the rows as they are now, not as the bubble was drawn: one already sent or sending stays put
+  const live = new Map(groupMessages(gid).map((m) => [m.id, m]));
+  const failed = cluster.parts.map((m) => live.get(m.id))
+    .filter((m) => m && m.direction !== "incoming" && m.status === MESSAGE_STATUSES.FAILED && !groupSendsInFlight.has(m.id));
   if (!failed.length) return;
   for (const part of failed) patchGroupMessage(gid, part.id, { status: MESSAGE_STATUSES.PENDING });
   if (activeGroupId === gid) renderGroupMessages();
@@ -35904,13 +35996,21 @@ function retryGroupParts(gid, cluster) {
 // Shared group send: appends the local echo after the tx is broadcast (so sync dedupes by
 // msgId), with a delivery-status marker.
 // Patch an existing group message in place (status/txId/msgIdHex) and persist.
-function patchGroupMessage(groupId, localId, patch) {
-  const list = groupMessages(groupId);
+function patchGroupMessage(groupId, localId, patch, owner = engine.address) {
+  const list = groupMessages(groupId, owner);
   const m = list.find((x) => x.id === localId);
   if (!m) return;
   Object.assign(m, patch);
-  saveGroupMessages(groupId, list);
+  saveGroupMessages(groupId, list, owner);
 }
+/** The account changed before a group send went out: nothing was sent and nothing is written (the
+ *  row stays as it was under its own account, to be settled when that account loads). */
+function groupSendAccountChanged(error) {
+  return String(error?.message || "") === SEND_ACCOUNT_CHANGED;
+}
+// Group rows a send or Retry is working on right now: a second tap never sends one twice (iOS
+// 83806b3d group Retry reads the live row).
+const groupSendsInFlight = new Set();
 
 // A group send the network never answered: "Not confirmed" with its txid and no Retry (iOS
 // e5a9b11). Its chain copy, matched by that txid, makes it sent (appendGroupMessage).
@@ -35923,18 +36023,26 @@ function groupUnconfirmedPatch(error) {
 async function retryGroupMessage(message) {
   if (!activeGroupId) return;
   const gid = activeGroupId;
-  patchGroupMessage(gid, message.id, { status: MESSAGE_STATUSES.PENDING });
+  const owner = engine.address;
+  // the row as it is now (iOS 83806b3d): only one still Failed, and not already being sent
+  const row = groupMessages(gid, owner).find((m) => m.id === message?.id);
+  if (!row || row.status !== MESSAGE_STATUSES.FAILED || groupSendsInFlight.has(row.id)) return;
+  groupSendsInFlight.add(row.id);
+  patchGroupMessage(gid, row.id, { status: MESSAGE_STATUSES.PENDING }, owner);
   if (activeGroupId === gid) renderGroupMessages();
   const mgr = getGroupManager();
-  if (!mgr) return;
   try {
-    const res = await mgr.sendGroupMessage(gid, message.text);
-    patchGroupMessage(gid, message.id, { txId: res?.txid || null, msgIdHex: res?.msgIdHex || null, status: MESSAGE_STATUSES.CONFIRMED });
+    if (!mgr) throw new Error("Groups aren't ready yet.");
+    const res = await mgr.sendGroupMessage(gid, row.text);
+    patchGroupMessage(gid, row.id, { txId: res?.txid || null, msgIdHex: res?.msgIdHex || null, status: MESSAGE_STATUSES.CONFIRMED }, owner);
   } catch (error) {
+    if (groupSendAccountChanged(error)) return;
     // Not confirmed (txid kept, no Retry) when the network never answered, else Failed.
     const unknown = error?.code === SEND_OUTCOME_UNKNOWN;
-    patchGroupMessage(gid, message.id, unknown ? groupUnconfirmedPatch(error) : { status: MESSAGE_STATUSES.FAILED });
+    patchGroupMessage(gid, row.id, unknown ? groupUnconfirmedPatch(error) : { status: MESSAGE_STATUSES.FAILED }, owner);
     setStatus(unknown ? SEND_OUTCOME_UNKNOWN_MESSAGE : `Group send failed: ${error.message}`);
+  } finally {
+    groupSendsInFlight.delete(row.id);
   }
   if (activeGroupId === gid) { renderGroupMessages(); renderGroupList(); }
 }
@@ -35949,6 +36057,7 @@ async function sendGroupWire(text, { feeKas = null, errorPrefix = "", groupId = 
   if (!mgr || !gid || !mgr.getGroup(gid)) return false;
   setGroupSendError(null);
   const localId = nowId();
+  const owner = engine.address;
   appendGroupMessage(gid, {
     id: localId, senderAddress: engine.address, direction: "local",
     text, createdAt: Date.now(), txId: null, msgIdHex: null,
@@ -35956,30 +36065,35 @@ async function sendGroupWire(text, { feeKas = null, errorPrefix = "", groupId = 
   });
   if (activeGroupId === gid) renderGroupMessages();
   renderGroupList();
+  groupSendsInFlight.add(localId);
   try {
     const res = await mgr.sendGroupMessage(gid, text, { feeKas: feeKas || "0" });
     // Patch the same row so a later sync of our own message dedupes by msgId (no duplicate). An id
     // its chain copy already filled in is kept when the answer lacks one.
-    const sentRow = groupMessages(gid).find((m) => m.id === localId);
-    patchGroupMessage(gid, localId, { txId: res?.txid || sentRow?.txId || null, msgIdHex: res?.msgIdHex || sentRow?.msgIdHex || null, status: MESSAGE_STATUSES.CONFIRMED });
+    const sentRow = groupMessages(gid, owner).find((m) => m.id === localId);
+    patchGroupMessage(gid, localId, { txId: res?.txid || sentRow?.txId || null, msgIdHex: res?.msgIdHex || sentRow?.msgIdHex || null, status: MESSAGE_STATUSES.CONFIRMED }, owner);
     if (activeGroupId === gid) renderGroupMessages();
     renderGroupList();
     return true;
   } catch (error) {
+    // another account is loaded now: nothing went out, and its row isn't written from here
+    if (groupSendAccountChanged(error)) return false;
     // Its chain copy already came back and filled the row in (appendGroupMessage): it went out.
-    const row = groupMessages(gid).find((m) => m.id === localId);
+    const row = groupMessages(gid, owner).find((m) => m.id === localId);
     if (row?.txId && row.status === MESSAGE_STATUSES.CONFIRMED) {
       if (activeGroupId === gid) renderGroupMessages();
       renderGroupList();
       return true;
     }
     const unknown = error?.code === SEND_OUTCOME_UNKNOWN;
-    patchGroupMessage(gid, localId, unknown ? groupUnconfirmedPatch(error) : { status: MESSAGE_STATUSES.FAILED });
+    patchGroupMessage(gid, localId, unknown ? groupUnconfirmedPatch(error) : { status: MESSAGE_STATUSES.FAILED }, owner);
     if (activeGroupId === gid) renderGroupMessages();
     setStatus(unknown ? SEND_OUTCOME_UNKNOWN_MESSAGE : `Group send failed: ${error.message}`);
     // iOS: the reason in red above the composer.
     if (activeGroupId === gid) setGroupSendError(`${errorPrefix}${userFacingError(error)}`);
     return false;
+  } finally {
+    groupSendsInFlight.delete(localId);
   }
 }
 /** iOS GroupChatDetailView errorMessage: a red caption above the compose bar, cleared by the next send. */

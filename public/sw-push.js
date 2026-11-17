@@ -125,6 +125,10 @@
       const group = (m.groups || {})[lower(p.blinded_group_id)] || null;
       if (sender && (sender === account || otherNetwork(sender))) out.suppress = true;
       const control = type === "group_control";
+      // A control message (members, keys, a rename) is the group's own bookkeeping: the worker can't
+      // read it, so it never rings or counts (iOS 83806b3d lets only a readable invite ring, and
+      // nothing here can read one).
+      if (control) out.suppress = true;
       if (group) {
         out.title = String(group.n || "").trim() || "Group";
         const who = nameFor(m, group.m || p.sender);

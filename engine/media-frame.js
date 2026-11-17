@@ -31,15 +31,24 @@ export function hasMediaFrameMagic(bytes) {
   return true;
 }
 
-/** iOS MediaFileEnvelope.json, byte for byte: fixed key order, and only `\` and `"` escaped
- *  (string interpolation, not JSONEncoder - so "/" stays "/"). */
+/** iOS MediaFileEnvelope.json, byte for byte: fixed key order, written by hand (not JSONEncoder) so
+ *  "/" stays "/"; quotes, backslashes and control characters escaped (iOS 83806b3d). */
 export function mediaFileEnvelopeJson({ name, size, mimeType, dataUrlContent, voicePart = null, mediaPart = null }) {
   const part = voicePart ? `,"voicePart":${partTagJson(voicePart)}` : mediaPart ? `,"mediaPart":${partTagJson(mediaPart)}` : "";
   return `{"type":"file","name":"${escapeIos(name)}","size":${size},"mimeType":"${escapeIos(mimeType)}"${part},"content":"${escapeIos(dataUrlContent)}"}`;
 }
 
+// What iOS 83806b3d MediaFileEnvelope.escape escapes: quotes, backslashes and every control
+// character. A newline or tab in a sender's file name used to leave invalid JSON, and the message
+// showed as raw text. "/" is left alone, and a string with nothing to escape (every data URL)
+// comes back unchanged.
+const JSON_ESCAPE_CHARS = /[\u0000-\u001f"\\]/g;
+const JSON_SHORT_ESCAPES = { '"': '\\"', "\\": "\\\\", "\n": "\\n", "\r": "\\r", "\t": "\\t" };
 function escapeIos(value) {
-  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const text = String(value);
+  JSON_ESCAPE_CHARS.lastIndex = 0;
+  if (!JSON_ESCAPE_CHARS.test(text)) return text;
+  return text.replace(JSON_ESCAPE_CHARS, (ch) => JSON_SHORT_ESCAPES[ch] ?? `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`);
 }
 
 /**

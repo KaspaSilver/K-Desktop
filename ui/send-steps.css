@@ -120,6 +120,8 @@
 }
 .ss-review-fiat { font-size: 15px; color: var(--muted); }
 .ss-review-card { gap: 14px; font-size: 15px; }
+/* a line under the Review card: what the chatting address also pays (iOS 83806b3d) */
+.ss-review-note { margin: 0; padding: 0 4px; font-size: 13px; line-height: 1.35; color: var(--muted); text-align: left; }
 .ss-review-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .ss-review-row + .ss-review-row { padding-top: 14px; border-top: 1px solid var(--separator, var(--line)); }
 .ss-review-label { color: var(--muted); flex: 0 0 auto; }

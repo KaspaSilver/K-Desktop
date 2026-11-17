@@ -319,7 +319,14 @@ async function writeMirror(enabled) {
   try { await kvSet("mirror", { ...mirror, updatedAt: Date.now() }); lastMirrorJson = json; } catch { /* next round */ }
 }
 
+// A sign-out's unregister and the next account's register, kept in order (iOS 83806b3d push
+// re-registration on account switch): a sync waits for a sign-out still running, and a sign-out that
+// starts while a sync is registering makes that sync drop what it registered instead of saving it.
+let signOutRunning = null;
+let signOutGeneration = 0;
 async function syncOnce(force) {
+  if (signOutRunning) { try { await signOutRunning; } catch { /* its own log */ } }
+  const generation = signOutGeneration;
   if (!pushSupported()) { setStatus(needsHomeScreenInstall() ? "needs-install" : "unsupported"); return; }
   const enabled = Boolean(deps.enabled());
   await writeMirror(enabled);
@@ -389,6 +396,11 @@ async function syncOnce(force) {
     return;
   }
   if (result.status !== 200) throw new Error(`register HTTP ${result.status}${result.reason ? `: ${result.reason}` : ""}`);
+  if (generation !== signOutGeneration) {
+    // signed out while this registered: the account it was for is gone from here, so is its push
+    try { await unregisterEndpoint({ base, endpoint: keys.endpoint, wallet }); } catch (error) { log(`could not undo a registration made during sign-out: ${error.message}`); }
+    return;
+  }
   saveRegistration({ endpoint: keys.endpoint, base, wallet: wallet.address, fingerprint, at: Date.now() });
   try { await kvSet("subscriptionChanged", undefined); } catch { /* fine */ }
   log(`registered (${fields.watched_addresses.length} chats, ${fields.watched_group_ids.length} group streams, ${fields.watched_broadcast_channels.length} rooms)`);
@@ -459,12 +471,17 @@ export function scheduleWebPushSync({ force = false, delayMs = 2500 } = {}) {
  *  it is still here, else with the device key). */
 export async function webPushSignOut(wallet = null) {
   if (!deps) return;
-  const stored = loadRegistration();
-  if (stored?.endpoint) await removeStored(stored, wallet);
-  await dropSubscription();
-  try { await kvSet("mirror", { enabled: false, updatedAt: Date.now() }); lastMirrorJson = ""; } catch { /* fine */ }
-  await setAppIconBadge(0);
-  setStatus("signed-out");
+  signOutGeneration += 1;
+  const run = (async () => {
+    const stored = loadRegistration();
+    if (stored?.endpoint) await removeStored(stored, wallet);
+    await dropSubscription();
+    try { await kvSet("mirror", { enabled: false, updatedAt: Date.now() }); lastMirrorJson = ""; } catch { /* fine */ }
+    await setAppIconBadge(0);
+    setStatus("signed-out");
+  })();
+  signOutRunning = run;
+  try { await run; } finally { if (signOutRunning === run) signOutRunning = null; }
 }
 /** An account removed from this device: its registration goes if it was this browser's. */
 export async function webPushForgetAccount(address) {

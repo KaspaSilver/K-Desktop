@@ -160,6 +160,14 @@ export function kasExact8Text(value) {
  * such as "0.30000000000000004") is cut to 8, as the SDK's own kaspaToSompi does; a JS number is
  * read through its 8-decimal fixed form. Never throws, never returns more than MAX_TYPED_SOMPI.
  */
+/** A message's priority fee, at most 1 KAS (iOS 83806b3d MessageFeeLimit.maxSompi): the backstop
+ *  under the fee pill's own check. Anything unreadable is left for the send to judge. */
+export const MESSAGE_FEE_MAX_SOMPI = 100_000_000n;
+export function clampMessageFeeKas(feeKas) {
+  const sompi = kasToSompi(feeKas);
+  return sompi != null && sompi > MESSAGE_FEE_MAX_SOMPI ? "1" : feeKas;
+}
+
 export function kasToSompi(value) {
   if (value == null) return null;
   if (typeof value === "number") {

@@ -181,8 +181,6 @@ export function groupParts(messages, accessors) {
   const hidden = new Set();
   const anchorKeyOf = new Map();
   for (const [noteKey, members] of tagged) {
-    const anchor = members[0].message;
-    const anchorKey = accessors.key(anchor);
     const byIndex = new Map();
     for (const { message, tag } of members) {
       const existing = byIndex.get(tag.index);
@@ -191,6 +189,10 @@ export function groupParts(messages, accessors) {
       }
     }
     const parts = [...byIndex.keys()].sort((a, b) => a - b).map((index) => byIndex.get(index));
+    // The bubble sits at the lowest part present (iOS 83806b3d / KaPost 369794e), not at whichever
+    // part reached the list first: parts arrive out of order, and the note jumped as they did.
+    const anchor = parts[0];
+    const anchorKey = accessors.key(anchor);
     const count = members[0].tag.count;
     clusters.set(anchorKey, {
       noteKey,

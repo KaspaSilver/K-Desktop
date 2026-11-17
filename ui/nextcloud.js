@@ -1,4 +1,4 @@
-import { confirmDialog } from "./dialogs.js";
+import { confirmDialog, alertDialog } from "./dialogs.js";
 import { IS_TESTNET, reencodeAddress } from "../engine/network.js";
 import { cssUrlValue } from "./css-url.js";
 import { readNextcloudAccount, writeNextcloudAccount, onKeyVaultStateChanged } from "./key-vault.js";
@@ -849,18 +849,25 @@ function noteRejectedLogin(error) {
 }
 
 /** Revokes the app password on the server, so disconnecting leaves nothing that can still log in.
- *  Best effort: the local copy is gone whatever the server says (KaPay 953b255). */
+ *  The local copy is gone whatever the server says (KaPay 953b255). True when it is gone there too:
+ *  200, or 401 (it no longer logs in); false when the server couldn't be reached or refused, so
+ *  Disconnect can say so (iOS 83806b3d). */
 export async function revokeAppPassword(account) {
-  if (!account?.server || !account?.appPassword) return;
+  if (!account?.server || !account?.appPassword) return true;
   try {
     const response = await ncFetch(`${apiBase(account.server, account.direct)}/ocs/v2.php/core/apppassword`, {
       method: "DELETE",
       headers: { Authorization: authHeader(account), "OCS-APIRequest": "true" },
     });
     deps.appendEngineLog?.(`[Nextcloud] App password revoke answered HTTP ${response.status}`);
+    return response.status === 200 || response.status === 401;
   } catch (error) {
     deps.appendEngineLog?.(`[Nextcloud] App password revoke failed: ${error.message}`);
+    return false;
   }
+}
+function serverHost(server) {
+  try { return new URL(server).host || String(server); } catch { return String(server || ""); }
 }
 
 /**
@@ -1861,9 +1868,15 @@ function wireSettings() {
       needsReconnect = false;
       lastAutoSyncAt = 0;
       clearStoredState();
-      revokeAppPassword(leaving);
       armAutoBackup();  // stops the watcher, the heartbeat and the debounce
       renderSettings();
+      // the server keeps an app password it couldn't be told to forget: say where to remove it
+      if (leaving && !(await revokeAppPassword(leaving))) {
+        await alertDialog({
+          title: "Couldn't Remove App Password",
+          message: `KaChat is disconnected, but ${serverHost(leaving.server)} couldn't be told to remove its app password. Delete it in Nextcloud under Settings > Security > Devices & sessions.`,
+        });
+      }
       return;
     }
     if (event.target.closest("[data-nc-pick-start]")) { openPicker("folder-start"); return; }

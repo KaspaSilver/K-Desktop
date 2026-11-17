@@ -9,6 +9,7 @@ import { ADDRESS_PREFIX } from "./network.js";
 import { buildCommMessage, buildEncryptedCommMessage, buildEncryptedHandshake, buildSelfStash, parseKasiaPayloadHex, KASIA_INTEGRATION_STATUS } from "./kasia-protocol.js";
 import { encryptKasiaContextualMessage } from "./kasia-cipher.js";
 import { sendPayloadTransaction, sendPayloadToSelf } from "./transactions.js";
+import { clampMessageFeeKas } from "./amounts.js";
 
 function simpleHash(input) {
   let hash = 0;
@@ -178,7 +179,7 @@ export async function sendMessageOnchain({ engine, envelope, amountKas = KASIA_I
     sourceAddress: engine.address,
     destinationAddress: engine.address,
     amountKas,
-    feeKas,
+    feeKas: clampMessageFeeKas(feeKas),
     payload: envelope.protocolBytes || envelope.protocolString || envelope.payloadHex,
     log: engine.log,
   });

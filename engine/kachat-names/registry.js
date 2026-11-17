@@ -672,8 +672,11 @@ export class KachatNamesRegistry {
       const j = IndexerAPI.nameJSON(await this._get(this.source.base, `/names/${name}`));
       const info = IndexerAPI.nameInfo(j, keyOf);
       if (info) return Lookup.registered(info);
-      // registered but a record that can't be read is no answer, never "free" (KaPay 5848fb0)
-      if (j.registered === true) throw new Failure(`the indexer's record of ${name} can't be read`);
+      // registered but a record that can't be read is no answer, never "free" (KaPay 5848fb0) -
+      // nor is one that doesn't say, but carries a record's outpoint or owner (iOS 83806b3d)
+      if (j.registered === true || (j.registered == null && (j.outpoint || j.owner || j.ownerKey))) {
+        throw new Failure(`the indexer's record of ${name} can't be read`);
+      }
       return Lookup.free(name, j.gap);
     }
     const st = this._readChainState();

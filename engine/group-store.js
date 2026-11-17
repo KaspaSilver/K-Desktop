@@ -1149,6 +1149,9 @@ export class GroupManager {
 
   // --- send a message ---
   async sendGroupMessage(groupId, plaintext, { feeKas = "0" } = {}) {
+    // This store belongs to one account: after a switch the engine holds another account's key,
+    // which must never sign this account's message (iOS 83806b3d: group sends tied to their account).
+    if (String(this.engine.address || "") !== String(this.walletAddress || "")) throw new Error(SEND_ACCOUNT_CHANGED);
     // Reserve the counter BEFORE sending so a retry never reuses a msg_id. Under the group lock,
     // on a fresh read, against the monotonic high-water mark (DSK-053): a scan that wrote back an
     // older copy of the record can no longer hand the same counter out twice. The seal below uses
@@ -1167,7 +1170,7 @@ export class GroupManager {
       counter,
     });
     const msgIdHex = G.bytesToHex(G.buildMsgId(G.hexToBytes(record.deviceIdHex), counter));
-    const result = await this.engine.sendGroupPayload(payload, { feeKas: String(feeKas || "0") });
+    const result = await this.engine.sendGroupPayload(payload, { feeKas: String(feeKas || "0"), ownerAddress: this.walletAddress });
     return { txid: result?.txids?.[0] || null, counter, epoch: record.currentEpoch, msgIdHex };
   }
 

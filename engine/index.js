@@ -4,9 +4,9 @@ import { maxFeerate } from "./kachat-names/codec.js";
 import { clearNodeRegistry, connectRpc, createStandbyRpc, disconnectRpc, forgetEndpoint, getNodeRegistrySnapshot, isRpcConnectionError, markBadNode, probeRpc, recordFailover } from "./rpc.js";
 import { generateWallet, generateMnemonicWallet, generateMnemonicPhrase, importMnemonic, importMnemonicWithFamily, deriveIdentityAddressRange, importPrivateKey, deriveSpendingWallet, deriveSpendingAddressRange, spendingDerivationPath, normalizeSourceFamily, sourceFamilyPathDescription, WALLET_SOURCE_FAMILIES } from "./wallet.js";
 import { getBalance, sendKaspa, sendMaxKaspa, estimateMaxSend, sweepAllToSelf, estimateOnchainFee, estimateSendFeeDetail, sendPayloadTransaction , estimateOnchainFeeDetail, submitConfirmingAcceptance, excludeJustSpentUtxos, transactionSpends, SEND_OUTCOME_UNKNOWN } from "./transactions.js";
-import { kasToSompi, checkedUtxoAnswer } from "./amounts.js";
+import { kasToSompi, checkedUtxoAnswer, clampMessageFeeKas } from "./amounts.js";
 import { makeQrPayload, drawKaspaQr } from "./qr.js";
-import { createMessageEnvelope, createEncryptedMessageEnvelope, createEncryptedHandshakeEnvelope, createSelfStashEnvelope, sendMessagePreview, sendMessageOnchain, sendHandshakeOnchain, sendSelfStashOnchain, SELF_STASH_ACCOUNT_CHANGED } from "./messages.js";
+import { createMessageEnvelope, createEncryptedMessageEnvelope, createEncryptedHandshakeEnvelope, createSelfStashEnvelope, sendMessagePreview, sendMessageOnchain, sendHandshakeOnchain, sendSelfStashOnchain, SELF_STASH_ACCOUNT_CHANGED, SEND_ACCOUNT_CHANGED, sendAccountMismatch } from "./messages.js";
 import { verifyIncomingPayment, buildConversationSyncPlan, syncConversationPreview, syncConversationFromIndexerWithLegacyAliases, syncIncomingHandshakesFromIndexer, syncOutgoingHandshakesFromIndexer, syncSentMessagesFromIndexer, sentPaymentMemoFromPayload, syncIncomingPaymentsFromRest, checkIncomingRestPayment, syncSelfStashFromChain, fetchSavedHandshakeNotes, testKasiaIndexer, probeInboxSupport, fetchInboxMessages, DEFAULT_KASIA_INDEXER_URL } from "./sync.js";
 import { KASIA_PROTOCOL, KASIA_INTEGRATION_STATUS, buildCommMessage, buildEncryptedCommMessage, makeKasiaCommPayload, parseKasiaPayloadHex, decodePayload, inboxTagFor, buildEncryptedPaymentPayload, sealPaymentRecord } from "./kasia-protocol.js";
 import { loadKasiaCipher, isKasiaCipherLoaded, encryptKasiaMessage, encryptKasiaContextualMessage, decryptKasiaMessage, decryptSentKasiaMessage, deriveKasiaAliases } from "./kasia-cipher.js";
@@ -1666,9 +1666,13 @@ export class KaspaEngine {
   // Broadcasts a group payload string (kchat:1:gcomm: or :gctl:) as a
   // pay-to-self transaction with the string in the native payload field, the
   // same self-stash mechanism 1:1 COMM messages use.
-  async sendGroupPayload(payloadString, { amountKas = KASIA_INTEGRATION_STATUS.defaultMessageAmountKas, feeKas = "0" } = {}) {
+  async sendGroupPayload(payloadString, { amountKas = KASIA_INTEGRATION_STATUS.defaultMessageAmountKas, feeKas = "0", ownerAddress = null } = {}) {
+    // `ownerAddress`: the account the message was sealed for; checked again after the connect, the
+    // last await before its keys are used (iOS 83806b3d).
+    if (sendAccountMismatch(ownerAddress, this.address)) throw new Error(SEND_ACCOUNT_CHANGED);
     this.requireWallet();
     await this.connect();
+    if (sendAccountMismatch(ownerAddress, this.address)) throw new Error(SEND_ACCOUNT_CHANGED);
     return sendPayloadTransaction({
       kaspa: this.kaspa,
       rpc: this.rpc,
@@ -1677,7 +1681,7 @@ export class KaspaEngine {
       sourceAddress: this.address,
       destinationAddress: this.address,
       amountKas,
-      feeKas,
+      feeKas: clampMessageFeeKas(feeKas),
       payload: new TextEncoder().encode(String(payloadString)),
       log: this.log,
     });
