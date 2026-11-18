@@ -56,7 +56,7 @@ import {
   JAR_ID_RE, NEXTCLOUD_ORIGIN_HEADER, RATE_MAX_KEYS, CHANGENOW_ORIGIN, CHANGENOW_KEY_HEADER,
   CHANGENOW_KEY_ROUTES, SWAP_UNAVAILABLE_MESSAGE, SWAP_PROBE_PATH, CHANGENOW_CLIENT_KEY_HEADER,
   CHANGENOW_CLIENT_KEY_RE, EXTENSION_ID_HEADER, parseExtensionIds, listedExtensionCaller, ipv4Octets,
-  ipv6Bytes, isBlockedHost, createLimiter, applyPreviewHeaders,
+  ipv6Bytes, isBlockedHost, createLimiter, applyPreviewHeaders, previewPolicyOf, previewHopRefusal, previewHopHeaders,
 } from "./relay-rules.mjs";
 
 // The rules are defined in relay-rules.mjs; these were always exported from here, and still are.
@@ -529,6 +529,7 @@ export function createRelay(options = {}) {
     // Talk's signaling channel is a long poll the server holds for up to 30s.
     const longPoll = String(headers["x-proxy-long-poll"] || "") === "1";
     delete headers["x-proxy-long-poll"];
+    const previewPolicy = previewPolicyOf(headers);
     applyPreviewHeaders(headers, origin.hostname);
     // Opt-in "soft 404" (KNS): an upstream 404 comes back as 200 + x-upstream-status: 404.
     const soft404 = headers["x-proxy-soft-404"] === "1";
@@ -548,6 +549,9 @@ export function createRelay(options = {}) {
     // Redirects are followed server-side (GET/HEAD, capped): a 3xx passed through would hand the
     // browser a cross-origin Location that CORS then refuses. Each hop is checked and pinned.
     const forward = async (hopTarget, hop) => {
+      // A KaPost preview: every hop on its list, or nothing (KaPost b78fdb0)
+      const policyRefusal = previewHopRefusal(previewPolicy, hopTarget, hop);
+      if (policyRefusal) { fail(403, policyRefusal); return; }
       const pinned = await resolveTarget(hopTarget.hostname);
       if (!pinned) { fail(403, hop === 0 ? "Proxy target not allowed" : "Redirect target not allowed"); return; }
       const pinnedLookup = (_host, opts, callback) => {
@@ -558,7 +562,7 @@ export function createRelay(options = {}) {
       // A redirect to another origin gets a clean request: Authorization, jar cookies and the
       // ChangeNOW key belong to the origin that was asked for.
       const sameOrigin = hopTarget.origin === origin.origin;
-      const hopHeaders = { ...headers, host: hopTarget.host };
+      const hopHeaders = { ...previewHopHeaders(previewPolicy, headers, hopTarget), host: hopTarget.host };
       if (!sameOrigin) {
         delete hopHeaders.authorization;
         delete hopHeaders.cookie;

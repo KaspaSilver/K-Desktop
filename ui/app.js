@@ -28,6 +28,8 @@ import { groupParts, unreadUnits, isLaterPart, sniffPartTag, VOICE_PATHS, voiceP
 import * as VoiceNotes from "./voice-notes.js";
 import { loadPhotoSource, prepareJpegForTiers } from "./photo-tiers.js";
 import { initKaPosts, refreshKaPostsFeed, resetKaPostsForAccount, openKaPostFromNotification, kaPostsFollowingAddresses, stopKaPostsPolling, peekKaPostLinkPreview, resolveKaPostLinkPreview, canOfferTextTranslation, textTranslationState, translatedTextFor, showOriginalText, showTranslatedText, readerLanguageName, translateText, onTranslationChange, showKaPostsActionToast } from "./kaposts.js";
+import { allowsPreviewPage, allowsPreviewImage, socialPreviewBrand } from "../engine/link-preview-policy.js";
+import { SOCIAL_LOGOS } from "./social-logos.js";
 import { kapostsFiatFieldText, kapostsKasFieldText, kapostsTipFieldAmount, kapostsSwitchTipText, kapostsDefaultTipSompi, KAPOSTS_TIP_MIN_SOMPI } from "./kaposts-format.js";
 import { fetchFollowListAll, requesterPubkeyFor, kaspaAddressFromPubkey, KAPOSTS_PROTOCOL, KACHAT_MARKER as KAPOSTS_MARKER, utf8ToBase64 as kapostsUtf8ToBase64, buildKaPostTipPayload } from "../engine/kaposts.js";
 import { initBroadcasts, refreshBroadcasts, repaintBroadcastIdentities, resetBroadcastsForAccount, stopBroadcastPolling, openBroadcastChannelFromNotification, openBroadcastRoomFromLink, broadcastUnreadTotal, broadcastJoinError, joinBroadcastChannelFromSheet, chatListRooms, openBroadcastRoom, closeBroadcastRoom, markBroadcastRooms, removeBroadcastRooms, setBroadcastRoomNotify, copyBroadcastRoomLink } from "./broadcasts.js";
@@ -2982,11 +2984,14 @@ let linkPreviewRerenderTimer = null;
 
 // Fetch a page through the same-origin /nc-proxy dev middleware (browsers can't read cross-origin
 // HTML directly). `x-preview: 1` asks the proxy to use a crawler UA so more sites emit og:image.
-async function proxiedFetchHtml(url) {
+async function proxiedFetchHtml(url, { policy = false } = {}) {
   // The relay exists on the dev server, the preview server and the Docker build alike; it used
   // to be gated on "dev server", which left the built site with no previews at all.
   if (!(await isProxyAvailable())) return null;
-  const res = await fetch(proxiedUrl(url), { headers: { Accept: "text/html,application/xhtml+xml", "x-preview": "1" } });
+  // A KaPost preview (KaPost b78fdb0): the relay follows its redirects only to allowed https pages.
+  const headers = { Accept: "text/html,application/xhtml+xml", "x-preview": "1" };
+  if (policy) headers["x-preview-policy"] = "page";
+  const res = await fetch(proxiedUrl(url), { headers });
   if (!res.ok) return null;
   const type = res.headers.get("content-type") || "";
   if (!/text\/html|xml/i.test(type)) return null;
@@ -3019,8 +3024,8 @@ function metaContent(html, prop) {
   return String(el?.getAttribute("content") || "").trim();
 }
 
-async function fetchOpenGraph(url) {
-  const html = await proxiedFetchHtml(url);
+async function fetchOpenGraph(url, { policy = false } = {}) {
+  const html = await proxiedFetchHtml(url, { policy });
   if (!html) return null;
   const decode = (s) => String(s || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0?39;|&#x27;/gi, "'");
   const title = decode(metaContent(html, "og:title") || metaContent(html, "twitter:title") || (html.match(/<title[^>]*>([^<]{1,300})<\/title>/i)?.[1] || "").trim());
@@ -3146,18 +3151,77 @@ async function loadPreviewImage(img, imageUrl, pageUrl) {
   }
 }
 
-function buildRichLinkCard(url, data) {
+// --- KaPost link cards (KaPost b78fdb0 KaPostLinkPreviewPolicy) ---------------------------------
+// Posts and Public Chats preview a link only for a sender with a .kachat name, and only an allowed
+// site's (engine/link-preview-policy.js). Their own cache and fetches: the page and every redirect
+// held to the list by the relay, the image only from the site or its image servers (else the card
+// shows without it), and a social network's card drawn as its logo on its colour. YouTube keeps its
+// thumbnail. 1:1 and group chats keep KaChat's own cards.
+const kapostPreviewCache = new Map();
+const kapostPreviewPending = new Map();
+function resolveKaPostWebPreview(url) {
+  if (!allowsPreviewPage(url)) return Promise.resolve(null);
+  if (kapostPreviewCache.has(url)) return Promise.resolve(kapostPreviewCache.get(url));
+  if (kapostPreviewPending.has(url)) return kapostPreviewPending.get(url);
+  const ytId = youtubeVideoId(url);
+  const fetcher = ytId ? fetchYouTubeMeta(url, ytId) : fetchOpenGraph(url, { policy: true });
+  const p = fetcher.catch(() => null).then((data) => {
+    kapostPreviewPending.delete(url);
+    // a failure isn't kept: the next paint tries again
+    if (data) kapostPreviewCache.set(url, data);
+    return data || null;
+  });
+  kapostPreviewPending.set(url, p);
+  return p;
+}
+async function loadKaPostPreviewImage(img, imageUrl, pageUrl) {
+  if (!allowsPreviewImage(imageUrl, pageUrl)) { img.closest(".message-link-card-thumb")?.remove(); return; }
+  if (previewImageBlobs.has(imageUrl)) { img.src = previewImageBlobs.get(imageUrl); return; }
+  if (!(await isProxyAvailable())) { img.closest(".message-link-card-thumb")?.remove(); return; }
+  try {
+    // through the relay, which holds every redirect to the same rule and sends the Referer only
+    // to the page's own host
+    const res = await fetch(proxiedUrl(imageUrl), { headers: { "x-preview-image": "1", "x-preview-referer": pageUrl, "x-preview-policy": "image" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    if (!blob.size || !/^image\//i.test(blob.type || "")) throw new Error("not an image");
+    const src = URL.createObjectURL(blob);
+    previewImageBlobs.set(imageUrl, src);
+    img.src = src;
+  } catch {
+    img.closest(".message-link-card-thumb")?.remove();
+  }
+}
+/** A KaPost link's card, or null while it loads or when it can't (the link itself shows then). */
+function buildKaPostWebCard(url) {
+  if (!allowsPreviewPage(url)) return null;
+  const data = kapostPreviewCache.get(url);
+  if (!data) return null;
+  return buildRichLinkCard(url, data, { kapost: true });
+}
+
+function buildRichLinkCard(url, data, { kapost = false } = {}) {
   const card = document.createElement("a");
   card.className = "message-link-card";
   card.href = url; card.target = "_blank"; card.rel = "noopener noreferrer";
   card.addEventListener("click", (event) => event.stopPropagation());
-  if (data.image) {
+  const brand = kapost ? socialPreviewBrand(url) : null;
+  if (brand && SOCIAL_LOGOS[brand]) {
+    // the network's white logo on its colour (KaPost b78fdb0), never its scraped image
+    const logo = SOCIAL_LOGOS[brand];
+    const band = document.createElement("div");
+    band.className = "message-link-card-brand";
+    band.style.background = logo.color;
+    band.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="${escapeHtml(logo.path)}"/></svg>`;
+    card.append(band);
+  } else if (data.image) {
     const thumb = document.createElement("div");
     thumb.className = "message-link-card-thumb";
     const img = document.createElement("img");
     img.loading = "lazy"; img.alt = "";
     img.addEventListener("error", () => thumb.remove(), { once: true });
-    loadPreviewImage(img, data.image, url);
+    if (kapost) loadKaPostPreviewImage(img, data.image, url);
+    else loadPreviewImage(img, data.image, url);
     thumb.append(img);
     if (data.site === "YouTube") { const play = document.createElement("span"); play.className = "message-link-play"; play.textContent = "▶"; thumb.append(play); }
     card.append(thumb);
@@ -13246,7 +13310,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 301;
+const APP_BUILD = 302;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -32062,6 +32126,10 @@ queueMicrotask(async () => {
       // A link to KaChat's own site draws its preview card under the post (KaPost f81c467).
       buildLinkPreviewCard,
       resolveLinkPreview,
+      // KaPost's own link cards and who may have them (KaPost b78fdb0: a sender with a .kachat name)
+      buildKaPostWebCard,
+      resolveKaPostWebPreview,
+      hasKachatName: (address) => Boolean(address && kachatCachedLabel(address)),
       showFeeEstimate: () => feeEstimateEnabled(),
       // iOS KaPostsAPIClient.estimatePostFee: the real post payload with a dummy pubkey and
       // signature of the right width, so the estimate is for the bytes that will actually go.
@@ -32146,6 +32214,10 @@ queueMicrotask(async () => {
       renderTextWithLinks,
       buildLinkPreviewCard,
       resolveLinkPreview,
+      // KaPost's own link cards and who may have them (KaPost b78fdb0: a sender with a .kachat name)
+      buildKaPostWebCard,
+      resolveKaPostWebPreview,
+      hasKachatName: (address) => Boolean(address && kachatCachedLabel(address)),
       buildVoicePlayer,
       isPreviewableUrl,
       // Voice notes: same MediaRecorder wrapper + Nextcloud upload as the 1:1 composer. A room

@@ -15468,3 +15468,8 @@ textarea.composer-input { overflow-y: hidden; }
 .kaposts-tip-edit svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .kaposts-tip-amount-field .field-input[readonly] { cursor: pointer; }
 .kaposts-tip-too-small { color: var(--ios-red, #ff3b30); }
+
+/* A KaPost link card for a social network (KaPost b78fdb0): the network's white logo on its colour,
+   140px tall, instead of a scraped image. */
+.message-link-card-brand { height: 140px; display: grid; place-items: center; border-radius: inherit; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.message-link-card-brand svg { width: 56px; height: 56px; }

@@ -9,6 +9,7 @@
 
 import { IS_TESTNET, KAS_UNIT } from "../engine/network.js";
 import { isKaChatSiteLink } from "./kaposts-format.js";
+import { allowsPreview } from "../engine/link-preview-policy.js";
 import { stripBidiControls } from "./kaposts-markdown.js";
 import { sompiFromUserText, kasTextFromSompi } from "../engine/amounts.js";
 import {
@@ -1596,16 +1597,16 @@ function buildMessageElement(m) {
   const internalCard = internalLink && withinInline ? (deps.buildInternalLinkCard?.(internalLink) || null) : null;
   // A message that is nothing but a link: the preview card replaces the bubble (iOS loneLinkURL).
   const loneLink = !audioEnvelope && !internalLink && withinInline && !isEnvelopeText ? entirelyLinkUrl(originalText) : null;
-  // Public rooms are open to anyone, so no preview loads by itself - your own links included
-  // (iOS autoFetch: false): a card is tap-to-load until this session has it. Only KaChat's own site
-  // loads by itself (KaPost f81c467).
+  // Rooms follow KaPost's preview rules (KaPost b78fdb0): a link previews, by itself with no tap,
+  // only when its sender has a .kachat name and it is KaChat's own site or an allowed site with no
+  // adult words. Any other link stays plain text in the bubble, so no unknown server is contacted.
+  const senderNamed = Boolean(deps.hasKachatName?.(m.senderAddress));
   const previewCardFor = (url) => {
-    const siteLink = isKaChatSiteLink(url);
-    if (!siteLink && !deps.previewApproved?.(url)) return deps.buildTapToLoadCard?.(url, () => renderRoom());
-    const card = deps.buildLinkPreviewCard?.(url, { autoLoad: true, outgoing: mine });
-    if (!card && siteLink && !siteLinkPreviewsAsked.has(url)) {
+    if (!senderNamed || !(isKaChatSiteLink(url) || allowsPreview(url))) return null;
+    const card = deps.buildKaPostWebCard?.(url) || null;
+    if (!card && !siteLinkPreviewsAsked.has(url)) {
       siteLinkPreviewsAsked.add(url);
-      deps.resolveLinkPreview?.(url).then(() => renderRoom()).catch(() => {});
+      deps.resolveKaPostWebPreview?.(url).then((data) => { if (data) renderRoom(); }).catch(() => {});
     }
     return card;
   };

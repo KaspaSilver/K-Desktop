@@ -33,7 +33,7 @@ import {
   safeRelayContentType, WRITE_API_HOST_RE, NEXTCLOUD_REFUSED_MESSAGE, isNextcloudRelayRequest, NEXTCLOUD_ORIGIN_HEADER,
   CHANGENOW_ORIGIN, CHANGENOW_KEY_HEADER, CHANGENOW_KEY_ROUTES, SWAP_UNAVAILABLE_MESSAGE,
   SWAP_PROBE_PATH, CHANGENOW_CLIENT_KEY_HEADER, EXTENSION_ID_HEADER, parseExtensionIds,
-  listedExtensionCaller, ipv6Bytes, isBlockedHost, createLimiter, applyPreviewHeaders,
+  listedExtensionCaller, ipv6Bytes, isBlockedHost, createLimiter, applyPreviewHeaders, previewPolicyOf, previewHopRefusal, previewHopHeaders,
 } from "../../tools/relay-rules.mjs";
 
 const MOUNT_RE = /^\/nc-proxy(?=\/|$)/;
@@ -194,6 +194,7 @@ export async function onRequest({ request, env = {} }) {
     if (name.startsWith("cf-") || name.startsWith("sec-fetch-")) delete headers[name];
   }
   for (const name of ["x-proxy-jar", NEXTCLOUD_ORIGIN_HEADER, "x-proxy-long-poll", EXTENSION_ID_HEADER]) delete headers[name];
+  const previewPolicy = previewPolicyOf(headers);
   applyPreviewHeaders(headers, origin.hostname);
   const soft404 = headers["x-proxy-soft-404"] === "1";
   delete headers["x-proxy-soft-404"];
@@ -202,8 +203,11 @@ export async function onRequest({ request, env = {} }) {
   // Redirects are followed here (GET/HEAD, capped), each hop checked like the first.
   let hopTarget = target;
   for (let hop = 0; ; hop += 1) {
+    // A KaPost preview: every hop on its list, or nothing (KaPost b78fdb0)
+    const policyRefusal = previewHopRefusal(previewPolicy, hopTarget, hop);
+    if (policyRefusal) return refuse(403, policyRefusal);
     // Another origin gets a clean request: Authorization and the ChangeNOW key belong to the one asked.
-    const hopHeaders = { ...headers };
+    const hopHeaders = { ...previewHopHeaders(previewPolicy, headers, hopTarget) };
     if (hopTarget.origin !== origin.origin) {
       delete hopHeaders.authorization;
       delete hopHeaders[CHANGENOW_KEY_HEADER];

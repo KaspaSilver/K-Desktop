@@ -109,6 +109,7 @@ import {
   kapostsDrawerDim,
   kapostsPaymentRequestIn,
   kachatSiteLinkIn,
+  kapostsPreviewLinkIn,
   kapostsFailureDelivery,
   kapostsSubmitWithUtxoRetry,
   kapostsKeptPageFresh,
@@ -2016,12 +2017,14 @@ function fillSiteLinkCards(root) {
   for (const holder of root.querySelectorAll("[data-kaposts-site-card]:not([data-filled])")) {
     holder.dataset.filled = "1";
     const url = holder.dataset.kapostsSiteCard;
+    // KaPost's own cards (KaPost b78fdb0): fetched under its preview rules, the link kept when the
+    // card can't load
     const place = () => {
-      const card = deps.buildLinkPreviewCard?.(url, { autoLoad: true });
+      const card = deps.buildKaPostWebCard?.(url);
       if (card && holder.isConnected) holder.replaceChildren(card);
     };
     place();
-    if (!holder.querySelector(".message-link-card")) deps.resolveLinkPreview?.(url).then(place).catch(() => {});
+    if (!holder.querySelector(".message-link-card")) deps.resolveKaPostWebPreview?.(url).then(place).catch(() => {});
   }
 }
 
@@ -2047,8 +2050,10 @@ function postCellHtml(post, { inThread = false, isRoot = false, replyInline = tr
   // So is a KaPlay bot challenge link (KaPost 9e22075 botChallengeLink).
   const botChallenge = botChallengeIn(payLink ? payLink.bodyText : postDisplayText(post));
   const textWithoutCards = botChallenge ? botChallenge.bodyText : payLink ? payLink.bodyText : postDisplayText(post);
-  // And a link to KaChat's own site: its preview, or the link itself if that can't load (KaPost f81c467).
-  const siteLink = kachatSiteLinkIn(textWithoutCards);
+  // And a link drawn as its preview card, or the link itself if that can't load: KaChat's own site
+  // (KaPost f81c467) or an allowed site's link, only for a poster with a .kachat name (KaPost
+  // b78fdb0); anyone else's links stay plain text.
+  const siteLink = kapostsPreviewLinkIn(textWithoutCards, { named: Boolean(deps.hasKachatName?.(post.posterAddress)) });
   const shownText = siteLink ? siteLink.bodyText : textWithoutCards;
   const isLong = kapostsCharCount(shownText) > 280 || (shownText.slice(0, 281).match(/\n/g) || []).length >= 8;
   // Show more expands the post IN PLACE now. It used to open the thread, so the only way to read

@@ -1,6 +1,7 @@
 // Pure text/time and gesture helpers for the KaPosts screens, kept out of ui/kaposts.js so they can
 // be tested in node (tools/test-kaposts-format.mjs). Each one names the iOS piece it mirrors.
 
+import { allowsPreview, firstExplicitLink } from "../engine/link-preview-policy.js";
 import { SEND_OUTCOME_UNKNOWN } from "../engine/transactions.js";
 
 // --- Delivery (iOS e5a9b11) ------------------------------------------------------------------------
@@ -317,4 +318,19 @@ export function kachatSiteLinkIn(text) {
     return { url, raw, bodyText: (value.slice(0, match.index) + value.slice(match.index + raw.length)).trim() };
   }
   return null;
+}
+
+/** The link a post draws as its preview card (KaPost b78fdb0 textParts): only for a poster with a
+ *  .kachat name (`named`) - anyone else's links never preview. KaChat's own site first, else the
+ *  post's first link written as a link (http(s):// or www.) when it is on an allowed site and
+ *  isn't a KaChat link drawn its own way. Returns { url, raw, bodyText } - the post without that
+ *  link, whose card stands in for it - or null. */
+export function kapostsPreviewLinkIn(text, { named = false } = {}) {
+  if (!named) return null;
+  const site = kachatSiteLinkIn(text);
+  if (site) return site;
+  const value = String(text ?? "");
+  const link = firstExplicitLink(value);
+  if (!link || KAPOSTS_INTERNAL_LINK_RE.test(link.raw) || !allowsPreview(link.url)) return null;
+  return { url: link.url, raw: link.raw, bodyText: (value.slice(0, link.index) + value.slice(link.index + link.raw.length)).trim() };
 }

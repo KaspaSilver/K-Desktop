@@ -3,7 +3,9 @@
 // Function that serves desktop.kachat.app (functions/nc-proxy/[[path]].js), so a fix made for one
 // is never missing from the other (DSK-001/002/003).
 //
-// No imports: this file runs under Node and in Cloudflare's runtime alike.
+// No platform imports: this file runs under Node and in Cloudflare's runtime alike. Its one import
+// is the pure KaPost preview policy the page uses too.
+import { previewPolicyRefusal } from "../engine/link-preview-policy.js";
 
 /** What the relay answers its probe with (engine/endpoints.js isProxyAvailable). */
 export const PROBE_REPLY = "kachat-proxy";
@@ -243,6 +245,35 @@ export function createLimiter(max, maxKeys = RATE_MAX_KEYS) {
 /** The request headers a link-preview scrape (x-preview: 1) or preview-image fetch (x-preview-image)
  *  goes out with, set on `headers` (a plain object, lower-case names) for a target on `hostname`.
  *  The x-preview* markers themselves are removed. */
+/** A KaPost preview fetch (KaPost b78fdb0): `x-preview-policy: page` or `image` (an image says its
+ *  page in x-preview-referer). Read before applyPreviewHeaders strips the headers; null for any
+ *  other request. */
+export function previewPolicyOf(headers) {
+  const kind = String(headers["x-preview-policy"] || "").trim().toLowerCase();
+  delete headers["x-preview-policy"];
+  if (kind !== "page" && kind !== "image") return null;
+  let page = null;
+  try { page = headers["x-preview-referer"] ? new URL(String(headers["x-preview-referer"])) : null; } catch { page = null; }
+  return { kind, page };
+}
+/** Every hop of a KaPost preview is held to its policy: a page and its redirects to allowed https
+ *  pages, an image and its redirects to the allowed image servers for its allowed page. A reason
+ *  to refuse, or null. */
+export function previewHopRefusal(policy, url, hop) {
+  if (!policy) return null;
+  return previewPolicyRefusal(policy.kind, url, { page: policy.page, hop });
+}
+/** The Referer of a KaPost preview image goes only to the page's own host (KaPost b78fdb0). */
+export function previewHopHeaders(policy, headers, url) {
+  if (!policy || !headers.referer) return headers;
+  let host = "";
+  try { host = new URL(String(headers.referer)).hostname.toLowerCase(); } catch { host = ""; }
+  if (host && host === String(url.hostname || "").toLowerCase()) return headers;
+  const out = { ...headers };
+  delete out.referer;
+  return out;
+}
+
 export function applyPreviewHeaders(headers, hostname) {
   // Link-preview scrape: a crawler UA so sites emit og: tags as they do for unfurlers. Twitter/X
   // 404s the crawler but serves OG tags to a browser UA. Mirrors iOS LinkPreviewService.
