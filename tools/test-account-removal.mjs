@@ -8,7 +8,7 @@
 // app.js can't be loaded in node, so its functions are cut out of its source and run on stubs.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { shortenLogAddresses } from "../ui/log-addresses.js";
+import { shortenLogAddresses, shortenLogTxIds } from "../ui/log-addresses.js";
 import { IMPORT_ADDRESS_SEARCH_TIMEOUT_MS, raceImportSearch } from "../ui/account-import.js";
 import { openEncryptedArchive, sealBackupEnvelope, BACKUP_NOT_ENCRYPTED_MESSAGE, BACKUP_DECRYPT_FAILED_MESSAGE } from "../ui/backup-crypto.js";
 import { reencodeAddress } from "../engine/network.js";
@@ -66,7 +66,7 @@ test("appendEngineLog shortens whatever it is handed, objects included", () => {
   const lines = [];
   const engineLog = { get textContent() { return lines.join("\n"); }, set textContent(value) { lines.length = 0; lines.push(value); } };
   const { appendEngineLog } = build(source, {
-    shortenLogAddresses, engineLog, nodeScanTraceActive: false, document: { querySelector: () => null },
+    shortenLogAddresses, shortenLogTxIds, engineLog, nodeScanTraceActive: false, document: { querySelector: () => null },
   }, "{ appendEngineLog }");
   appendEngineLog(`Restored persistent testing wallet: ${ME}`);
   appendEngineLog({ wallet: OTHER });

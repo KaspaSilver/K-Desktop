@@ -925,8 +925,10 @@ async function loadFeed() {
       pendingNewPostsHaveGap = false;
       seedPager(feedPager, result.posts, result.pagination);
       loaded = true;
-      // A refresh re-arms Popular's deep sweep: the window it ranked was just thrown away.
+      // A refresh re-arms Popular's deep sweep: the window it ranked was just thrown away. One
+      // running now goes again once it ends (KaPost b78fdb0).
       popularSweptAt = 0;
+      if (popularDeepening) popularSweepRearm = true;
     }
   } catch (error) {
     if (generation !== feedGeneration) return;
@@ -956,28 +958,57 @@ async function loadFeed() {
 const POPULAR_RANKING_DEPTH = 300;
 const POPULAR_SWEEP_MAX_PASSES = 4;
 let popularDeepening = false;
+// Popular's row order while a sweep runs (ids), or null (KaPost b78fdb0).
+let popularOrderHold = null;
+// A refresh during a sweep: one more sweep once this one ends (KaPost b78fdb0).
+let popularSweepRearm = false;
+/** Where the sweep may run (KaPost b78fdb0): with Popular open, or in the background on the Feed
+ *  tab when the connection isn't metered - only while the feed is on screen. */
+function popularSweepAllowed() {
+  if (!feedEl || feedEl.getClientRects().length === 0 || document.visibilityState === "hidden") return false;
+  if (activeFeedTab === "popular") return true;
+  if (activeFeedTab !== "feed") return false;
+  const connection = navigator.connection;
+  return !(connection && (connection.saveData || connection.type === "cellular"));
+}
 async function deepenPopularRanking() {
-  if (activeFeedTab !== "popular" || popularDeepening || !feedPager) return;
+  if (popularDeepening) { popularSweepRearm = true; return; }
+  if (!popularSweepAllowed() || !feedPager) return;
   // At most once per staleness window unless page one was refreshed in between (iOS
   // FeedLoadGates.popularSweptAt): a heavily filtered stretch of history never reaches the depth,
   // and every return to the tab would otherwise re-spend the whole request budget chasing it.
   if (popularSweptAt && Date.now() - popularSweptAt < FEED_STALE_AFTER_MS) return;
   popularSweptAt = Date.now();
   popularDeepening = true;
+  popularSweepRearm = false;
+  if (activeFeedTab === "popular") popularOrderHold = visibleFeedPosts().map((p) => p.id);
+  let finished = false;
   try {
     let passes = 0;
     while (remotePosts.length < POPULAR_RANKING_DEPTH && passes < POPULAR_SWEEP_MAX_PASSES) {
       passes += 1;
       const generation = feedGeneration;
-      if (activeFeedTab !== "popular" || !feedPager.hasMore || feedPager.stalled || feedPager.error || feedPager.loading) return;
+      if (!popularSweepAllowed() || !feedPager.hasMore || feedPager.stalled || feedPager.error) {
+        // the end of history is a finished sweep; a tab switch or a failing page cuts it short
+        finished = popularSweepAllowed() && !feedPager.stalled && !feedPager.error;
+        return;
+      }
+      if (feedPager.loading) return;
       const before = remotePosts.length;
       await loadMoreFeed();
       if (generation !== feedGeneration) return;
-      if (remotePosts.length <= before) return; // a pass that added nothing would loop forever
-      renderFeed(); // the order is only right once the whole window is in
+      if (remotePosts.length <= before) { finished = true; return; } // a pass that added nothing would loop forever
     }
+    finished = true;
   } finally {
     popularDeepening = false;
+    const wasHeld = popularOrderHold != null;
+    popularOrderHold = null;
+    // cut short (a tab switch, a refresh, the screen going away): the next chance sweeps again
+    if (!finished) popularSweptAt = 0;
+    // the order is only right once the whole window is in: ranked once, now
+    if (wasHeld && activeFeedTab === "popular") renderFeed();
+    if (popularSweepRearm) { popularSweepRearm = false; popularSweptAt = 0; deepenPopularRanking(); }
   }
 }
 
@@ -1034,6 +1065,15 @@ function visibleFeedPosts() {
   ).filter((p) => !isHiddenAuthor(p.posterAddress));
   if (activeFeedTab === "following") return combined.filter((p) => prefs.following.includes(p.posterAddress));
   if (activeFeedTab === "popular") {
+    // While the sweep ranks a deeper window, the order on screen holds (KaPost b78fdb0): its rows
+    // stay where they are, showing their live posts (a deleted, muted or blocked one drops out),
+    // and anything new goes at the end. It re-ranks once, when the sweep ends.
+    if (popularOrderHold) {
+      const byId = new Map(combined.map((p) => [p.id, p]));
+      const held = popularOrderHold.map((id) => byId.get(id)).filter(Boolean);
+      const heldIds = new Set(popularOrderHold);
+      return [...held, ...combined.filter((p) => !heldIds.has(p.id))];
+    }
     return [...combined].sort((a, b) => engagementScore(b) - engagementScore(a));
   }
   return combined;
@@ -2456,7 +2496,7 @@ function toastLabelFor(key) {
 const actionToasts = [];
 /** The feed's action toast (check, text, "View" on the explorer), for the app's instant tip
  *  (iOS KaPostsView showActionToast "Tipped ... to ..."). */
-export function showKaPostsActionToast(text, txId = null) { showActionToast(text, txId); }
+export function showKaPostsActionToast(text, txId = null, { failure = false } = {}) { showActionToast(text, txId, { failure }); }
 function showActionToast(text, txId = null, { failure = false } = {}) {
   const toast = { text, txId, failure };
   actionToasts.push(toast);
@@ -2465,7 +2505,7 @@ function showActionToast(text, txId = null, { failure = false } = {}) {
     const index = actionToasts.indexOf(toast);
     if (index >= 0) actionToasts.splice(index, 1);
     renderToasts();
-  }, 4000);
+  }, failure ? 6000 : 4000); // a failure stays longer, to be read (KaPost b78fdb0)
 }
 
 /// What didn't go through, on the red toast (iOS ee5ec98): "Couldn't follow: <why>". Nothing after
@@ -2931,9 +2971,14 @@ function spawnKaspaLogoBurst(anchor) {
  * icon, count, the Kaspa-logo burst for a like) and the vote goes on chain. Removing a like from a
  * post that never reached the network is local and instant.
  */
+// A post's like/dislike or delete still going out, by its txid (KaPost b78fdb0 KaPostsActionHolds):
+// another tap meanwhile is ignored, so it can't send a second transaction for the same post.
+const votesInFlight = new Set();
+const deletesInFlight = new Set();
 function toggleVote(post, kind) {
   const flag = kind === "like" ? "likedByMe" : "dislikedByMe";
   const key = `${kind}:${post.id}`;
+  if (post.remoteId && votesInFlight.has(post.remoteId)) return;
   if (pendingActions.has(key)) { cancelUndoable(key); return; }
   const current = findPost(post.id) || post;
   const wasSet = current[flag] === true;
@@ -2952,8 +2997,12 @@ function performVote(post, kind, wasSet) {
   const current = findPost(post.id) || post;
   const before = { likedByMe: current.likedByMe === true, dislikedByMe: current.dislikedByMe === true };
   if (post.remoteId && post.posterPubkey) {
+    if (votesInFlight.has(post.remoteId)) return;
     const vote = wasSet ? "unvote" : (kind === "like" ? "upvote" : "downvote");
+    const held = post.remoteId;
+    votesInFlight.add(held);
     submitKaPostVote({ engine: deps.engine, postId: post.remoteId, vote, authorPubkey: post.posterPubkey })
+      .finally(() => votesInFlight.delete(held))
       .then((txid) => showActionToast(`${kind === "like" ? "Like" : "Dislike"} ${wasSet ? "removed on" : "posted to"} the network`, txid))
       .catch((error) => {
         deps.appendEngineLog?.(`KaPost vote failed: ${error.message}`);
@@ -3633,11 +3682,13 @@ function scheduleEdit(post, text) {
 // Undo just lifts it - then the delete goes on chain and the post leaves every list and
 // comment tree; deleting the post an open thread is about closes the thread.
 function scheduleDelete(post) {
-  if (!post.remoteId || post.delivery !== "sent" || post.pendingDeletion) return;
+  if (!post.remoteId || post.delivery !== "sent" || post.pendingDeletion || deletesInFlight.has(post.remoteId)) return;
   // The card stays dimmed until the delete is on chain (iOS pendingDeletion); the post leaving
   // every list is the whole confirmation, and a failed delete just lifts the dim.
   mutatePost(post.id, (p) => { p.pendingDeletion = true; });
   scheduleUndoable(`delete:${post.id}`, async () => {
+    if (deletesInFlight.has(post.remoteId)) return;
+    deletesInFlight.add(post.remoteId);
     try {
       await submitKaPostDelete({ engine: deps.engine, postId: post.remoteId });
       removePostEverywhere(post);
@@ -3646,6 +3697,8 @@ function scheduleDelete(post) {
       mutatePost(post.id, (p) => settleFailedKaPostDelete(p, error));
       deps.appendEngineLog?.(`KaPost delete failed: ${error.message}`);
       deps.alertDialog?.({ title: "KaPost", message: kapostOutcomeUnknown(error) ? SEND_OUTCOME_UNKNOWN_MESSAGE : `Couldn't delete the post: ${actionErrorText(error)}`, confirmLabel: "OK" });
+    } finally {
+      deletesInFlight.delete(post.remoteId);
     }
     renderAll();
   }, () => {
@@ -6455,7 +6508,7 @@ function selectFeedTab(tab) {
   // or from Following - starts a new paginated feed.
   if (feedSourceFor(tab) === loadedFeedSource && remotePosts.length > 0) {
     renderFeed({ resetScroll: true });
-    if (tab === "popular") deepenPopularRanking();
+    if (tab === "popular" || tab === "feed") deepenPopularRanking();
     return;
   }
   // Retire the outgoing tab's cursor before anything can repaint: its sentinel must not
@@ -6463,7 +6516,7 @@ function selectFeedTab(tab) {
   feedPager = null;
   clearPagerSentinel("feed");
   renderFeed();
-  loadFeed().then(() => { if (activeFeedTab === "popular") deepenPopularRanking(); });
+  loadFeed().then(() => { if (activeFeedTab === "popular" || activeFeedTab === "feed") deepenPopularRanking(); });
 }
 
 /** One of KaPosts' sections, from the rail, the phone header or the hamburger's card. */

@@ -1,5 +1,5 @@
 import { originMigrationGate } from "./origin-migration.js";
-import { shortenLogAddresses } from "./log-addresses.js";
+import { shortenLogAddresses, shortenLogTxIds } from "./log-addresses.js";
 import { KaspaEngine } from "../engine/index.js";
 import { SEND_ACCOUNT_CHANGED } from "../engine/messages.js";
 import { fitBackgroundBanner, installBannerImageFit } from "./banner-fit.js";
@@ -28,7 +28,7 @@ import { groupParts, unreadUnits, isLaterPart, sniffPartTag, VOICE_PATHS, voiceP
 import * as VoiceNotes from "./voice-notes.js";
 import { loadPhotoSource, prepareJpegForTiers } from "./photo-tiers.js";
 import { initKaPosts, refreshKaPostsFeed, resetKaPostsForAccount, openKaPostFromNotification, kaPostsFollowingAddresses, stopKaPostsPolling, peekKaPostLinkPreview, resolveKaPostLinkPreview, canOfferTextTranslation, textTranslationState, translatedTextFor, showOriginalText, showTranslatedText, readerLanguageName, translateText, onTranslationChange, showKaPostsActionToast } from "./kaposts.js";
-import { kapostsFiatFieldText, kapostsKasFieldText, kapostsTipFieldAmount, kapostsSwitchTipText, kapostsDefaultTipSompi } from "./kaposts-format.js";
+import { kapostsFiatFieldText, kapostsKasFieldText, kapostsTipFieldAmount, kapostsSwitchTipText, kapostsDefaultTipSompi, KAPOSTS_TIP_MIN_SOMPI } from "./kaposts-format.js";
 import { fetchFollowListAll, requesterPubkeyFor, kaspaAddressFromPubkey, KAPOSTS_PROTOCOL, KACHAT_MARKER as KAPOSTS_MARKER, utf8ToBase64 as kapostsUtf8ToBase64, buildKaPostTipPayload } from "../engine/kaposts.js";
 import { initBroadcasts, refreshBroadcasts, repaintBroadcastIdentities, resetBroadcastsForAccount, stopBroadcastPolling, openBroadcastChannelFromNotification, openBroadcastRoomFromLink, broadcastUnreadTotal, broadcastJoinError, joinBroadcastChannelFromSheet, chatListRooms, openBroadcastRoom, closeBroadcastRoom, markBroadcastRooms, removeBroadcastRooms, setBroadcastRoomNotify, copyBroadcastRoomLink } from "./broadcasts.js";
 import { initChessTournaments, showChessTournaments, hideChessTournaments, resetChessTournamentsForAccount, chessTournamentsMayLeave, openChessBotChallenge } from "./chess-tournaments.js";
@@ -6714,7 +6714,7 @@ function sortedConversations() {
 let nodeScanTraceActive = false;
 function appendEngineLog(message) {
   // Every address cut to its last 8 characters, whoever logged it (iOS d23e6f7a, KaPay 1652437).
-  const line = shortenLogAddresses(typeof message === "string" ? message : JSON.stringify(message, null, 2));
+  const line = shortenLogTxIds(shortenLogAddresses(typeof message === "string" ? message : JSON.stringify(message, null, 2)));
   if (nodeScanTraceActive) {
     const trace = document.querySelector("[data-node-scan-trace]");
     if (trace) { trace.textContent = line; trace.hidden = false; }
@@ -10341,18 +10341,24 @@ async function reserveFreshSpendingAddresses(count) {
   if (!(count > 0)) return [];
   const account = captureActiveSpendingAccount();
   if (!account) return [];
-  const base = await verifiedFreshQuantumIndexFor(account);
-  const results = [];
-  for (let i = 0; i < count; i += 1) {
-    const index = base + i;
-    const address = deriveSpendingAddressFor(account, index);
-    if (!address) return []; // reserving nothing rather than part of the set (iOS)
-    results.push({ index, address });
-  }
-  if (!spendingAccountStillSaved(account.owner)) return [];
-  const last = chainLocalIndex(results[results.length - 1].index);
-  saveSpendingState({ qMaxIndex: Math.max(getSpendingState(account.owner).qMaxIndex, last) }, account.owner);
-  return results;
+  // In line with the sends' change picks (KaPost b78fdb0: a request address never reuses a send's
+  // change slot): a probe running beside a send's would read the same bound and land on its slot.
+  const reserve = changeSlotPicks.then(async () => {
+    const base = await verifiedFreshQuantumIndexFor(account);
+    const results = [];
+    for (let i = 0; i < count; i += 1) {
+      const index = base + i;
+      const address = deriveSpendingAddressFor(account, index);
+      if (!address) return []; // reserving nothing rather than part of the set (iOS)
+      results.push({ index, address });
+    }
+    if (!spendingAccountStillSaved(account.owner)) return [];
+    const last = chainLocalIndex(results[results.length - 1].index);
+    saveSpendingState({ qMaxIndex: Math.max(getSpendingState(account.owner).qMaxIndex, last) }, account.owner);
+    return results;
+  });
+  changeSlotPicks = reserve.catch(() => {});
+  return reserve;
 }
 
 // Last-known spending balances/used-state, persisted per account — stale-while-revalidate:
@@ -13240,7 +13246,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 299;
+const APP_BUILD = 300;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -20498,15 +20504,17 @@ const KAPOSTS_DEFAULT_TIP_KEY = "kachat-kaposts-default-tip-sompi";
 // currency }, each tip sending what it is worth in KAS at the price of the moment. Only one of the
 // two keys is set.
 const KAPOSTS_DEFAULT_TIP_FIAT_KEY = "kachat-kaposts-default-tip-fiat-v1";
-// Cool down before post (iOS 4c0d5a8 kaPostsCooldownEnabled): on unless switched off.
-const KAPOSTS_COOLDOWN_KEY = "kachat-kaposts-cooldown-v1";
+// Cool down before post (iOS 4c0d5a8 kaPostsCooldownEnabled): off unless switched on (KaPost
+// b78fdb0). A new key, so the old "on unless switched off" setting turns it off once for everyone.
+const KAPOSTS_COOLDOWN_KEY = "kachat-kaposts-cooldown-v2";
 /** The default tip: `{ sompi }`, `{ fiat, currency }`, or null for none (ask every time). */
 function kaPostsDefaultTip() {
   try {
     const fiat = JSON.parse(localStorage.getItem(KAPOSTS_DEFAULT_TIP_FIAT_KEY) || "null");
     if (fiat && Number(fiat.fiat) > 0) return { fiat: Number(fiat.fiat), currency: CURRENCIES[fiat.currency] ? fiat.currency : selectedCurrency };
     const sompi = Number(localStorage.getItem(KAPOSTS_DEFAULT_TIP_KEY) || 0);
-    return sompi > 0 ? { sompi } : null;
+    // one saved before the minimum (KaPost b78fdb0) reads as the minimum
+    return sompi > 0 ? { sompi: Math.max(sompi, KAPOSTS_TIP_MIN_SOMPI) } : null;
   } catch { return null; }
 }
 function setKaPostsDefaultTip(tip) {
@@ -20518,11 +20526,12 @@ function setKaPostsDefaultTip(tip) {
   } catch { /* fine */ }
 }
 function kaPostsCooldownEnabled() {
-  try { return localStorage.getItem(KAPOSTS_COOLDOWN_KEY) !== "0"; } catch { return true; }
+  try { return localStorage.getItem(KAPOSTS_COOLDOWN_KEY) === "1"; } catch { return false; }
 }
 function setKaPostsCooldownEnabled(on) {
   try {
-    if (on) localStorage.removeItem(KAPOSTS_COOLDOWN_KEY); else localStorage.setItem(KAPOSTS_COOLDOWN_KEY, "0");
+    if (on) localStorage.setItem(KAPOSTS_COOLDOWN_KEY, "1"); else localStorage.removeItem(KAPOSTS_COOLDOWN_KEY);
+    localStorage.removeItem("kachat-kaposts-cooldown-v1");
   } catch { /* fine */ }
 }
 // KaPost Settings > Tips From (KaPost 071e901 kaPostsDefaultTipSourceIndex): the spending address
@@ -20608,12 +20617,13 @@ function openKaPostsSettings() {
           <div class="settings-page-form">
             <div class="settings-toggle-row"><span><strong>Send a default tip instantly</strong></span><label class="switch-control"><input type="checkbox" data-kaposts-instant-tip ${current ? "checked" : ""}><span></span></label></div>
             <div class="settings-toggle-row kaposts-tip-amount-row" data-kaposts-tip-amount-row ${current ? "" : "hidden"}>
-              <span class="kaposts-tip-amount-field"><img src="${kaspaLogoUrl}" alt="" class="kaposts-tip-amount-logo" data-kaposts-tip-logo /><span class="kaposts-tip-amount-symbol" data-kaposts-tip-symbol hidden></span><input class="field-input" type="text" inputmode="decimal" placeholder="1" aria-label="Default tip" data-kaposts-tip-amount value="${escapeHtml(initialText)}" /><button type="button" class="kaposts-tip-unit" data-kaposts-tip-unit><span data-kaposts-tip-unit-code></span>${unitArrows}</button></span>
+              <span class="kaposts-tip-amount-field"><img src="${kaspaLogoUrl}" alt="" class="kaposts-tip-amount-logo" data-kaposts-tip-logo /><span class="kaposts-tip-amount-symbol" data-kaposts-tip-symbol hidden></span><input class="field-input" type="text" inputmode="decimal" placeholder="0.2" aria-label="Default tip" data-kaposts-tip-amount value="${escapeHtml(initialText)}" readonly /><button type="button" class="kaposts-tip-unit" data-kaposts-tip-unit><span data-kaposts-tip-unit-code></span>${unitArrows}</button><button type="button" class="kaposts-tip-edit" data-kaposts-tip-edit aria-label="Edit default tip"></button></span>
             </div>
           </div>
           <button class="settings-list-row" type="button" data-kaposts-open-tips-from><span class="settings-row-copy"><strong>Tips From</strong></span><span class="settings-row-value" data-kaposts-tips-from-title>${escapeHtml(kaPostsTipSourceTitle())}</span><svg class="settings-dropdown-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
         </div>
         <p class="settings-group-footer" data-kaposts-tip-footer ${current ? "" : "hidden"}></p>
+        <p class="settings-group-footer kaposts-tip-too-small" data-kaposts-tip-too-small hidden></p>
         <div class="settings-list-card kaposts-settings-notifications-card">
           <button class="settings-list-row" type="button" data-kaposts-open-notifications>${bell}<span class="settings-row-copy"><strong>Notifications</strong></span><svg class="settings-dropdown-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
         </div>
@@ -20702,24 +20712,74 @@ function openKaPostsSettings() {
         ? `Each tip sends ${fiatAmountText(typed, tipCurrency)} worth of KAS at the price of the moment - about ${trimKas8(typed / tipPrice)} ${KAS_UNIT} now.`
         : "Each tip sends this much worth of KAS at the price of the moment.";
   };
+  // Nothing is saved while typing (KaPost b78fdb0): the field is read-only behind a pencil, and the
+  // checkmark (or Return, or leaving the field) saves it. An amount under the network's smallest
+  // tip, zero or empty puts the saved one back, with the red line saying why.
+  const editButton = backdrop.querySelector("[data-kaposts-tip-edit]");
+  const tooSmall = backdrop.querySelector("[data-kaposts-tip-too-small]");
+  const pencilIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L18.5 9.5a2.12 2.12 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l3 3"/></svg>';
+  const checkIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+  let editing = false;
+  const paintEdit = () => {
+    amount.readOnly = !editing;
+    editButton.innerHTML = editing ? checkIcon : pencilIcon;
+    editButton.setAttribute("aria-label", editing ? "Save default tip" : "Edit default tip");
+  };
+  const minimumText = `${trimKas8(KAPOSTS_TIP_MIN_SOMPI / 1e8)} ${KAS_UNIT}`;
+  const savedText = () => {
+    const saved = kaPostsDefaultTip();
+    return saved?.fiat ? kapostsFiatFieldText(saved.fiat) : saved?.sompi ? kapostsKasFieldText(saved.sompi / 1e8) : kapostsKasFieldText(KAPOSTS_TIP_MIN_SOMPI / 1e8);
+  };
   const commit = () => {
     if (!toggle.checked) { setKaPostsDefaultTip(null); return; }
+    tooSmall.hidden = true;
     if (tipInFiat) {
       const value = kapostsTipFieldAmount(amount.value);
-      if (value) setKaPostsDefaultTip({ fiat: value, currency: tipCurrency });
+      // priced at the price fetched for the field, when there is one
+      const small = value && tipPrice ? Math.round((value / tipPrice) * 1e8) < KAPOSTS_TIP_MIN_SOMPI : false;
+      if (value && !small) { setKaPostsDefaultTip({ fiat: value, currency: tipCurrency }); return; }
+      if (small) { tooSmall.textContent = `The smallest tip the network takes is ${minimumText}.`; tooSmall.hidden = false; }
+      amount.value = savedText();
       return;
     }
     // The one exact parser (iOS IOS-010): comma or dot, at most 8 decimals, capped at the supply.
     const sompi = sompiFromUserText(String(amount.value || ""));
-    if (sompi != null && sompi > 0n) setKaPostsDefaultTip({ sompi: Number(sompi) });
+    if (sompi != null && sompi >= BigInt(KAPOSTS_TIP_MIN_SOMPI)) { setKaPostsDefaultTip({ sompi: Number(sompi) }); return; }
+    if (sompi != null && sompi > 0n) { tooSmall.textContent = `The smallest tip the network takes is ${minimumText}.`; tooSmall.hidden = false; }
+    amount.value = savedText();
   };
+  const finishEditing = () => {
+    if (!editing) return;
+    editing = false;
+    commit();
+    paintEdit();
+    paintUnit();
+  };
+  // Pressed without taking the focus from the field, so leaving it doesn't save first and the
+  // click then reopen it.
+  editButton.addEventListener("mousedown", (event) => event.preventDefault());
+  editButton.addEventListener("click", () => {
+    if (editing) { finishEditing(); return; }
+    editing = true;
+    paintEdit();
+    amount.focus();
+    amount.select();
+  });
+  amount.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); finishEditing(); }
+  });
+  amount.addEventListener("blur", finishEditing);
+  amount.addEventListener("click", () => { if (!editing) editButton.click(); });
   toggle.addEventListener("change", () => {
     amountRow.hidden = !toggle.checked;
     footer.hidden = !toggle.checked;
-    if (toggle.checked && !String(amount.value || "").trim()) amount.value = "1";
+    tooSmall.hidden = true;
+    // Turned on, it starts at the smallest tip, 0.2 KAS (KaPost b78fdb0)
+    if (toggle.checked && !kaPostsDefaultTip()) { tipInFiat = false; amount.value = kapostsKasFieldText(KAPOSTS_TIP_MIN_SOMPI / 1e8); paintUnit(); }
     commit();
   });
-  amount.addEventListener("input", () => { commit(); paintUnit(); });
+  amount.addEventListener("input", () => { tooSmall.hidden = true; paintUnit(); });
+  paintEdit();
   // Flips the tip between KAS and the app's currency, carrying the amount over at today's price
   // (the number stays as typed while there is no price yet).
   unitButton.addEventListener("click", async () => {
@@ -31931,8 +31991,9 @@ queueMicrotask(async () => {
         instantTipHolds.delete(inFlightKey);
         const defaultTip = kaPostsDefaultTip();
         if (!defaultTip) { openTipModal({ address, name, tip, onTipped }); return; }
+        // A failed instant tip is a red toast, and the tip sheet stays shut (KaPost b78fdb0).
         if (kaPostsTipSourceUnavailable()) {
-          openTipModal({ address, name, tip, onTipped, error: "Your Tips From address can't be read right now, so nothing was sent. Choose where this tip comes from." });
+          showKaPostsActionToast("Tip didn't send: your Tips From address can't be read right now.", null, { failure: true });
           return;
         }
         const fiatText = defaultTip.fiat ? fiatAmountText(defaultTip.fiat, defaultTip.currency) : null;
@@ -31944,6 +32005,9 @@ queueMicrotask(async () => {
           const sompi = kapostsDefaultTipSompi(defaultTip, price);
           if (!sompi) {
             failure = `Tip didn't send: there is no recent KAS price to turn ${fiatText} into KAS.`;
+          } else if (sompi < KAPOSTS_TIP_MIN_SOMPI) {
+            // the network refuses a payment this small (its dust threshold, KaPost b78fdb0)
+            failure = `Tip didn't send: the smallest tip the network takes is ${trimKas8(KAPOSTS_TIP_MIN_SOMPI / 1e8)} ${KAS_UNIT}. Change your default tip in Settings > KaPost.`;
           } else {
             // Tips From (KaPost 071e901): another address than the chatting one tips privately,
             // so the payment names no post and nothing is counted.
@@ -31961,12 +32025,13 @@ queueMicrotask(async () => {
             showKaPostsActionToast(SEND_OUTCOME_UNKNOWN_MESSAGE);
             return;
           }
-          // iOS: "Tip didn't send: <why>", then the amount screen so it can go by hand.
-          failure = `Tip didn't send: ${userFacingError(error) || "Send failed."}`;
+          // "Tip didn't send: <why>" (KaPost b78fdb0: on the red toast, not the amount screen)
+          const why = userFacingError(error);
+          failure = why ? `Tip didn't send: ${why}` : "Tip didn't send. Try again in a moment.";
         } finally {
           instantTipsInFlight.delete(inFlightKey);
         }
-        if (failure) await openTipModal({ address, name, tip, onTipped, error: failure });
+        if (failure) showKaPostsActionToast(failure, null, { failure: true });
       },
       // KaPost Settings > Cool down before post (iOS 4c0d5a8): off, actions go at once.
       kaPostsCooldownEnabled,

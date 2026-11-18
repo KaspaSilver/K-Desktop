@@ -143,12 +143,20 @@ await test("a cancel the indexer missed is remembered for a local post; one it h
     return { problem, removed, remembered };
   };
   const down = async () => { throw new Error("network down"); };
-  const answered = async () => { const err = new Error("404"); err.indexerAnswered = true; throw err; };
+  const notFound = async () => { const err = new Error("404"); err.indexerAnswered = true; err.apiCode = "NOT_FOUND"; throw err; };
+  // KaPost b78fdb0: any other answer (a rate limit, a 5xx with a body) is no answer
+  const limited = async () => { const err = new Error("429"); err.indexerAnswered = true; err.apiCode = "RATE_LIMITED"; throw err; };
   assert.deepEqual(await run(entry(), down), { problem: null, removed: ["aa".repeat(32)], remembered: ["aa".repeat(32)] });
   assert.deepEqual(await run(entry({ onServer: true }), down), { problem: KAPOSTS_SCHEDULED_CANCEL_UNREACHED, removed: [], remembered: [] });
-  assert.deepEqual(await run(entry({ onServer: true }), answered), { problem: null, removed: ["aa".repeat(32)], remembered: [] }, "it doesn't hold it");
-  const left = await flushPendingScheduledCancels({ ids: ["a", "b", "c"], cancel: async (id) => { if (id === "a") return; if (id === "b") throw Object.assign(new Error("x"), { indexerAnswered: true }); throw new Error("down"); } });
-  assert.deepEqual(left, ["c"]);
+  assert.deepEqual(await run(entry({ onServer: true }), notFound), { problem: null, removed: ["aa".repeat(32)], remembered: [] }, "it doesn't hold it");
+  assert.deepEqual(await run(entry({ onServer: true }), limited), { problem: KAPOSTS_SCHEDULED_CANCEL_UNREACHED, removed: [], remembered: [] }, "a 429 keeps it scheduled");
+  const left = await flushPendingScheduledCancels({ ids: ["a", "b", "c", "d"], cancel: async (id) => {
+    if (id === "a") return;
+    if (id === "b") throw Object.assign(new Error("x"), { indexerAnswered: true, apiCode: "NOT_FOUND" });
+    if (id === "d") throw Object.assign(new Error("x"), { indexerAnswered: true, apiCode: null });
+    throw new Error("down");
+  } });
+  assert.deepEqual(left, ["c", "d"]);
 });
 await test("a post refused because it's on chain already counts as sent; the indexer's sent post holds its coins", async () => {
   const { submitDueScheduledPosts, applyScheduledOutcomes } = await import("../engine/kaposts.js");

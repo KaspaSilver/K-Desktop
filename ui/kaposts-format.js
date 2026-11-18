@@ -255,6 +255,9 @@ export function kapostsSwitchTipText(text, toFiat, price) {
  *  it is, one set in a currency (`{ fiat, currency }`) worked out at `price` - 1 KAS in that
  *  currency, the price of the moment - to the nearest sompi. null with no tip set, and for a
  *  currency tip with no price yet. */
+/** The smallest tip (KaPost b78fdb0 instantTipMinimumSompi): the network's dust threshold, 0.2 KAS.
+ *  Turning instant tips on starts there, and a smaller default is refused. */
+export const KAPOSTS_TIP_MIN_SOMPI = 20_000_000;
 export function kapostsDefaultTipSompi(tip, price) {
   if (!tip) return null;
   if (Number(tip.fiat) > 0) {

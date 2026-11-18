@@ -236,6 +236,8 @@ async function kapostFetch(url, timeoutMs, onAnswer) {
       // the indexer answered (not a network failure): what it said is its verdict
       error.indexerAnswered = true;
       error.status = response.status;
+      // its own code for what went wrong ({code, error}): NOT_FOUND is the only "it isn't there"
+      error.apiCode = typeof json?.code === "string" ? json.code : null;
       throw error;
     }
     // A proxy's page in the indexer's place, once that has confirmed an outage: not an empty feed.
@@ -722,6 +724,8 @@ async function kapostPostJson(path, body) {
       // the indexer answered (not a network failure): what it said is its verdict
       error.indexerAnswered = true;
       error.status = response.status;
+      // its own code for what went wrong ({code, error}): NOT_FOUND is the only "it isn't there"
+      error.apiCode = typeof json?.code === "string" ? json.code : null;
       throw error;
     }
     return json;
@@ -1153,8 +1157,10 @@ export async function cancelScheduledEntry({ id, readEntries, inFlight, cancelOn
       try {
         await cancelOnServer(current);
       } catch (error) {
-        // the indexer answered that it doesn't hold it: nothing there to cancel
-        if (!error?.indexerAnswered) {
+        // Only the indexer saying it doesn't hold it (NOT_FOUND) means nothing there to cancel. Any
+        // other answer - a rate limit, a bad signature, a 5xx with a body - is no answer: it may
+        // still send it (KaPost b78fdb0, which dropped the post on every answered error).
+        if (error?.apiCode !== "NOT_FOUND") {
           log(`Scheduled post cancel on the indexer failed: ${error?.message || error}`);
           if (current.onServer) return KAPOSTS_SCHEDULED_CANCEL_UNREACHED;
           // cancelled here now, and told to the indexer whenever it can be reached
@@ -1170,12 +1176,12 @@ export async function cancelScheduledEntry({ id, readEntries, inFlight, cancelOn
 }
 
 /** Tells the indexer about cancels it missed (KaPost 369794e flushPendingCancels). An id leaves the
- *  list once the indexer has answered, either way; the ones it couldn't be reached for are
- *  returned, to keep. */
+ *  list once the cancel went through or the indexer said it doesn't hold it (NOT_FOUND, KaPost
+ *  b78fdb0); every other failure keeps it, to try again. */
 export async function flushPendingScheduledCancels({ ids, cancel }) {
   const left = [];
   for (const id of ids || []) {
-    try { await cancel(id); } catch (error) { if (!error?.indexerAnswered) left.push(id); }
+    try { await cancel(id); } catch (error) { if (error?.apiCode !== "NOT_FOUND") left.push(id); }
   }
   return left;
 }

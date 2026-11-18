@@ -82,7 +82,8 @@ test("sends: an unknown outcome holds nothing; only the primary moves the primar
 
 test("accounts and tips", () => {
   assert.match(app, /if \(resetState && isNewAccount\)/);
-  assert.match(app, /kaPostsTipSourceUnavailable\(\)\) \{\n\s+openTipModal/);
+  // KaPost b78fdb0: an instant tip that can't go out is a red toast, not the tip sheet
+  assert.match(app, /kaPostsTipSourceUnavailable\(\)\) \{\n\s+showKaPostsActionToast\("Tip didn't send: your Tips From address can't be read right now\.", null, \{ failure: true \}\);/);
   assert.match(app, /instantTipHolds\.set\(inFlightKey, Date\.now\(\) \+ INSTANT_TIP_HOLD_MS\)/);
 });
 
