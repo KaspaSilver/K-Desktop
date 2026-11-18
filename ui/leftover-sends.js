@@ -87,16 +87,20 @@ export function settleLeftoverRoomRows(messages, { keeping = new Set() } = {}) {
     const part = partOf(row);
     if (part && part.index > firstPending.get(part.key)) { row.status = FAILED; changed += 1; }
   }
+  // One delivered copy settles one leftover row (KaPost b78fdb0): two sends of the same text with
+  // one copy on chain leave the other Not confirmed, not both gone.
+  const usedCopies = new Set();
   for (let index = messages.length - 1; index >= 0; index--) {
     const row = messages[index];
     const leftover = row?.status === "pending"
       || (row?.status === ROOM_UNCONFIRMED && ROOM_PENDING_ID.test(String(row.txId || "")));
     if (!leftover || keeping.has(row.txId)) continue;
-    const delivered = messages.some((other) => other !== row && !other.status
+    const delivered = messages.find((other) => other !== row && !other.status && !usedCopies.has(other)
       && other.senderAddress === row.senderAddress
       && String(other.content ?? "") === String(row.content ?? "")
       && Number(other.blockTime || 0) >= Number(row.blockTime || 0) - ROOM_COPY_SLACK_MS);
     if (delivered) {
+      usedCopies.add(delivered);
       messages.splice(index, 1);
       changed += 1;
     } else if (row.status !== ROOM_UNCONFIRMED) {

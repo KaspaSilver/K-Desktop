@@ -13246,7 +13246,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 300;
+const APP_BUILD = 301;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -31625,9 +31625,14 @@ function webPushMirror() {
   try { blocked = [...chatRequestState().blocked]; } catch { blocked = []; }
   let kapostsHidden = [];
   try { kapostsHidden = kaPostsHiddenXOnlyKeys(); } catch { kapostsHidden = []; }
+  // The rooms that may ring: joined, bell on (KaPost b78fdb0 wantsRoomPush). A push from a room
+  // left or switched off since is silent.
+  let rooms = null;
+  try { rooms = broadcastPushWatch().channels; } catch { rooms = null; }
   return {
     account: (engine.address || "").toLowerCase(),
     kapostsHidden,
+    rooms,
     unit: KAS_UNIT,
     sound: (accountShellPrefs.notificationSound ?? true) !== false,
     childMode: isChildModeEnabled(),

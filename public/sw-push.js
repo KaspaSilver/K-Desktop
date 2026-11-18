@@ -67,7 +67,9 @@
       ? kind === "reply" || kind === "quote"
       : body.indexOf("replied to your") >= 0 || body.indexOf("quoted your") >= 0;
     if (opensAction && /^[0-9a-f]{64}$/.test(action)) return action;
-    return String(p.post_id || "");
+    // a post is a txid, or there is no post to open (KaPost b78fdb0)
+    const post = lower(p.post_id);
+    return /^[0-9a-f]{64}$/.test(post) ? post : "";
   }
 
   /**
@@ -150,6 +152,9 @@
     if (type === "broadcast") {
       const channel = lower(p.channel);
       if (m.childMode) out.suppress = true;
+      // only a joined room with its bell on rings (KaPost b78fdb0): one left or muted since the
+      // push service last heard is silent
+      if (Array.isArray(m.rooms) && !m.rooms.includes(channel)) out.suppress = true;
       out.title = String(p.title || "").trim() || `#${channel}`;
       out.options.body = joined(String(p.subtitle || "").trim(), tidy(p.body, "New message"), ": ");
       out.options.tag = `kachat-broadcast-${p.tx_id || channel}`;

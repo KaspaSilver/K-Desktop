@@ -1116,12 +1116,18 @@ function settlePendingFromEarlierRuns(channel) {
   return true;
 }
 
+// Bumped on every account change (KaPost b78fdb0 walletGeneration): a poll, backfill or sweep that
+// was waiting on the indexer when the account changed drops its answer instead of merging the last
+// account's rows into this one's rooms.
+let roomAccountGeneration = 0;
 async function backfillChannel(channel, { quiet = true } = {}) {
+  const generation = roomAccountGeneration;
   try {
     let added = 0;
     const baseUrl = indexerOverrideFor(channel) || null;
     if (deepBackfilled.has(channel)) {
       const result = await fetchBroadcastHistory({ channel, baseUrl });
+      if (generation !== roomAccountGeneration) return 0;
       added = mergeMessages(channel, result.messages);
       // More arrived since the last poll than the page holds (a busy room, or the tab away for a
       // while, when the block stream isn't watching it): page back to the rows already seen,
@@ -1148,6 +1154,7 @@ async function backfillChannel(channel, { quiet = true } = {}) {
       try {
       for (let page = 0; page < 20; page++) {
         const result = await fetchBroadcastHistory({ channel, limit: 500, before, baseUrl });
+        if (generation !== roomAccountGeneration) return 0;
         added += mergeMessages(channel, result.messages);
         noteRoomNewest(channel, result.messages);
         if (!result.hasMore || !result.messages.length) break;
@@ -1171,6 +1178,7 @@ async function backfillChannel(channel, { quiet = true } = {}) {
     }
     return added;
   } catch (error) {
+    if (generation !== roomAccountGeneration) return 0; // the last account's failure
     if (!quiet) deps.showToast?.(userFacingError(error));
     deps.appendEngineLog?.(`Broadcast backfill failed for #${channel}: ${error.message}`);
     // With the indexer confirmed down no history is coming to match them against, so the rows an
@@ -1270,7 +1278,12 @@ async function sendRoomRowsInOrder(channel, ids) {
     try {
       await sendRoomRow(channel, row.txId, row.content);
     } catch (error) {
-      messageCache[channel] = (messageCache[channel] || []).map((m) => (ids.slice(i + 1).includes(m.txId) ? { ...m, status: "failed" } : m));
+      // The parts after it are Failed for the one Retry: no longer this run's sends (Retry skips
+      // those, so they stayed on Sending for good), and kept so (KaPost b78fdb0).
+      const later = ids.slice(i + 1);
+      messageCache[channel] = (messageCache[channel] || []).map((m) => (later.includes(m.txId) ? { ...m, status: "failed" } : m));
+      for (const id of later) pendingSendsThisRun.delete(id);
+      saveCache();
       if (activeChannel === channel) renderRoom();
       deps.showToast?.(roomSendErrorText(error, "Failed to send voice message: "));
       return false;
@@ -3110,6 +3123,8 @@ export function repaintBroadcastIdentities() {
 }
 
 export function resetBroadcastsForAccount() {
+  // every answer still on its way belongs to the last account (KaPost b78fdb0)
+  roomAccountGeneration += 1;
   cancelVoiceRecordingIfActive();
   stopPolling();
   // Each wallet has its own store: rows the last wallet applied are not applied for this one.
@@ -3144,13 +3159,17 @@ function startClosedRoomSweep() {
   sweepTimer = window.setInterval(() => { sweepClosedRooms().catch(() => {}); }, SWEEP_MS);
 }
 async function sweepClosedRooms() {
-  if (sweepRunning || document.hidden || !deps || !hasBroadcastIndexer()) return;
+  // not while signed out; an account change ends a sweep under way (KaPost b78fdb0)
+  if (sweepRunning || document.hidden || !deps || !deps.engine?.address || !hasBroadcastIndexer()) return;
   sweepRunning = true;
+  const generation = roomAccountGeneration;
   try {
     for (const name of listedChannels()) {
+      if (generation !== roomAccountGeneration) return;
       if (name === activeChannel || !notifyByChannel[name] || !isIndexerTrackedBroadcastChannel(name)) continue;
       try {
         const result = await fetchBroadcastHistory({ channel: name, limit: 50, baseUrl: indexerOverrideFor(name) || null });
+        if (generation !== roomAccountGeneration) return;
         if (mergeMessages(name, result.messages) > 0) renderChannelList();
       } catch { /* the next sweep tries again */ }
     }
@@ -3186,6 +3205,9 @@ export function openBroadcastChannelFromNotification(channel) {
   const clean = normalizeBroadcastChannel(channel);
   if (!clean) return;
   loadState({ caches: false });
+  // A push opens only a room you're in, and never joins one (KaPost b78fdb0): a room left since
+  // the push was sent stays left.
+  if (!joinedChannels.includes(clean)) return;
   openRoom(clean);
 }
 

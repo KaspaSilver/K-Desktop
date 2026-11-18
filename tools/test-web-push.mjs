@@ -321,21 +321,27 @@ test("public room, KaPosts, .kachat names, Address Activity: wording, tags and r
   assert.equal(plain(notificationFromPush({ type: "broadcast", channel: "kaspa", body: '{"text":"hi there"}' }, mirror)).options.body, "hi there");
   assert.equal(plain(notificationFromPush({ type: "broadcast", channel: "kaspa", body: "A".repeat(400) }, mirror)).options.body, "New message");
   assert.equal(notificationFromPush({ type: "broadcast", channel: "kaspa" }, { ...mirror, childMode: true }).suppress, true);
-  const post = plain(notificationFromPush({ type: "kaposts", subtitle: "alice.kas", body: "liked your post", post_id: "p1", tx_id: "k1" }, mirror));
+  const postTx = "cd".repeat(32);
+  const post = plain(notificationFromPush({ type: "kaposts", subtitle: "alice.kas", body: "liked your post", post_id: postTx, tx_id: "k1" }, mirror));
   assert.equal(post.title, "KaPost"); // the feature is KaPost wherever it is read (iOS 4c0d5a8)
   assert.equal(post.options.body, "alice.kas liked your post");
-  assert.deepEqual(post.options.data.route, { kind: "kapost", txId: "p1" });
+  assert.deepEqual(post.options.data.route, { kind: "kapost", txId: postTx });
+  // a post_id that isn't a txid opens no post (KaPost b78fdb0)
+  assert.deepEqual(plain(notificationFromPush({ type: "kaposts", body: "liked your post", post_id: "p1" }, mirror)).options.data.route, { kind: "tab", tab: "kaposts" });
+  // a room left or muted since the push service last heard is silent (KaPost b78fdb0)
+  assert.equal(notificationFromPush({ type: "broadcast", channel: "kaspa" }, { ...mirror, rooms: ["kachat-bugs"] }).suppress, true);
+  assert.notEqual(notificationFromPush({ type: "broadcast", channel: "kaspa" }, { ...mirror, rooms: ["kaspa"] }).suppress, true);
   // A reply or quote opens the reply itself, its tx_id, not the post it was made on (KaPosts-iPhone
   // 093fe4d). A kind is believed over the body; with no kind the body's wording decides.
   const replyTx = "AB".repeat(32);
-  const opens = (fields) => plain(notificationFromPush({ type: "kaposts", post_id: "p1", tx_id: replyTx, ...fields }, mirror)).options.data.route;
+  const opens = (fields) => plain(notificationFromPush({ type: "kaposts", post_id: postTx, tx_id: replyTx, ...fields }, mirror)).options.data.route;
   assert.deepEqual(opens({ kaposts_kind: "reply", body: "replied to your post" }), { kind: "kapost", txId: "ab".repeat(32) });
   assert.deepEqual(opens({ kaposts_kind: "quote", body: "quoted your post" }), { kind: "kapost", txId: "ab".repeat(32) });
   assert.deepEqual(opens({ body: "Replied to your post" }), { kind: "kapost", txId: "ab".repeat(32) });
   assert.deepEqual(opens({ body: "quoted your post" }), { kind: "kapost", txId: "ab".repeat(32) });
-  assert.deepEqual(opens({ kaposts_kind: "vote_up", body: "liked your post" }), { kind: "kapost", txId: "p1" });
-  assert.deepEqual(opens({ kaposts_kind: "mention", body: "replied to your friend" }), { kind: "kapost", txId: "p1" });
-  assert.deepEqual(opens({ kaposts_kind: "reply", tx_id: "not-a-txid" }), { kind: "kapost", txId: "p1" }); // iOS isTxId
+  assert.deepEqual(opens({ kaposts_kind: "vote_up", body: "liked your post" }), { kind: "kapost", txId: postTx });
+  assert.deepEqual(opens({ kaposts_kind: "mention", body: "replied to your friend" }), { kind: "kapost", txId: postTx });
+  assert.deepEqual(opens({ kaposts_kind: "reply", tx_id: "not-a-txid" }), { kind: "kapost", txId: postTx }); // iOS isTxId
   assert.deepEqual(plain(notificationFromPush({ type: "kaposts", kaposts_kind: "reply", tx_id: "short" }, mirror)).options.data.route, { kind: "tab", tab: "kaposts" });
   const name = plain(notificationFromPush({ type: "name_event", title: "New offer on alice.kachat", body: "12 KAS offered for it.", name: "alice", dedup: "offer:alice:1" }, mirror));
   assert.equal(name.title, "New offer on alice.kachat");
