@@ -13205,7 +13205,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 296;
+const APP_BUILD = 297;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -13480,7 +13480,9 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
     typedName = raw;
     resolvedAddress = null;
     resolvedDomain = null;
-    setValidRecipient(null);
+    // The usable recipient is set once, below, by what this check finds. Clearing it first made
+    // every amount change send the screen "no recipient" and then the same address again, and the
+    // "no recipient" wiped the fee Max had just put in: Review showed "--" with Total spinning.
     nameResults = [];
     selectedTld = null;
     renderOtherDomains(false);
@@ -13490,7 +13492,7 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
     showResolutionCard(null);
     setRecipientStatus({ input: raw });
 
-    if (!raw) { if (els.submit) els.submit.disabled = true; return; }
+    if (!raw) { setValidRecipient(null); if (els.submit) els.submit.disabled = true; return; }
 
     if (/^kaspa(test)?:/.test(raw)) {
       let valid = true;
@@ -13504,6 +13506,7 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
     }
 
     if (engine.looksLikeName(raw)) {
+      setValidRecipient(null); // a new name: none until it resolves
       if (els.submit) els.submit.disabled = true;
       setRecipientStatus({ input: raw, resolving: true });
       try {
@@ -13525,6 +13528,7 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
       return;
     }
 
+    setValidRecipient(null);
     if (els.submit) els.submit.disabled = true;
     setRecipientStatus({ input: raw, valid: false });
   }
@@ -14384,6 +14388,15 @@ async function fillMaxAmountNow() {
     applySendKaspaFeeField();
     scheduleSendKaspaFeeEstimate();
   };
+  // The fee Max worked out, put back once the amount is in (keepMaxFee): anything that cleared the
+  // fee while Max was busy must not leave Review with "--" and a spinning Total.
+  let maxFee = null;
+  const keepMaxFee = () => {
+    if (!maxFee || sendKaspaBaseFeeKas === maxFee.base) return;
+    sendKaspaBaseFeeKas = maxFee.base;
+    sendKaspaSdkBaseKas = maxFee.sdkBase;
+    applySendKaspaFeeField();
+  };
   try {
     const feeRate = await fetchQuotedFeeRateSompiPerGram();
     // A quantum-safe source's inputs push their redeem script too: 101-byte signature scripts
@@ -14397,6 +14410,7 @@ async function fillMaxAmountNow() {
       // SDK_FEE_SOMPI_PER_GRAM, calculateFee's floor), not 1. The send path passes total - sdkBase
       // as the priority tip, so this keeps paid == displayed.
       sendKaspaSdkBaseKas = Number(calculateFee(mass, MIN_RELAY_FEE_PER_GRAM)) / 1e8;
+      maxFee = { base: sendKaspaBaseFeeKas, sdkBase: sendKaspaSdkBaseKas };
       // An amount estimate still running must not land over Max's fee.
       sendKaspaFeeToken += 1;
       sendKaspaFeeCtl.setEstimating(false);
@@ -14420,6 +14434,7 @@ async function fillMaxAmountNow() {
     sendKaspaMaxMode = true;
     sendKaspaMaxCapped = false; // Compound goes through every coin, 80 at a time
     stopSendKaspaFeeEstimate();
+    keepMaxFee();
     return;
   }
 
@@ -14456,6 +14471,7 @@ async function fillMaxAmountNow() {
   sendKaspaMaxMode = true;
   sendKaspaMaxCapped = Boolean(plan.cappedAtInputLimit);
   stopSendKaspaFeeEstimate();
+  keepMaxFee();
   paintSendKaspaAmountStep();
   sendKaspaMaxPin = {
     source,
