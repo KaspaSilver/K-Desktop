@@ -54,6 +54,25 @@
 .ss-continue:disabled { opacity: .4; cursor: default; }
 .ss-bar-cancel { border: 1px solid rgba(112,199,186,.35); background: var(--glass-fill, var(--fill-tertiary)); color: var(--text); }
 .ss-continue:focus-visible, .ss-bar-cancel:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: 3px; }
+/* A second full-width button under Continue (KaChat 413f6d6d Show Request As QR): a material capsule
+   with an accent outline and accent text. */
+.ss-bar:has(.ss-secondary) { flex-wrap: wrap; }
+.ss-secondary {
+  flex: 1 0 100%; height: 50px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--kaspa-ink) 35%, transparent);
+  background: var(--material, var(--fill-tertiary)); color: var(--kaspa-ink); font: inherit; font-size: 17px; font-weight: 600; cursor: pointer;
+}
+.ss-secondary:disabled { opacity: .4; cursor: default; }
+.ss-secondary svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ss-secondary:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: 3px; }
+/* The request's QR sheet: amount, memo, the code on white, the line saying what scanning does. */
+.payment-request-qr-body { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 8px 20px 22px; text-align: center; }
+.payment-request-qr-amount { margin: 0; font-size: 34px; font-weight: 700; font-family: ui-rounded, -apple-system, system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.payment-request-qr-memo { margin: -6px 0 0; color: var(--muted); font-size: 15px; overflow-wrap: anywhere; }
+.payment-request-qr-card { padding: 16px; border-radius: 20px; background: #fff; line-height: 0; }
+.payment-request-qr-card canvas { width: 260px !important; height: 260px !important; }
+.payment-request-qr-note { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; max-width: 320px; }
+
 
 /* "To alice.kachat", "From Chatting Address" (iOS SendStepChip). */
 .ss-chips { display: flex; flex-direction: column; align-items: center; gap: 8px; }

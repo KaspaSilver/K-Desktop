@@ -13,7 +13,7 @@
   <!-- Too-old browsers (no WebAssembly / modern JS, e.g. iOS 10) get a clear message, not a blank layout. -->
   <script src="/browser-check.js"></script>
   <title>KaChat Desktop</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=410" />
+  <link rel="stylesheet" href="./ui/styles.css?v=411" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The KaChat logo the app already ships (432px PNG) doubles as the tab icon. -->
@@ -2946,7 +2946,8 @@
       <div class="account-overlay-body">
         <!-- This person's kachat.app profile link, the same link-only share your own Profile uses
              (iOS 95c3760). A round button at the top, not a row (iOS d1844582 shareButton). -->
-        <button class="chat-info-share-button" type="button" data-chat-info-share aria-label="Share this profile" title="Share this profile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12"/></svg></button>
+        <!-- KaChat 413f6d6d: "Share Profile" under the circle; the words share too. -->
+        <button class="chat-info-share" type="button" data-chat-info-share aria-label="Share this profile" title="Share this profile"><span class="chat-info-share-button" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12"/></svg></span><span class="chat-info-share-caption">Share Profile</span></button>
         <div class="profile-card chat-info-header-card">
           <!-- The contact's KNS banner, bled to the card's edges (iOS ChatInfoView's header
                section leads with it when the profile has one). -->

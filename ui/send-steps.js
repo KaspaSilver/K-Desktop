@@ -197,6 +197,7 @@ export function createStepFlow(card, { title = "Send Kaspa", onCancel } = {}) {
     for (const step of steps.values()) {
       const ok = Boolean(step.config.canContinue?.() ?? true);
       step.continueButton.disabled = !ok;
+      if (step.secondaryButton) step.secondaryButton.disabled = !ok;
       if (step.config.continueTitle) step.continueButton.textContent = typeof step.config.continueTitle === "function" ? step.config.continueTitle() : step.config.continueTitle;
     }
     const step = steps.get(current);
@@ -275,6 +276,7 @@ export function createStepFlow(card, { title = "Send Kaspa", onCancel } = {}) {
         <div class="ss-bar">
           <button type="button" class="ss-bar-cancel" data-ss-bar-cancel>Cancel</button>
           <button type="button" class="ss-continue" data-ss-continue>${esc(typeof config.continueTitle === "string" ? config.continueTitle : "Continue")}</button>
+          ${config.secondaryTitle ? `<button type="button" class="ss-secondary" data-ss-secondary>${config.secondaryIcon || ""}<span>${esc(config.secondaryTitle)}</span></button>` : ""}
         </div>`;
       layer.appendChild(el);
       const step = {
@@ -285,7 +287,14 @@ export function createStepFlow(card, { title = "Send Kaspa", onCancel } = {}) {
         headCancel: el.querySelector("[data-ss-head-cancel]"),
         barCancel: el.querySelector("[data-ss-bar-cancel]"),
         continueButton: el.querySelector("[data-ss-continue]"),
+        // A second full-width button under Continue (KaChat 413f6d6d Show Request As QR), enabled
+        // when Continue is.
+        secondaryButton: el.querySelector("[data-ss-secondary]"),
       };
+      step.secondaryButton?.addEventListener("click", () => {
+        if (step.secondaryButton.disabled) return;
+        config.onSecondary?.();
+      });
       step.backButton.addEventListener("click", () => { const back = config.back?.(); if (back) go(back); });
       const cancel = () => (config.onCancel || onCancel)?.();
       step.headCancel.addEventListener("click", cancel);

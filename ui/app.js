@@ -17,7 +17,7 @@ import { addressFromPrivateKey, passphraseFormForRecord, passphraseIsNfkd, norma
 import { QUANTUM_INDEX_BASE, QUANTUM_SCAN_FLOOR, QUANTUM_SCAN_LIMIT, QUANTUM_CHANGE_UNAVAILABLE, KIP22_SIGNATURE_SCRIPT_SIZE, isQuantumIndex, chainLocalIndex, addressNumber, spendingIndexTitle, visibilityPagerRange, spendingChainSummaries, spendingStateFromRecord, spendingRecordFromState, revealedSpendingIndices, spendingChangeIndex, freshChangeRequired, quantumSpentFromHistory } from "../engine/quantum.js";
 import { createGroupManager } from "../engine/group-store.js";
 import { sompiFromUserText, kasTextFromSompi, kasToSompi, fiatTextFloorFromSompi, checkedUtxoAnswer, kasExact8Text } from "../engine/amounts.js";
-import { makePaymentRequest, signPaymentRequest, parsePaymentRequestLink, paymentRequestAmountText, paymentRequestUniversalLink, clampMemoText, memoCharacters, PAYMENT_REQUEST_MEMO_LIMIT } from "../engine/payment-request.js";
+import { makePaymentRequest, signPaymentRequest, parsePaymentRequestLink, paymentRequestAmountText, paymentRequestUniversalLink, paymentRequestKaPayLink, clampMemoText, memoCharacters, PAYMENT_REQUEST_MEMO_LIMIT } from "../engine/payment-request.js";
 import { excludeReservedUtxos, excludeJustSpentUtxos, excludeCovenantUtxos, isTransactionKnown, maxSendOutpointKeys, MAX_AMOUNT_CHANGED, MAX_AMOUNT_CHANGED_MESSAGE, MAX_SEND_INPUT_LIMIT, SEND_FEE_CHANGED, SEND_OUTCOME_UNKNOWN, SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/transactions.js";
 import { isLeftoverSend, undeliveredRowFor, settleLeftoverGroupRows } from "./leftover-sends.js";
 import { parsePaymentPoolEnvelope, validPaymentNotice, encodePaymentNotice, paymentNoticeText, paymentNoticePlacement, checkPaymentNoticeTx, chatPaymentNotificationBody } from "../engine/payment-notice.js";
@@ -60,7 +60,7 @@ import {
   importAddressBookArchive, removeAddressBookForWallet, saveAddressBookEntry,
 } from "./address-book-store.js";
 import {
-  initAddressBook, showAddressBook, hideAddressBook, resetAddressBookForAccount, openAddressBookEditor,
+  initAddressBook, showAddressBook, hideAddressBook, resetAddressBookForAccount, openAddressBookEditor, refreshAddressBookEditorNameTools,
   pickFromAddressBook, pickManyFromAddressBook, refreshAddressBookStorageRow, ADDRESS_BOOK_ICONS,
 } from "./address-book.js";
 import { NAME_SERVICES } from "../engine/name-services.js";
@@ -2493,14 +2493,17 @@ function closePaymentRequestSheets() {
   document.querySelectorAll("[data-payment-request-sheet]").forEach((el) => el.closeSheet?.());
 }
 /** A modal built per open (like the New sheet): no state outside the DOM. */
-function openPaymentRequestBackdrop(label, innerHtml) {
-  closePaymentRequestSheets();
+function openPaymentRequestBackdrop(label, innerHtml, { over = false } = {}) {
+  // `over`: on top of the one already open (the request's QR over Request Payment), not instead.
+  if (!over) closePaymentRequestSheets();
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop payment-request-backdrop";
   backdrop.setAttribute("data-payment-request-sheet", "");
   backdrop.innerHTML = `<section class="contact-modal payment-request-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(label)}">${innerHtml}</section>`;
   const onKey = (event) => {
     if (event.key !== "Escape") return;
+    // Only the top one closes: a sheet over another takes the Escape (both listen on document).
+    if ([...document.querySelectorAll("[data-payment-request-sheet]")].pop() !== backdrop) return;
     event.preventDefault();
     event.stopPropagation();
     close();
@@ -2515,6 +2518,28 @@ function openPaymentRequestBackdrop(label, innerHtml) {
   document.addEventListener("keydown", onKey, true);
   document.body.append(backdrop);
   return { backdrop, sheet: backdrop.querySelector(".payment-request-modal"), close };
+}
+/** A request as a QR code (KaChat 413f6d6d PaymentRequestQRSheet): the amount, the memo, the code on
+ *  white and what scanning it does. A request to the chatting address carries its kachat.app link
+ *  (it opens KaChat); any other the kapay:// one (KaPay's Send, everything filled in). */
+function openPaymentRequestQrSheet(request) {
+  const payload = request.toChattingAddress ? paymentRequestUniversalLink(request) : paymentRequestKaPayLink(request);
+  const note = request.toChattingAddress
+    ? "Scan it with an iPhone's camera to pay in KaChat, with everything filled in."
+    : "Scan it with an iPhone's camera to pay in KaPay, with everything filled in.";
+  const { sheet } = openPaymentRequestBackdrop("Payment Request", `
+    <div class="modal-header">
+      <div><h2>Payment Request</h2></div>
+      <button class="create-chat-nav-button" type="button" data-payment-request-close>Done</button>
+    </div>
+    <div class="payment-request-qr-body">
+      <p class="payment-request-qr-amount">${escapeHtml(`${formatSompiPlain(request.amountSompi)} ${KAS_UNIT}`)}</p>
+      ${request.memo ? `<p class="payment-request-qr-memo">${escapeHtml(request.memo)}</p>` : ""}
+      <div class="payment-request-qr-card"><canvas width="512" height="512" data-payment-request-qr aria-label="Payment request QR code"></canvas></div>
+      <p class="payment-request-qr-note">${escapeHtml(note)}</p>
+    </div>`, { over: true });
+  const canvas = sheet.querySelector("[data-payment-request-qr]");
+  import("../engine/qr.js").then(({ drawKaspaQr }) => drawKaspaQr(canvas, payload, { dark: "#000000", light: "#ffffff" })).catch(() => {});
 }
 function paymentRequestHeaderHtml(title, closeLabel) {
   return `<div class="modal-header">
@@ -2586,6 +2611,16 @@ function openCreatePaymentRequest({ conversationId = null } = {}) {
     canContinue: () => canMake() && !working,
     onContinue: () => actionButton.click(),
     onShow: () => renderReview(),
+    // Show Request As QR (KaChat 413f6d6d), under Copy when the request isn't for a chat: the same
+    // signed request (reserving the fresh address as Copy does), shown as a code to scan.
+    ...(recipient ? {} : {
+      secondaryTitle: "Show Request As QR",
+      secondaryIcon: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1"/><path d="M14 14h2.5v2.5H14zM18 14h2.5M14 18h2.5v2.5M18.5 18v2.5H20"/></svg>',
+      onSecondary: () => run(async () => {
+        const request = await makeRequest();
+        if (request) openPaymentRequestQrSheet(request);
+      }),
+    }),
   });
   reviewBody.insertAdjacentHTML("beforeend", `
     <div class="ss-review-amount" data-payreq-review-amount></div>
@@ -8802,7 +8837,7 @@ function applyKachatHeroProfile(hero) {
 function installKachatIdentityRepaint() {
   if (!kachatNamesUiEnabled() || installKachatIdentityRepaint.done) return;
   installKachatIdentityRepaint.done = true;
-  onKachatIdentityChange(() => scheduleKachatIdentityRepaint());
+  onKachatIdentityChange(() => { scheduleKachatIdentityRepaint(); refreshAddressBookEditorNameTools(); });
 }
 function scheduleKachatIdentityRepaint() {
   if (scheduleKachatIdentityRepaint.timer) return;
@@ -13205,7 +13240,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 298;
+const APP_BUILD = 299;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -19738,17 +19773,28 @@ function paintChatInfoKachat(contact) {
   if (namesRow) { namesRow.hidden = false; namesRow.disabled = names.length === 0; }
   const namesList = document.querySelector("[data-chat-info-kachat-names]");
   if (namesList) {
+    // Set as Name (KaChat 413f6d6d): puts the name in User Info's field and closes the sheet; Save
+    // applies it, Cancel drops it. Not on your own card or a bot's. The one already in the field
+    // reads "Their Name".
+    const canSet = !isSelf && !isKachatBot(address);
+    const typed = String(chatInfoNameInput?.value || "").trim();
     namesList.innerHTML = names.map((name) => {
       // Copy keeps the ending; the row shows it as Settings says (iOS 94ed3a35).
       const full = `${name}.kachat`;
       const shown = kachatNameDisplay(name);
       const primary = name === label;
+      const action = !canSet ? ""
+        : typed === full ? `<span class="chat-info-their-name"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Their Name</span>`
+        : `<button type="button" class="chat-info-set-name" data-chat-info-set-name="${escapeHtml(full)}">Set as Name</button>`;
       return `
-      <button type="button" class="chat-info-domain-row" data-chat-info-copy-domain="${escapeHtml(full)}" title="Copy name">
-        <svg class="chat-info-domain-icon${primary ? " primary" : ""}" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 5 -2.2A9 9 0 1 0 17.5 19"/></svg>
-        <strong>${escapeHtml(shown)}</strong>
-        ${primary ? `<span class="profile-domain-primary">Primary</span>` : ``}
-      </button>`;
+      <div class="chat-info-domain-row chat-info-name-row">
+        <button type="button" class="chat-info-domain-copy" data-chat-info-copy-domain="${escapeHtml(full)}" title="Copy name">
+          <svg class="chat-info-domain-icon${primary ? " primary" : ""}" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 5 -2.2A9 9 0 1 0 17.5 19"/></svg>
+          <strong>${escapeHtml(shown)}</strong>
+          ${primary ? `<span class="profile-domain-primary">Primary</span>` : ``}
+        </button>
+        ${action}
+      </div>`;
     }).join("");
   }
 }
@@ -19891,6 +19937,11 @@ function openChatInfoSheet(name) {
     panel.hidden = panel.dataset.chatInfoPanel !== name;
   }
   if (chatInfoSheetTitle) chatInfoSheetTitle.textContent = CHAT_INFO_SHEET_TITLES[name] || "";
+  // The names list says which one is in the name field right now (Set as Name / Their Name).
+  if (name === "kachat-names") {
+    const contact = state.contacts.find((entry) => entry.address === chatInfoContactAddress);
+    if (contact) paintChatInfoKachat(contact);
+  }
   // iOS puts "View in Explorer" in the Address sheet's header, where it has something to point
   // at; on the other sheets there is nothing for it to open.
   if (chatInfoExplorerLink) {
@@ -19972,12 +20023,21 @@ document.querySelector("[data-chat-info-address-book]")?.addEventListener("click
   const address = chatInfoContactAddress;
   if (!address || address === engine.address) return;
   const contact = state.contacts.find((entry) => entry.address === address);
-  const result = await openAddressBookEditor({
-    address,
-    suggestedName: contact?.nameIsCustom ? contact.name : (contact ? displayNameForAddress(contact) : identityNameForAddress(address)),
-  });
+  // What is in the name field, when it is a name you gave them (KaChat 413f6d6d): a default name
+  // (their .kachat name or the address) never becomes the contact's name, so the editor opens
+  // empty and offers Use Their Domain Name instead.
+  const typed = String(chatInfoNameInput?.value || "").trim();
+  const isDefault = contact && !contact.nameIsCustom && !addressBookName(address) && typed === String(contact.name || "").trim();
+  const result = await openAddressBookEditor({ address, presetName: typed && !isDefault ? typed : null });
   if (result === "saved") showCopyToast("Saved to Contacts.");
   else if (result === "removed") showCopyToast("Removed from Contacts.");
+  // The field takes the name the editor just saved (or the one left after a removal), so User
+  // Info's Save can't write the older one back (KaChat 413f6d6d).
+  if (result && chatInfoContactAddress === address) {
+    const now = state.contacts.find((entry) => entry.address === address);
+    const given = now?.nameIsCustom ? now.name : addressBookName(address);
+    if (chatInfoNameInput) chatInfoNameInput.value = given || (kachatNamesUiEnabled() ? "" : (now?.name || ""));
+  }
   refreshChatInfoAddressBookRow();
 });
 // Clicking the dimmed area outside the sheet dismisses it, the way a detent sheet does.
@@ -20109,6 +20169,13 @@ document.querySelector("[data-chat-info-name-edit]")?.addEventListener("click", 
 // Delegated once on the overlay: the domain rows are re-rendered on every KNS refresh, and a
 // listener per render would stack up.
 chatInfoOverlay?.addEventListener("click", async (event) => {
+  const setName = event.target.closest("[data-chat-info-set-name]");
+  if (setName) {
+    // Into the field only; nothing is saved until Save (KaChat 413f6d6d).
+    if (chatInfoNameInput) chatInfoNameInput.value = setName.dataset.chatInfoSetName;
+    closeChatInfoSheet();
+    return;
+  }
   const domainRow = event.target.closest("[data-chat-info-copy-domain]");
   if (!domainRow) return;
   try {
@@ -23328,7 +23395,7 @@ async function openChatRowSheet(conversationEntry) {
   });
   if (!choice) return;
   if (choice === "address-book") {
-    openAddressBookEditor({ address: contact.address, suggestedName: contact.nameIsCustom ? contact.name : displayNameForAddress(contact) });
+    openAddressBookEditor({ address: contact.address, presetName: contact.nameIsCustom ? contact.name : null });
     return;
   }
   runChatRowChoice(conversationEntry, choice);
@@ -29274,7 +29341,7 @@ const SETUP_STEPS = [
   { icon: SETUP_ICONS.currency, title: "Choose Your Currency", body: "Select the currency you'd like prices displayed in.", extra: "currency" },
   { icon: SETUP_ICONS.network, title: "How KaChat Uses Kaspa", body: "KaChat lets you send and receive messages on the Kaspa network itself. Kaspa is required to pay fees when sending your messages. The fee you pay goes to miners which secure the network." },
   // The qrcode glyph, as iOS fundingStep's scaffold icon; the code itself is behind Show QR Code.
-  { icon: SETUP_ICONS.qrcode, title: "Fund Your Chatting Address", body: "50 Kaspa is recommended to get started - enough to claim a .kachat name and chat for a while. 5 Kaspa is enough for about 2500 messages.", extra: "funding" },
+  { icon: SETUP_ICONS.qrcode, title: "Fund Your Chatting Address", body: "5 Kaspa is enough for about 2500 messages.", extra: "funding" },
   { icon: SETUP_ICONS.server, title: "Connect to a Node", body: "KaChat needs to connect to a node. How would you like to connect?", extra: "node" },
   // The guide's final step (iOS d1844582): Starting a Conversation after it is gone.
   { icon: null, title: "Your Chatting Address", body: "Think of it like your phone number on KaChat.", extra: "addresses" },
@@ -32332,6 +32399,8 @@ queueMicrotask(async () => {
     // and owes the backup an upload.
     initAddressBook({
       escapeHtml, shortAddress, personGlyphSvg,
+      // Use Their Domain Name (KaChat 413f6d6d): their .kachat name, with its ending
+      kachatNameFor: (address) => (kachatNamesUiEnabled() ? kachatCachedLabel(address) : null),
       // Exactly the avatar the address set on its own profile - never a chat contact's photo.
       profileAvatarHtml: (address, className) => {
         if (address === engine.address) return selfAvatarHtml(className);

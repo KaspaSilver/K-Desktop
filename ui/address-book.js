@@ -55,6 +55,10 @@ const ICONS = {
   scan: svg('<path d="M3 8V5.5A2.5 2.5 0 0 1 5.5 3H8M16 3h2.5A2.5 2.5 0 0 1 21 5.5V8M21 16v2.5a2.5 2.5 0 0 1-2.5 2.5H16M8 21H5.5A2.5 2.5 0 0 1 3 18.5V16"/><path d="M7 12h10"/>'),
   warn: svg('<path d="M12 3 2 20h20L12 3zM12 9v5M12 17.5v.5"/>'),
   circle: svg('<circle cx="12" cy="12" r="9"/>'),
+  // xmark.circle.fill: the name field's clear button (KaChat 413f6d6d)
+  clear: svg('<circle cx="12" cy="12" r="9" style="fill:currentColor;stroke:none"/><path d="m9 9 6 6M15 9l-6 6" style="stroke:var(--panel, #1c1c1e)"/>'),
+  // "at": Use Their Domain Name
+  at: svg('<circle cx="12" cy="12" r="3.6"/><path d="M15.6 12v1.4a2.4 2.4 0 0 0 4.8 0V12a8.4 8.4 0 1 0-3.3 6.7"/>'),
   circleCheck: svg('<circle cx="12" cy="12" r="9" style="fill:currentColor"/><path d="m8 12.4 2.6 2.6L16 9.6" style="stroke:var(--panel, #fff)"/>'),
 };
 
@@ -309,7 +313,8 @@ function attachScreen() {
  *  ownAddress(), canSend(), openSend(address), openChat(address), copyText(text), showToast(text),
  *  confirmDialog(opts), formatBytes(bytes), onChange(kind: "edit" | "photos" | "restore"),
  *  displayNameFor(address) (who an unnamed entry is), setContactName(address, name) (the chat
- *  with that address takes the entry's name; "" clears it) } */
+ *  with that address takes the entry's name; "" clears it), kachatNameFor(address) (its .kachat
+ *  name with the ending, for Use Their Domain Name; null when none) } */
 export function initAddressBook(dependencies) {
   deps = dependencies;
   attachScreen();
@@ -587,7 +592,6 @@ function resolveEditorName(input) {
     if (resolution?.ownerAddress) selectEditorResolution({ address: resolution.ownerAddress, name: resolution.domain, tld: resolution.tld });
     else {
       s.lookupError = nameNotFoundText(typed, results);
-      clearEditorLookupName(s);
     }
     renderEditorResolution();
     refreshEditorChrome();
@@ -600,23 +604,38 @@ function selectEditorResolution({ address, name, tld }) {
   s.resolvedName = name || null;
   s.selectedTld = tld || null;
   s.lookupError = null;
-  // the name they're known by, unless one was typed already. A name an earlier lookup filled in
-  // is replaced, not kept for the new address (audit 2026-11-13).
-  const current = String(s.name || "").trim();
-  if (name && (!current || current === s.lookupFilledName)) {
-    s.name = name;
-    s.lookupFilledName = name;
-    const field = editorEl?.querySelector("[data-ab-editor-name]");
-    if (field) field.value = name;
-  }
+  // The name stays as typed (KaChat 413f6d6d): the domain is offered under the field instead,
+  // as Use Their Domain Name.
 }
-/** A lookup found nobody: the name the last one filled in goes with it (one typed stays). */
-function clearEditorLookupName(s) {
-  if (!s?.lookupFilledName || String(s.name || "").trim() !== s.lookupFilledName) return;
-  s.name = "";
-  s.lookupFilledName = null;
-  const field = editorEl?.querySelector("[data-ab-editor-name]");
-  if (field) field.value = "";
+
+/** The name Use Their Domain Name puts in the field (KaChat 413f6d6d AddressBookEntryEditor): the
+ *  typed domain that resolved (never a .kas one), else the opened address's .kachat name, always
+ *  with its ending. Null when there is none, or it's already the name. */
+function editorDomainSuggestion() {
+  const s = editorState;
+  if (!s) return null;
+  let suggestion = null;
+  if (s.resolvedAddress && s.resolvedName && s.selectedTld !== "kas") {
+    const name = String(s.resolvedName).trim();
+    const tld = String(s.selectedTld || "").trim();
+    suggestion = !tld || name.toLowerCase().endsWith(`.${tld.toLowerCase()}`) ? name : `${name}.${tld}`;
+  } else if (s.address) {
+    suggestion = deps?.kachatNameFor?.(s.address) || null;
+  }
+  if (!suggestion) return null;
+  return suggestion === String(s.name || "").trim() ? null : suggestion;
+}
+function editorDomainSuggestionHtml() {
+  const suggestion = editorDomainSuggestion();
+  if (!suggestion) return "";
+  return `<button type="button" class="ab-link-button ab-use-domain" data-ab-editor-use-domain>${ICONS.at}<span>Use Their Domain Name <span class="ab-use-domain-name">(${esc(suggestion)})</span></span></button>`;
+}
+/** The clear button and Use Their Domain Name follow the name as it's typed. */
+function refreshEditorNameTools() {
+  const clear = editorEl?.querySelector("[data-ab-editor-name-clear]");
+  if (clear) clear.hidden = !String(editorState?.name || "");
+  const host = editorEl?.querySelector("[data-ab-domain-suggest]");
+  if (host) host.innerHTML = editorDomainSuggestionHtml();
 }
 
 function editorShowsAssignedPhoto() {
@@ -632,9 +651,10 @@ function editorAvatarHtml() {
   return addressBookAvatarHtml(address, "chat-avatar ab-avatar ab-avatar-84", pending === undefined ? undefined : (pending || null));
 }
 
-// An empty name saves too (iOS 2831fab): the address goes by its .kachat name or itself.
+// A contact needs a name (KaChat 413f6d6d, which replaced iOS 2831fab's empty-name saves), new or
+// edited: Use Their Domain Name fills one in.
 function editorCanSave() {
-  return Boolean(editorEffectiveAddress());
+  return Boolean(editorEffectiveAddress()) && Boolean(String(editorState?.name || "").trim());
 }
 
 function renderEditor() {
@@ -656,7 +676,11 @@ function renderEditor() {
     </section>
     <section class="create-chat-section">
       <label class="create-chat-section-title ab-section-title" for="ab-editor-name">Name</label>
-      <input id="ab-editor-name" class="create-chat-name-input" type="text" data-ab-editor-name placeholder="Name" autocomplete="off" value="${esc(s.name)}" />
+      <div class="ab-name-field">
+        <input id="ab-editor-name" class="create-chat-name-input" type="text" data-ab-editor-name placeholder="Name" autocomplete="off" value="${esc(s.name)}" />
+        <button type="button" class="ab-name-clear" data-ab-editor-name-clear aria-label="Clear"${s.name ? "" : " hidden"}>${ICONS.clear}</button>
+      </div>
+      <div data-ab-domain-suggest>${editorDomainSuggestionHtml()}</div>
     </section>
     <section class="create-chat-section">
       <p class="create-chat-section-title ab-section-title">Address</p>
@@ -701,6 +725,7 @@ function refreshEditorChrome() {
   if (title) title.textContent = editorTitle(addressBookEntry(editorEffectiveAddress()));
   const photoButtons = editorEl?.querySelector("[data-ab-photo-buttons]");
   if (photoButtons) photoButtons.innerHTML = editorPhotoButtonsHtml();
+  refreshEditorNameTools();
 }
 
 function onEditorInput(event) {
@@ -727,6 +752,23 @@ async function onEditorClick(event) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target || !editorState) return;
   if (target.closest("[data-ab-editor-cancel]")) { closeEditor(null); return; }
+  const nameField = editorEl.querySelector("[data-ab-editor-name]");
+  if (target.closest("[data-ab-editor-name-clear]")) {
+    editorState.name = "";
+    if (nameField) { nameField.value = ""; nameField.focus(); }
+    refreshEditorChrome();
+    return;
+  }
+  const useDomain = target.closest("[data-ab-editor-use-domain]");
+  if (useDomain) {
+    const suggestion = editorDomainSuggestion();
+    if (suggestion) {
+      editorState.name = suggestion;
+      if (nameField) nameField.value = suggestion;
+    }
+    refreshEditorChrome();
+    return;
+  }
   // A pick under Other domains saves that service's address instead (iOS 6ac48a7).
   const otherDomain = pickOtherDomain(event, editorState.nameResolutions);
   if (otherDomain) {
@@ -842,10 +884,11 @@ function closeEditor(result) {
 
 /**
  * Add or edit one entry. With an `address` it edits that address's entry (or adds it, with
- * `suggestedName` filled in - User Info's and the chat row's "Add to Contacts"); without one
- * the address is typed, pasted or scanned. Resolves "saved", "removed" or null (cancelled).
+ * `presetName` filled in - only a name you gave them, from User Info's field or the chat; it
+ * opens empty otherwise, KaChat 413f6d6d); without one the address is typed, pasted or scanned.
+ * Resolves "saved", "removed" or null (cancelled).
  */
-export function openAddressBookEditor({ address = null, suggestedName = "" } = {}) {
+export function openAddressBookEditor({ address = null, presetName = null } = {}) {
   ensureEditor();
   closeEditor(null);
   const fixed = address ? normalizeAddressBookAddress(address) : null;
@@ -854,7 +897,7 @@ export function openAddressBookEditor({ address = null, suggestedName = "" } = {
     editorState = {
       address: fixed,
       addressInput: "",
-      name: existing ? existing.name : String(suggestedName || ""),
+      name: existing ? existing.name : String(presetName || "").trim(),
       note: existing ? existing.note : "",
       pendingPhoto: undefined,
       error: null,
@@ -1059,4 +1102,9 @@ async function confirmRemoveAllPhotos() {
   if (!ok) return;
   removeAllAddressBookPhotos();
   refreshAddressBookStorageRow();
+}
+
+/** A .kachat name that arrived while the editor is open shows up as Use Their Domain Name. */
+export function refreshAddressBookEditorNameTools() {
+  if (editorState && editorEl && !editorEl.hidden) refreshEditorNameTools();
 }

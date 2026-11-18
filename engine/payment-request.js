@@ -266,6 +266,11 @@ export function paymentRequestLinkTail(request) {
 export function paymentRequestUniversalLink(request) {
   return `https://${PAYMENT_REQUEST_HOST}/pay/${paymentRequestLinkTail(request)}`;
 }
+/** The KaPay link a request's QR carries (KaChat 413f6d6d: an iPhone's camera opens KaPay's Send
+ *  with everything filled in). A chatting-address request's QR is the kachat.app link instead. */
+export function paymentRequestKaPayLink(request) {
+  return `kapay://pay/${paymentRequestLinkTail(request)}`;
+}
 /** The kachat:// twin (iOS shareLinkString). */
 export function paymentRequestAppLink(request) {
   return `kachat://pay/${paymentRequestLinkTail(request)}`;

@@ -15297,7 +15297,10 @@ body.has-backup-banner .app-body { padding-top: calc(var(--topbar-h) + var(--bac
 .spending-visibility-chatting-balance { color: var(--accent, var(--kaspa)); }
 /* User Info: the round share button (iOS d1844582 shareButton, 58pt), the inline Info section, and
    a bot's inline Address section. */
-.chat-info-share-button { display: grid; place-items: center; width: 58px; height: 58px; margin: 6px auto 14px; padding: 0; border: 1px solid var(--glass-stroke); border-radius: 50%; background: var(--material); -webkit-backdrop-filter: var(--material-blur); backdrop-filter: var(--material-blur); color: var(--kaspa-ink); cursor: pointer; }
+.chat-info-share { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 6px auto 14px; padding: 0; border: 0; background: transparent; color: var(--kaspa-ink); font: inherit; cursor: pointer; }
+.chat-info-share[hidden] { display: none; }
+.chat-info-share-caption { font-size: 13px; font-weight: 600; color: var(--kaspa-ink); }
+.chat-info-share-button { display: grid; place-items: center; width: 58px; height: 58px; margin: 0; padding: 0; border: 1px solid var(--glass-stroke); box-sizing: border-box; border-radius: 50%; background: var(--material); -webkit-backdrop-filter: var(--material-blur); backdrop-filter: var(--material-blur); color: var(--kaspa-ink); cursor: pointer; }
 .chat-info-share-button[hidden], .chat-info-bot-address[hidden], [data-chat-info-info-section][hidden], .chat-info-rows[hidden] { display: none; }
 .chat-info-share-button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
 .chat-info-bot-address-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
@@ -15431,3 +15434,25 @@ textarea.composer-input { overflow-y: hidden; }
 .sidebar-tab-icon .sidebar-tab-avatar { display: block; width: 24px; height: 24px; border-radius: 50%; overflow: hidden; }
 .sidebar-tab-icon .sidebar-tab-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .sidebar-tab.active .sidebar-tab-icon .sidebar-tab-avatar { box-shadow: 0 0 0 2px var(--kaspa-ink); }
+
+/* Contacts editor name field (KaChat 413f6d6d): a clear button inside it, and Use Their Domain
+   Name under it with the name in brackets in the secondary colour. */
+.ab-name-field { position: relative; }
+.ab-name-field > .create-chat-name-input { padding-right: 44px; }
+.ab-name-clear {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  width: 26px; height: 26px; padding: 0; border: 0; background: transparent; color: var(--muted);
+  display: grid; place-items: center; cursor: pointer;
+}
+.ab-name-clear[hidden] { display: none; }
+.ab-name-clear svg { width: 20px; height: 20px; }
+.ab-use-domain { margin-top: 10px; }
+.ab-use-domain-name { color: var(--muted); }
+
+/* User Info > .kachat Names (KaChat 413f6d6d): the name copies, Set as Name puts it in the field. */
+.chat-info-name-row { cursor: default; }
+.chat-info-domain-copy { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.chat-info-domain-copy strong { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-weight: 650; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-info-set-name { flex: 0 0 auto; padding: 5px 11px; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--kaspa-ink) 15%, transparent); color: var(--kaspa-ink); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.chat-info-their-name { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.chat-info-their-name svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
