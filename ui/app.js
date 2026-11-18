@@ -130,7 +130,7 @@ import { normalizeDomainLabel, isKnsEntryFresh } from "../engine/kns.js";
 import kaspaLogoUrl from "./assets/kaspa-logo.png";
 import kachatLogoUrl from "./assets/kachat-logo.png";
 import { confirmText, promptText, confirmDialog, chooseDialog, alertDialog, promptDialog, PROMPT_EXTRA, infoSheet, userFacingError, ACTION_TILE_ICONS } from "./dialogs.js";
-import { onContextGesture, onDoubleGesture, isTouchDevice, releaseTypingFocus } from "./touch.js";
+import { onContextGesture, attachDoubleTap, onMessageClick, isTouchDevice, releaseTypingFocus } from "./touch.js";
 import { attachRowSwipes, chatRowSwipeActions } from "./row-swipe.js";
 import { IMPORT_ADDRESS_SEARCH_TIMEOUT_MS, raceImportSearch, rankImportAccounts, importChoiceKey, visibleImportRows, importFundsHint, rediscoveredGroupIsRead, pastedWordsInvalidMessage } from "./account-import.js";
 import { attachPinnedSearch } from "./pinned-search.js";
@@ -13205,7 +13205,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 297;
+const APP_BUILD = 298;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -19215,10 +19215,14 @@ function renderMessages(conversationEntry) {
       if (openLinkActionsMenuFor(event, () => startReplyTo(message.id))) return;
       openOneToOneMessageMenu(message.id, event.clientX, event.clientY);
     });
-    // Double-click opens the quick-reaction bar (iOS double-tap): the six quick emoji, a "+"
-    // into the full picker, and a reply shortcut - an explicit choice between reacting and
-    // replying rather than jumping straight into reply mode.
-    onDoubleGesture(bubble, (event) => {
+    // A left click opens the same menu, the quick reactions with it (owner, Build 298).
+    onMessageClick(bubble, (event) => {
+      if (messageSelectionMode) return;
+      openOneToOneMessageMenu(message.id, event.clientX, event.clientY);
+    });
+    // Double-tap on a phone opens the quick-reaction bar (iOS double-tap): the six quick emoji, a
+    // "+" into the full picker, and a reply shortcut. With a mouse one click already shows them.
+    attachDoubleTap(bubble, (event) => {
       // A payment card's pending single-click (its details) gives way to the double.
       if (bubble.paymentOpenTimer) { window.clearTimeout(bubble.paymentOpenTimer); bubble.paymentOpenTimer = 0; }
       if (messageSelectionMode || isPendingHandshakeRequest) return;
@@ -33683,6 +33687,10 @@ function openMsgContextMenu({ x, y, reaction, items, title = "", preview = "" })
   document.querySelectorAll(".msg-context-menu, .group-msg-menu").forEach((m) => m.remove());
   const menu = document.createElement("div");
   menu.className = "msg-context-menu";
+  // A left click opens this menu under the pointer, so the second click of a double-click lands
+  // on it: nothing in it acts that soon after it opened.
+  const openedAt = performance.now();
+  const tooSoon = () => performance.now() - openedAt < 300;
 
   // iOS MessageActionsSheet's header: what was pressed ("Message", "File", "Link", ...) and up to
   // two lines of it.
@@ -33709,7 +33717,7 @@ function openMsgContextMenu({ x, y, reaction, items, title = "", preview = "" })
       b.type = "button";
       b.textContent = emoji;
       if (emoji === reaction.current) b.classList.add("active");
-      b.addEventListener("click", () => { cleanup(); reaction.onPick(emoji); });
+      b.addEventListener("click", () => { if (tooSoon()) return; cleanup(); recordEmojiRecent(emoji); reaction.onPick(emoji); });
       row.append(b);
     }
     // "+" into the full emoji picker (iOS QuickReactionBarView's more button), so any emoji
@@ -33719,7 +33727,7 @@ function openMsgContextMenu({ x, y, reaction, items, title = "", preview = "" })
     more.className = "msg-context-reactions-more";
     more.setAttribute("aria-label", "More reactions");
     more.textContent = "+";
-    more.addEventListener("click", () => { cleanup(); openEmojiReactionPicker({ onPick: (emoji) => reaction.onPick(emoji) }); });
+    more.addEventListener("click", () => { if (tooSoon()) return; cleanup(); openEmojiReactionPicker({ onPick: (emoji) => reaction.onPick(emoji) }); });
     row.append(more);
     menu.append(row);
   }
@@ -33745,7 +33753,7 @@ function openMsgContextMenu({ x, y, reaction, items, title = "", preview = "" })
     lbl.className = "msg-context-label action-tile-title";
     lbl.textContent = localizedMenuLabel(item.label);
     b.append(ic, lbl);
-    b.addEventListener("click", () => { cleanup(); item.onClick(); });
+    b.addEventListener("click", () => { if (tooSoon()) return; cleanup(); item.onClick(); });
     list.append(b);
   }
   menu.append(list);
@@ -34035,7 +34043,10 @@ function openOneToOneMessageMenu(messageId, x, y, kindOverride = null) {
   const preview = kindInfo.kind === "file" ? kindInfo.name
     : (kindInfo.kind === "link" || kindInfo.kind === "kachatLink") ? kindInfo.url
     : (kindInfo.kind === "text" || kindInfo.kind === "payment") ? copyText : "";
-  openMsgContextMenu({ x, y, title: MESSAGE_MENU_TITLES[kindInfo.kind], preview, items });
+  // The quick reactions on top, as in Public Chats (owner, Build 298): one click gives both.
+  const myReaction = (conversationEntry.reactionsByTxId?.[targetTxId] || []).find((e) => e.reactorAddress === (engine.address || ""))?.emoji || null;
+  const reaction = { current: myReaction, onPick: (emoji) => sendReaction(conversationEntry, message, emoji) };
+  openMsgContextMenu({ x, y, reaction, title: MESSAGE_MENU_TITLES[kindInfo.kind], preview, items });
 }
 
 
@@ -34084,7 +34095,12 @@ function openGroupMessageMenu(message, x, y, kindOverride = null) {
   const preview = kindInfo.kind === "file" ? kindInfo.name
     : (kindInfo.kind === "link" || kindInfo.kind === "kachatLink") ? kindInfo.url
     : kindInfo.kind === "text" ? copyText : "";
-  openMsgContextMenu({ x, y, title: MESSAGE_MENU_TITLES[kindInfo.kind] || "Message", preview, items });
+  // The quick reactions on top, as in Public Chats (owner, Build 298).
+  const reaction = key ? {
+    current: reactionRows.find((e) => e.reactorAddress === engine.address)?.emoji || null,
+    onPick: (emoji) => sendGroupReaction(activeGroupId, message, emoji),
+  } : null;
+  openMsgContextMenu({ x, y, reaction, title: MESSAGE_MENU_TITLES[kindInfo.kind] || "Message", preview, items });
 }
 
 // Select mode for group messages (iOS enterSelectMode): entered from a message's menu with that
@@ -34369,8 +34385,13 @@ function renderGroupMessages() {
       if (openLinkActionsMenuFor(event, () => startGroupReply(message))) return;
       openGroupMessageMenu(message, event.clientX, event.clientY);
     });
-    // Double-click: the quick-reaction bar (iOS double-tap), "+" into the full picker.
-    onDoubleGesture(bubble, (event) => {
+    // A left click opens the same menu, the quick reactions with it (owner, Build 298).
+    onMessageClick(bubble, (event) => {
+      if (groupSelectionMode) return;
+      openGroupMessageMenu(message, event.clientX, event.clientY);
+    });
+    // Double-tap on a phone: the quick-reaction bar (iOS double-tap), "+" into the full picker.
+    attachDoubleTap(bubble, (event) => {
       if (groupSelectionMode || !key) return;
       event.preventDefault();
       const current = groupReactionsFor(activeGroupId, key).find((e) => e.reactorAddress === engine.address)?.emoji || null;

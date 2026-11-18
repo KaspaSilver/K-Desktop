@@ -31,7 +31,7 @@ import {
 import { isIndexerDown, onIndexerAvailabilityChange, indexerKey, INDEXER_RECOVERY_MARGIN_MS } from "../engine/indexer-health.js";
 import { getEndpoint } from "../engine/endpoints.js";
 import { confirmDialog, promptDialog, PROMPT_EXTRA, alertDialog, chooseDialog, userFacingError, ACTION_TILE_ICONS } from "./dialogs.js";
-import { onContextGesture, onDoubleGesture, isTouchDevice, releaseTypingFocus } from "./touch.js";
+import { onContextGesture, attachDoubleTap, onMessageClick, isTouchDevice, releaseTypingFocus } from "./touch.js";
 import { askKaPostTerms, kaPostTermsAccepted, roomHiddenSenders, roomMessageReportBody, sendContentReport } from "./kapost-moderation.js";
 import { SEND_OUTCOME_UNKNOWN, SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/transactions.js";
 import { settleLeftoverRoomRows, markRoomRowUnconfirmed, settleRoomCopy, ROOM_UNCONFIRMED } from "./leftover-sends.js";
@@ -1720,8 +1720,10 @@ function buildMessageElement(m) {
     event.preventDefault();
     openBroadcastMessageMenu(m, event.clientX, event.clientY);
   });
-  // Double-click: the quick-reaction bar (iOS double-tap), with "+" into the full picker.
-  onDoubleGesture(el, (event) => {
+  // A left click opens the same menu, the quick reactions with it (owner, Build 298).
+  onMessageClick(el, (event) => openBroadcastMessageMenu(m, event.clientX, event.clientY));
+  // Double-tap on a phone: the quick-reaction bar (iOS double-tap), with "+" into the full picker.
+  attachDoubleTap(el, (event) => {
     if (m.status) return;
     event.preventDefault();
     const perReactor = reactionsOn(activeChannel, m.txId);

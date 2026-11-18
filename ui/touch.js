@@ -172,3 +172,33 @@ export function onDoubleGesture(el, handler) {
   el.addEventListener("dblclick", handler);
   attachDoubleTap(el, handler);
 }
+
+/**
+ * A plain left click on a message bubble opens the same menu as a right-click (owner, Build 298):
+ * the quick reactions and Reply over the message's actions. Only with a mouse or pen - on a phone
+ * a tap stays a tap and the menu is a long-press, as on iOS. A click on something in the bubble
+ * that does its own thing (a link, a photo, a play button, a payment card, a reply quote) is left
+ * to it, and so is the click that ends a text selection.
+ */
+const OWN_CLICK_SELECTOR = "a, button, input, textarea, select, label, audio, video, img, canvas, [role='button'], [tabindex], [contenteditable='true']";
+export function onMessageClick(el, handler) {
+  if (!el) return;
+  let pointerType = "mouse";
+  // A click that closes an open menu or reaction bar only closes it.
+  let closingAMenu = false;
+  el.addEventListener("pointerdown", (event) => {
+    pointerType = event.pointerType || "mouse";
+    closingAMenu = Boolean(document.querySelector(".msg-context-menu, .quick-reaction-bar"));
+  }, { passive: true });
+  el.addEventListener("click", (event) => {
+    if (pointerType === "touch" || closingAMenu) return;
+    if (event.button !== 0 || event.defaultPrevented || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
+    const selection = window.getSelection?.();
+    if (selection && !selection.isCollapsed && el.contains(selection.anchorNode)) return;
+    // A part inside the bubble with a click of its own (the others stop the click themselves).
+    for (let node = event.target; node instanceof Element && node !== el; node = node.parentElement) {
+      if (node.matches(OWN_CLICK_SELECTOR)) return;
+    }
+    handler(event);
+  });
+}

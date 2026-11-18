@@ -14006,7 +14006,6 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
 .kachat-composer > .composer-field-wrap > .composer-input { flex: 1 1 auto; min-width: 0; }
 .kachat-composer > .composer-field-wrap > [hidden] { display: none !important; }
 .kachat-composer.composer-field-replaced > .composer-field-wrap > .composer-input { display: none; }
-.kachat-composer > .composer-emoji,
 .kachat-composer > .composer-plus,
 .kachat-composer > .composer-send {
   flex: 0 0 44px; width: 44px; height: 44px; margin: 0; padding: 0; border-radius: 14px;
@@ -14014,8 +14013,15 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
   background: var(--material); -webkit-backdrop-filter: var(--material-blur); backdrop-filter: var(--material-blur);
   border: 1px solid var(--glass-stroke); box-shadow: var(--glass-shadow);
 }
-.kachat-composer > .composer-emoji { color: var(--text); }
-.kachat-composer > .composer-emoji svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+/* The emoji button sits inside the field, at its end (owner, Build 298): a plain icon, no glass of
+   its own, staying on the last line as the text grows. */
+.kachat-composer > .composer-field-wrap > .composer-emoji-inline {
+  flex: 0 0 34px; width: 34px; height: 34px; margin: 0 2px 1px 0; padding: 0; align-self: flex-end;
+  display: grid; place-items: center; cursor: pointer; border: 0; border-radius: 50%;
+  background: transparent; color: var(--muted);
+}
+.kachat-composer > .composer-field-wrap > .composer-emoji-inline:hover { color: var(--text); background: var(--primary-08); }
+.kachat-composer > .composer-field-wrap > .composer-emoji-inline svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 /* Send: arrow.up.circle.fill in accent, on the same 44pt glass as the "+". */
 .kachat-composer > .composer-send { color: var(--kaspa-ink); align-self: flex-end; }
 .kachat-composer > .composer-send svg { width: 30px; height: 30px; padding: 6px; border-radius: 50%; background: var(--kaspa); color: #fff; box-sizing: border-box; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
