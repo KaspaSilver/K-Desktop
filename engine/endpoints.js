@@ -238,6 +238,48 @@ export async function isRelayRateLimit(response) {
   try { return (await response.clone().text()).trim() === "Too many requests"; } catch { return false; }
 }
 
+// Hosts that answer a browser page on any origin by themselves (checked 2026-11-19: the KaChat
+// indexer reflects the page's origin, GET and POST with Content-Type, on errors too; api.kaspa.org,
+// gate.io and dotk send "*"). These are asked DIRECTLY, and the relay is only a fallback. Every
+// request the relay carries is a Cloudflare Pages Function call on desktop.kachat.app, and the
+// free plan stops them all at 100,000 a day: with the indexer's chat sync relayed, a few active
+// users used that up ("Workers daily request limit exceeded", 2026-11-19), and the relay then
+// answered nothing until midnight UTC - Nextcloud-free sites included.
+//
+// A direct GET that fails at the network level (a CORS refusal looks the same: api.kaspa.org's
+// rate-limit answers carry no CORS header) is tried once through the relay. A relay that answered
+// carries that host for 5 minutes; a relay that failed too (the server is down) isn't asked again
+// for that host for a minute, so an outage never doubles into relay calls. A POST isn't repeated:
+// it may have reached the server.
+const DIRECT_FIRST_HOST_RE = /^indexer\.kachat\.app$|^api(-tn\d+)?\.kaspa\.org$|^api\.gateio\.ws$|^api\.dotk\.name$/i;
+const DIRECT_FIRST_RELAY_MS = 5 * 60_000;
+const DIRECT_FIRST_NO_RELAY_MS = 60_000;
+const directFirstRelayUntil = new Map();
+const directFirstNoRelayUntil = new Map();
+export async function directFirst(host, method, direct, relay, now = () => Date.now()) {
+  const replayable = method === "GET" || method === "HEAD";
+  if (replayable && (directFirstRelayUntil.get(host) || 0) > now()) {
+    try {
+      const response = await relay();
+      if (response && response.status < 500) return response;
+    } catch { /* fall through to direct */ }
+    directFirstRelayUntil.delete(host);
+  }
+  try {
+    return await direct();
+  } catch (error) {
+    if (!replayable || (directFirstNoRelayUntil.get(host) || 0) > now()) throw error;
+    let response = null;
+    try { response = await relay(); } catch { response = null; }
+    if (response && response.status < 500) {
+      directFirstRelayUntil.set(host, now() + DIRECT_FIRST_RELAY_MS);
+      return response;
+    }
+    directFirstNoRelayUntil.set(host, now() + DIRECT_FIRST_NO_RELAY_MS);
+    throw error;
+  }
+}
+
 function installIndexerProxy() {
   if (typeof window === "undefined" || typeof window.fetch !== "function" || window.__kasiaProxyInstalled) return;
   if (isExtensionPage()) return;
@@ -278,6 +320,13 @@ function installIndexerProxy() {
             ? nativeFetch(proxied, init)
             : nativeFetch(new Request(proxied, input), init);
           const method = String(init?.method || input?.method || "GET").toUpperCase();
+          if (DIRECT_FIRST_HOST_RE.test(parsed.hostname)) {
+            return traceApiCall(rawUrl, init, () => directFirst(parsed.hostname.toLowerCase(), method, direct, async () => {
+              if (!(await proxyAvailable())) return null;
+              await relayPaceSlot();
+              return relayed();
+            }));
+          }
           return traceApiCall(rawUrl, init, () => proxyAvailable().then(async (ok) => {
             if (!ok) return direct();
             // The relay is a convenience, not a dependency. When it cannot answer - a stale
