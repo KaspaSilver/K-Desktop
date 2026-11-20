@@ -66,7 +66,8 @@ test("wiring", () => {
   assert.match(index, /options\.ownerAddress && options\.ownerAddress !== this\.address/);
   assert.equal(app.split("ownerAddress: envelope.fromAddress").length - 1, 3, "edits, notices and reactions are bound to their account");
   assert.match(app, /isQuantumIndex\(index\) \? null : \{ id: "public"/);
-  assert.match(app, /isQuantumAddressSpentLocally\(address, owner\)\) return false;/);
+  // Receive hands out regular addresses since KaPay 3d126db, so its quantum spent check went with it.
+  assert.match(app, /lowestUnusedIndex: lowestUnusedRegularIndex,/);
   assert.match(app, /for \(const earlier of takePreviousChattingAddresses\(address\)\)/);
   assert.match(app, /movePreviousChattingAddresses\(previousAddress, engine\.address\);/);
   assert.match(app, /const cache = loadSpendingBalCache\(\);\n\s+balances = new Map/);

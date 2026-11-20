@@ -442,7 +442,8 @@ test("Fresh slot: removing the account mid-probe writes nothing and ends the pro
 
 // The Receive QR (iOS fb2323e freshReceiveAddress, IOS-109; ui/spending-discovery.js
 // chooseReceiveAddress): an answer that comes back after a switch is dropped, nothing written.
-function receiveWorld({ switchDuring = null, remembered = QBASE + 4, rememberedUntouched = true } = {}) {
+// Regular slots since KaPay 3d126db / KaChat 5b7c772c.
+function receiveWorld({ switchDuring = null, remembered = 4, rememberedUntouched = true } = {}) {
   let active = A;
   const remembers = [];
   const reveals = [];
@@ -454,7 +455,7 @@ function receiveWorld({ switchDuring = null, remembered = QBASE + 4, rememberedU
       rememberedIndex: remembered,
       deriveAt: (index) => `${A}-${index}`,
       untouched: async () => { if (switchDuring === "untouched") active = B; return rememberedUntouched; },
-      lowestUnusedIndex: async () => { if (switchDuring === "lowest") active = B; return QBASE + 7; },
+      lowestUnusedIndex: async () => { if (switchDuring === "lowest") active = B; return 7; },
       fallbackAddress: () => `${A}-primary`,
       remember: (index) => remembers.push(index),
       reveal: (index) => reveals.push(index),
@@ -464,15 +465,21 @@ function receiveWorld({ switchDuring = null, remembered = QBASE + 4, rememberedU
 
 test("Receive QR: no switch, the remembered untouched slot is shown and revealed", async () => {
   const world = receiveWorld();
-  assert.equal(await world.run(), `${A}-${QBASE + 4}`);
-  assert.deepEqual(world.reveals, [QBASE + 4]);
+  assert.equal(await world.run(), `${A}-4`);
+  assert.deepEqual(world.reveals, [4]);
+});
+
+test("Receive QR: a remembered quantum slot is not handed out again (regular since KaPay 3d126db)", async () => {
+  const world = receiveWorld({ remembered: QBASE + 4 });
+  assert.equal(await world.run(), `${A}-7`);
+  assert.deepEqual(world.remembers, [7]);
 });
 
 test("Receive QR: no switch, a fresh slot is remembered and revealed", async () => {
   const world = receiveWorld({ rememberedUntouched: false });
-  assert.equal(await world.run(), `${A}-${QBASE + 7}`);
-  assert.deepEqual(world.remembers, [QBASE + 7]);
-  assert.deepEqual(world.reveals, [QBASE + 7]);
+  assert.equal(await world.run(), `${A}-7`);
+  assert.deepEqual(world.remembers, [7]);
+  assert.deepEqual(world.reveals, [7]);
 });
 
 test("Receive QR: a switch while the remembered slot is checked drops the answer", async () => {

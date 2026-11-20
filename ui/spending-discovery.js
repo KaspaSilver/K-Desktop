@@ -175,19 +175,21 @@ export async function probeFreshQuantumSlot({ account, deriveAt, readQMaxIndex, 
   return { index, address };
 }
 
-/// The Receive QR's fresh address (iOS freshReceiveAddress, quantum-safe since bba1b1e) for `owner`,
-/// the account active when it was asked (iOS fb2323e, IOS-109): an answer that comes back after a
-/// switch belongs to the other account and is dropped - null, nothing remembered or revealed.
-///   1. the pointer from last time (`rememberedIndex`), while it is still `untouched(address)` and on
-///      the quantum chain;
-///   2. `lowestUnusedIndex()` (a hidden unused quantum slot, else a probed brand-new one; null when
-///      no slot can be derived, which falls back like an underivable one).
+/// The Receive QR's fresh address (iOS freshReceiveAddress) for `owner`, the account active when it
+/// was asked (iOS fb2323e, IOS-109): an answer that comes back after a switch belongs to the other
+/// account and is dropped - null, nothing remembered or revealed. A REGULAR address since KaPay
+/// 3d126db / KaChat 5b7c772c (owner's call, 2026-11-19): it takes kUSDT as well as Kaspa, and a
+/// quantum-safe one can't trade it; quantum-safe addresses are made on purpose (Address Actions).
+///   1. the pointer from last time (`rememberedIndex`), while it is still `untouched(address)` and
+///      on the regular chain;
+///   2. `lowestUnusedIndex()` (a hidden unused regular slot, else one past the chain's end; null
+///      when no slot can be derived, which falls back like an underivable one).
 /// `deriveAt(index)`, `fallbackAddress()` (no derivable slot: the primary), `remember(index)` (the
 /// pointer for next time) and `reveal(index)` (onto the Manage Addresses list) are the caller's.
 export async function chooseReceiveAddress({ owner, activeAddress, rememberedIndex, deriveAt, untouched, lowestUnusedIndex, fallbackAddress, remember, reveal }) {
   const switched = () => String(activeAddress() || "") !== String(owner || "") || !owner;
   if (switched()) return null;
-  if (isQuantumIndex(rememberedIndex)) {
+  if (Number.isInteger(rememberedIndex) && rememberedIndex >= 0 && !isQuantumIndex(rememberedIndex)) {
     const address = deriveAt(rememberedIndex);
     if (await untouched(address)) {
       if (switched()) return null;
@@ -364,11 +366,11 @@ export async function discoverSpendingMatches({ derive, activity, fundedAmong, o
 /// The stored state after a scan: every match un-hidden (hiding is a tidying choice about empty
 /// addresses, it must not outrank a balance), the bound raised to cover the highest match, and the
 /// empty indices that raise sweeps in hidden so they do not flood the list. The bound only grows.
-export function applySpendingDiscovery({ maxIndex, hidden }, { lastMatchIndex, matchedIndices }) {
+export function applySpendingDiscovery({ maxIndex, hidden }, { lastMatchIndex, matchedIndices }, { newOnly = false } = {}) {
   const previousMax = Math.floor(Number(maxIndex) || 0);
   const matched = new Set(matchedIndices || []);
   const next = new Set((hidden || []).map(Number));
-  for (const i of matched) next.delete(i);
+  for (const i of matched) if (!newOnly || i > previousMax) next.delete(i);
   if (lastMatchIndex > previousMax) {
     for (let i = previousMax + 1; i < lastMatchIndex; i += 1) if (!matched.has(i)) next.add(i);
   }
@@ -437,26 +439,28 @@ export async function discoverQuantumMatches({ derive, activity, fundedAmong, ba
 /// the quantum bound + hidden set), so a removed account gets nothing more written. As on iOS, a
 /// removal after the legacy write keeps that write and its count (the quantum part adds 0).
 /// Returns { matchCount, removed }.
-export async function runSpendingDiscovery({ stillSaved, derive, activity, fundedAmong, ownersAmong, onProgress = null, readState, writeState, base, floor, limit }) {
+/// `newOnly` (KaPay 3d126db AddressScan .newOnly, Wallet's refresh sweep): only addresses past the
+/// revealed range are shown; one the person hid stays hidden.
+export async function runSpendingDiscovery({ stillSaved, derive, activity, fundedAmong, ownersAmong, onProgress = null, readState, writeState, base, floor, limit, newOnly = false }) {
   const saved = () => typeof stillSaved === "function" && stillSaved() === true;
   if (!saved()) return { matchCount: 0, removed: true };
   const legacy = await discoverSpendingMatches({ derive, activity, fundedAmong, ownersAmong, onProgress, still: saved });
   if (legacy.stopped || !saved()) return { matchCount: 0, removed: true };
-  writeState(applySpendingDiscovery(readState(), legacy));
+  writeState(applySpendingDiscovery(readState(), legacy, { newOnly }));
   const quantum = await discoverQuantumMatches({ derive, activity, fundedAmong, base, floor, limit, still: saved });
   if (quantum.stopped || !saved()) return { matchCount: legacy.matchCount, removed: true };
-  if (quantum.matchCount || quantum.highestUsed >= 0) writeState(applyQuantumDiscovery(readState(), quantum, base));
+  if (quantum.matchCount || quantum.highestUsed >= 0) writeState(applyQuantumDiscovery(readState(), quantum, base, { newOnly }));
   return { matchCount: legacy.matchCount + quantum.matchCount, removed: false };
 }
 
 /// The stored state after the quantum scan: matches un-hidden, the quantum bound raised past every
 /// used slot (`qMaxIndex` is a quantum chain index, -1 before the first slot), the slots the raise
 /// sweeps in hidden unless funded - a used-but-empty slot included. The bound only grows.
-export function applyQuantumDiscovery({ qMaxIndex, hidden }, { matchedIndices, highestUsed = -1 }, base) {
+export function applyQuantumDiscovery({ qMaxIndex, hidden }, { matchedIndices, highestUsed = -1 }, base, { newOnly = false } = {}) {
   const matched = [...(matchedIndices || [])];
   const next = new Set((hidden || []).map(Number));
-  for (const i of matched) next.delete(i);
   const previous = Number.isInteger(qMaxIndex) ? qMaxIndex : -1;
+  for (const i of matched) if (!newOnly || i - base > previous) next.delete(i);
   const highest = Math.max(Number.isInteger(highestUsed) ? highestUsed : -1, matched.length ? Math.max(...matched) - base : -1);
   if (highest > previous) {
     const wanted = new Set(matched);

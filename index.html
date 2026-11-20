@@ -13,7 +13,7 @@
   <!-- Too-old browsers (no WebAssembly / modern JS, e.g. iOS 10) get a clear message, not a blank layout. -->
   <script src="/browser-check.js"></script>
   <title>KaChat Desktop</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=414" />
+  <link rel="stylesheet" href="./ui/styles.css?v=415" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The KaChat logo the app already ships (432px PNG) doubles as the tab icon. -->
@@ -787,6 +787,8 @@
               <div class="wallet-balance-part"><span>Spending</span><strong data-wallet-spending>--</strong></div>
             </div>
           </div>
+          <!-- KaChat iOS 5b7c772c / KaPay 3d126db: Refresh also sweeps every address for balances. -->
+          <p class="field-hint wallet-scan-note" data-wallet-scan-note hidden><span class="sk-spinner" aria-hidden="true"></span>Scanning your addresses for balances…</p>
 
           <div class="wallet-actions">
             <button class="wallet-action" type="button" data-wallet-send>

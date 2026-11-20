@@ -15149,6 +15149,10 @@ body.settings-tab [data-account-overlay] .settings-done-button { visibility: hid
 /* "GIF" on a pending GIF's thumbnail (KaChat iOS d7c56280 GIFBadge). */
 .pending-photo-gif { position: absolute; left: 3px; bottom: 3px; padding: 1px 4px; border-radius: 4px; background: rgba(0,0,0,.55); color: #fff; font: 800 10px/1.2 ui-rounded, -apple-system, system-ui, sans-serif; pointer-events: none; }
 .pending-photo-gif[hidden] { display: none; }
+/* Wallet's refresh sweep (KaChat iOS 5b7c772c): a line under the balance card while it runs. */
+.wallet-scan-note { display: flex; align-items: center; gap: 8px; margin: 8px 4px 0; }
+.wallet-scan-note[hidden] { display: none; }
+.wallet-scan-note .sk-spinner { width: 14px; height: 14px; }
 .pending-photo-play svg { width: 14px; height: 14px; fill: #fff; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
 .pending-photo-meta { display: inline-flex; align-items: center; gap: 5px; }
 .pending-photo-state { flex: 0 0 18px; width: 18px; height: 18px; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }

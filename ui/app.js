@@ -10503,9 +10503,36 @@ document.querySelector("[data-wallet-refresh]")?.addEventListener("click", async
   button.classList.add("spinning");
   button.disabled = true;
   try { await Promise.all([refreshBalanceOnly(), refreshSpendingSummary()]); } catch { /* each stays as it was */ }
+  // The spinner ends once the balances are in; the sweep goes on under the card.
   button.classList.remove("spinning");
   button.disabled = false;
+  walletRefreshSweep();
 });
+// Wallet's refresh also sweeps every address for balances (KaChat iOS 5b7c772c, KaPay 3d126db
+// AddressScan): at most once every 10 minutes per account, never while Discover runs, showing only
+// addresses past the revealed range (one you hid stays hidden), then the balances again.
+const WALLET_SWEEP_EVERY_MS = 10 * 60 * 1000;
+const walletSweepAt = new Map();
+async function walletRefreshSweep() {
+  const wallet = engine.address;
+  if (!wallet || !activeAccountMnemonic() || spendingDiscovering) return;
+  if (Date.now() - (walletSweepAt.get(wallet) || 0) < WALLET_SWEEP_EVERY_MS) return;
+  walletSweepAt.set(wallet, Date.now());
+  const note = document.querySelector("[data-wallet-scan-note]");
+  spendingDiscovering = true;
+  if (note) note.hidden = false;
+  try {
+    await discoverSpendingAddressesFor(wallet, { newOnly: true });
+  } catch (error) {
+    walletSweepAt.delete(wallet); // a sweep that failed may run on the next refresh
+    appendEngineLog(`Wallet address sweep failed: ${userFacingError(error)}`);
+  } finally {
+    spendingDiscovering = false;
+    if (note) note.hidden = true;
+  }
+  if (engine.address !== wallet) return;
+  try { await Promise.all([refreshBalanceOnly(), refreshSpendingSummary()]); } catch { /* as it was */ }
+}
 // Coalesces the bursts own-address activity arrives in (iOS WalletView.scheduleRefresh).
 let walletRefreshTimer = 0;
 function scheduleWalletRefresh() {
@@ -11980,7 +12007,9 @@ async function openSpendingActionsSheet(summary = "") {
     const choice = await chooseDialog({
       title: "Address Actions",
       options: [
-        { id: "generate", title: "Generate New Spending Address", subtitle: "Reveals the next unused address in this wallet." },
+        // Two kinds, made on purpose (KaPay 3d126db / KaChat 5b7c772c): Receive gives regular ones.
+        { id: "generate-regular", title: "Generate Non-Quantum Address", subtitle: "A regular address, like Receive gives you. Works with everything, kUSDT included." },
+        { id: "generate", title: "Generate Quantum-Resistant Address", subtitle: "Keeps its key hidden until it spends. For Kaspa only: kUSDT can't be traded from it." },
         { id: "discover", title: "Discover Addresses", subtitle: "Finds addresses holding a balance or a domain." },
         { id: "visibility", title: "Address Visibility", subtitle: "Check off every address you want on the list, in one sitting." },
       ],
@@ -11988,6 +12017,7 @@ async function openSpendingActionsSheet(summary = "") {
     });
     if (spendingActionsSheet?.token === token) spendingActionsSheet = null;
     if (choice === "generate") spendingGenerateBtn?.click();
+    else if (choice === "generate-regular") revealNextSpendingAddress({ quantum: false });
     else if (choice === "discover") { spendingScanBtn?.click(); if (spendingDiscovering) openSpendingActionsSheet(); }
     else if (choice === "visibility") spendingVisibilityOpenBtn?.click();
     return;
@@ -12037,7 +12067,7 @@ spendingGenerateBtn?.addEventListener("click", async () => {
 });
 // Reveals the next never-used spending address and returns its index (iOS
 // WalletManager.generateNextSpendingAddress). Used by Manage Addresses' Generate.
-async function revealNextSpendingAddress({ toast = true } = {}) {
+async function revealNextSpendingAddress({ toast = true, quantum = true } = {}) {
   if (!activeAccountMnemonic()) { showCopyToast("This account has no 12 or 24 words."); return null; }
   if (spendingGenerateBusy) return null;
   spendingGenerateBusy = true;
@@ -12054,9 +12084,11 @@ async function revealNextSpendingAddress({ toast = true } = {}) {
     // Generate makes quantum-safe (KIP-22) slots from now on (iOS bba1b1e): recycling considers only
     // hidden unused QUANTUM rows, and the fresh path extends the quantum chain - the legacy chain is
     // never grown again from here.
+    // A regular one (Generate Non-Quantum Address, KaPay 3d126db) recycles from the regular chain the
+    // same way, else extends it by one.
     const addressByIndex = new Map();
     for (const i of spendingRevealedIndices(state)) {
-      if (!isQuantumIndex(i)) continue;
+      if (isQuantumIndex(i) !== quantum) continue;
       const address = deriveSpendingAddressFor(account, i);
       if (address) addressByIndex.set(i, address);
     }
@@ -12095,6 +12127,14 @@ async function revealNextSpendingAddress({ toast = true } = {}) {
       hiddenSet.delete(pick);
       saveSpendingState({ hidden: Array.from(hiddenSet) }, owner);
       readyIndex = pick;
+    } else if (!quantum) {
+      // one past the regular chain's end (iOS generateNextSpendingAddress), the owner's
+      if (!spendingAccountStillSaved(owner)) return null;
+      const current = getSpendingState(owner);
+      readyIndex = current.maxIndex + 1;
+      const fresh = new Set(current.hidden);
+      fresh.delete(readyIndex);
+      saveSpendingState({ maxIndex: readyIndex, hidden: Array.from(fresh) }, owner);
     } else {
       // A brand-new quantum slot (iOS generateNextQuantumAddress): always extends the chain - a
       // never-spent-from address is the whole point. Checked on chain first, like every other
@@ -12131,7 +12171,7 @@ let spendingDiscoveryProgress = null;
 /// written to that account's stored state. Returns how many addresses hold a balance or a domain.
 /// Shared by the Discover button and a typed-in recovery phrase's background run (iOS da2c8e2
 /// importWallet(phrase:)).
-async function discoverSpendingAddressesFor(wallet, { onProgress = null } = {}) {
+async function discoverSpendingAddressesFor(wallet, { onProgress = null, newOnly = false } = {}) {
   const fundedAmong = async (addresses) => {
     const byAddress = await spendingBalancesBatchSompi(addresses);
     return new Set([...byAddress].filter(([, sompi]) => Number(sompi) > 0).map(([address]) => address));
@@ -12162,6 +12202,7 @@ async function discoverSpendingAddressesFor(wallet, { onProgress = null } = {}) 
     base: QUANTUM_INDEX_BASE,
     floor: QUANTUM_SCAN_FLOOR,
     limit: QUANTUM_SCAN_LIMIT,
+    newOnly,
   });
   if (removed) {
     appendEngineLog("Discover Addresses dropped: its account was removed during the sweep.");
@@ -12624,10 +12665,11 @@ applyDockLayout();
 // spending-address Receive), just without the chat-fee note — the old inline
 // profile-qr-card toggle looked nothing like it.
 // Receive Kaspa resolves a fresh address before drawing the QR, so the code on screen is never
-// one that has already appeared on chain (iOS ReceiveKaspaQRView / freshReceiveAddress), and is
-// quantum-safe (KIP-22, iOS bba1b1e):
-//   1. the pointer from last time, if it is still untouched and on the quantum chain;
-//   2. the lowest hidden quantum slot confirmed unused, else a brand-new quantum slot.
+// one that has already appeared on chain (iOS ReceiveKaspaQRView / freshReceiveAddress). A regular
+// address (KaPay 3d126db / KaChat 5b7c772c, owner's call 2026-11-19): it takes kUSDT too, which a
+// quantum-safe one can't trade; quantum-safe addresses are made on purpose in Address Actions.
+//   1. the pointer from last time, if it is still untouched and on the regular chain;
+//   2. the lowest hidden regular slot confirmed unused, else one past the regular chain's end.
 const RECEIVE_INDEX_KEY = "kachat-receive-address-index-v1";
 // Receive is for everything except chatting and domains; the chatting address caption below is the
 // other half (iOS 492aa53). Both go through kasLabel like every amount string (the word "Kaspa" is
@@ -12643,8 +12685,6 @@ async function freshReceiveAddress({ revealing = true } = {}) {
   const state = getSpendingState();
   const untouched = async (address) => {
     if (!address) return false;
-    // Spent on this device, even if the network hasn't said so yet (KaPay 2da5f4b).
-    if (isQuantumAddressSpentLocally(address, owner)) return false;
     spendingUsageCache.delete(address); // live answer: a QR is scanned the instant it appears
     const usage = await spendingUsageFor(address);
     return usage.used !== true;
@@ -12687,11 +12727,38 @@ async function freshReceiveAddress({ revealing = true } = {}) {
     rememberedIndex: remembered,
     deriveAt: deriveSpendingAddressAt,
     untouched,
-    lowestUnusedIndex: lowestUnusedQuantumIndex,
+    lowestUnusedIndex: lowestUnusedRegularIndex,
     fallbackAddress: () => deriveSpendingAddressAt(state.activeIndex),
     remember: (index) => { try { localStorage.setItem(accountScopedKey(RECEIVE_INDEX_KEY, owner), String(index)); } catch {} },
     reveal,
   });
+}
+
+/// The next fresh regular (P2PK) slot (KaPay 3d126db lowestUnusedRegularAddress): the lowest hidden
+/// regular slot confirmed unused - not the primary, no balance, no history (recycling un-hides it) -
+/// else one past the regular chain's end. A visible index is never picked (Generate would keep
+/// returning the same row), and an unknown balance or history never recycles.
+async function lowestUnusedRegularIndex() {
+  const state = getSpendingState();
+  const hidden = new Set(state.hidden.map(Number));
+  const candidates = [];
+  for (const i of spendingRevealedIndices(state)) {
+    if (isQuantumIndex(i) || !hidden.has(i) || i === state.activeIndex) continue;
+    const address = deriveSpendingAddressAt(i);
+    if (address) candidates.push([i, address]);
+  }
+  candidates.sort((a, b) => a[0] - b[0]);
+  if (candidates.length) {
+    let balances = null;
+    try { balances = await spendingBalancesBatchSompi(candidates.map(([, address]) => address)); } catch { balances = null; }
+    if (balances) {
+      for (const [i, address] of candidates) {
+        if (Number(balances.get(address) || 0) > 0) continue;
+        if ((await spendingAddressHasHistory(address)) === false) return i;
+      }
+    }
+  }
+  return state.maxIndex + 1;
 }
 
 /// The lowest hidden quantum-safe slot that is confirmed unused - not the primary, no balance, no
@@ -13336,7 +13403,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 305;
+const APP_BUILD = 306;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
