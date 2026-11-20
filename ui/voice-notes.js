@@ -77,18 +77,20 @@ export function voicePartEnvelopes(parts, mimeType = "audio/webm") {
   });
 }
 
-/** A JPEG's media-file JSON(s): one plain photo when it fits one part, else `mediaPart` chunks. */
-export function photoEnvelopes(jpeg, { group = false } = {}) {
+/** A JPEG's media-file JSON(s): one plain photo when it fits one part, else `mediaPart` chunks. A
+ *  GIF (`mimeType: "image/gif"`, KaChat iOS d7c56280) goes the same way as animation.gif. */
+export function photoEnvelopes(jpeg, { group = false, mimeType = "image/jpeg" } = {}) {
+  const gif = mimeType === "image/gif";
   const chunks = photoChunks(jpeg, { group });
-  if (chunks.length > MAX_PARTS) throw new Error("This photo is too large to send on chain.");
+  if (chunks.length > MAX_PARTS) throw new Error(gif ? "This GIF is too large to send on chain." : "This photo is too large to send on chain.");
   const id = chunks.length > 1 ? newPartGroupId() : null;
   return chunks.map((bytes, offset) => {
     const tag = id ? makePartTag(id, offset + 1, chunks.length) : null;
     return mediaFileEnvelopeJson({
-      name: tag ? photoPartFileName(tag) : "photo.jpg",
+      name: tag ? photoPartFileName(tag, { gif }) : (gif ? "animation.gif" : "photo.jpg"),
       size: bytes.length,
-      mimeType: "image/jpeg",
-      dataUrlContent: `data:image/jpeg;base64,${bytesToBase64(bytes)}`,
+      mimeType,
+      dataUrlContent: `data:${mimeType};base64,${bytesToBase64(bytes)}`,
       mediaPart: tag,
     });
   });
@@ -148,7 +150,9 @@ export function joinedPhoto(texts) {
     const out = new Uint8Array(total);
     let offset = 0;
     for (const bytes of parts) { out.set(bytes, offset); offset += bytes.length; }
-    return URL.createObjectURL(new Blob([out], { type: "image/jpeg" }));
+    // The parts' own type: a GIF's parts join into a GIF (KaChat iOS d7c56280).
+    const mime = /"mimeType"\s*:\s*"(image\/[a-z0-9.+-]+)"/i.exec(String(texts[0] || "").slice(0, 2048))?.[1] || "image/jpeg";
+    return URL.createObjectURL(new Blob([out], { type: mime }));
   });
 }
 

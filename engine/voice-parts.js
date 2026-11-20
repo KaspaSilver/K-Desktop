@@ -74,8 +74,8 @@ export function voicePartFileName(tag) {
   return `voice-${tag.index}of${tag.count}.webm`;
 }
 
-export function photoPartFileName(tag) {
-  return `photo-${tag.index}of${tag.count}.jpg`;
+export function photoPartFileName(tag, { gif = false } = {}) {
+  return gif ? `animation-${tag.index}of${tag.count}.gif` : `photo-${tag.index}of${tag.count}.jpg`;
 }
 
 /** 16 random bytes as lowercase hex. */

@@ -163,15 +163,19 @@ export const KAPOSTS_FEED_MENU = Object.freeze([
   { key: "scheduled", title: "Scheduled" },
 ]);
 
-/** How far a touch travels before it commits to one direction (iOS DragGesture(minimumDistance:
- *  12), measured as a straight-line distance as SwiftUI does). */
-export const KAPOSTS_PAGER_LOCK_PX = 12;
+/** How far a touch travels before it commits to one direction (iOS 63c9861 DragGesture(minimumDistance:
+ *  10), measured as a straight-line distance as SwiftUI does). */
+export const KAPOSTS_PAGER_LOCK_PX = 10;
+/** How much wider than tall a first movement must be to count as sideways (iOS 63c9861
+ *  `sidewaysBias`): a slightly diagonal scroll stays a scroll. */
+export const KAPOSTS_PAGER_SIDEWAYS_BIAS = 1.3;
 
-/** The axis a touch locks to: null until it has moved `threshold` px, then "x" when it went more
- *  sideways than up or down (iOS `abs(t.width) > abs(t.height)`), else "y" - the list scrolling. */
+/** The axis a touch locks to: null until it has moved `threshold` px, then "x" when it went clearly
+ *  sideways (iOS `abs(t.width) > abs(t.height) * 1.3`), else "y" - the list scrolling. The lock
+ *  holds until the finger lifts. */
 export function kapostsAxisLock(dx, dy, threshold = KAPOSTS_PAGER_LOCK_PX) {
   if (Math.hypot(Number(dx) || 0, Number(dy) || 0) < threshold) return null;
-  return Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+  return Math.abs(dx) > Math.abs(dy) * KAPOSTS_PAGER_SIDEWAYS_BIAS ? "x" : "y";
 }
 
 /** Where the pages sit under the finger: the finger's own offset, or a third of it past the first
@@ -189,10 +193,12 @@ export function kapostsProjectedTranslation(dx, velocity) {
 }
 
 /** The page a released drag settles on (iOS KaPostsFeedPager onEnded): one page on, past a third of
- *  the width or on a flick that would coast past half of it; otherwise back where it was. A drag
- *  that ended more up-and-down than sideways never changes the page. */
-export function kapostsPagerTarget({ selection, pageCount, dx, dy = 0, predicted = dx, width }) {
-  if (!(Math.abs(dx) > Math.abs(dy)) || !(width > 0)) return selection;
+ *  the width or on a flick that would coast past half of it; otherwise back where it was. A touch
+ *  that locked sideways (`locked`) counts by that lock, wherever the finger drifted (iOS 63c9861);
+ *  otherwise one that ended more up-and-down than sideways never changes the page. */
+export function kapostsPagerTarget({ selection, pageCount, dx, dy = 0, predicted = dx, width, locked = false }) {
+  if (!(width > 0)) return selection;
+  if (!locked && !(Math.abs(dx) > Math.abs(dy) * KAPOSTS_PAGER_SIDEWAYS_BIAS)) return selection;
   if ((dx < -width / 3 || predicted < -width / 2) && selection < pageCount - 1) return selection + 1;
   if ((dx > width / 3 || predicted > width / 2) && selection > 0) return selection - 1;
   return selection;

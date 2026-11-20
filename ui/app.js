@@ -27,8 +27,9 @@ import { mediaFrameByteLength, mediaFrameForEnvelope } from "../engine/media-fra
 import { groupParts, unreadUnits, isLaterPart, sniffPartTag, VOICE_PATHS, voicePartSizes, PHOTO_TIERS, photoEstimatedFeeSompi, photoTierMaxBytes } from "../engine/voice-parts.js";
 import * as VoiceNotes from "./voice-notes.js";
 import { loadPhotoSource, prepareJpegForTiers } from "./photo-tiers.js";
+import { isAnimatedGif, prepareGifForTiers, GifNotAnimatedError } from "./gif.js";
 import { initKaPosts, refreshKaPostsFeed, resetKaPostsForAccount, openKaPostFromNotification, kaPostsFollowingAddresses, stopKaPostsPolling, peekKaPostLinkPreview, resolveKaPostLinkPreview, canOfferTextTranslation, textTranslationState, translatedTextFor, showOriginalText, showTranslatedText, readerLanguageName, translateText, onTranslationChange, showKaPostsActionToast } from "./kaposts.js";
-import { allowsPreviewPage, allowsPreviewImage, socialPreviewBrand } from "../engine/link-preview-policy.js";
+import { allowsPreviewPage, allowsPreviewImage, socialPreviewBrand, isSameSiteHost } from "../engine/link-preview-policy.js";
 import { SOCIAL_LOGOS } from "./social-logos.js";
 import { kapostsFiatFieldText, kapostsKasFieldText, kapostsTipFieldAmount, kapostsSwitchTipText, kapostsDefaultTipSompi, KAPOSTS_TIP_MIN_SOMPI } from "./kaposts-format.js";
 import { fetchFollowListAll, requesterPubkeyFor, kaspaAddressFromPubkey, KAPOSTS_PROTOCOL, KACHAT_MARKER as KAPOSTS_MARKER, utf8ToBase64 as kapostsUtf8ToBase64, buildKaPostTipPayload } from "../engine/kaposts.js";
@@ -3032,6 +3033,8 @@ async function fetchOpenGraph(url, { policy = false } = {}) {
   const description = decode(metaContent(html, "og:description") || metaContent(html, "twitter:description") || metaContent(html, "description"));
   let image = metaContent(html, "og:image") || metaContent(html, "og:image:url") || metaContent(html, "twitter:image");
   if (image) { try { image = new URL(decode(image), url).href; } catch { image = ""; } }
+  // https only (KaChat iOS d7c56280): a file:, data: or plain http: image never loads
+  if (image && !/^https:/i.test(image)) image = "";
   let site = decode(metaContent(html, "og:site_name"));
   if (!site) { try { site = new URL(url).hostname.replace(/^www\./, ""); } catch { site = ""; } }
   let host = "";
@@ -3140,10 +3143,19 @@ async function loadPreviewImage(img, imageUrl, pageUrl) {
     if (!blob.size || !/^image\//i.test(blob.type || "")) throw new Error("not an image");
     return URL.createObjectURL(blob);
   };
+  // The page's address goes only to the page's own site, and Meta's crawler retry only to Meta's
+  // image servers (KaChat iOS d7c56280).
+  let pageHost = "";
+  try { pageHost = new URL(pageUrl).hostname; } catch { pageHost = ""; }
+  const sameSite = isSameSiteHost(host, pageHost);
+  const metaImageHost = /(^|\.)(fbcdn\.net|cdninstagram\.com)$/i.test(host);
   try {
     let src;
-    try { src = await attempt({ "x-preview-image": "1", "x-preview-referer": pageUrl }); }
-    catch { src = await attempt({ "x-preview-image": "crawler" }); }
+    try { src = await attempt(sameSite ? { "x-preview-image": "1", "x-preview-referer": pageUrl } : { "x-preview-image": "1" }); }
+    catch (error) {
+      if (!metaImageHost) throw error;
+      src = await attempt({ "x-preview-image": "crawler" });
+    }
     previewImageBlobs.set(imageUrl, src);
     img.src = src;
   } catch {
@@ -6634,6 +6646,7 @@ function displayTextForMessage(message) {
   if (replyEnvelope) return replyEnvelope.text;
   const fileMime = sniffInlineFileMime(message.text);
   if (fileMime != null) {
+    if (fileMime.toLowerCase() === "image/gif") return "GIF";
     if (fileMime.startsWith("image/")) return "📷 Photo";
     if (fileMime.startsWith("audio/")) return "🎤 Audio message";
     if (fileMime.startsWith("video/")) return "🎬 Video";
@@ -6717,6 +6730,7 @@ function chatListPreviewText(message) {
   }
   const fileMime = sniffInlineFileMime(unwrapped);
   if (fileMime != null) {
+    if (fileMime.toLowerCase() === "image/gif") return "GIF";
     if (fileMime.startsWith("image/")) return "Photo";
     if (fileMime.startsWith("audio/")) return "Voice message";
     if (fileMime.startsWith("video/")) return "Video";
@@ -13310,7 +13324,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 303;
+const APP_BUILD = 304;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -25531,6 +25545,15 @@ composerPlusMenu?.querySelector("[data-composer-request-payment]")?.addEventList
 composerPlusMenu?.querySelectorAll("[data-composer-media]").forEach((row) => {
   row.addEventListener("click", () => chooseComposerMedia(row.dataset.composerMedia));
 });
+// GIF (KaChat iOS d7c56280): always on chain, so no on-chain-or-Nextcloud step.
+composerPlusMenu?.querySelector("[data-composer-gif]")?.addEventListener("click", () => {
+  closeComposerMenu();
+  if (!activeConversationId || !photoFileInput) return;
+  photoViaNextcloud = false;
+  chatGifPick = true;
+  photoFileInput.accept = "image/gif";
+  photoFileInput.click();
+});
 
 // What each media row asks in its second step (iOS ComposerMediaRouteStep, a890102).
 const COMPOSER_MEDIA_ROUTE_COPY = {
@@ -26414,6 +26437,8 @@ function clearPendingPhoto() {
   setPendingPhotoSending(false);
   if (pendingPhotoPreview) pendingPhotoPreview.hidden = true;
   if (pendingPhotoThumb) pendingPhotoThumb.src = "";
+  const gifBadge = document.querySelector("[data-pending-photo-gif]");
+  if (gifBadge) gifBadge.hidden = true;
   if (photoFileInput) photoFileInput.value = "";
   syncComposerSlots();
   scheduleFeeEstimate();
@@ -26442,9 +26467,10 @@ const NEXTCLOUD_STAGED_ICONS = {
 /** The pending row's label (iOS pendingPhotoRow): "Sending…" while it goes; with a Nextcloud
  *  upload, a spinner and "Uploading to Nextcloud…", then a check and "Photo" / "Video", or
  *  "Upload failed. Sends on chain." */
-function stagedMediaLabel(staged, sending, { group = false } = {}) {
+function stagedMediaLabel(staged, sending, { group = false, gif = false } = {}) {
   if (sending) return { spinner: true, html: escapeHtml("Sending…"), cls: "sending" };
-  if (!staged) return { spinner: false, html: escapeHtml(group ? "Photo ready to send" : "Photo") };
+  const word = gif ? "GIF" : "Photo";
+  if (!staged) return { spinner: false, html: escapeHtml(group ? `${word} ready to send` : word) };
   if (staged.phase === "uploading") return { spinner: true, html: escapeHtml("Uploading to Nextcloud…"), cls: "uploading" };
   if (staged.phase === "ready") {
     const word = staged.kind === "video" ? "Video" : "Photo";
@@ -26453,7 +26479,7 @@ function stagedMediaLabel(staged, sending, { group = false } = {}) {
   return { spinner: false, html: `${NEXTCLOUD_STAGED_ICONS.failed}${escapeHtml("Upload failed. Sends on chain.")}`, cls: "failed" };
 }
 function renderPendingPhotoRow() {
-  const label = stagedMediaLabel(nextcloudStaged, pendingPhotoSending);
+  const label = stagedMediaLabel(nextcloudStaged, pendingPhotoSending, { gif: Boolean(pendingPhotoAttachment?.isGif) });
   const spinner = pendingPhotoPreview?.querySelector("[data-pending-photo-spinner]");
   if (spinner) spinner.hidden = !label.spinner;
   const play = pendingPhotoPreview?.querySelector("[data-pending-photo-play]");
@@ -26543,6 +26569,8 @@ function setPendingPhoto(attachment) {
   pendingPhotoAttachment = attachment;
   nextcloudStaged = null;
   if (pendingPhotoThumb) pendingPhotoThumb.src = attachment.dataUrl;
+  const gifBadge = document.querySelector("[data-pending-photo-gif]");
+  if (gifBadge) gifBadge.hidden = !attachment.isGif;
   if (pendingPhotoPreview) pendingPhotoPreview.hidden = false;
   setPendingPhotoSending(false);
   composer.elements.message?.blur();
@@ -26613,6 +26641,10 @@ function syncComposerSlots() {
 
 async function attachPhotoBlob(blob) {
   if (!canAcceptChatImageAttachment()) { photoViaNextcloud = false; return false; }
+  // An animated GIF on chain goes as a GIF (KaChat iOS d7c56280); via Nextcloud it uploads as is.
+  if (String(blob?.type || "").toLowerCase() === "image/gif" && !(photoViaNextcloud && isNextcloudConnected())) {
+    if (await attachGifBlob(blob)) return true;
+  }
   setStatus("Compressing photo…");
   const conversationId = activeConversationId;
   try {
@@ -26679,6 +26711,76 @@ async function sendTieredPhoto(source, { group = false, send, sendParts, onError
   const shortfall = partsBalanceShortfall(envelopes.map(() => perPart));
   if (shortfall) { onError(shortfall); return false; }
   await sendParts(envelopes);
+  return true;
+}
+
+// --- GIFs on chain (KaChat iOS d7c56280) ---
+// The "+" sheets' GIF tile picks an animated GIF (always on chain); a pasted or dropped animated GIF
+// goes the same way. Send asks the quality (GIF Quality), ui/gif.js makes the largest GIF that fits
+// it, and it goes as an image/gif photo: one message, or tagged parts like a large photo.
+const GIF_NOT_ANIMATED_TEXT = "That isn't an animated GIF. Please pick another.";
+const GIF_TOO_LONG_TEXT = "This GIF is too long for that quality. Pick a higher one, or a shorter GIF.";
+/** A staged GIF: its thumbnail is the GIF itself, which plays in the composer. */
+async function gifAttachment(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (!isAnimatedGif(bytes)) return null;
+  return { isGif: true, gifBytes: bytes, bytes: bytes.length, dataUrl: URL.createObjectURL(new Blob([bytes], { type: "image/gif" })), originalBlob: file, originalName: file.name || "animation.gif" };
+}
+/** The GIF for the tier the person picks; null when they cancel, GIF_TOO_LONG when none fits it. */
+const GIF_TOO_LONG = Symbol("gif too long");
+async function chooseGifTier(bytes, { group = false } = {}) {
+  const budgets = PHOTO_TIERS.map((tier) => photoTierMaxBytes(tier.id, { group }));
+  const prepared = prepareGifForTiers(bytes, budgets);
+  prepared.catch(() => {});
+  const choice = chooseDialog({
+    title: "GIF Quality",
+    options: PHOTO_TIERS.map((tier) => ({ id: tier.id, title: tier.title, subtitle: photoTierFeeText(tier.budgetSompi) })),
+  });
+  prepared.then((results) => {
+    for (const tier of PHOTO_TIERS) {
+      const gif = results[photoTierMaxBytes(tier.id, { group })];
+      const row = document.querySelector(`[data-app-dialog-choice="${tier.id}"] small`);
+      if (gif && row) row.textContent = photoTierFeeText(photoEstimatedFeeSompi(gif.length, { group }));
+    }
+  }).catch(() => {});
+  const picked = await choice;
+  if (!picked) return null;
+  const results = await prepared;
+  return results[photoTierMaxBytes(picked, { group })] || GIF_TOO_LONG;
+}
+/** sendTieredPhoto for a GIF. False when cancelled or refused. */
+async function sendTieredGif(bytes, { group = false, send, sendParts, onError }) {
+  let gif;
+  try { gif = await chooseGifTier(bytes, { group }); }
+  catch (error) {
+    onError(error instanceof GifNotAnimatedError ? GIF_NOT_ANIMATED_TEXT : "Couldn't read that GIF. Please pick another.");
+    appendEngineLog(`GIF tiers failed: ${describeThrown(error)}`);
+    return false;
+  }
+  if (!gif) return false;
+  if (gif === GIF_TOO_LONG) { onError(GIF_TOO_LONG_TEXT); return false; }
+  const envelopes = VoiceNotes.photoEnvelopes(gif, { group, mimeType: "image/gif" });
+  if (envelopes.length === 1) { await send(envelopes[0]); return true; }
+  const perPart = photoEstimatedFeeSompi(gif.length, { group }) / 1e8 / envelopes.length;
+  const shortfall = partsBalanceShortfall(envelopes.map(() => perPart));
+  if (shortfall) { onError(shortfall); return false; }
+  await sendParts(envelopes);
+  return true;
+}
+/** The 1:1 composer's GIF: staged like a photo, always on chain. */
+async function attachGifBlob(file, { picked = false } = {}) {
+  if (!canAcceptChatImageAttachment()) return false;
+  const conversationId = activeConversationId;
+  let attachment = null;
+  try { attachment = await gifAttachment(file); } catch { attachment = null; }
+  if (!attachment) {
+    if (picked) showFailedToSend(GIF_NOT_ANIMATED_TEXT);
+    return false;
+  }
+  if (activeConversationId !== conversationId) return false;
+  photoViaNextcloud = false;
+  if (!setPendingPhoto(attachment)) return false;
+  setStatus("GIF ready · press Send");
   return true;
 }
 
@@ -27299,6 +27401,7 @@ function replyPreviewTextFor(message) {
   if (asReply) return asReply.text.slice(0, REPLY_PREVIEW_MAX_LENGTH);
   const fileMime = sniffInlineFileMime(message.text);
   if (fileMime != null) {
+    if (fileMime.toLowerCase() === "image/gif") return "GIF";
     if (fileMime.startsWith("image/")) return "📷 Photo";
     if (fileMime.startsWith("audio/")) return "🎤 Audio message";
     if (fileMime.startsWith("video/")) return "🎬 Video";
@@ -28301,10 +28404,14 @@ async function stageChatNextcloudVideo(file) {
 }
 
 // The "+" sheet's Camera and Photo both land here, on chain or via Nextcloud as chosen there.
+let chatGifPick = false;
 async function handleComposerMediaFile(input) {
   const file = input?.files?.[0];
+  const gifPick = chatGifPick;
+  chatGifPick = false;
   if (input) { input.value = ""; input.accept = "image/*"; }
   if (!file) { photoViaNextcloud = false; return; }
+  if (gifPick) { await attachGifBlob(file, { picked: true }); return; }
   if (String(file.type || "").startsWith("video/")) {
     const via = photoViaNextcloud && isNextcloudConnected();
     photoViaNextcloud = false;
@@ -28320,6 +28427,7 @@ cameraFileInput?.addEventListener("change", () => handleComposerMediaFile(camera
 // A closed chooser drops the route it was opened with (iOS: the camera's onCancel).
 [photoFileInput, cameraFileInput].forEach((input) => input?.addEventListener("cancel", () => {
   input.accept = "image/*";
+  chatGifPick = false;
   if (!pendingPhotoAttachment) photoViaNextcloud = false;
 }));
 
@@ -28535,6 +28643,8 @@ function composerFeeSubject() {
       return { payloadBytes: estimateCommPayloadBytesForPlaintext(frameBytes), length: frameBytes };
     }
     if (pendingPhotoAttachment) {
+      // A GIF's size is only known once its quality is picked: the GIF Quality sheet shows each fee.
+      if (pendingPhotoAttachment.isGif) return null;
       if (photoViaNextcloud && isNextcloudConnected()) return feeEstimateEnabled() ? { payloadBytes: NEXTCLOUD_LINK_PAYLOAD_BYTES, length: -1 } : null;
       const envelope = buildImageEnvelopeJson(pendingPhotoAttachment);
       // What actually goes out: the binary media frame, or the JSON text if it cannot be framed.
@@ -28696,7 +28806,11 @@ composer.addEventListener("submit", async (event) => {
     // On chain: the quality first (iOS PhotoQualitySheet). Cancel keeps the photo staged.
     setPendingPhotoSending(true);
     try {
-      const sent = await sendTieredPhoto(attachment.originalBlob || attachment.dataUrl, {
+      const sent = attachment.isGif ? await sendTieredGif(attachment.gifBytes, {
+        send: (envelope) => queueConversationMessage(conversationId, envelope),
+        sendParts: (envelopes) => queueOneToOneParts(conversationId, envelopes),
+        onError: (message) => showFailedToSend(message),
+      }) : await sendTieredPhoto(attachment.originalBlob || attachment.dataUrl, {
         send: (envelope) => queueConversationMessage(conversationId, envelope),
         sendParts: (envelopes) => queueOneToOneParts(conversationId, envelopes),
         onError: (message) => showFailedToSend(message),
@@ -32982,6 +33096,44 @@ function groupMessagesAreSame(a, b) {
 // Many messages for one group in one go (a restore): the store is read once, every row is
 // deduped against what is there and against each other, sorted once and written once.
 // appendGroupMessage per row re-parsed and re-serialised the whole group store for each one.
+// Group messages deleted on this device stay deleted (KaChat iOS d7c56280 DeletedMessageLog): their
+// txids and msg ids are kept per account, newest 20,000, so a sync, the stream, a restore or an
+// archive import never brings one back. Removing the account clears it with the rest of its data.
+// Expired system lines pruned by pruneExpiredGroupSystemMessages aren't recorded.
+const DELETED_GROUP_MESSAGES_KEY = "kachat-deleted-group-messages-v1";
+const DELETED_GROUP_MESSAGES_CAP = 20_000;
+let deletedGroupMessagesCache = null;
+function deletedGroupMessageIds() {
+  const key = accountScopedKey(DELETED_GROUP_MESSAGES_KEY);
+  if (deletedGroupMessagesCache?.key === key) return deletedGroupMessagesCache.ids;
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem(key) || "[]"); } catch { list = []; }
+  const ids = new Set(Array.isArray(list) ? list.map(String) : []);
+  deletedGroupMessagesCache = { key, ids };
+  return ids;
+}
+function rememberDeletedGroupMessages(messages) {
+  const ids = deletedGroupMessageIds();
+  let added = 0;
+  for (const m of messages || []) {
+    for (const id of [m?.txId, m?.msgIdHex]) {
+      if (!id) continue;
+      ids.delete(String(id));
+      ids.add(String(id));
+      added += 1;
+    }
+  }
+  if (!added) return;
+  const list = [...ids].slice(-DELETED_GROUP_MESSAGES_CAP);
+  deletedGroupMessagesCache = { key: accountScopedKey(DELETED_GROUP_MESSAGES_KEY), ids: new Set(list) };
+  try { localStorage.setItem(deletedGroupMessagesCache.key, JSON.stringify(list)); } catch { /* full: this session still remembers */ }
+}
+function isDeletedGroupMessage(message) {
+  const ids = deletedGroupMessageIds();
+  if (!ids.size) return false;
+  return Boolean((message?.txId && ids.has(String(message.txId))) || (message?.msgIdHex && ids.has(String(message.msgIdHex))));
+}
+
 function appendGroupMessagesBulk(groupId, messages) {
   const all = loadGroupMsgAll();
   const wallet = engine.address || "";
@@ -32996,6 +33148,7 @@ function appendGroupMessagesBulk(groupId, messages) {
   for (const m of list) index(m);
   let added = 0;
   for (const message of messages || []) {
+    if (isDeletedGroupMessage(message)) continue;
     const existing = (message.msgIdHex && byMsgId.get(message.msgIdHex)) || (message.txId && byTx.get(message.txId)) || (message.id && byId.get(message.id)) || null;
     if (existing) {
       if (!existing.msgIdHex && message.msgIdHex) existing.msgIdHex = message.msgIdHex;
@@ -33014,6 +33167,7 @@ function appendGroupMessagesBulk(groupId, messages) {
 }
 
 function appendGroupMessage(groupId, message) {
+  if (isDeletedGroupMessage(message)) return false;
   const list = groupMessages(groupId);
   const existing = list.find((m) => groupMessagesAreSame(m, message));
   if (existing) {
@@ -33618,6 +33772,7 @@ function groupFeeSubjectText() {
       return "x".repeat(Math.ceil(audioBytes / 3) * 4 + 120);
     }
     if (groupPendingPhoto) {
+      if (groupPendingPhoto.attachment?.isGif) return "";
       if (groupPhotoViaNextcloud && isNextcloudConnected()) return feeEstimateEnabled() ? "x".repeat(NEXTCLOUD_LINK_PAYLOAD_BYTES) : "";
       return buildImageEnvelopeJson(groupPendingPhoto.attachment, groupPendingPhoto.fileName);
     }
@@ -34363,7 +34518,9 @@ document.querySelector("[data-group-delete-selected]")?.addEventListener("click"
   if (!confirmed) return;
   // A long voice note or multi-part photo goes with all its parts (iOS).
   const keys = expandGroupPartKeys(activeGroupId, [...selectedGroupMessageKeys]);
-  saveGroupMessages(activeGroupId, groupMessages(activeGroupId).filter((m) => !keys.has(groupMsgKey(m))));
+  const all = groupMessages(activeGroupId);
+  rememberDeletedGroupMessages(all.filter((m) => keys.has(groupMsgKey(m))));
+  saveGroupMessages(activeGroupId, all.filter((m) => !keys.has(groupMsgKey(m))));
   exitGroupSelection();
   renderGroupList();
 });
@@ -36411,7 +36568,7 @@ groupComposer?.addEventListener("submit", async (event) => {
     setGroupPendingPhotoSending(true);
     let sent = false;
     try {
-      sent = await sendTieredPhoto(attachment.originalBlob || attachment.dataUrl, {
+      sent = await (attachment.isGif ? sendTieredGif : sendTieredPhoto)(attachment.isGif ? attachment.gifBytes : (attachment.originalBlob || attachment.dataUrl), {
         group: true,
         send: (envelope) => sendGroupWire(envelope, { groupId: gid }),
         // The parts go on in the background, as in 1:1: the composer is free once they show.
@@ -36488,6 +36645,8 @@ groupComposerInput?.addEventListener("paste", async (event) => {
   event.preventDefault();
   if (!canAcceptGroupImageAttachment()) return;
   groupPhotoViaNextcloud = false;
+  // A pasted animated GIF goes as a GIF (KaChat iOS d7c56280).
+  if (String(file.type || "").toLowerCase() === "image/gif" && await attachGroupGif(file)) return;
   const gid = activeGroupId;
   try {
     const attachment = await compressImageBlob(file);
@@ -36527,8 +36686,17 @@ groupPlusMenu?.addEventListener("click", (event) => {
 const groupCameraInput = document.querySelector("[data-group-camera-input]");
 // iOS GroupChatDetailView.startMedia: the camera, the library or a recording, on chain or via
 // Nextcloud as chosen. Videos only go via Nextcloud.
+let groupGifPick = false;
 function startGroupMedia(kind, viaNextcloud) {
   if (!activeGroupId) return;
+  if (kind === "gif") {
+    if (!groupPhotoInput) return;
+    groupPhotoViaNextcloud = false;
+    groupGifPick = true;
+    groupPhotoInput.accept = "image/gif";
+    groupPhotoInput.click();
+    return;
+  }
   const via = Boolean(viaNextcloud) && isNextcloudConnected();
   if (kind === "camera" || kind === "photo") {
     const input = kind === "camera" ? (groupCameraInput || groupPhotoInput) : groupPhotoInput;
@@ -36553,11 +36721,14 @@ groupPlusButton?.addEventListener("click", async (event) => {
     const options = [
       { id: "camera", title: "Camera", subtitle: "Take a photo and send it to the group.", icon: ACTION_TILE_ICONS.camera },
       { id: "photo", title: "Photo", subtitle: "Pick an image from your library and send it to the group.", icon: ACTION_TILE_ICONS.photo },
+      // KaChat iOS d7c56280: always on chain, so no on-chain-or-Nextcloud step.
+      { id: "gif", title: "GIF", subtitle: "Send an animated GIF from your library to the group.", icon: ACTION_TILE_ICONS.gif },
       { id: "voice", title: "Voice Message", subtitle: "Record a voice message and send it to the group.", icon: ACTION_TILE_ICONS.mic },
     ];
     if (connected) options.push({ id: "nextcloud", title: "File", subtitle: "Send any file from your Nextcloud. It shows as a preview.", icon: ACTION_TILE_ICONS.file });
     // Square tiles, three to a row (iOS d645d78); the on-chain-or-Nextcloud step stays rows.
     const choice = await chooseDialog({ title: "Send", layout: "tiles", options });
+    if (choice === "gif") { startGroupMedia("gif", false); return; }
     if (choice === "camera" || choice === "photo" || choice === "voice") {
       if (!connected) { startGroupMedia(choice, false); return; }
       const route = await chooseMediaRouteDialog(choice);
@@ -36599,6 +36770,8 @@ function clearGroupPendingPhoto() {
   groupPhotoViaNextcloud = false;
   setGroupPendingPhotoSending(false);
   if (groupPendingPhotoPreview) groupPendingPhotoPreview.hidden = true;
+  const gifBadge = document.querySelector("[data-group-pending-photo-gif]");
+  if (gifBadge) gifBadge.hidden = true;
   syncGroupComposerSlots();
   try { scheduleGroupFeeEstimate(); } catch { /* fee section not evaluated yet */ }
 }
@@ -36611,8 +36784,8 @@ function setGroupPendingPhotoSending(sending) {
 }
 function renderGroupPendingPhotoRow() {
   const label = groupPendingPhotoSending
-    ? { spinner: false, html: escapeHtml(groupNextcloudStaged?.kind === "video" ? "Sending video…" : "Sending photo…") }
-    : stagedMediaLabel(groupNextcloudStaged, false, { group: true });
+    ? { spinner: false, html: escapeHtml(groupNextcloudStaged?.kind === "video" ? "Sending video…" : groupPendingPhoto?.attachment?.isGif ? "Sending GIF…" : "Sending photo…") }
+    : stagedMediaLabel(groupNextcloudStaged, false, { group: true, gif: Boolean(groupPendingPhoto?.attachment?.isGif) });
   if (groupPendingPhotoMeta) {
     groupPendingPhotoMeta.innerHTML = label.html;
     groupPendingPhotoMeta.classList.toggle("failed", label.cls === "failed");
@@ -36649,6 +36822,8 @@ function setGroupPendingPhoto(attachment, fileName) {
   groupPendingPhoto = { attachment, fileName };
   groupNextcloudStaged = null;
   if (groupPendingPhotoThumb) groupPendingPhotoThumb.src = attachment.dataUrl;
+  const gifBadge = document.querySelector("[data-group-pending-photo-gif]");
+  if (gifBadge) gifBadge.hidden = !attachment.isGif;
   if (groupPendingPhotoPreview) groupPendingPhotoPreview.hidden = false;
   setGroupPendingPhotoSending(false);
   groupComposerInput?.blur();
@@ -36694,10 +36869,31 @@ document.querySelector("[data-group-composer-emoji]")?.addEventListener("click",
     },
   });
 });
+/** The group composer's GIF: staged like a photo, always on chain (KaChat iOS d7c56280). */
+async function attachGroupGif(file, { picked = false } = {}) {
+  const gid = activeGroupId;
+  if (!gid || !canAcceptGroupImageAttachment()) return false;
+  let attachment = null;
+  try { attachment = await gifAttachment(file); } catch { attachment = null; }
+  if (!attachment) {
+    if (picked) setGroupSendError(GIF_NOT_ANIMATED_TEXT);
+    return false;
+  }
+  if (activeGroupId !== gid || !canAcceptGroupImageAttachment()) return false;
+  setGroupPendingPhoto(attachment, "animation.gif");
+  groupPhotoViaNextcloud = false;
+  setStatus("GIF ready · press Send");
+  return true;
+}
 async function handleGroupMediaFile(input) {
   const file = input?.files?.[0];
+  const gifPick = groupGifPick;
+  groupGifPick = false;
   if (input) { input.value = ""; input.accept = "image/*"; }
   if (!file || !activeGroupId) { groupPhotoViaNextcloud = false; return; }
+  if (gifPick) { await attachGroupGif(file, { picked: true }); return; }
+  // An animated GIF on chain goes as a GIF; via Nextcloud it uploads as is.
+  if (String(file.type || "").toLowerCase() === "image/gif" && !(groupPhotoViaNextcloud && isNextcloudConnected()) && await attachGroupGif(file)) return;
   // The group it was picked in: one opened while the file loads doesn't get it.
   const gid = activeGroupId;
   if (String(file.type || "").startsWith("video/")) {
@@ -36737,6 +36933,7 @@ groupPhotoInput?.addEventListener("change", () => handleGroupMediaFile(groupPhot
 groupCameraInput?.addEventListener("change", () => handleGroupMediaFile(groupCameraInput));
 [groupPhotoInput, groupCameraInput].forEach((input) => input?.addEventListener("cancel", () => {
   input.accept = "image/*";
+  groupGifPick = false;
   if (!groupPendingPhoto) groupPhotoViaNextcloud = false;
 }));
 

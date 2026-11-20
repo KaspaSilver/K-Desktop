@@ -13,7 +13,7 @@
   <!-- Too-old browsers (no WebAssembly / modern JS, e.g. iOS 10) get a clear message, not a blank layout. -->
   <script src="/browser-check.js"></script>
   <title>KaChat Desktop</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=413" />
+  <link rel="stylesheet" href="./ui/styles.css?v=414" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The KaChat logo the app already ships (432px PNG) doubles as the tab icon. -->
@@ -319,6 +319,11 @@
                   <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m5 17 4.5-4.5 3.2 3.2 2.3-2.3L19 17"/></svg></span>
                   <span class="composer-plus-copy"><strong>Photo</strong><small>Pick an image from your library and send it.</small></span>
                 </button>
+                <!-- KaChat iOS d7c56280: always on chain, made to fit the quality picked. -->
+                <button type="button" data-composer-gif title="Send an animated GIF from your library." aria-description="Send an animated GIF from your library.">
+                  <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="7.5" y="7.5" width="13.5" height="11.5" rx="2"/><path d="M3.5 15V6a2 2 0 0 1 2-2h11"/><path d="M12.5 10.8v5.4l4.3-2.7z"/></svg></span>
+                  <span class="composer-plus-copy"><strong>GIF</strong><small>Send an animated GIF from your library.</small></span>
+                </button>
                 <button type="button" data-composer-media="voice" title="Record a voice message and send it." aria-description="Record a voice message and send it.">
                   <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6.5 11.5a5.5 5.5 0 0 0 11 0M12 17v4M9 21h6"/></svg></span>
                   <span class="composer-plus-copy"><strong>Voice Message</strong><small>Record a voice message and send it.</small></span>
@@ -416,7 +421,7 @@
                     <!-- Inside the field, at its end (owner, Build 298). -->
                     <button type="button" class="composer-emoji composer-emoji-inline" data-composer-emoji aria-label="Emoji picker" title="Emoji"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8M9 10h.01M15 10h.01"/></svg></button>
                     <div class="pending-photo-preview composer-field-row" data-pending-photo-preview hidden>
-                      <span class="pending-photo-thumb-wrap"><img data-pending-photo-thumb alt="" /><span class="pending-photo-play" data-pending-photo-play hidden aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5Z"/></svg></span></span>
+                      <span class="pending-photo-thumb-wrap"><img data-pending-photo-thumb alt="" /><span class="pending-photo-gif" data-pending-photo-gif hidden aria-hidden="true">GIF</span><span class="pending-photo-play" data-pending-photo-play hidden aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5Z"/></svg></span></span>
                       <span class="composer-field-spinner" data-pending-photo-spinner hidden aria-hidden="true"></span>
                       <span class="pending-photo-meta" data-pending-photo-meta>Photo</span>
                       <button type="button" class="pending-photo-remove" data-pending-photo-remove aria-label="Remove photo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></button>
@@ -503,7 +508,7 @@
                     <!-- Inside the field, at its end (owner, Build 298). -->
                     <button type="button" class="composer-emoji composer-emoji-inline" data-group-composer-emoji aria-label="Emoji picker" title="Emoji"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8M9 10h.01M15 10h.01"/></svg></button>
                     <div class="pending-photo-preview composer-field-row" data-group-pending-photo-preview hidden>
-                      <span class="pending-photo-thumb-wrap"><img data-group-pending-photo-thumb alt="" /><span class="pending-photo-play" data-group-pending-photo-play hidden aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5Z"/></svg></span></span>
+                      <span class="pending-photo-thumb-wrap"><img data-group-pending-photo-thumb alt="" /><span class="pending-photo-gif" data-group-pending-photo-gif hidden aria-hidden="true">GIF</span><span class="pending-photo-play" data-group-pending-photo-play hidden aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5Z"/></svg></span></span>
                       <span class="composer-field-spinner" data-group-pending-photo-spinner hidden aria-hidden="true"></span>
                       <span class="pending-photo-meta sending" data-group-pending-photo-meta>Photo ready to send</span>
                       <button type="button" class="pending-photo-remove group-photo-remove" data-group-pending-photo-remove aria-label="Remove photo"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="m9 9 6 6M15 9l-6 6"/></svg></button>

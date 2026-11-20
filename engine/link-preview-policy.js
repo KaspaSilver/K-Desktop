@@ -135,6 +135,14 @@ export function socialPreviewBrand(url) {
   return null;
 }
 
+/** One site: the same host, or one a subdomain of the other (www.x.com and x.com). KaChat iOS
+ *  d7c56280 LinkPreviewService.isSameSite. */
+export function isSameSiteHost(a, b) {
+  const ha = String(a || "").toLowerCase();
+  const hb = String(b || "").toLowerCase();
+  if (!ha || !hb) return false;
+  return ha === hb || ha.endsWith(`.${hb}`) || hb.endsWith(`.${ha}`);
+}
 /** What the relays check, per hop, for a KaPost preview fetch (`x-preview-policy`): "page" or
  *  "image" (with the page it is for). A reason to refuse, or null. */
 export function previewPolicyRefusal(kind, url, { page = null, hop = 0 } = {}) {

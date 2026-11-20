@@ -5,7 +5,7 @@
 //
 // No platform imports: this file runs under Node and in Cloudflare's runtime alike. Its one import
 // is the pure KaPost preview policy the page uses too.
-import { previewPolicyRefusal } from "../engine/link-preview-policy.js";
+import { previewPolicyRefusal, isSameSiteHost } from "../engine/link-preview-policy.js";
 
 /** What the relay answers its probe with (engine/endpoints.js isProxyAvailable). */
 export const PROBE_REPLY = "kachat-proxy";
@@ -251,24 +251,51 @@ export function createLimiter(max, maxKeys = RATE_MAX_KEYS) {
 export function previewPolicyOf(headers) {
   const kind = String(headers["x-preview-policy"] || "").trim().toLowerCase();
   delete headers["x-preview-policy"];
-  if (kind !== "page" && kind !== "image") return null;
   let page = null;
   try { page = headers["x-preview-referer"] ? new URL(String(headers["x-preview-referer"])) : null; } catch { page = null; }
-  return { kind, page };
+  if (kind === "page" || kind === "image") return { kind, page };
+  // Any other preview fetch (a 1:1 or group chat's card, KaChat iOS d7c56280): its redirects are
+  // held to isAllowedPreviewRedirect, and the Referer stays on the page's own site.
+  if (headers["x-preview"] === "1" || headers["x-preview-image"]) return { kind: "chat", page, last: null };
+  return null;
+}
+/** Where a chat preview fetch may be redirected (KaChat iOS d7c56280 isAllowedRedirect): back to
+ *  the same host (http or https: an http-only server moving a path), or to https on a public name.
+ *  Never to plain http elsewhere, an IP address or a local name. */
+export function isAllowedPreviewRedirect(from, to) {
+  let next;
+  try { next = to instanceof URL ? to : new URL(String(to)); } catch { return false; }
+  const host = next.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host) return false;
+  let oldHost = "";
+  try { oldHost = (from instanceof URL ? from : new URL(String(from))).hostname.toLowerCase(); } catch { oldHost = ""; }
+  if (oldHost && oldHost === next.hostname.toLowerCase() && (next.protocol === "https:" || next.protocol === "http:")) return true;
+  if (next.protocol !== "https:") return false;
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || !host.includes(".")) return false;
+  if (host.includes(":") || /^[0-9.]+$/.test(host)) return false;
+  return true;
 }
 /** Every hop of a KaPost preview is held to its policy: a page and its redirects to allowed https
- *  pages, an image and its redirects to the allowed image servers for its allowed page. A reason
- *  to refuse, or null. */
+ *  pages, an image and its redirects to the allowed image servers for its allowed page. A chat
+ *  preview's redirects go only where isAllowedPreviewRedirect says. A reason to refuse, or null. */
 export function previewHopRefusal(policy, url, hop) {
   if (!policy) return null;
+  if (policy.kind === "chat") {
+    const previous = policy.last;
+    policy.last = url;
+    if (hop === 0 || !previous) return null;
+    return isAllowedPreviewRedirect(previous, url) ? null : "Redirect target not allowed";
+  }
   return previewPolicyRefusal(policy.kind, url, { page: policy.page, hop });
 }
-/** The Referer of a KaPost preview image goes only to the page's own host (KaPost b78fdb0). */
+/** The Referer of a KaPost preview image goes only to the page's own host (KaPost b78fdb0); a chat
+ *  preview's only within the page's own site (KaChat iOS d7c56280). */
 export function previewHopHeaders(policy, headers, url) {
   if (!policy || !headers.referer) return headers;
   let host = "";
   try { host = new URL(String(headers.referer)).hostname.toLowerCase(); } catch { host = ""; }
-  if (host && host === String(url.hostname || "").toLowerCase()) return headers;
+  const target = String(url.hostname || "").toLowerCase();
+  if (host && (policy.kind === "chat" ? isSameSiteHost(host, target) : host === target)) return headers;
   const out = { ...headers };
   delete out.referer;
   return out;

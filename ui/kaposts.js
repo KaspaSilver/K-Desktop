@@ -6804,7 +6804,7 @@ function attachFeedPager() {
     const selection = Math.max(0, order.indexOf(activeFeedTab));
     const width = feedEl.clientWidth || window.innerWidth;
     const next = cancelled ? selection : kapostsPagerTarget({
-      selection, pageCount: order.length, dx: current.dx, dy: current.dy,
+      selection, pageCount: order.length, dx: current.dx, dy: current.dy, locked: true,
       predicted: kapostsProjectedTranslation(current.dx, recentVelocity(current.samples)), width,
     });
     if (next === selection) { place(0); return; }

@@ -71,11 +71,13 @@ assert.equal(kapostsDrawerDim(60, 330), 0.45, "a rightward drag does not lighten
 assert.equal(kapostsDrawerDim(-400, 330), 0, "never below zero");
 
 // Axis lock: nothing until 12 px, then whichever way it went further.
-assert.equal(KAPOSTS_PAGER_LOCK_PX, 12);
-assert.equal(kapostsAxisLock(8, 8), null, "11.3 px is not yet 12");
+assert.equal(KAPOSTS_PAGER_LOCK_PX, 10, "iOS 63c9861");
+assert.equal(kapostsAxisLock(6, 6), null, "8.5 px is not yet 10");
 assert.equal(kapostsAxisLock(12, 3), "x");
 assert.equal(kapostsAxisLock(-3, 12), "y");
-assert.equal(kapostsAxisLock(9, 9), "y", "a tie is the list's (iOS: width > height)");
+assert.equal(kapostsAxisLock(9, 9), "y", "a tie is the list's");
+assert.equal(kapostsAxisLock(12, 10), "y", "slightly diagonal stays a scroll (1.3x)");
+assert.equal(kapostsAxisLock(-14, 10), "x", "clearly sideways");
 
 // Rubber band at the ends only.
 assert.equal(kapostsPagerOffset(0, 3, 90), 30, "past the first page");
@@ -96,6 +98,7 @@ assert.equal(kapostsPagerTarget({ selection: 1, pageCount: 3, dx: 140, width: W 
 assert.equal(kapostsPagerTarget({ selection: 0, pageCount: 3, dx: 300, width: W }), 0, "nothing before the first");
 assert.equal(kapostsPagerTarget({ selection: 2, pageCount: 3, dx: -300, width: W }), 2, "nothing after the last");
 assert.equal(kapostsPagerTarget({ selection: 1, pageCount: 3, dx: -140, dy: 200, width: W }), 1, "ended more vertical than sideways");
+assert.equal(kapostsPagerTarget({ selection: 1, pageCount: 3, dx: -140, dy: 200, width: W, locked: true }), 2, "a sideways lock holds to the end (iOS 63c9861)");
 
 // A link to KaChat's own site (KaPost f81c467 KaChatSiteLink): this host and no other.
 assert.equal(isKaChatSiteLink("https://home.kachat.app/news/"), true);
