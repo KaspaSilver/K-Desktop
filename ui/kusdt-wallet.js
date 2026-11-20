@@ -33,6 +33,9 @@ export const KUSDT_POLL_MS = 90_000;
 export const KUSDT_POLL_MAX_AGE_MS = 80_000;
 /** A screen that opens refreshes balances older than this (iOS refreshIfStale default, 60 s). */
 export const KUSDT_STALE_MS = 60_000;
+/** Send Dollars runs Discover as it opens, unless one ran this recently for the account (KaChat iOS
+ *  5b7c772c DollarTokenChooser, discoverIfStale(maxAge: 300)). */
+export const KUSDT_DISCOVER_STALE_MS = 300_000;
 /** Lookups run this many at a time (iOS lookUp). */
 export const KUSDT_LOOKUP_BATCH = 4;
 /** Discover looks this far past the last revealed regular address (iOS discoverHoldings). */
@@ -281,6 +284,8 @@ export function makeHolding(spendingIndex, address, units, coinCount) {
  *   fetchTransactionInputs(txid) -> [{ hash, index, address }] | null
  *   notificationsEnabled()      Settings > Notifications > Address Activity
  *   notify({ title, body })     the desktop notification and the bell
+ *   isNoticeFiled(txid)         a contact's Send Dollars the chat already filed and announced
+ *                               (token_payment_notice): no second "Received kUSDT" banner
  *   markOwnTransaction(txid)    ui/address-activity.js: a send's KAS change isn't "Received KAS"
  *   isVisible()                 the page is showing (the poll)
  *   log(line)
@@ -296,6 +301,8 @@ export function createKusdtWallet(deps) {
   let coins = new Map();       // holdingId -> verified coins a send can spend
   let lastError = null;
   let lastRefreshed = 0;
+  let lastDiscovered = 0;
+  let discoveryRuns = 0; // Discovers running for the loaded account (the "Checking" state)
   let refreshing = false;
   let inFlight = null;         // { account, promise }
   let refreshAgain = false;
@@ -329,6 +336,8 @@ export function createKusdtWallet(deps) {
     coins = new Map();
     lastError = null;
     lastRefreshed = 0;
+    lastDiscovered = 0;
+    discoveryRuns = 0;
     loadedAccount = owner;
     if (followUpTimer) { clearTimeout(followUpTimer); followUpTimer = null; }
   }
@@ -413,9 +422,15 @@ export function createKusdtWallet(deps) {
     if (account() !== owner || !found.received.length) return;
     emit(); // the new history rows
     if (!deps.notificationsEnabled?.()) return;
-    const ids = [...new Set(found.received.map((r) => r.holdingId))];
+    // a contact's Send Dollars the chat already showed and announced: no second banner (KaChat iOS
+    // 5b7c772c isNoticeBubble); its history row stays
+    const announced = found.received.filter((r) => {
+      try { return !deps.isNoticeFiled?.(String(r.transactionId || "").toLowerCase()); } catch { return true; }
+    });
+    if (!announced.length) return;
+    const ids = [...new Set(announced.map((r) => r.holdingId))];
     const labels = (holdings || []).filter((h) => ids.includes(h.id)).map(labelOf);
-    const note = receivedNotification(found.received, labels.length ? labels : ids.map(() => "address"), (u) => formatKusdt(u));
+    const note = receivedNotification(announced, labels.length ? labels : ids.map(() => "address"), (u) => formatKusdt(u));
     try { deps.notify?.(note); } catch { /* the notification's own problem */ }
   }
 
@@ -486,6 +501,17 @@ export function createKusdtWallet(deps) {
   async function discover(progress = null) {
     const owner = current();
     if (!owner) return 0;
+    // looking from the first moment, the derivation included, so a From step with nothing held
+    // says "Checking" rather than "none" meanwhile
+    discoveryRuns += 1;
+    emit();
+    try {
+      return await runDiscover(owner, progress);
+    } finally {
+      if (loadedAccount === owner && discoveryRuns > 0) { discoveryRuns -= 1; emit(); }
+    }
+  }
+  async function runDiscover(owner, progress) {
     if (inFlight && inFlight.account === owner) { try { await inFlight.promise; } catch { /* its own */ } }
     if (account() !== owner) return 0;
     const maxIndex = Number(deps.maxSpendingIndex?.() ?? -1);
@@ -520,9 +546,24 @@ export function createKusdtWallet(deps) {
     applyLookups(results, owner);
     lastError = null;
     lastRefreshed = now();
+    lastDiscovered = lastRefreshed;
     refreshing = false;
     emit();
     return found;
+  }
+
+  /** Discover, unless one ran in the last `maxAge` ms for this account (KaChat iOS 5b7c772c
+   *  discoverIfStale: Send Dollars opens it every time; once in a while is enough). One running
+   *  already is waited for rather than started twice. */
+  let discoverInFlight = null; // { account, promise }
+  async function discoverIfStale(maxAge = KUSDT_DISCOVER_STALE_MS) {
+    const owner = current();
+    if (!owner) return null;
+    if (lastDiscovered && now() - lastDiscovered < maxAge) return null;
+    if (discoverInFlight && discoverInFlight.account === owner) return discoverInFlight.promise;
+    const promise = discover();
+    discoverInFlight = { account: owner, promise };
+    try { return await promise; } finally { if (discoverInFlight?.promise === promise) discoverInFlight = null; }
   }
 
   // MARK: Reads
@@ -688,7 +729,7 @@ export function createKusdtWallet(deps) {
 
   return {
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
-    refresh, refreshIfStale, discover, submit, startPolling, stopPolling, forgetAccount,
+    refresh, refreshIfStale, discover, discoverIfStale, submit, startPolling, stopPolling, forgetAccount,
     heldHoldings, balance, listed, listedSpendingIndices, isListed, toggleListed, hideAll, hiddenCount,
     holdingById, coinsOf, activity, usesTokens, freshReceive, generateFresh, ownTokenAddress, addShown,
     labelOf, heldOnText: () => heldOnText(heldHoldings(), labelOf), kasHeld: () => kasHeldSompi(heldHoldings() || []),
@@ -696,6 +737,9 @@ export function createKusdtWallet(deps) {
     get account() { return current(); },
     get error() { current(); return lastError; },
     get refreshing() { current(); return refreshing; },
+    /** A Discover is looking (Send Dollars runs one as it opens, so its From step with no kUSDT
+     *  says it's still checking rather than "none"). */
+    get discovering() { current(); return discoveryRuns > 0; },
     get lastRefreshed() { current(); return lastRefreshed; },
     get known() { current(); return holdings != null; },
   };

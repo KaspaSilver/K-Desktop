@@ -311,6 +311,12 @@
                   <span class="mode-icon mode-icon-kaspa" aria-hidden="true"><img src="./ui/assets/kaspa-logo.png" alt="" /></span>
                   <span class="composer-plus-copy"><strong>Send Kaspa</strong><small>Send Kaspa to this contact.</small></span>
                 </button>
+                <!-- KaChat iOS 5b7c772c Send Dollars: which stablecoin (kUSDT today), then the kUSDT
+                     send to this chat's address. Hidden for bots like every tile but Send Kaspa. -->
+                <button type="button" data-composer-dollars title="Send dollars (kUSDT) to this contact." aria-description="Send dollars (kUSDT) to this contact.">
+                  <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2"/><path d="M14.8 9.2c-.4-1-1.5-1.6-2.8-1.6-1.6 0-2.8.8-2.8 2.1 0 2.8 5.8 1.5 5.8 4.4 0 1.3-1.3 2.2-3 2.2-1.4 0-2.6-.7-3-1.8M12 6v1.6M12 16.3V18"/></svg></span>
+                  <span class="composer-plus-copy"><strong>Send Dollars</strong><small>Send dollars (kUSDT) to this contact.</small></span>
+                </button>
                 <button type="button" data-composer-media="camera" title="Take a photo and send it." aria-description="Take a photo and send it.">
                   <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.2l1.1-1.6A1 1 0 0 1 9.6 4h4.8a1 1 0 0 1 .8.4L16.3 6h1.2A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.5" r="3.2"/></svg></span>
                   <span class="composer-plus-copy"><strong>Camera</strong><small>Take a photo and send it.</small></span>
@@ -346,6 +352,20 @@
                   <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 11.5 3.5 15a2 2 0 0 0 2.83 2.83L9.5 14.7"/><path d="m9.5 14.7 1.5 1.5a2 2 0 0 0 2.83-2.83l-3.9-3.9a3 3 0 0 0-4.24 0L4.5 11.5"/><path d="M13.5 8.5 16 6a2 2 0 0 1 2.83 0l1.67 1.67a2 2 0 0 1 0 2.83L18 13"/><path d="M11 6.5 12.5 5a2 2 0 0 1 2.83 0"/></svg></span>
                   <span class="composer-plus-copy"><strong>Send Handshake</strong><small>Asks to open an encrypted conversation.</small></span>
                 </button>
+              </div>
+              <!-- Second step after Send Dollars (KaChat iOS 5b7c772c DollarTokenChooser): each dollar
+                   token with its balance (kUSDT today), and Back to the "+" options. Opening it runs
+                   Discover unless one ran in the last 5 minutes. Filled in by app.js. -->
+              <div class="composer-plus-menu composer-plus-sheet composer-dollars-menu" data-composer-dollars-menu hidden>
+                <p class="composer-plus-title">Send Dollars</p>
+                <p class="composer-plus-caption">Which stablecoin are you sending?</p>
+                <button type="button" class="composer-dollars-row" data-composer-dollars-token="kusdt">
+                  <span class="composer-dollars-icon" aria-hidden="true" data-composer-dollars-icon></span>
+                  <span class="composer-plus-copy"><strong>kUSDT</strong><small>Bridged USDT</small></span>
+                  <span class="composer-dollars-trailing"><span class="sk-spinner" data-composer-dollars-spinner hidden aria-hidden="true"></span><span class="composer-dollars-balance" data-composer-dollars-balance>--</span></span>
+                  <span class="composer-dollars-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></span>
+                </button>
+                <button type="button" class="composer-plus-back" data-composer-dollars-back>Back</button>
               </div>
               <!-- Second step after Camera / Photo / Voice Message while a Nextcloud server is
                    connected (iOS ComposerMediaRouteStep): on chain, or via Nextcloud. Filled in by

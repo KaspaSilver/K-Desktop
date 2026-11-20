@@ -10,7 +10,12 @@
 // A notice naming any other address (an old app paying one of our former pool addresses) is
 // dropped too (XP-023).
 //
+// `token_payment_notice` (KaChat iOS 5b7c772c, Send Dollars) is the same kind of invisible envelope
+// for a kUSDT payment; its shape and checks live in engine/token-payment-notice.js.
+//
 // Pure helpers only - no DOM, no network - so tools/test-payment-notice.mjs can run them.
+
+import { parseTokenPaymentNoticeText, TOKEN_PAYMENT_NOTICE_TYPE } from "./token-payment-notice.js";
 
 /** The longest note a notice carries or shows (iOS PaymentNoticeContent.maxMemoLength). */
 export const PAYMENT_NOTICE_MAX_MEMO_LENGTH = 500;
@@ -39,7 +44,10 @@ export function clampPaymentNoticeMemo(memo) {
  * checks as iOS PaymentPoolCodec.parse: `{`-prefix and size guard first, since this runs on every
  * intercepted message.
  *   { kind: "pool" } | { kind: "request" } | { kind: "notice", notice: { txId, amountSompi, address, memo } }
- * `notice` here is only well-formed, not yet valid: see validPaymentNotice.
+ *   | { kind: "tokenNotice", notice: { token, txId, index, amount, address } }
+ * `notice` here is only well-formed, not yet valid: see validPaymentNotice / validTokenPaymentNotice.
+ * A token notice of the wrong shape is null, as iOS's Codable decode fails (older clients and a
+ * malformed one show it as text).
  */
 export function parsePaymentPoolEnvelope(text) {
   const trimmed = String(text || "").trim();
@@ -49,6 +57,10 @@ export function parsePaymentPoolEnvelope(text) {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   if (parsed.type === "addr_pool") return Array.isArray(parsed.addresses) ? { kind: "pool" } : null;
   if (parsed.type === "addr_pool_request") return { kind: "request" };
+  if (parsed.type === TOKEN_PAYMENT_NOTICE_TYPE) {
+    const notice = parseTokenPaymentNoticeText(trimmed);
+    return notice ? { kind: "tokenNotice", notice } : null;
+  }
   if (parsed.type === "payment_notice") {
     // Codable's shape: strings, a non-negative integer amount, an optional string memo.
     const amount = parsed.amountSompi;

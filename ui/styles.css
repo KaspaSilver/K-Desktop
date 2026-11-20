@@ -15668,3 +15668,28 @@ button.kusdt-activity-row:hover { background: var(--surface-1, rgba(255,255,255,
 /* Manage Addresses' Address Visibility: an address on the kUSDT list stays shown, dimmed. */
 .spending-visibility-row.kusdt-listed { opacity: .55; }
 .kusdt-address-screen .chatting-address-copy:disabled { opacity: .4; cursor: default; }
+
+/* Send Dollars' second step (KaChat iOS 5b7c772c DollarTokenChooser): the coin, kUSDT / Bridged
+   USDT, the balance (with a spinner while Discover looks) and a chevron. */
+.composer-shell .composer-plus-menu .composer-dollars-row {
+  grid-template-columns: 40px minmax(0, 1fr) auto 14px; gap: 12px; min-height: 64px; padding: 12px 14px;
+  border: 1px solid var(--glass-stroke); border-radius: 16px; margin: 2px 0;
+}
+.composer-dollars-row .composer-dollars-icon { display: grid; place-items: center; width: 40px; height: 40px; }
+.composer-dollars-row .composer-dollars-trailing { display: inline-flex; align-items: center; gap: 6px; color: var(--text); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.composer-dollars-row .composer-dollars-trailing .sk-spinner { width: 12px; height: 12px; margin: 0; }
+.composer-plus-menu .composer-dollars-row .composer-dollars-balance { color: var(--text); font-size: 14px; font-weight: 600; }
+.composer-dollars-row .composer-dollars-chevron { display: grid; place-items: center; color: var(--muted); }
+.composer-dollars-row .composer-dollars-chevron svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The kUSDT send's From with nothing held: the line, then Swap Stablecoins (iOS's Get KaPay). */
+.kusdt-from-none { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+.kusdt-from-none p { margin: 0; }
+
+/* A kUSDT payment bubble (Send Dollars): the coin stands in for the Kaspa logo, as iOS's TokenIcon
+   at 46 pt, with no circle behind it. */
+.message-payment-card .payment-card-logo.is-token,
+.message-payment-card.outgoing .payment-card-logo.is-token,
+.message-payment-card.incoming .payment-card-logo.is-token { background: none; box-shadow: none; }
+.payment-card-logo.is-token .kusdt-coin-kaspa { box-shadow: 0 0 0 1.5px #fff; background: #fff; }
+.payment-detail-head .kusdt-coin { margin: 0 auto; }

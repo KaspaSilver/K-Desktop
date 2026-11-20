@@ -151,8 +151,13 @@ import { openEmojiReactionPicker, openComposerEmojiPopover, closeComposerEmojiPo
 // kUSDT (KaPay iOS 3d126db): the state (ui/kusdt-wallet.js) and its screens (ui/kusdt-screens.js).
 import { NETWORK_ID } from "../engine/network.js";
 import { forgetAccount as forgetKusdtStorage } from "../engine/kusdt-store.js";
-import { createKusdtWallet, manageAddressesHideRefusal, reshowListedHidden, hideAllKeepingListed, KUSDT_LISTED_HIDE_MESSAGE, KUSDT_LISTED_ALERT_TITLE } from "./kusdt-wallet.js";
-import { initKusdtScreens, openManageKusdt, openWalletSend, openKusdtGuide, receiveNotesHtml, renderKusdtWalletCard, closeKusdtForAccountSwitch } from "./kusdt-screens.js";
+import { createKusdtWallet, manageAddressesHideRefusal, reshowListedHidden, hideAllKeepingListed, KUSDT_LISTED_HIDE_MESSAGE, KUSDT_LISTED_ALERT_TITLE, kasAmountText as kusdtKasAmountText } from "./kusdt-wallet.js";
+import { initKusdtScreens, openManageKusdt, openWalletSend, openKusdtGuide, receiveNotesHtml, renderKusdtWalletCard, closeKusdtForAccountSwitch, openKusdtSend, openTipAssetChooser, kusdtTotalText, kusdtLooking } from "./kusdt-screens.js";
+import { kusdtCoinIconHtml } from "./kusdt-icons.js";
+// Send Dollars in a 1:1 chat (KaChat iOS 5b7c772c): the token_payment_notice and its chain check.
+import { validTokenPaymentNotice, encodeTokenPaymentNotice, tokenPaymentText, unverifiedTokenPaymentText, tokenOfPaymentText, checkTokenNoticeOnChain } from "../engine/token-payment-notice.js";
+// KaPost Settings > Tip In (KaPost iOS f954738).
+import { TIP_IN_OPTIONS, TIP_IN_ASK, TIP_IN_KASPA, TIP_IN_KUSDT, storedTipIn, effectiveTipIn, withTipIn, tipInLayout } from "./kaposts-tip-in.js";
 
 // Step 25 shell:
 // - Keeps KaspaEngine modules intact.
@@ -1732,6 +1737,13 @@ function removeAccountScopedLocalData(address, { spendingAddresses = [], keepCoi
     const sources = { ...accountShellPrefs.kaPostsTipSources };
     for (const encoded of [cleanAddress, reencodeAddress(cleanAddress, "kaspa"), reencodeAddress(cleanAddress, "kaspatest")]) if (encoded) delete sources[encoded];
     accountShellPrefs.kaPostsTipSources = sources;
+    try { persistAccountShellPreferences(); } catch { /* storage full: gone for this session */ }
+  }
+  // So does KaPost's Tip In (KaPost iOS f954738), kept per account the same way.
+  if (accountShellPrefs.kaPostsTipIn) {
+    let tipIn = accountShellPrefs.kaPostsTipIn;
+    for (const encoded of [cleanAddress, reencodeAddress(cleanAddress, "kaspa"), reencodeAddress(cleanAddress, "kaspatest")]) if (encoded) tipIn = withTipIn(tipIn, encoded, null);
+    accountShellPrefs.kaPostsTipIn = tipIn;
     try { persistAccountShellPreferences(); } catch { /* storage full: gone for this session */ }
   }
   // Its spending addresses' coin labels are filed by address, outside the account's prefix: found
@@ -4257,9 +4269,11 @@ function maybeNotifyIncoming(conversationEntry, contact, message) {
   if (parseReactionEnvelope(message.text)) return; // reactions aren't standalone messages
   // Payment-pool envelopes are silent (iOS 6333dd3), except a payment_notice for a payment to our
   // chatting address, which reads "Received payment": no amount, as it is only what the sender
-  // claims until the chain says (iOS 927322b NotificationService, XP-023 / IOS-080).
+  // claims until the chain says (iOS 927322b NotificationService, XP-023 / IOS-080). A
+  // token_payment_notice (Send Dollars, KaChat iOS 5b7c772c) is announced the same way.
   const poolEnvelope = parsePaymentPoolEnvelope(message.text);
-  if (poolEnvelope && !(poolEnvelope.kind === "notice" && validPaymentNotice(poolEnvelope.notice, engine.address))) return;
+  if (poolEnvelope && !((poolEnvelope.kind === "notice" && validPaymentNotice(poolEnvelope.notice, engine.address))
+    || (poolEnvelope.kind === "tokenNotice" && validTokenPaymentNotice(poolEnvelope.notice, engine.address)))) return;
   // Nothing at all from a blocked address; one "New message request" per requester, then
   // silence until accepted (NO_HANDSHAKE_MESSAGING.md §4).
   if (isChatBlocked(contact?.address)) return;
@@ -10416,6 +10430,291 @@ function isPaymentNeedingAttention(message) {
   return message?.direction === "incoming" && message?.status === MESSAGE_STATUSES.BROADCAST && isPaymentBubble(message);
 }
 
+// ---------------------------------------------------------------------------
+// Send Dollars: token payments in a 1:1 chat (KaChat iOS 5b7c772c, MESSAGING.md "Token Payments in
+// a Chat"; recordTokenPayment / handleTokenPaymentNotice / checkTokenNoticeOnChain). A kUSDT
+// transfer carries no chat payload and pays a P2SH coin, so the payer's chatting address sends a
+// `token_payment_notice` in the chat right after it (engine/token-payment-notice.js), the same way
+// a payment_notice travels: sendPaymentNoticeEnvelope, and kept for the account that paid when it
+// can't go yet (keepUnsentPaymentNotice). The payer's bubble is made here at once; the payee's once
+// the chain backs it. Bubbles read "Sent 12.50 kUSDT" / "Received 12.50 kUSDT", which the payment
+// card draws with the kUSDT coin (parsePaymentCardParts).
+// ---------------------------------------------------------------------------
+
+// The kUSDT payments notices filed in their chats, per account (iOS markNoticeBubble): the wallet's
+// own "Received kUSDT" banner stays quiet for them (ui/kusdt-wallet.js isNoticeFiled).
+const TOKEN_NOTICE_TXIDS_KEY = "kachat-token-notice-txids-v1";
+function readTokenNoticeTxids(walletAddress = engine.address) {
+  if (!walletAddress) return [];
+  try {
+    const list = JSON.parse(localStorage.getItem(accountScopedKey(TOKEN_NOTICE_TXIDS_KEY, walletAddress)) || "[]");
+    return Array.isArray(list) ? list.map((id) => String(id).toLowerCase()) : [];
+  } catch { return []; }
+}
+function writeTokenNoticeTxids(walletAddress, list) {
+  if (!walletAddress) return;
+  try {
+    const key = accountScopedKey(TOKEN_NOTICE_TXIDS_KEY, walletAddress);
+    if (list.length) localStorage.setItem(key, JSON.stringify(list.slice(-300)));
+    else localStorage.removeItem(key);
+  } catch { /* storage full: the banner may show once */ }
+}
+function markTokenNoticeFiled(txId, walletAddress) {
+  const list = readTokenNoticeTxids(walletAddress);
+  if (!list.includes(txId)) writeTokenNoticeTxids(walletAddress, [...list, txId]);
+}
+function unmarkTokenNoticeFiled(txId, walletAddress) {
+  const list = readTokenNoticeTxids(walletAddress);
+  if (list.includes(txId)) writeTokenNoticeTxids(walletAddress, list.filter((id) => id !== txId));
+}
+function isTokenNoticeFiled(txId) {
+  return readTokenNoticeTxids().includes(String(txId || "").toLowerCase());
+}
+
+/** Every stored row (any chat) with this txid. */
+function messagesWithTxid(txId) {
+  const rows = [];
+  for (const entry of state.conversations || []) {
+    for (const row of entry.messages || []) if (normalizePaymentTxId(row.txid) === txId) rows.push(row);
+  }
+  return rows;
+}
+function hiddenInConversation(conversationEntry, txId) {
+  return (conversationEntry?.hiddenMessageKeys || []).some((key) => normalizePaymentTxId(key) === txId);
+}
+
+// The payments this session already recorded (the send and its "Not confirmed" lookup can both
+// report one): one bubble and one notice per txid.
+const recordedTokenPayments = new Set();
+
+/// Send Dollars went out (iOS recordTokenPayment): the payer's bubble in the chat at once, and the
+/// notice that puts it in the contact's chat too, from the chatting address of `owner` (the account
+/// that paid). If another account is open by now, nothing is written into it: the notice is kept
+/// for the account that paid and goes once it is open again with KAS, and reading it back there
+/// makes the bubble. A notice that can't go (an empty chatting address) is kept the same way.
+function recordTokenPayment({ owner, conversationId, contactAddress, txId, index = 0, amount }) {
+  const txid = normalizePaymentTxId(txId);
+  const address = String(contactAddress || "").trim();
+  if (!owner || !/^[0-9a-f]{64}$/.test(txid) || !address) return;
+  const key = `${owner}:${txid}`;
+  if (recordedTokenPayments.has(key)) return;
+  recordedTokenPayments.add(key);
+  const selfChat = address.toLowerCase() === String(owner).toLowerCase();
+  // the payee's chatting address; no notice to yourself (your own transfer)
+  const payload = selfChat ? "" : encodeTokenPaymentNotice({ txId: txid, index, amount, address });
+  if (engine.address !== owner) {
+    if (payload) keepUnsentPaymentNotice(owner, { contactAddress: address, payload, txId: txid });
+    appendEngineLog(`token_payment_notice for ${txid.slice(0, 12)} kept for the account that paid`);
+    return;
+  }
+  const lower = address.toLowerCase();
+  const contact = state.contacts.find((entry) => String(entry.address || "").toLowerCase() === lower);
+  const conversationEntry = state.conversations.find((entry) => entry.id === conversationId && entry.contactId === contact?.id)
+    || (contact ? state.conversations.find((entry) => entry.contactId === contact.id) : null);
+  if (!contact || !conversationEntry) {
+    if (payload) keepUnsentPaymentNotice(owner, { contactAddress: address, payload, txId: txid });
+    return;
+  }
+  // Our own bubble, straight into the chat; deleted stays deleted.
+  if (!(conversationEntry.messages || []).some((entry) => normalizePaymentTxId(entry.txid) === txid) && !hiddenInConversation(conversationEntry, txid)) {
+    const bubble = createMessage({
+      conversationId: conversationEntry.id,
+      contactId: contact.id,
+      direction: "outgoing",
+      text: tokenPaymentText({ amount, outgoing: true }),
+      sender: owner,
+      receiver: contact.address,
+      status: MESSAGE_STATUSES.CONFIRMED,
+      transport: "kaspa-payment",
+      createdAt: Date.now(),
+    });
+    applyMessagePatch(bubble, { messageType: "payment", txid, confirmations: 1, network: NETWORK });
+    addMessageToConversation(conversationEntry, bubble);
+    schedulePersistState();
+    if (activeConversationId === conversationEntry.id) renderMessages(conversationEntry);
+    renderChats();
+  }
+  if (!payload) return;
+  Promise.resolve().then(async () => {
+    try {
+      await sendPaymentNoticeEnvelope(conversationEntry, contact, payload, owner);
+      appendEngineLog(`Sent token_payment_notice for ${txid.slice(0, 12)}`);
+    } catch (error) {
+      appendEngineLog(`token_payment_notice send failed for ${txid.slice(0, 12)}, kept for later: ${error?.message || error}`);
+      keepUnsentPaymentNotice(owner, { contactAddress: contact.address, payload, txId: txid });
+    }
+  });
+}
+
+/// A `token_payment_notice` in a 1:1 chat (iOS handleTokenPaymentNotice): theirs (they sent us
+/// dollars) or our own read back on another device. It must name the receiving side's chatting
+/// address and a token this app knows, else it is dropped. Nothing already stored under that txid
+/// is moved or overwritten; only this notice's own unverified bubble is checked again. A received
+/// one shows once the chain check answers: the amount when it passes, "Unverified kUSDT payment"
+/// when the chain can't say yet, nothing when it fails. Our own read back is filed at once and
+/// returned (null otherwise).
+function handleTokenPaymentNotice(conversationEntry, message, notice) {
+  const walletAddress = engine.address;
+  const contact = contactForConversation(conversationEntry);
+  if (!walletAddress || !contact?.address || isSelfConversation(conversationEntry)) return null;
+  const outgoing = message.direction === "outgoing";
+  const valid = validTokenPaymentNotice(notice, outgoing ? contact.address : walletAddress);
+  if (!valid) {
+    if (notice) appendEngineLog(`Dropped token_payment_notice ${String(notice.txId || "").slice(0, 12)} - not a payment to the chatting address`);
+    return null;
+  }
+  const { txId } = valid;
+  // deleted from this chat stays deleted; never a contract chat's payment (iOS 32fdaa4)
+  if (hiddenInConversation(conversationEntry, txId) || isSuppressedPaymentTxId(txId)) return null;
+  const rows = messagesWithTxid(txId);
+  if (rows.length) {
+    if (outgoing) return null;
+    // only this notice's own unverified bubble is checked again; anything else stays
+    const here = rows.length === 1 && (conversationEntry.messages || []).includes(rows[0]) ? rows[0] : null;
+    if (!here || !isPaymentNeedingAttention(here) || String(here.sender || "").toLowerCase() !== contact.address.toLowerCase()) return null;
+    checkReceivedTokenNotice(conversationEntry.id, contact, message, valid, walletAddress, { recheck: true });
+    return null;
+  }
+  if (outgoing) {
+    // our own notice on another device: the bubble this device doesn't have
+    const bubble = createMessage({
+      conversationId: conversationEntry.id,
+      contactId: contact.id,
+      direction: "outgoing",
+      text: tokenPaymentText({ amount: valid.amount, outgoing: true, token: valid.token }),
+      sender: walletAddress,
+      receiver: valid.address,
+      status: MESSAGE_STATUSES.CONFIRMED,
+      transport: "kaspa-payment",
+      createdAt: messageEventTime(message),
+    });
+    applyMessagePatch(bubble, { messageType: "payment", txid: txId, confirmations: 1, network: NETWORK });
+    addMessageToConversation(conversationEntry, bubble);
+    schedulePersistState();
+    if (activeConversationId === conversationEntry.id) renderMessages(conversationEntry);
+    renderChats();
+    appendEngineLog(`Token payment ${txId.slice(0, 12)} filed from our own token_payment_notice`);
+    return bubble;
+  }
+  checkReceivedTokenNotice(conversationEntry.id, contact, message, valid, walletAddress, { recheck: false });
+  return null;
+}
+
+/** Received token notices whose chain check is running, by txid (one check per payment). */
+const tokenNoticesChecking = new Set();
+
+/** Every address of ours, for the token notice's input rule (as payment_notice's: this account's
+ *  chatting, spending and Cold Storage addresses and the other saved accounts'). */
+function tokenNoticeOwnAddresses() {
+  const addresses = allOwnAddressSet();
+  try {
+    for (const index of spendingRevealedIndices()) addresses.add(String(deriveSpendingAddressAt(index) || "").toLowerCase());
+  } catch { /* no spending chain yet */ }
+  if (engine.address) addresses.add(engine.address.toLowerCase());
+  addresses.delete("");
+  return [...addresses];
+}
+
+/// The chain check of a token notice we received (iOS checkTokenNoticeOnChain), then the filing.
+/// The REST read gets a few tries a few seconds apart (its index may lag the notice, as for
+/// payment_notice); the node is asked for the covenant id only when the explorer gives none. Every
+/// step is tied to the account it started on: an answer after a switch is dropped.
+async function checkReceivedTokenNotice(conversationId, contact, message, valid, walletAddress, { recheck = false } = {}) {
+  const { txId } = valid;
+  if (tokenNoticesChecking.has(txId)) return;
+  tokenNoticesChecking.add(txId);
+  try {
+    let tx = null;
+    for (let attempt = 0; attempt < 5 && !tx; attempt += 1) {
+      if (attempt > 0) await new Promise((resolve) => window.setTimeout(resolve, 3000));
+      if (engine.address !== walletAddress) return;
+      try {
+        const base = String(getEndpoint("kaspaApi") || "").replace(/\/+$/, "");
+        const response = await fetch(`${base}/transactions/${txId}?resolve_previous_outpoints=light`, { headers: { Accept: "application/json" }, cache: "no-store" });
+        if (response.ok) tx = await response.json();
+      } catch { /* unreachable: try again */ }
+    }
+    if (engine.address !== walletAddress) return;
+    const verdict = await checkTokenNoticeOnChain({
+      tx, notice: valid, paidAddress: walletAddress, payer: contact.address,
+      ownAddresses: tokenNoticeOwnAddresses(),
+      otherContactAddresses: (state.contacts || []).map((entry) => entry?.address).filter(Boolean),
+      readNodeUtxos: (address) => engine.getUtxosWithCovenants([address]),
+      network: NETWORK_ID,
+    });
+    if (engine.address !== walletAddress) return;
+    const conversationEntry = state.conversations.find((entry) => entry.id === conversationId);
+    if (!conversationEntry) return;
+    const text = tokenPaymentText({ amount: valid.amount, outgoing: false, token: valid.token });
+    if (recheck) {
+      // still this notice's unverified bubble after the awaits?
+      const bubble = (conversationEntry.messages || []).find((entry) => normalizePaymentTxId(entry.txid) === txId && isPaymentNeedingAttention(entry)
+        && String(entry.sender || "").toLowerCase() === contact.address.toLowerCase());
+      if (!bubble || verdict.status === "unknown") return;
+      if (verdict.status === "invalid") {
+        conversationEntry.messages = conversationEntry.messages.filter((entry) => entry !== bubble);
+        unmarkTokenNoticeFiled(txId, walletAddress);
+        appendEngineLog(`Removed the unverified kUSDT payment ${txId.slice(0, 12)} - ${verdict.reason}`);
+      } else {
+        applyMessagePatch(bubble, { status: MESSAGE_STATUSES.CONFIRMED, text });
+        appendEngineLog(`kUSDT payment ${txId.slice(0, 12)} from a token_payment_notice verified on chain`);
+      }
+      schedulePersistState();
+      if (activeConversationId === conversationEntry.id) renderMessages(conversationEntry);
+      renderChats();
+      return;
+    }
+    // after the awaits: still nothing stored under that txid, and not deleted here
+    if (messagesWithTxid(txId).length || hiddenInConversation(conversationEntry, txId)) return;
+    if (verdict.status === "invalid") {
+      appendEngineLog(`Dropped token_payment_notice ${txId.slice(0, 12)} - ${verdict.reason}`);
+      return;
+    }
+    // An unchecked claim shows without its amount: anyone can make a look-alike coin with plain
+    // KAS, and only the covenant id (checked once the chain answers) tells them apart.
+    const unverified = verdict.status !== "valid";
+    // the generic kUSDT watch leaves it to this notice to announce
+    markTokenNoticeFiled(txId, walletAddress);
+    const bubble = createMessage({
+      conversationId: conversationEntry.id,
+      contactId: contact.id,
+      direction: "incoming",
+      text: unverified ? unverifiedTokenPaymentText(valid.token) : text,
+      sender: contact.address,
+      receiver: valid.address,
+      status: unverified ? MESSAGE_STATUSES.BROADCAST : MESSAGE_STATUSES.CONFIRMED,
+      transport: "kaspa-payment",
+      createdAt: messageEventTime(message),
+    });
+    applyMessagePatch(bubble, { messageType: "payment", txid: txId, confirmations: 1, network: NETWORK });
+    addMessageToConversation(conversationEntry, bubble);
+    schedulePersistState();
+    if (activeConversationId === conversationEntry.id) renderMessages(conversationEntry);
+    renderChats();
+    appendEngineLog(`kUSDT payment ${txId.slice(0, 12)} filed in its chat from a token_payment_notice${unverified ? " (not verified yet)" : ""}`);
+    if (isLiveMessageTime(bubble.createdAt)) {
+      if (!chatOnScreen(conversationEntry.id)) conversationEntry.unreadCount = Number(conversationEntry.unreadCount || 0) + 1;
+      // the notice itself notifies: "Received payment", never the amount it claims
+      maybeNotifyIncoming(conversationEntry, contact, message);
+      renderChats();
+    }
+  } finally {
+    tokenNoticesChecking.delete(txId);
+  }
+}
+
+/** Whether the network has accepted a transaction (REST `is_accepted`): a "Not confirmed" Send
+ *  Dollars is looked up with this (ui/kusdt-screens.js). null when the API can't say. */
+async function isTransactionAcceptedRest(txid) {
+  const base = String(getEndpoint("kaspaApi") || "").replace(/\/+$/, "");
+  try {
+    const response = await fetch(`${base}/transactions/${encodeURIComponent(String(txid))}`, { headers: { Accept: "application/json" }, cache: "no-store" });
+    if (!response.ok) return null;
+    const tx = await response.json();
+    return tx?.is_accepted === true || tx?.isAccepted === true;
+  } catch { return null; }
+}
+
 function isValidKaspaAddressString(address) {
   if (!isWellFormedKaspaAddress(address)) return false;
   try { return engine.kaspa?.Address?.validate ? engine.kaspa.Address.validate(address) === true && isNetworkAddress(address) : isNetworkAddress(address); }
@@ -11455,6 +11754,8 @@ function initKusdt() {
       recordGlobalNotification({ id: `kusdt-${stamp}`, source: "wallet", title, body, timestamp: stamp, targetKind: "kusdt" });
     },
     markOwnTransaction: (txid) => markOwnTransaction(txid),
+    // a contact's Send Dollars its chat already filed and announced (KaChat iOS 5b7c772c)
+    isNoticeFiled: (txid) => isTokenNoticeFiled(txid),
     isVisible: () => document.visibilityState === "visible",
     log: appendEngineLog,
   });
@@ -11515,6 +11816,8 @@ function initKusdt() {
     // The kUSDT sheets sit just under Send Kaspa's, so Fund This Address's Send Kaspa (and the
     // scanner and pickers after it) open over them.
     modalAnchor: () => sendKaspaModal,
+    // Send Dollars' "Not confirmed" lookup (KaChat iOS 5b7c772c: every 10 s, 18 times)
+    isTransactionAccepted: (txid) => isTransactionAcceptedRest(txid),
     log: appendEngineLog,
   });
 }
@@ -13628,7 +13931,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 307;
+const APP_BUILD = 308;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -19509,7 +19812,7 @@ function renderMessages(conversationEntry) {
       // so the single click waits a beat and a second click cancels it.
       paymentCard.setAttribute("role", "button");
       paymentCard.tabIndex = 0;
-      paymentCard.setAttribute("aria-label", `${message.direction !== "incoming" ? "Sent" : "Received"} ${paymentParts.amountText} ${KAS_UNIT}. Payment details`);
+      paymentCard.setAttribute("aria-label", `${message.direction !== "incoming" ? "Sent" : "Received"} ${paymentParts.amountText} ${paymentParts.unit || KAS_UNIT}. Payment details`);
       paymentCard.addEventListener("click", (event) => {
         if (messageSelectionMode) return;
         if (bubble.paymentOpenTimer) { window.clearTimeout(bubble.paymentOpenTimer); bubble.paymentOpenTimer = 0; }
@@ -20971,6 +21274,25 @@ function kaPostsTipSourceTitle() {
   const index = kaPostsTipSourceIndex();
   return index == null ? "Chatting Address" : spendingSourceLabel(index);
 }
+// KaPost Settings > Tip In (KaPost iOS f954738 kaPostsTipAsset): what a click on Tip sends, kept per
+// account (ui/kaposts-tip-in.js). In use: the stored choice, else Kaspa while an instant tip is
+// set, else Ask Each Time.
+function kaPostsTipInInUse() {
+  return effectiveTipIn({ stored: storedTipIn(accountShellPrefs.kaPostsTipIn, engine.address), hasInstantTip: Boolean(kaPostsDefaultTip()) });
+}
+function setKaPostsTipIn(value) {
+  const address = engine.address || "";
+  if (!address) return;
+  accountShellPrefs.kaPostsTipIn = withTipIn(accountShellPrefs.kaPostsTipIn, address, value);
+  try { persistAccountShellPreferences(); } catch { /* storage full: kept for this session */ }
+}
+/** A KaPost tip in kUSDT (KaPost iOS f954738): the kUSDT send with the recipient locked to the
+ *  poster's chatting address, balances looked up as it opens and on window focus. A plain kUSDT
+ *  send: it sends no chat notice and isn't counted on the post (Trestly's builder sets the
+ *  transaction's payload, so it can't carry KaPost's tip record). */
+function openKaPostKusdtTip(address, name) {
+  openKusdtSend({ recipient: address, recipientName: name || shortAddress(address), locked: true, refresh: "always" });
+}
 /** A currency amount as the app writes it ("$1.50"), in `currency` rather than the app's own. */
 function fiatAmountText(value, currency = selectedCurrency) {
   const v = Number(value);
@@ -21025,14 +21347,20 @@ function openKaPostsSettings() {
         <p class="settings-group-footer" data-kaposts-cooldown-footer>${escapeHtml(cooldown ? KAPOSTS_COOLDOWN_ON_FOOTER : KAPOSTS_COOLDOWN_OFF_FOOTER)}</p>
         <p class="settings-group-label">Tipping</p>
         <div class="settings-list-card">
-          <div class="settings-page-form">
+          <label class="settings-list-row settings-menu-row" data-kaposts-tip-in-row>
+            <span class="settings-row-copy"><strong>Tip In</strong></span>
+            <span class="settings-menu-value"><span data-kaposts-tip-in-current></span><svg class="settings-menu-updown" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 9.5 12 5.5l4 4M8 14.5l4 4 4-4"/></svg></span>
+            <select class="settings-menu-select" data-kaposts-tip-in aria-label="Tip In">${TIP_IN_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join("")}</select>
+          </label>
+          <div class="settings-page-form" data-kaposts-instant-tip-group>
             <div class="settings-toggle-row"><span><strong>Send a default tip instantly</strong></span><label class="switch-control"><input type="checkbox" data-kaposts-instant-tip ${current ? "checked" : ""}><span></span></label></div>
             <div class="settings-toggle-row kaposts-tip-amount-row" data-kaposts-tip-amount-row ${current ? "" : "hidden"}>
               <span class="kaposts-tip-amount-field"><img src="${kaspaLogoUrl}" alt="" class="kaposts-tip-amount-logo" data-kaposts-tip-logo /><span class="kaposts-tip-amount-symbol" data-kaposts-tip-symbol hidden></span><input class="field-input" type="text" inputmode="decimal" placeholder="0.2" aria-label="Default tip" data-kaposts-tip-amount value="${escapeHtml(initialText)}" readonly /><button type="button" class="kaposts-tip-unit" data-kaposts-tip-unit><span data-kaposts-tip-unit-code></span>${unitArrows}</button><button type="button" class="kaposts-tip-edit" data-kaposts-tip-edit aria-label="Edit default tip"></button></span>
             </div>
           </div>
-          <button class="settings-list-row" type="button" data-kaposts-open-tips-from><span class="settings-row-copy"><strong>Tips From</strong></span><span class="settings-row-value" data-kaposts-tips-from-title>${escapeHtml(kaPostsTipSourceTitle())}</span><svg class="settings-dropdown-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+          <button class="settings-list-row" type="button" data-kaposts-open-tips-from data-kaposts-tips-from-row><span class="settings-row-copy"><strong>Tips From</strong></span><span class="settings-row-value" data-kaposts-tips-from-title>${escapeHtml(kaPostsTipSourceTitle())}</span><svg class="settings-dropdown-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
         </div>
+        <p class="settings-group-footer" data-kaposts-tip-in-footer hidden></p>
         <p class="settings-group-footer" data-kaposts-tip-footer ${current ? "" : "hidden"}></p>
         <p class="settings-group-footer kaposts-tip-too-small" data-kaposts-tip-too-small hidden></p>
         <div class="settings-list-card kaposts-settings-notifications-card">
@@ -21190,6 +21518,36 @@ function openKaPostsSettings() {
     commit();
   });
   amount.addEventListener("input", () => { tooSmall.hidden = true; paintUnit(); });
+  // Tip In (KaPost iOS f954738): the instant tip's rows only for Kaspa, Tips From for all but kUSDT,
+  // and Ask Each Time / kUSDT turn the instant tip off and clear it (it is always Kaspa).
+  const tipInSelect = backdrop.querySelector("[data-kaposts-tip-in]");
+  let tipIn = kaPostsTipInInUse();
+  const paintTipIn = () => {
+    const layout = tipInLayout(tipIn);
+    tipInSelect.value = tipIn;
+    backdrop.querySelector("[data-kaposts-tip-in-current]").textContent = TIP_IN_OPTIONS.find((option) => option.value === tipIn)?.label || "";
+    backdrop.querySelector("[data-kaposts-instant-tip-group]").hidden = !layout.instantTipRows;
+    amountRow.hidden = !layout.instantTipRows || !toggle.checked;
+    footer.hidden = !layout.instantTipRows || !toggle.checked;
+    if (!layout.instantTipRows) tooSmall.hidden = true;
+    backdrop.querySelector("[data-kaposts-tips-from-row]").hidden = !layout.tipsFrom;
+    const tipInFooter = backdrop.querySelector("[data-kaposts-tip-in-footer]");
+    tipInFooter.textContent = layout.footer || "";
+    tipInFooter.hidden = !layout.footer;
+  };
+  tipInSelect.addEventListener("change", () => {
+    const next = [TIP_IN_ASK, TIP_IN_KASPA, TIP_IN_KUSDT].includes(tipInSelect.value) ? tipInSelect.value : TIP_IN_ASK;
+    if (next === kaPostsTipInInUse()) { tipIn = next; paintTipIn(); return; }
+    setKaPostsTipIn(next);
+    if (tipInLayout(next).clearsInstantTip) {
+      if (editing) { editing = false; paintEdit(); }
+      toggle.checked = false;
+      setKaPostsDefaultTip(null);
+    }
+    tipIn = next;
+    paintTipIn();
+  });
+  paintTipIn();
   paintEdit();
   // Flips the tip between KAS and the app's currency, carrying the amount over at today's price
   // (the number stays as typed while there is no price yet).
@@ -24405,6 +24763,8 @@ function closeComposerMenu() {
   if (tcMenu) tcMenu.hidden = true;
   const routeMenu = document.querySelector("[data-composer-media-route-menu]");
   if (routeMenu) routeMenu.hidden = true;
+  const dollarsMenu = document.querySelector("[data-composer-dollars-menu]");
+  if (dollarsMenu) dollarsMenu.hidden = true;
 }
 
 function setComposerHint(message) {
@@ -25436,7 +25796,10 @@ function parsePaymentCardParts(message) {
     .find((token) => token && Number.isFinite(Number(token.replace(",", "."))));
   if (!amountToken) return null;
   const note = noteRaw ? noteRaw.trim() : "";
-  return { amountText: amountToken, note: note || null };
+  // A token payment ("Sent 12.50 kUSDT", Send Dollars - KaChat iOS 5b7c772c): its coin and symbol
+  // stand in for Kaspa's. null for a Kaspa payment.
+  const token = tokenOfPaymentText(head);
+  return { amountText: amountToken, note: note || null, token, unit: token ? token.symbol : KAS_UNIT };
 }
 
 // Builds the payment card element. All content is set via textContent (never
@@ -25447,10 +25810,16 @@ function buildPaymentCard(parts, outgoing) {
   const logoWrap = document.createElement("span");
   logoWrap.className = "payment-card-logo";
   logoWrap.setAttribute("aria-hidden", "true");
-  const logo = document.createElement("img");
-  logo.src = kaspaLogoUrl;
-  logo.alt = "";
-  logoWrap.append(logo);
+  if (parts.token) {
+    // the kUSDT coin (iOS TokenIcon at 46), our own static markup
+    logoWrap.classList.add("is-token");
+    logoWrap.innerHTML = kusdtCoinIconHtml(46);
+  } else {
+    const logo = document.createElement("img");
+    logo.src = kaspaLogoUrl;
+    logo.alt = "";
+    logoWrap.append(logo);
+  }
   const body = document.createElement("div");
   body.className = "payment-card-body";
   const label = document.createElement("span");
@@ -25458,7 +25827,7 @@ function buildPaymentCard(parts, outgoing) {
   label.textContent = outgoing ? "Sent" : "Received";
   const amount = document.createElement("strong");
   amount.className = "payment-card-amount";
-  amount.textContent = `${parts.amountText} ${KAS_UNIT}`;
+  amount.textContent = `${parts.amountText} ${parts.unit || KAS_UNIT}`;
   body.append(label, amount);
   if (parts.note) {
     const note = document.createElement("span");
@@ -25493,10 +25862,10 @@ function openPaymentDetailSheet(conversationId, messageId) {
     <section class="contact-modal payment-detail-sheet" role="dialog" aria-modal="true" aria-label="${escapeHtml(outgoing ? "Sent payment" : "Received payment")}">
       <button class="modal-close" type="button" data-payment-detail-close aria-label="Close">×</button>
       <div class="payment-detail-head">
-        <img class="payment-detail-logo" src="${escapeHtml(kaspaLogoUrl)}" alt="" />
+        ${parts?.token || tokenOfPaymentText(message.text) ? kusdtCoinIconHtml(40) : `<img class="payment-detail-logo" src="${escapeHtml(kaspaLogoUrl)}" alt="" />`}
         <p class="payment-detail-direction">${escapeHtml(outgoing ? "Sent" : "Received")}</p>
         ${parts
-          ? `<p class="payment-detail-amount">${escapeHtml(`${parts.amountText} ${KAS_UNIT}`)}</p>${parts.note ? `<p class="payment-detail-memo">${escapeHtml(parts.note)}</p>` : ""}`
+          ? `<p class="payment-detail-amount">${escapeHtml(`${parts.amountText} ${parts.unit || KAS_UNIT}`)}</p>${parts.note ? `<p class="payment-detail-memo">${escapeHtml(parts.note)}</p>` : ""}`
           : `<p class="payment-detail-content">${escapeHtml(String(message.text || ""))}</p>`}
         ${when ? `<p class="payment-detail-time">${escapeHtml(when)}</p>` : ""}
       </div>
@@ -25850,7 +26219,8 @@ const composerMediaRouteMenu = document.querySelector("[data-composer-media-rout
 if (composerPlusButton && composerPlusMenu) {
   composerPlusButton.addEventListener("click", () => {
     const tcMenu = document.querySelector("[data-chess-tc-menu]");
-    const secondStepOpen = (tcMenu && !tcMenu.hidden) || (composerMediaRouteMenu && !composerMediaRouteMenu.hidden);
+    const dollarsMenu = document.querySelector("[data-composer-dollars-menu]");
+    const secondStepOpen = (tcMenu && !tcMenu.hidden) || (composerMediaRouteMenu && !composerMediaRouteMenu.hidden) || (dollarsMenu && !dollarsMenu.hidden);
     if (secondStepOpen) { closeComposerMenu(); return; }
     const conversationEntry = state.conversations.find((entry) => entry.id === activeConversationId);
     // In your own chat there is no one to shake hands with. The handshake row is only
@@ -25869,6 +26239,51 @@ if (composerPlusButton && composerPlusMenu) {
 composerPlusMenu?.querySelector("[data-composer-pay]")?.addEventListener("click", () => {
   closeComposerMenu();
   openPaymentSheet();
+});
+// Send Dollars (KaChat iOS 5b7c772c): which stablecoin (kUSDT today), then the kUSDT send with the
+// recipient locked to this chat's address. Opening the step runs Discover unless one ran in the
+// last 5 minutes for this account, so kUSDT that arrived anywhere since is found on the spot.
+const composerDollarsMenu = document.querySelector("[data-composer-dollars-menu]");
+function paintComposerDollars() {
+  if (!composerDollarsMenu || composerDollarsMenu.hidden) return;
+  const spinner = composerDollarsMenu.querySelector("[data-composer-dollars-spinner]");
+  if (spinner) spinner.hidden = !kusdtLooking();
+  const balance = composerDollarsMenu.querySelector("[data-composer-dollars-balance]");
+  if (balance) balance.textContent = kusdtTotalText();
+}
+let composerDollarsSubscribed = false;
+composerPlusMenu?.querySelector("[data-composer-dollars]")?.addEventListener("click", () => {
+  if (!composerDollarsMenu || !kusdtWallet) return;
+  const icon = composerDollarsMenu.querySelector("[data-composer-dollars-icon]");
+  if (icon && !icon.firstChild) icon.innerHTML = kusdtCoinIconHtml(40);
+  if (!composerDollarsSubscribed) { composerDollarsSubscribed = true; kusdtWallet.subscribe(paintComposerDollars); }
+  if (composerPlusMenu) composerPlusMenu.hidden = true;
+  composerDollarsMenu.hidden = false;
+  paintComposerDollars();
+  // Not tied to this step: picking closes it, and the From step after it waits on the same check.
+  kusdtWallet.discoverIfStale().catch(() => {});
+  composerDollarsMenu.querySelector("[data-composer-dollars-token]")?.focus();
+});
+composerDollarsMenu?.querySelector("[data-composer-dollars-back]")?.addEventListener("click", () => {
+  composerDollarsMenu.hidden = true;
+  if (composerPlusMenu) composerPlusMenu.hidden = false;
+});
+composerDollarsMenu?.querySelector("[data-composer-dollars-token]")?.addEventListener("click", () => {
+  closeComposerMenu();
+  const conversationEntry = state.conversations.find((entry) => entry.id === activeConversationId);
+  const contact = contactForConversation(conversationEntry);
+  const owner = engine.address;
+  if (!conversationEntry || !contact?.address || !owner) return;
+  const conversationId = conversationEntry.id;
+  const contactAddress = contact.address;
+  openKusdtSend({
+    recipient: contactAddress,
+    recipientName: displayNameForAddress(contact) || contact.name || shortAddress(contactAddress),
+    locked: true,
+    refresh: "discover",
+    // the bubble here, and the notice that puts it in their chat too (once per txid)
+    onSent: (txid, index, amount) => recordTokenPayment({ owner, conversationId, contactAddress, txId: txid, index, amount }),
+  });
 });
 // Request Payment (iOS 6594936): a request for this contact, sent into this chat.
 composerPlusMenu?.querySelector("[data-composer-request-payment]")?.addEventListener("click", () => {
@@ -27995,8 +28410,14 @@ function appendIncomingOrReactionMessage(conversationEntry, message) {
   // back returns its bubble; a received one files - and notifies, counting as unread - once the
   // chain check answers (IOS-083). addr_pool and addr_pool_request are retired and dropped (iOS
   // 6333dd3). Unknown {type:...} values fall through to the normal pipeline per the wire contract.
+  // A token_payment_notice (Send Dollars, KaChat iOS 5b7c772c) files a kUSDT payment the same way,
+  // once checked on chain (handleTokenPaymentNotice).
   const poolEnvelope = parsePaymentPoolEnvelope(message.text);
-  if (poolEnvelope) return poolEnvelope.kind === "notice" ? handlePaymentNotice(conversationEntry, message, poolEnvelope.notice) : null;
+  if (poolEnvelope) {
+    if (poolEnvelope.kind === "notice") return handlePaymentNotice(conversationEntry, message, poolEnvelope.notice);
+    if (poolEnvelope.kind === "tokenNotice") return handleTokenPaymentNotice(conversationEntry, message, poolEnvelope.notice);
+    return null;
+  }
   // KaChat has no calls (iOS 7c5c22e3): another client's call_* message is dropped on arrival.
   if (isCallSignal(message.text)) return null;
   // A placeholder body (another device's send, a message this account can't decrypt) is kept, so
@@ -28863,8 +29284,10 @@ document.addEventListener("click", (event) => {
   const plusOpen = !!composerPlusMenu && !composerPlusMenu.hidden;
   const tcOpen = !!chessTcMenu && !chessTcMenu.hidden;
   const routeOpen = !!composerMediaRouteMenu && !composerMediaRouteMenu.hidden;
-  if (!plusOpen && !tcOpen && !routeOpen) return;
-  if (composerPlusMenu?.contains(event.target) || chessTcMenu?.contains(event.target) || composerMediaRouteMenu?.contains(event.target)) return;
+  const dollarsOpen = !!composerDollarsMenu && !composerDollarsMenu.hidden;
+  if (!plusOpen && !tcOpen && !routeOpen && !dollarsOpen) return;
+  if (composerPlusMenu?.contains(event.target) || chessTcMenu?.contains(event.target) || composerMediaRouteMenu?.contains(event.target)
+    || composerDollarsMenu?.contains(event.target)) return;
   if (composerPlusButton?.contains(event.target)) return;
   closeComposerMenu();
 });
@@ -32527,6 +32950,17 @@ queueMicrotask(async () => {
         const heldUntil = instantTipHolds.get(inFlightKey);
         if (heldUntil && heldUntil > Date.now()) { showKaPostsActionToast(SEND_OUTCOME_UNKNOWN_MESSAGE); return; }
         instantTipHolds.delete(inFlightKey);
+        // Tip In (KaPost iOS f954738): kUSDT opens its send to the poster, Ask Each Time asks
+        // first. Only a Kaspa tip can be instant.
+        const tipIn = kusdtWallet ? kaPostsTipInInUse() : TIP_IN_KASPA;
+        if (tipIn !== TIP_IN_KASPA) {
+          const balanceSompi = currentBalanceKas == null ? null : sompiFromUserText(String(currentBalanceKas));
+          const choice = tipIn === TIP_IN_KUSDT ? TIP_IN_KUSDT
+            : await openTipAssetChooser({ kaspaBalanceText: balanceSompi == null ? "--" : kusdtKasAmountText(balanceSompi, KAS_UNIT) });
+          if (choice === TIP_IN_KASPA) openTipModal({ address, name, tip, onTipped });
+          else if (choice === TIP_IN_KUSDT) openKaPostKusdtTip(address, name);
+          return;
+        }
         const defaultTip = kaPostsDefaultTip();
         if (!defaultTip) { openTipModal({ address, name, tip, onTipped }); return; }
         // A failed instant tip is a red toast, and the tip sheet stays shut (KaPost b78fdb0).

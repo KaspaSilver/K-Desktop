@@ -81,7 +81,21 @@ export const KUSDT_TEXT = Object.freeze({
   swapRowSubtitle: "On Trestly's site, in a new tab",
   swapFooter: "More stablecoins will show here as KaChat adds them.",
   visibilityEmptyPage: "These addresses couldn't be derived right now. Go back a page or reopen this screen to retry.",
+  // §14 Send Dollars (KaChat iOS 5b7c772c) and §15 KaPost's Tip In (KaPost iOS f954738)
+  sendDollarsTitle: "Send Dollars",
+  sendDollarsQuestion: "Which stablecoin are you sending?",
+  // A send from a chat or a tip whose review was open too long (KaChat iOS TokenSendView.send).
+  lockedChanged: "This send changed while the screen was open. Nothing was sent: check it again and swipe.",
+  tipTitle: "Tip",
+  tipQuestion: "What are you tipping in?",
+  tipKusdtSubtitle: "Not counted on the post",
+  tipFootnote: "Set what Tip sends in Settings > KaPost > Tip In.",
 });
+
+/** A "Not confirmed" send from a chat is looked up this often, this many times: if it landed, the
+ *  chat still gets its bubble and notice, even once the screen is closed (KaChat iOS 5b7c772c). */
+export const LOCKED_SEND_POLL_MS = 10_000;
+export const LOCKED_SEND_POLL_TRIES = 18;
 
 // MARK: - Small pieces
 
@@ -292,6 +306,14 @@ const S = {
   prepared: null, preparing: false, prepareError: null, rebuildWhenDone: false,
   fundShort: null, fundForChange: false, fundingSent: false, awaitingFunds: false, fundingRun: 0,
   outcomeUnknown: false, sending: false, failure: null, gate: createPrepareGate(), lockedName: null,
+  // A send whose recipient is fixed (a 1:1 chat's Send Dollars, a KaPost tip in kUSDT): no To step,
+  // it opens on From with a "To <name>" chip, and From has no Back (KaChat iOS 5b7c772c
+  // TokenSendView(chatRecipient:), KaPost iOS f954738 TokenSendView(tipRecipient:)).
+  locked: false,
+  // (txid, index, amount) once the transfer is accepted (Send Dollars records it in the chat).
+  onSent: null,
+  // KaPost's tip: balances refreshed on open and whenever the window comes back to the front.
+  refreshOnFocus: false,
 };
 let send = null; // the mounted modal: { backdrop, card, flow, swipe, controller, ... }
 
@@ -302,7 +324,7 @@ function sendFrom() {
   if (S.startFrom) return list.find((h) => h.id === S.startFrom.id) || S.startFrom;
   return list.length === 1 ? list[0] : null;
 }
-function sendSkipsFrom() { return S.startFrom != null || sendHoldings().length === 1; }
+function sendSkipsFrom() { return !S.locked && (S.startFrom != null || sendHoldings().length === 1); }
 function sendBalance() { return sendFrom()?.units ?? 0n; }
 function sendUnits() { return kusdtUnitsFromText(S.amountText); }
 function amountTooHigh() { return (sendUnits() ?? 0n) > sendBalance(); }
@@ -323,6 +345,7 @@ function sendRecipientShown() { return S.recipientName || S.recipient || ""; }
 function closeSend() {
   if (!send || send.swipe.sending) return;
   S.open = false;
+  S.refreshOnFocus = false;
   S.gate.invalidate();
   S.fundingRun += 1;
   send.backdrop.hidden = true;
@@ -389,6 +412,7 @@ function mountSend() {
     addressBook: { root: toBody, prefix: "kusdt-send" },
   }, {
     onRecipientChange: (address) => {
+      if (S.locked) return; // the chat's or the poster's address, never retyped
       S.recipient = address ? String(address).toLowerCase() : null;
       const text = String(controller.recipientText() || "");
       S.recipientName = S.lockedName && S.recipient && S.recipient === String(deps.account()).toLowerCase()
@@ -423,14 +447,18 @@ function mountSend() {
   const fromBody = flow.addStep("from", {
     question: "Where are you sending from?",
     className: "ss-from-step",
-    back: () => "to",
+    back: () => (S.locked ? null : "to"),
     canContinue: () => sendFrom() != null,
     onContinue: () => goSend("amount"),
     onShow: () => { paintFrom(); wallet.refreshIfStale().catch(() => {}); },
   });
+  fromBody.insertAdjacentHTML("afterbegin", '<div class="ss-chips start" data-kusdt-from-chips hidden></div>');
   fromBody.insertAdjacentHTML("beforeend", `<div class="sk-source-list ss-address-list" data-kusdt-from-list role="listbox" aria-label="Your addresses holding kUSDT"></div>
     <p class="ss-note kusdt-from-footnote">${esc(KUSDT_TEXT.fromFootnote)}</p>`);
   fromBody.querySelector("[data-kusdt-from-list]").addEventListener("click", (event) => {
+    // None held, from a chat or a tip: Swap Stablecoins (Desktop's stand-in for iOS's Get KaPay,
+    // owner 2026-11-20), over this screen.
+    if (event.target.closest("[data-kusdt-from-swap]")) { openSwapStablecoins(); return; }
     const row = event.target.closest("[data-kusdt-from]");
     if (!row || S.sending) return;
     S.fromId = row.dataset.kusdtFrom;
@@ -443,7 +471,7 @@ function mountSend() {
     className: "ss-amount-step",
     continueTitle: "Review",
     question: "How much?",
-    back: () => (sendSkipsFrom() ? "to" : "from"),
+    back: () => (sendSkipsFrom() ? "to" : "from"), // a locked send never skips From
     canContinue: () => sendUnits() != null && !amountTooHigh(),
     onContinue: () => goSend("review"),
     onShow: () => paintAmount(),
@@ -493,10 +521,17 @@ function paintFrom() {
   const list = send.fromBody.querySelector("[data-kusdt-from-list]");
   const holdings = sendHoldings();
   const selected = sendFrom();
+  // From a chat or a tip: who it goes to, above the question (iOS SendStepChip "To <name>").
+  const chips = send.fromBody.querySelector("[data-kusdt-from-chips]");
+  chips.hidden = !(S.locked && S.recipient);
+  chips.innerHTML = S.locked && S.recipient ? stepChipHtml({ label: "To", value: S.recipientName || S.recipient, isAddress: !S.recipientName }) : "";
   if (!holdings.length) {
-    list.innerHTML = wallet.refreshing || !wallet.known
+    // Still looking (Send Dollars' Discover, a refresh): "Checking"; else none held, with Swap
+    // Stablecoins where iOS offers Get KaPay (owner 2026-11-20).
+    list.innerHTML = wallet.discovering || wallet.refreshing || !wallet.known
       ? `<div class="sk-source-empty">${spinnerLine(KUSDT_TEXT.fromChecking)}</div>`
-      : `<p class="sk-source-empty">${esc(KUSDT_TEXT.fromNone)}</p>`;
+      : `<div class="sk-source-empty kusdt-from-none"><p>${esc(KUSDT_TEXT.fromNone)}</p>
+          <button type="button" class="primary-button kusdt-fund-button kusdt-from-swap" data-kusdt-from-swap>${KUSDT_ICONS.dollarCircle}<span>Swap Stablecoins</span></button></div>`;
   } else {
     list.innerHTML = holdings.map((h) => {
       const current = selected?.id === h.id;
@@ -685,18 +720,26 @@ async function sendNow() {
       await prepareSend();
       while (S.preparing) await sleep(200);
       const outcome = staleReviewOutcome(built, preparedIsCurrent() ? S.prepared : null);
-      S.failure = outcome.code === "feeChanged" ? sendFeeChangedError(outcome.feeSompi).message
-        : outcome.code === "cantBuild" ? (S.prepareError || outcome.message) : outcome.message;
+      S.failure = outcome.code === "cantBuild" ? (S.prepareError || outcome.message)
+        // from a chat or a tip (KaChat iOS TokenSendView.send's wording)
+        : S.locked ? KUSDT_TEXT.lockedChanged
+          : outcome.code === "feeChanged" ? sendFeeChangedError(outcome.feeSompi).message : outcome.message;
       return;
     }
+    const onSent = S.onSent;
     try {
       const result = await wallet.submit(built, { retryingUnknown: S.outcomeUnknown });
       S.outcomeUnknown = false;
+      // the recipient's coin is output 0 (engine/kusdt-transfer.js: the recipient's output first)
+      if (onSent) { try { onSent(result.txid, 0, built.amount); } catch (error) { deps.log?.(`[kUSDT] recording the chat payment failed: ${error?.message || error}`); } }
       send.swipe.setSent({ txid: result.txid, amountText: formatKusdt(built.amount), recipient: sendRecipientShown(), explorerUrl: deps.explorerTxUrl?.(result.txid) || null });
     } catch (error) {
       if (error?.code === SEND_OUTCOME_UNKNOWN) {
         S.outcomeUnknown = true;
         S.failure = error.notConfirmedMessage || TRANSFER_MESSAGES.notConfirmed;
+        // From a chat: if it did land, the chat still gets its bubble and notice, even once this
+        // screen is closed (the caller records each txid once).
+        if (onSent) pollUnknownChatSend(built.txid, built.amount, onSent, built.owner || S.owner);
       } else {
         S.failure = messageFor(error);
       }
@@ -708,19 +751,53 @@ async function sendNow() {
   }
 }
 
+/** A "Not confirmed" send from a chat (KaChat iOS 5b7c772c): looked up every 10 s, 18 times; once
+ *  the network has accepted it, `onSent` records it (the caller does that once per txid, and keeps
+ *  the notice for the account that paid if another one is open by then). */
+async function pollUnknownChatSend(txid, amount, onSent, owner) {
+  for (let attempt = 0; attempt < LOCKED_SEND_POLL_TRIES; attempt += 1) {
+    await sleep(LOCKED_SEND_POLL_MS);
+    let accepted = false;
+    try { accepted = (await deps.isTransactionAccepted?.(txid)) === true; } catch { accepted = false; }
+    if (!accepted) continue;
+    deps.log?.(`[kUSDT] the chat send ${String(txid).slice(0, 12)} that wasn't confirmed was accepted`);
+    try { onSent(txid, 0, amount, { owner }); } catch { /* the chat's own problem */ }
+    return;
+  }
+}
+
+// KaPost's tip in kUSDT: the balances are looked up again whenever the window comes back to the
+// front while it is open (KaPost iOS f954738 scenePhase .active), so kUSDT just bought on Trestly's
+// site is there to send.
+let focusRefreshWired = false;
+function wireFocusRefresh() {
+  if (focusRefreshWired || typeof window === "undefined") return;
+  focusRefreshWired = true;
+  window.addEventListener("focus", () => {
+    if (S.open && S.refreshOnFocus && deps.account() === S.owner) wallet.refresh().catch(() => {});
+  });
+}
+
 /**
  * Send kUSDT. `startFrom`: a holding the send leaves from (its page's Send; no From step).
  * `recipient` / `recipientName`: the To filled in (Send to Chatting Address), opening on How much
  * (or From when more than one address could send).
+ * `locked`: the recipient is fixed - a 1:1 chat's Send Dollars or a KaPost tip in kUSDT (KaChat
+ * iOS 5b7c772c, KaPost iOS f954738): no To step, it always opens on From (with no Back) and a
+ * "To <recipientName>" chip. `onSent(txid, index, amount)`: the transfer was accepted (also after
+ * a "Not confirmed" that turns out to have landed). `refresh`: "always" looks the balances up as it
+ * opens and again on window focus (the tip); "discover" leaves it to Send Dollars' own Discover.
  */
-export function openKusdtSend({ startFrom = null, recipient = null, recipientName = null } = {}) {
+export function openKusdtSend({ startFrom = null, recipient = null, recipientName = null, locked = false, onSent = null, refresh = "stale" } = {}) {
   const owner = deps.account();
   if (!owner) return;
   mountSend();
+  const lock = Boolean(locked && recipient);
   Object.assign(S, {
-    open: true, owner, recipient: null, recipientName: null, fromId: null, startFrom, amountText: "",
+    open: true, owner, recipient: null, recipientName: null, fromId: null, startFrom: lock ? null : startFrom, amountText: "",
     prepared: null, preparing: false, prepareError: null, rebuildWhenDone: false, fundShort: null, fundForChange: false,
     fundingSent: false, awaitingFunds: false, outcomeUnknown: false, sending: false, failure: null, lockedName: recipientName,
+    locked: false, onSent: lock && typeof onSent === "function" ? onSent : null, refreshOnFocus: lock && refresh === "always",
   });
   S.gate.invalidate();
   S.fundingRun += 1;
@@ -729,12 +806,58 @@ export function openKusdtSend({ startFrom = null, recipient = null, recipientNam
   send.backdrop.hidden = false;
   send.controller.open();
   send.toBody.querySelector("[data-kusdt-send-script]").hidden = true;
-  if (recipient) {
+  if (lock) {
+    // the chat's or the poster's chatting address, as it is: the To step never shows
+    send.input.value = "";
+    S.locked = true;
+    S.recipient = String(recipient).trim().toLowerCase();
+    S.recipientName = recipientName || null;
+  } else if (recipient) {
     send.input.value = recipient;
     send.input.dispatchEvent(new Event("input"));
   }
+  if (S.refreshOnFocus) { wireFocusRefresh(); wallet.refresh().catch(() => {}); }
+  else if (refresh !== "discover") wallet.refreshIfStale().catch(() => {});
+  goSend(lock ? "from" : recipient ? (startFrom ? "amount" : "from") : "to", { instant: true });
+}
+
+/** §14's second step and §15's chooser rows' kUSDT figure: the total, "--" before it is known. */
+export function kusdtTotalText() {
+  const units = wallet?.balance();
+  return units == null ? "--" : formatKusdt(units);
+}
+/** Whether kUSDT is being looked up right now (the rows' spinner). */
+export function kusdtLooking() {
+  return Boolean(wallet && (wallet.discovering || wallet.refreshing));
+}
+
+/**
+ * §15 KaPost's Tip with Tip In on Ask Each Time (KaPost iOS f954738 KaPostTipFlow.chooser): "Tip" /
+ * "What are you tipping in?", Kaspa (KAS, the chatting balance) or kUSDT ("Not counted on the
+ * post", the kUSDT total), the footnote, Cancel. Resolves "kaspa", "kusdt" or null. The kUSDT
+ * figure follows the balances while it is open (looked up if stale).
+ */
+export async function openTipAssetChooser({ kaspaBalanceText = "--" } = {}) {
+  if (!deps?.account()) return null;
+  let unsubscribe = null;
+  const pick = openChoiceSheet({
+    title: KUSDT_TEXT.tipTitle,
+    question: KUSDT_TEXT.tipQuestion,
+    rows: [
+      { id: "kaspa", iconHtml: kaspaCoinIconHtml(44), title: "Kaspa", subtitle: deps.kasUnit || "KAS", trailing: kaspaBalanceText || "--" },
+      { id: "kusdt", iconHtml: kusdtCoinIconHtml(44), title: SYMBOL, subtitle: KUSDT_TEXT.tipKusdtSubtitle, trailing: kusdtTotalText() },
+    ],
+    footer: KUSDT_TEXT.tipFootnote,
+    onMount: (host) => {
+      const paint = () => {
+        const cell = host.querySelector('[data-kusdt-sheet-pick="kusdt"] .kusdt-choice-trailing');
+        if (cell) cell.textContent = kusdtTotalText();
+      };
+      unsubscribe = wallet.subscribe(paint);
+    },
+  });
   wallet.refreshIfStale().catch(() => {});
-  goSend(recipient ? (startFrom ? "amount" : "from") : "to", { instant: true });
+  try { return await pick; } finally { try { unsubscribe?.(); } catch { /* gone */ } }
 }
 
 // MARK: - §6 Combine Coins
