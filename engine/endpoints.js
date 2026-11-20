@@ -10,6 +10,11 @@
 //                  Connection Settings > Domains): its own field, apart from the message indexer, so
 //                  anyone can run the names indexer themselves
 //   knsApi       — KNS domain/profile API
+//   trestlyApi   — Trestly's kUSDT API (iOS AppSettings.trestlyAPIURL, KaPay 3d126db): which kUSDT
+//                  coins an address has. Asked DIRECTLY, never through the /nc-proxy relay (a capped
+//                  Cloudflare function; api.trestly.io sends CORS *), so it is deliberately absent
+//                  from INDEXER_PROXY_HOST_RE below. Defaults to engine/kusdt.js KUSDT_DEPLOYMENTS
+//                  apiBase (tools/test-kusdt-ui.mjs holds the two equal).
 //   trustedNode  — wRPC node endpoint ("" = auto-discover via the resolver)
 import { IS_TESTNET } from "./network.js";
 import { indexerKey, watchIndexerFetch } from "./indexer-health.js";
@@ -34,6 +39,7 @@ const MAINNET_ENDPOINT_DEFAULTS = Object.freeze({
   pushIndexer: DEFAULT_MAINNET_INDEXER,
   kachatNamesIndexer: DEFAULT_MAINNET_INDEXER,
   knsApi: "https://api.knsdomains.org/mainnet/api/v1",
+  trestlyApi: "https://api.trestly.io/api/v1",
   translationService: DEFAULT_MAINNET_INDEXER,
   trustedNode: "",
   // Retired: the hosted mode is always the public-node scan with KaChat's node as fallback. The
@@ -54,6 +60,7 @@ const TESTNET_ENDPOINT_DEFAULTS = Object.freeze({
   pushIndexer: DEFAULT_TESTNET_INDEXER,
   kachatNamesIndexer: DEFAULT_TESTNET_INDEXER,
   knsApi: "https://api.knsdomains.org/tn10/api/v1",
+  trestlyApi: "https://testnet.trestly.io/api/v1",
   // Translating text has nothing to do with the chain: testnet uses the same service (iOS 2ca41aa).
   translationService: DEFAULT_MAINNET_INDEXER,
   trustedNode: "",

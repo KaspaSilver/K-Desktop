@@ -1,0 +1,50 @@
+kUSDT transaction builders (Trestly's kusdt-open, WebAssembly web target) - provenance of kusdt/
+Recorded 2026-11-20 when the kUSDT engine was ported from KaPay iOS (KaChat-Wallet-iPhone 3d126db).
+Checksums: kusdt/SHA256SUMS (verified by tools/check-wasm.sh before every dev and build).
+License: MIT, Trestly (kusdt/LICENSE, kusdt-open's own).
+
+SOURCE
+  repository:        kaspador/kusdt-open, commit b70707c ("Mainnet: the launch record, ...
+                     kUSDT Wallet 1.0.0"), bridge/packages/core/pkg-web (wasm-pack web target of
+                     bridge/kaspa, the Rust builders; `version()` answers 0.1.0)
+  same bytes as:     KaPay iOS KaChatWallet/Resources/KusdtCore/ (KusdtCore.swift `pinned`) and
+                     kusdt-open bridge/packages/core/pkg-web/ at b70707c (compared byte for byte)
+
+FILES
+  kusdt_wasm_bg.wasm         unchanged.
+                             sha256 a7be48e962dab57902924ea71fbad31b073cd2ba2197ebcf0de83b0f2a54fd53
+                             (kusdt-open PROVENANCE.json `wasm`; KaPay's pin). engine/kusdt-core.js
+                             also checks these bytes with crypto.subtle before compiling them, and
+                             refuses to run anything else.
+  kusdt_wasm.js              the wasm-bindgen loader, PATCHED (below).
+                             original (KaPay kusdt_wasm.js.txt, kusdt-open pkg-web/kusdt_wasm.js):
+                             sha256 be01841b7f2eb700acb38c7b36b9faef7d3deeefb7c86a233731afef0052dc78
+                             patched: see SHA256SUMS. Vite bundles it into the builder's worker, so its
+                             pin is this build-time check, not a runtime one.
+  kusdt-kcc20-template.json  unchanged copy of KaPay's KaChatWallet/Resources/kusdt-kcc20-template.json:
+                             kUSDT's KCC20 token template (R = prefix + 112-byte state + suffix), from
+                             kusdt-open bridge/kaspa/artifacts/kusdt.json (sha256 0be979f4...), split as
+                             bridge/kaspa/src/lib.rs kcc20_wallet_template does. engine/kusdt.js checks
+                             SHA-256(prefix || suffix) = e87405ef5a227167e373f94968432ccec6d792c47dce783a41f45c0095a97137
+                             and the template hash 9703112e... at the end of the 34-byte prefix (as iOS),
+                             and tools/test-kusdt-engine.mjs checks it against the WASM's own `template`.
+  LICENSE                    kusdt-open's MIT licence.
+
+Not vendored: KaPay's kusdt-core.html (Desktop runs the WASM in a module worker instead of a hidden
+web view) and kusdt-wallet.js (Trestly's pool/swap wallet logic, not ported).
+
+LOCAL PATCH (2026-11-20, KaChat-Desktop, the kUSDT port)
+  kusdt/kusdt_wasm.js, two changes; the .wasm is unchanged:
+  1. __wbg_newnoargs answers "return this" with a function returning globalThis, and workflow-core's
+     promise-with-resolvers helper ("let resolve, reject; const p = new Promise(...); p.resolve =
+     resolve; p.reject = reject; return p;", compared with whitespace collapsed) with a plain
+     function, instead of `new Function(...)` - the same patch as kaspa/kaspa.js Builds 134 and 145.
+     The app's CSP (tools/security-headers.mjs, public/_headers) has no 'unsafe-eval'. Those are the
+     only two snippets kusdt_wasm_bg.wasm holds (searched 2026-11-20; it has no requestAnimationFrame
+     fallback, unlike kaspa_bg.wasm, Build 148); anything else still goes to Function and the CSP
+     refuses it.
+  2. __wbg_init without a module throws instead of fetching new URL('kusdt_wasm_bg.wasm',
+     import.meta.url): the bytes always come from engine/kusdt-core.js, checked against the pin
+     first, so an unchecked .wasm can never load through the loader (and Vite doesn't emit a second
+     copy of it).
+  After an INTENTIONAL change to these files: bash tools/check-wasm.sh --update, and update this file.

@@ -15480,3 +15480,191 @@ textarea.composer-input { overflow-y: hidden; }
    140px tall, instead of a scraped image. */
 .message-link-card-brand { height: 140px; display: grid; place-items: center; border-radius: inherit; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .message-link-card-brand svg { width: 56px; height: 56px; }
+
+/* ==== kUSDT (KaPay iOS 3d126db Views/Tokens; ui/kusdt-screens.js) ==== */
+/* The Wallet's balance cards side by side, one showing (iOS SlidingCardPager), and the pills that
+   choose (iOS BalancePagePills: the card showing filled). */
+.wallet-card-pager { overflow: hidden; border-radius: 22px; touch-action: pan-y; }
+.wallet-card-track { display: flex; align-items: stretch; transition: transform .38s cubic-bezier(.2,.9,.25,1); }
+.wallet-card-track.no-anim { transition: none; }
+.wallet-card-track > .wallet-balance-card { flex: 0 0 100%; min-width: 0; box-sizing: border-box; }
+@media (prefers-reduced-motion: reduce) { .wallet-card-track { transition-duration: .01s; } }
+.wallet-kaspa-card { cursor: pointer; }
+.wallet-kaspa-card:focus-visible, .kusdt-balance-card:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: -2px; }
+.wallet-balance-top { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.wallet-tap-manage { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--kaspa-ink); white-space: nowrap; }
+.wallet-tap-manage svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+/* USDT green, 32 % to 8 %, with its tinted outline (iOS TokenBalanceCard). */
+.kusdt-balance-card {
+  width: 100%; margin: 0; font: inherit; color: var(--text); text-align: left; cursor: pointer;
+  background: linear-gradient(to bottom right, rgba(38,161,123,.32), rgba(38,161,123,.08));
+  border: .8px solid rgba(38,161,123,.35);
+}
+.kusdt-balance-card .wallet-balance-divider { display: block; }
+.kusdt-balance-card .wallet-total { cursor: pointer; }
+.kusdt-card-icon { display: inline-flex; flex: 0 0 auto; }
+.wallet-card-pills { display: flex; justify-content: center; gap: 8px; margin-top: -8px; }
+.wallet-card-pill {
+  padding: 6px 12px; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--kaspa) 30%, transparent); background: var(--material, var(--surface-1)); color: var(--muted);
+  transition: background-color .2s ease, color .2s ease;
+}
+.wallet-card-pill.selected { background: var(--kaspa); border-color: transparent; color: #000; }
+.wallet-card-pill:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: 2px; }
+/* Swap Stablecoins, a card row under the squares (iOS BuyStablecoinsSheet's entry). */
+.wallet-swap-card { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.wallet-swap-card strong { flex: 1; font-size: 15px; font-weight: 600; }
+.wallet-swap-icon { width: 36px; height: 36px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: var(--fill-tertiary); color: var(--kaspa-ink); }
+.wallet-swap-icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.wallet-swap-card .profile-manage-addresses-chevron { width: 14px; height: 14px; fill: none; stroke: var(--muted); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The coin (iOS TokenIcon): the USDT mark, the Kaspa logo at its corner. */
+.kusdt-coin { position: relative; display: inline-block; flex: 0 0 auto; width: var(--kusdt-coin, 40px); height: var(--kusdt-coin, 40px); }
+.kusdt-coin > svg { display: block; width: 100%; height: 100%; }
+.kusdt-coin-kaspa {
+  position: absolute; right: -6%; bottom: -6%; width: 38%; height: 38%; border-radius: 50%; object-fit: cover;
+  box-shadow: 0 0 0 1.5px var(--bg, #000); background: var(--bg, #000);
+}
+.chatting-address-card .kusdt-coin-kaspa { box-shadow: 0 0 0 1.5px #fff; background: #fff; }
+.kusdt-kaspa-coin { display: inline-grid; place-items: center; flex: 0 0 auto; width: var(--kusdt-coin, 40px); height: var(--kusdt-coin, 40px); }
+.kusdt-kaspa-coin img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+
+/* Receive notes (iOS AddressReceiveView): the privacy line under the address, then a card of what
+   may be sent here. On the receive screens' white card. */
+.receive-privacy { margin: 0; max-width: 360px; font-size: 13px; line-height: 1.4; color: rgba(6,17,15,.6); }
+.receive-privacy[hidden], .receive-notes[hidden] { display: none; }
+.receive-notes { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 360px; box-sizing: border-box; padding: 14px 16px; border-radius: 18px; background: rgba(6,17,15,.05); text-align: left; }
+.receive-note { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.4; color: rgba(6,17,15,.65); text-align: left; }
+.receive-privacy .receive-note { justify-content: center; }
+.receive-note-icon { display: inline-flex; flex: 0 0 auto; width: 16px; height: 16px; margin-top: 1px; color: #0a8f70; }
+.receive-note-icon svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.receive-note[data-kind="allowed"] .receive-note-icon, .receive-note[data-kind="privateAddress"] .receive-note-icon { color: #1f9d4c; }
+.receive-note[data-kind="warning"] .receive-note-icon { color: #d70015; }
+.receive-note[data-kind="publicAddress"] .receive-note-icon { color: #c76a00; }
+.receive-note[data-kind="info"] .receive-note-icon { color: rgba(6,17,15,.45); }
+
+/* The choice sheets (Swap Stablecoins, Send's "What are you sending?", kUSDT Actions). */
+.kusdt-sheet-question { margin: 0 0 12px; font-size: 20px; font-weight: 700; color: var(--text); }
+.kusdt-choice-row { display: flex; align-items: center; gap: 12px; }
+.kusdt-choice-row .cold-action-copy { flex: 1; min-width: 0; }
+.kusdt-choice-icon { display: inline-grid; place-items: center; flex: 0 0 auto; min-width: 28px; color: var(--kaspa-ink); }
+.kusdt-choice-icon > svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.kusdt-choice-trailing { flex: 0 0 auto; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+.kusdt-choice-chevron { display: inline-flex; flex: 0 0 auto; width: 12px; height: 12px; color: var(--muted); }
+.kusdt-choice-chevron svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.kusdt-sheet-footer { margin: 12px 0 0; text-align: center; }
+.kusdt-sheet-footer[hidden] { display: none; }
+.kusdt-sheet .modal-actions { margin-top: 12px; }
+.kusdt-sheet-cancel { width: 100%; }
+.kusdt-discover-progress { display: grid; gap: 2px; justify-items: center; margin: 0 0 12px; padding: 12px; border-radius: 14px; background: var(--fill-tertiary); text-align: center; }
+.kusdt-discover-progress .field-hint { margin: 0; }
+
+/* A status line: a spinner or an icon, then the words. */
+.kusdt-status { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 13px; line-height: 1.4; text-align: left; }
+.kusdt-status > svg { flex: 0 0 auto; width: 16px; height: 16px; margin-top: 1px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.kusdt-status .sk-spinner { flex: 0 0 auto; width: 14px; height: 14px; margin-top: 2px; }
+.kusdt-status.muted { color: var(--muted); }
+.kusdt-status.bad { color: var(--ios-red); font-weight: 600; }
+.kusdt-status.warn { color: var(--ios-orange); }
+.kusdt-status[hidden] { display: none; }
+
+/* Send kUSDT's review (iOS TokenSendView reviewStep) and Combine Coins'. */
+.kusdt-send-backdrop .contact-modal { position: relative; }
+.kusdt-review-amount { gap: 4px; }
+.kusdt-review-big { display: inline-flex; align-items: center; gap: 10px; max-width: 100%; }
+.kusdt-review-big .ss-review-big { font-size: 36px; }
+.kusdt-combine-big { font-size: 30px; }
+.kusdt-section-label { display: block; margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+.kusdt-review-total .ss-review-label { color: var(--text); font-weight: 600; }
+.kusdt-review-total strong { font-weight: 800; }
+.kusdt-review-box .ss-review-row:nth-child(2), .kusdt-review-box .kusdt-review-total { border-top-width: 1.5px; }
+.kusdt-fund { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
+.kusdt-fund-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 46px; border-radius: 999px; }
+.kusdt-fund-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.kusdt-fund-caption { margin: 0; font-size: 12px; line-height: 1.4; color: var(--muted); text-align: center; }
+.kusdt-fund-more { align-self: center; font-size: 13px; font-weight: 600; }
+.kusdt-max-row { margin-top: 12px; }
+.kusdt-max { color: var(--kaspa-ink); font-weight: 600; font-size: 13px; padding: 7px 14px; }
+.kusdt-from-footnote { margin: 0; }
+
+/* Manage kUSDT (iOS TokenManageView): the summary, then Manage Addresses' rows. */
+.kusdt-summary { display: grid; justify-items: start; gap: 4px; padding: 10px 16px 14px; }
+.kusdt-summary .kusdt-dollars { font-size: 14px; color: var(--muted); }
+.kusdt-bridged-pill { margin-top: 4px; color: var(--kaspa-ink); font-weight: 600; }
+.kusdt-bridged-pill svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.kusdt-summary .kusdt-status { margin-top: 6px; }
+.kusdt-holding-list { gap: 10px; padding: 4px 0 8px; }
+.kusdt-row-icon { display: inline-flex; width: 12px; height: 12px; color: var(--ios-green); }
+.kusdt-row-icon.chatting { color: var(--kaspa); }
+.kusdt-row-icon svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.kusdt-row-icon.chatting svg { fill: currentColor; stroke: none; }
+.kusdt-row-amount { display: flex; flex-direction: column; gap: 2px; }
+.kusdt-row-amount small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.kusdt-row-chevron { display: inline-flex; }
+.kusdt-row-chevron svg { width: 12px; height: 12px; fill: none; stroke: var(--muted); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.kusdt-holding-row .spending-row-menu-btn svg { fill: currentColor; stroke: none; }
+.kusdt-empty { display: grid; justify-items: center; gap: 6px; padding: 32px 20px; text-align: center; }
+.kusdt-empty span { color: var(--muted); font-size: 14px; line-height: 1.4; }
+.kusdt-hidden-note { display: block; width: 100%; padding: 8px 0; font-size: 13px; color: var(--muted); text-align: center; }
+.kusdt-vis-amount { color: var(--kaspa-ink); }
+.kusdt-manage-screen .chatting-address-balance, .kusdt-address-screen .chatting-address-balance,
+.kusdt-visibility-screen .chatting-address-balance, .kusdt-guide-screen .chatting-address-balance { color: var(--text); }
+
+/* An address's page (iOS TokenAddressView) and its history (iOS TokenActivityRow). */
+.kusdt-page-card { display: grid; gap: 2px; }
+.kusdt-page-kas { font-size: 12px; color: var(--muted); }
+.kusdt-history-title { margin: 8px 4px; }
+.kusdt-history { gap: 4px; }
+.kusdt-activity-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 6px; border: 0; border-radius: 12px;
+  background: transparent; color: var(--text); font: inherit; text-align: left;
+}
+button.kusdt-activity-row { cursor: pointer; }
+button.kusdt-activity-row:hover { background: var(--surface-1, rgba(255,255,255,.04)); }
+.kusdt-activity-icon { display: inline-flex; flex: 0 0 auto; width: 26px; height: 26px; }
+.kusdt-activity-icon svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.kusdt-activity-row[data-tone="in"] .kusdt-activity-icon, .kusdt-activity-row[data-tone="in"] .kusdt-activity-title, .kusdt-activity-row[data-tone="in"] strong { color: var(--ios-green); }
+.kusdt-activity-row[data-tone="out"] .kusdt-activity-icon, .kusdt-activity-row[data-tone="out"] .kusdt-activity-title, .kusdt-activity-row[data-tone="out"] strong { color: var(--ios-red); }
+.kusdt-activity-row[data-tone="accent"] .kusdt-activity-icon, .kusdt-activity-row[data-tone="accent"] .kusdt-activity-title, .kusdt-activity-row[data-tone="accent"] strong { color: var(--kaspa-ink); }
+.kusdt-activity-copy { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.kusdt-activity-title { display: inline-flex; gap: 6px; font-size: 12px; font-weight: 600; }
+.kusdt-pending { color: var(--ios-orange); font-size: 11px; font-weight: 700; }
+.kusdt-activity-copy code { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kusdt-activity-copy small, .kusdt-activity-side small { font-size: 11px; color: var(--muted); }
+.kusdt-activity-side { display: grid; justify-items: end; gap: 2px; flex: 0 0 auto; }
+.kusdt-activity-side strong { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.kusdt-activity-open { display: inline-flex; width: 13px; height: 13px; color: var(--kaspa-ink); }
+.kusdt-activity-open svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* About kUSDT (iOS TokenAboutCard). */
+.kusdt-about { display: grid; gap: 10px; font-size: 14px; line-height: 1.45; color: var(--text); }
+.kusdt-about p { margin: 0; }
+.kusdt-about-head { display: flex; align-items: center; gap: 10px; font-size: 16px; }
+.kusdt-about-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.kusdt-about-links a { color: var(--kaspa-ink); text-decoration: none; font-weight: 600; font-size: 13px; }
+.kusdt-about-links svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Receive kUSDT (iOS TokenReceiveSheet), on the receive screens' white card. */
+.kusdt-receive-screen .chatting-address-body { justify-content: flex-start; gap: 16px; }
+.kusdt-receive-title { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; color: #06110f; }
+.kusdt-receive-pills { display: flex; gap: 10px; }
+.kusdt-receive-pills[hidden], .kusdt-receive-label[hidden] { display: none; }
+.kusdt-receive-pills .sk-select-pill:not(.selected) { color: #06110f; border-color: rgba(6,17,15,.18); background: rgba(6,17,15,.04); }
+.kusdt-receive-label { margin: 0; font-size: 14px; font-weight: 600; color: rgba(6,17,15,.6); }
+
+/* The kUSDT Guide (iOS TokenGuideView): the coin and its name, then a card per topic. */
+.kusdt-guide-head { display: flex; align-items: center; gap: 14px; padding: 8px 4px 12px; }
+.kusdt-guide-head > span:last-child { display: grid; gap: 2px; }
+.kusdt-guide-head strong { font-size: 22px; font-weight: 700; color: var(--text); }
+.kusdt-guide-head small { font-size: 14px; color: var(--muted); }
+.kusdt-guide-card { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 12px; padding: 16px; border-radius: 16px; background: var(--surface-1, var(--panel-2)); }
+.kusdt-guide-icon { display: inline-flex; flex: 0 0 30px; width: 30px; height: 24px; justify-content: center; color: var(--kaspa-ink); }
+.kusdt-guide-card[data-tone="warn"] .kusdt-guide-icon { color: var(--ios-orange); }
+.kusdt-guide-icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.kusdt-guide-copy { display: grid; gap: 4px; }
+.kusdt-guide-copy strong { font-size: 16px; color: var(--text); }
+.kusdt-guide-copy span { font-size: 14px; line-height: 1.45; color: var(--muted); }
+
+/* Manage Addresses' Address Visibility: an address on the kUSDT list stays shown, dimmed. */
+.spending-visibility-row.kusdt-listed { opacity: .55; }
+.kusdt-address-screen .chatting-address-copy:disabled { opacity: .4; cursor: default; }

@@ -150,6 +150,8 @@ function activityHarness({ switchDuring = null } = {}) {
     kaspaOutputAddress: (output) => output.address,
     kaspaOutputAmount: (output) => output.amount,
     spendsOwnFunds: async () => { if (switchDuring === "inputs") engine.address = "kaspa:new"; return false; },
+    // kUSDT sends mark their own transactions (ui/address-activity.js); none here.
+    isMarkedOwnTransaction: () => false,
     postDesktopNotification: (note) => writes.push(["notify", engine.address, note.title]),
     recordGlobalNotification: (item) => writes.push(["bell", engine.address, item.id]),
     appendEngineLog: () => {},

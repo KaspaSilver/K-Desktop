@@ -80,3 +80,53 @@ export async function spendsOwnFunds(tx, ownAddresses, { recentOwnSpent = null, 
   }
   return unknown ? null : false;
 }
+
+// Transactions this app made whose KAS comes back to one of our addresses with no input from them
+// (KaPay 3d126db KusdtTransfer.send `markOwnTransaction`): a kUSDT send or Combine Coins spends the
+// token coins, which sit at their own contract address, so the KAS change or the KAS a combine gives
+// back reads as someone else's payment to spendsOwnFunds. The send marks its id before it goes out,
+// and the catch-up treats it as our own. Kept for an hour (a catch-up runs within minutes), in
+// memory and, where there is one, in localStorage so a reload right after the send still knows it.
+const OWN_TX_KEY = "kachat-own-txids-v1";
+const OWN_TX_KEEP_MS = 60 * 60 * 1000;
+const ownTxMarks = new Map(); // txid -> marked at (ms)
+function ownTxStorage() {
+  try { return typeof localStorage !== "undefined" ? localStorage : null; } catch { return null; }
+}
+function loadOwnTxMarks(now) {
+  const storage = ownTxStorage();
+  if (!storage) return;
+  try {
+    const stored = JSON.parse(storage.getItem(OWN_TX_KEY) || "{}") || {};
+    for (const [txid, at] of Object.entries(stored)) {
+      if (now - Number(at) < OWN_TX_KEEP_MS && !ownTxMarks.has(txid)) ownTxMarks.set(txid, Number(at));
+    }
+  } catch { /* unreadable: memory only */ }
+}
+function saveOwnTxMarks() {
+  const storage = ownTxStorage();
+  if (!storage) return;
+  try { storage.setItem(OWN_TX_KEY, JSON.stringify(Object.fromEntries(ownTxMarks))); } catch { /* full or blocked */ }
+}
+function pruneOwnTxMarks(now) {
+  for (const [txid, at] of ownTxMarks) if (now - at >= OWN_TX_KEEP_MS) ownTxMarks.delete(txid);
+}
+
+/** Marks `txid` as made here: its outputs to our addresses are never announced as received. */
+export function markOwnTransaction(txid, now = Date.now()) {
+  const id = String(txid || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(id)) return;
+  loadOwnTxMarks(now);
+  ownTxMarks.set(id, now);
+  pruneOwnTxMarks(now);
+  saveOwnTxMarks();
+}
+
+/** Whether `txid` was marked by markOwnTransaction within the last hour. */
+export function isMarkedOwnTransaction(txid, now = Date.now()) {
+  const id = String(txid || "").trim().toLowerCase();
+  if (!id) return false;
+  loadOwnTxMarks(now);
+  pruneOwnTxMarks(now);
+  return ownTxMarks.has(id);
+}

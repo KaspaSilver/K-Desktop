@@ -13,7 +13,7 @@
   <!-- Too-old browsers (no WebAssembly / modern JS, e.g. iOS 10) get a clear message, not a blank layout. -->
   <script src="/browser-check.js"></script>
   <title>KaChat Desktop</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=415" />
+  <link rel="stylesheet" href="./ui/styles.css?v=417" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The KaChat logo the app already ships (432px PNG) doubles as the tab icon. -->
@@ -775,17 +775,42 @@
             </button>
           </div>
 
-          <div class="wallet-balance-card">
-            <div class="wallet-balance-head">
-              <span class="wallet-balance-label">Total Balance</span>
-              <button class="wallet-total" type="button" data-wallet-total>--</button>
-              <span class="wallet-fiat" data-wallet-fiat hidden></span>
+          <!-- The balance cards side by side, one showing, the pills under them choosing (KaPay 3d126db
+               SlidingCardPager / BalancePagePills): Kaspa, then kUSDT. Each card opens its Manage
+               screen (Tap to Manage); a finger can drag between them, a mouse uses the pills. -->
+          <div class="wallet-card-pager" data-wallet-card-pager>
+            <div class="wallet-card-track" data-wallet-card-track>
+              <div class="wallet-balance-card wallet-kaspa-card" data-wallet-card-page="0" data-wallet-kaspa-card role="button" tabindex="0" aria-label="Kaspa balance, open Manage Addresses">
+                <div class="wallet-balance-head">
+                  <span class="wallet-balance-top"><span class="wallet-balance-label">Total Balance</span><span class="wallet-tap-manage" aria-hidden="true">Tap to Manage<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></span></span>
+                  <button class="wallet-total" type="button" data-wallet-total>--</button>
+                  <span class="wallet-fiat" data-wallet-fiat hidden></span>
+                </div>
+                <div class="wallet-balance-divider"></div>
+                <div class="wallet-balance-parts">
+                  <div class="wallet-balance-part"><span>Chatting</span><strong data-wallet-chatting>--</strong></div>
+                  <div class="wallet-balance-part"><span>Spending</span><strong data-wallet-spending>--</strong></div>
+                </div>
+              </div>
+              <!-- kUSDT (KaPay 3d126db TokenBalanceCard): USDT green, where it's held and the KAS held
+                   with it; opens Manage kUSDT. -->
+              <button class="wallet-balance-card kusdt-balance-card" type="button" data-wallet-card-page="1" data-kusdt-card aria-label="kUSDT balance, open Manage kUSDT">
+                <span class="wallet-balance-head">
+                  <span class="wallet-balance-top"><span class="kusdt-card-icon" data-kusdt-card-icon></span><span class="wallet-balance-label">kUSDT Balance</span><span class="wallet-tap-manage" aria-hidden="true">Tap to Manage<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></span></span>
+                  <span class="wallet-total" data-kusdt-card-amount>--</span>
+                  <span class="wallet-fiat" data-kusdt-card-dollars hidden></span>
+                </span>
+                <span class="wallet-balance-divider"></span>
+                <span class="wallet-balance-parts">
+                  <span class="wallet-balance-part"><span>Held On</span><strong data-kusdt-card-held-on>--</strong></span>
+                  <span class="wallet-balance-part"><span>KAS Held With It</span><strong data-kusdt-card-kas-held>--</strong></span>
+                </span>
+              </button>
             </div>
-            <div class="wallet-balance-divider"></div>
-            <div class="wallet-balance-parts">
-              <div class="wallet-balance-part"><span>Chatting</span><strong data-wallet-chatting>--</strong></div>
-              <div class="wallet-balance-part"><span>Spending</span><strong data-wallet-spending>--</strong></div>
-            </div>
+          </div>
+          <div class="wallet-card-pills" role="tablist" aria-label="Balance cards">
+            <button type="button" class="wallet-card-pill selected" role="tab" aria-selected="true" data-wallet-card-pill="0">Kaspa</button>
+            <button type="button" class="wallet-card-pill" role="tab" aria-selected="false" data-wallet-card-pill="1">kUSDT</button>
           </div>
           <!-- KaChat iOS 5b7c772c / KaPay 3d126db: Refresh also sweeps every address for balances. -->
           <p class="field-hint wallet-scan-note" data-wallet-scan-note hidden><span class="sk-spinner" aria-hidden="true"></span>Scanning your addresses for balances…</p>
@@ -834,6 +859,14 @@
               <strong>Chatting Address</strong>
             </button>
           </div>
+
+          <!-- Swap Stablecoins (KaPay 3d126db BuyStablecoinsSheet): which stablecoin, then Trestly's
+               swap page in a new tab (owner, 2026-11-20: a web page can't connect Trestly's site). -->
+          <button class="profile-card wallet-swap-card" type="button" data-wallet-swap>
+            <span class="wallet-swap-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2"/><path d="M14.8 9.2c-.4-1-1.5-1.6-2.8-1.6-1.6 0-2.8.8-2.8 2.1 0 2.8 5.8 1.5 5.8 4.4 0 1.3-1.3 2.2-3 2.2-1.4 0-2.6-.7-3-1.8M12 6v1.6M12 16.3V18"/></svg></span>
+            <strong>Swap Stablecoins</strong>
+            <svg class="profile-manage-addresses-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
         </div>
 
         <div class="profile-screen" data-app-tab-screen="profile" hidden>
@@ -1282,6 +1315,17 @@
                     <input class="field-input" type="url" data-endpoint="kaspaApi" autocomplete="off" spellcheck="false" />
                   </label>
                   <p class="field-hint danger" data-endpoint-error="kaspaApi" hidden></p>
+              </div>
+            </div>
+            <!-- kUSDT's balances (KaPay 3d126db AppSettings.trestlyAPIURL): asked directly, never
+                 through this site's relay. Every coin it lists is checked on the node. -->
+            <p class="settings-group-label">kUSDT</p>
+            <div class="settings-list-card">
+              <div class="settings-page-form">
+                  <label class="field-label compact">Trestly API URL
+                    <input class="field-input" type="url" data-endpoint="trestlyApi" autocomplete="off" spellcheck="false" />
+                  </label>
+                  <p class="field-hint danger" data-endpoint-error="trestlyApi" hidden></p>
               </div>
             </div>
             </div>
@@ -2345,7 +2389,10 @@
         </div>
         <p class="chatting-address-value" data-chatting-address-value>No wallet loaded</p>
         <p class="chatting-address-subtitle" data-chatting-address-subtitle>Use for chatting and acquiring .kachat domains.</p>
+        <!-- What the address means for privacy, and what may be sent to it (KaPay 3d126db ReceiveNotes). -->
+        <p class="receive-privacy" data-chatting-address-privacy hidden></p>
         <p class="qr-tap-hint">Tap anywhere to copy</p>
+        <div class="receive-notes" data-chatting-address-notes hidden></div>
         <!-- Receive Kaspa while its fresh address is being decided, or when it can't be (iOS ReceiveKaspaQRView) -->
         <div class="chatting-address-status" data-chatting-address-status hidden>
           <span class="chatting-address-status-spinner" data-chatting-address-status-spinner aria-hidden="true"></span>
@@ -2375,6 +2422,12 @@
           <button class="help-guide-row" type="button" data-help-kns>
             <span class="help-guide-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.2"/><circle cx="8.6" cy="11" r="2"/><path d="M5.8 16c.6-1.5 1.6-2.2 2.8-2.2s2.2.7 2.8 2.2"/><path d="M14 9.6h4.4M14 12.6h4.4"/></svg></span>
             <span class="help-guide-copy"><strong>.kachat Names Guide</strong><small>Claim a .kachat name, make it your name, and keep it.</small></span>
+            <svg class="settings-dropdown-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <!-- KaPay 3d126db TokenGuideView: what kUSDT is and how it's handled here. -->
+          <button class="help-guide-row" type="button" data-help-kusdt>
+            <span class="help-guide-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2"/><path d="M14.8 9.2c-.4-1-1.5-1.6-2.8-1.6-1.6 0-2.8.8-2.8 2.1 0 2.8 5.8 1.5 5.8 4.4 0 1.3-1.3 2.2-3 2.2-1.4 0-2.6-.7-3-1.8M12 6v1.6M12 16.3V18"/></svg></span>
+            <span class="help-guide-copy"><strong>kUSDT Guide</strong><small>What kUSDT is, where it lives, and how sending and swapping work.</small></span>
             <svg class="settings-dropdown-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
           </button>
         </div>
@@ -2686,7 +2739,9 @@
           <canvas width="512" height="512" data-spending-qr-canvas></canvas>
         </div>
         <p class="chatting-address-value" data-spending-qr-address></p>
+        <p class="receive-privacy" data-spending-qr-privacy hidden></p>
         <p class="qr-tap-hint dark">Tap anywhere to copy</p>
+        <div class="receive-notes" data-spending-qr-notes hidden></div>
       </div>
     </div>
   </div>

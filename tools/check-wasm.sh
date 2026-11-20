@@ -10,8 +10,9 @@ if [[ ! -f "$ROOT/kaspa/kaspa.js" || ! -f "$ROOT/kaspa/kaspa_bg.wasm" ]]; then
   exit 1
 fi
 
-# DSK-005: the prebuilt signing SDK (kaspa/) and the Kasia cipher (cipher/) must match the checksums
-# committed beside them (kaspa/SHA256SUMS, cipher/SHA256SUMS; provenance in kaspa/VERSION), so a
+# DSK-005: the prebuilt signing SDK (kaspa/), the Kasia cipher (cipher/) and the kUSDT builders (kusdt/)
+# must match the checksums committed beside them (kaspa/SHA256SUMS, cipher/SHA256SUMS,
+# kusdt/SHA256SUMS; provenance in kaspa/VERSION and kusdt/VERSION), so a
 # swapped binary cannot slip into a build unnoticed. Hashing runs in node, which every build has
 # (shasum/sha256sum are missing from some slim build images).
 #
@@ -26,6 +27,9 @@ const [root, mode] = process.argv.slice(2);
 const SETS = {
   kaspa: ["kaspa.js", "kaspa_bg.wasm"],
   cipher: ["cipher.js", "cipher_bg.wasm", "cipher.d.ts", "cipher_bg.wasm.d.ts", "package.json"],
+  // Trestly's kUSDT builders (provenance in kusdt/VERSION): the patched loader is bundled by Vite,
+  // so this is its pin; the .wasm is checked again at run time by engine/kusdt-core.js.
+  kusdt: ["kusdt_wasm.js", "kusdt_wasm_bg.wasm", "kusdt-kcc20-template.json"],
 };
 const sha256 = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
 let failed = false;

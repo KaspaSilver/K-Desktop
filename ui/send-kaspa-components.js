@@ -1178,7 +1178,8 @@ export function tapBarTitle(title) { return String(title || "").replace(/^Swipe 
  * becomes the scrolling form, with the bar pinned under it.
  *
  * The screen drives it like iOS's bindings: `setBusy(true)` once the send really started,
- * `setSent({ txid, amountSompi, recipient, explorerUrl })` when it went out, or `setSucceeded(html)`
+ * `setSent({ txid, amountSompi, recipient, explorerUrl })` when it went out (`amountText` in place
+ * of `amountSompi` for a token, in the preview too), or `setSucceeded(html)`
  * for an action that ends without one transaction (a claim; `html` is shown under the title; a send
  * can carry one too, `setSent(sent, html)`, and `setOutcome(html)` updates it), and
  * `setBusy(false)` without either is a failure, shown with `getFailureMessage()` (the screen's
@@ -1314,8 +1315,11 @@ export function createSwipeUpScreen(card, {
     const working = sending || autoSwiping;
     els.big.textContent = done ? words.done : unknown ? "Not confirmed" : failure ? "Failed" : (working ? words.working : (armed ? words.release : "Keep Swiping"));
     const amount = sent?.amountSompi ?? preview.amountSompi;
-    els.amount.hidden = amount == null;
+    // A token send says its own amount ("12.50 kUSDT", KaPay 3d126db TokenSendView): `amountText`.
+    const amountText = amount == null ? String(sent?.amountText ?? preview.amountText ?? "").trim() : "";
+    els.amount.hidden = amount == null && !amountText;
     if (amount != null) els.amount.textContent = `${formatSompiPlain(amount)} ${unit}`;
+    else if (amountText) els.amount.textContent = amountText;
     const to = String(sent?.recipient ?? preview.recipient ?? "").trim();
     els.to.hidden = !to;
     if (to) { els.to.title = to; els.to.innerHTML = `<span class="sk-sent-to-word">${esc(words.recipientWord)}&nbsp;</span>${middleTruncatedHtml(to, 8)}`; }

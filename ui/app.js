@@ -8,7 +8,7 @@ import { installGroupedAmountInputs } from "./grouped-amount.js";
 import { contractPurgePlan, contractSuppressionRecovery } from "./contract-purge.js";
 import { RAIL_ORDER, dockLayoutFor } from "./dock-arrangement.js";
 import { initAddressDomainsTab, renderAddressDomainsTab } from "./address-domains-tab.js";
-import { catchUpCandidates, spendsOwnFunds } from "./address-activity.js";
+import { catchUpCandidates, spendsOwnFunds, markOwnTransaction, isMarkedOwnTransaction } from "./address-activity.js";
 import { isHiddenPlaceholder, isHiddenPlaceholderMessage, newestVisibleMessage, upgradesPlaceholder, isCallSignal } from "./message-placeholders.js";
 import { accountGuard, accountScopedValue, accountStillSaved } from "./account-guard.js";
 import { NETWORK, IS_TESTNET, ADDRESS_PREFIX, KAS_UNIT, kasLabel, preferredNetwork, setPreferredNetwork, isNetworkAddress, isOnActiveNetwork, toActiveNetworkAddress, canonicalAccountAddress, reencodeAddress } from "../engine/network.js";
@@ -148,6 +148,11 @@ import { configureKeyVault, hasAppPassword as vaultHasAppPassword, isVaultEnable
 import { biometricName, biometricRowLabel, biometricButtonLabel, biometricEnvironmentProblem, canOfferBiometricUnlock, canAutoPromptBiometric, checkBiometricSupport, enrolBiometric, finishBiometricEnrolment, unlockWithBiometric, turnOffBiometricUnlock, BIOMETRIC_UNSUPPORTED_MESSAGE } from "./biometric-unlock.js";
 import { sameAccountAddress as sameStoredAccountAddress } from "../engine/network.js";
 import { openEmojiReactionPicker, openComposerEmojiPopover, closeComposerEmojiPopover, recordEmojiRecent } from "./emoji.js";
+// kUSDT (KaPay iOS 3d126db): the state (ui/kusdt-wallet.js) and its screens (ui/kusdt-screens.js).
+import { NETWORK_ID } from "../engine/network.js";
+import { forgetAccount as forgetKusdtStorage } from "../engine/kusdt-store.js";
+import { createKusdtWallet, manageAddressesHideRefusal, reshowListedHidden, hideAllKeepingListed, KUSDT_LISTED_HIDE_MESSAGE, KUSDT_LISTED_ALERT_TITLE } from "./kusdt-wallet.js";
+import { initKusdtScreens, openManageKusdt, openWalletSend, openKusdtGuide, receiveNotesHtml, renderKusdtWalletCard, closeKusdtForAccountSwitch } from "./kusdt-screens.js";
 
 // Step 25 shell:
 // - Keeps KaspaEngine modules intact.
@@ -165,6 +170,9 @@ window.KaspaEngineClass = KaspaEngine;
 window.__kaspaEngineStep = "kachat-shell-step-71";
 
 const engine = new KaspaEngine({ log: appendEngineLog });
+// The account's kUSDT (ui/kusdt-wallet.js), made once the rest of the app is up (initKusdt below);
+// null until then, so every caller checks it.
+let kusdtWallet = null;
 // A message or payment the network never answered (SEND_OUTCOME_UNKNOWN): it may still land, so it
 // says "Not confirmed" with its txid and no Retry, and turns sent once the network has it (iOS
 // e5a9b11, as rooms, KaPosts and chess do). See sendFailurePatch and settleUnconfirmedSends.
@@ -1748,6 +1756,9 @@ function removeAccountScopedLocalData(address, { spendingAddresses = [], keepCoi
   for (const encoded of new Set([cleanAddress, reencodeAddress(cleanAddress, "kaspa"), reencodeAddress(cleanAddress, "kaspatest")])) {
     // its .kachat reminders would keep firing for names this device no longer holds (iOS 6128f1e)
     if (encoded) { try { removeKachatNameReminders(encoded); } catch { /* not stored */ } }
+    // Its kUSDT history, known coins and Address Visibility lists (KaPay 3d126db
+    // TokenWallet.forgetLocalData, engine/kusdt-store.js forgetAccount), and the figures in memory.
+    if (encoded) { try { kusdtWallet ? kusdtWallet.forgetAccount(encoded) : forgetKusdtStorage(localStorage, encoded); } catch { /* not stored */ } }
     // What this device remembers of its .kachat names, filed by address outside the account prefix.
     // A pending registration or transfer stays: its record is what finishes or recovers funds
     // already committed, if the seed comes back (engine/kns-write.js clearPendingKnsTransfer).
@@ -6236,6 +6247,9 @@ function activateWalletDataScope(address, { migrateLegacy = true } = {}) {
   try { resetPortfolioForAccount(); } catch { /* not yet initialized */ }
   try { resetColdStorageForAccount(); } catch { /* not yet initialized */ }
   try { resetSwapsForAccount(); } catch { /* not yet initialized */ }
+  // kUSDT's figures are the account's own (ui/kusdt-wallet.js drops the old ones on its next read);
+  // its screens close.
+  try { closeKusdtForAccountSwitch(); } catch { /* not yet initialized */ }
   try { resetNextcloudForAccount(); } catch { /* not yet initialized */ }
   // The Address Book is per wallet: its screens go back to the list (the store reads the new
   // wallet's book on its next read).
@@ -8593,6 +8607,10 @@ document.querySelector("[data-notif-list]")?.addEventListener("click", (event) =
   } else if (notif.targetKind === "group") {
     setActiveAppTab("chats");
     if (notif.targetId) { try { openGroupChat(notif.targetId); } catch {} }
+  } else if (notif.targetKind === "kusdt") {
+    // "Received X kUSDT" opens Manage kUSDT (KaPay 3d126db: a token notification opens its screen).
+    setActiveAppTab("wallet");
+    try { openManageKusdt(); } catch { /* not started */ }
   } else if (notif.targetKind === "address" && notif.targetId) {
     // A receipt on one of your addresses opens that address on its History tab (iOS 13046ad).
     routeToOwnAddress(notif.targetId);
@@ -9913,7 +9931,9 @@ async function attributeAndNotifyAddressActivity(increases, wallet = engine.addr
       // Any input from our addresses: our own (change, a consolidation, another app on this seed).
       // An input that can't be placed at all counts as someone else's - missing real funds is worse
       // than a rare stray ping (KaPay 42470af).
-      const isSelfSend = (await spendsOwnFunds(tx, own, { outputAddress })) === true;
+      // A transaction this app marked as its own (a kUSDT send's KAS change, the KAS Combine Coins
+      // gives back: ui/address-activity.js markOwnTransaction) is ours whatever its inputs say.
+      const isSelfSend = isMarkedOwnTransaction(txid) || (await spendsOwnFunds(tx, own, { outputAddress })) === true;
       if (switched()) return;
       if (handledSet.has(txid)) continue;
       handledSet.add(txid);
@@ -10495,14 +10515,19 @@ document.querySelector("[data-wallet-total]")?.addEventListener("click", async (
   if (total == null) return;
   try { await copyTextToClipboard(kasTextFromSompi(total)); showCopyToast("Balance copied to clipboard."); } catch (error) { appendEngineLog(error.message); }
 });
-document.querySelector("[data-wallet-send]")?.addEventListener("click", () => { if (engine.address) openSendKaspaModal(); });
+// Send asks what first, Kaspa or kUSDT, each with its balance (KaPay 3d126db SendAssetChooser).
+document.querySelector("[data-wallet-send]")?.addEventListener("click", () => {
+  if (!engine.address) return;
+  if (kusdtWallet) openWalletSend(); else openSendKaspaModal();
+});
 document.querySelector("[data-wallet-receive]")?.addEventListener("click", () => { openReceiveKaspaScreen(); });
 document.querySelector("[data-wallet-request]")?.addEventListener("click", () => { if (engine.address) openCreatePaymentRequest(); });
 document.querySelector("[data-wallet-refresh]")?.addEventListener("click", async (event) => {
   const button = event.currentTarget;
   button.classList.add("spinning");
   button.disabled = true;
-  try { await Promise.all([refreshBalanceOnly(), refreshSpendingSummary()]); } catch { /* each stays as it was */ }
+  // kUSDT's balances too (KaPay 3d126db: the Wallet's pull refreshes its token card).
+  try { await Promise.all([refreshBalanceOnly(), refreshSpendingSummary(), kusdtWallet?.refresh()]); } catch { /* each stays as it was */ }
   // The spinner ends once the balances are in; the sweep goes on under the card.
   button.classList.remove("spinning");
   button.disabled = false;
@@ -10532,6 +10557,11 @@ async function walletRefreshSweep() {
   }
   if (engine.address !== wallet) return;
   try { await Promise.all([refreshBalanceOnly(), refreshSpendingSummary()]); } catch { /* as it was */ }
+  // ...and Manage kUSDT's Discover, after the addresses (KaPay 3d126db AddressScan.run): it reads
+  // the regular addresses the sweep just revealed.
+  if (engine.address !== wallet || !kusdtWallet) return;
+  if (note) note.hidden = false;
+  try { await kusdtWallet.discover(); } catch { /* the card keeps what it had */ } finally { if (note) note.hidden = true; }
 }
 // Coalesces the bursts own-address activity arrives in (iOS WalletView.scheduleRefresh).
 let walletRefreshTimer = 0;
@@ -10868,7 +10898,26 @@ function openSpendingManageScreen() {
   if (notifyToggle) notifyToggle.checked = spendingReceiveNotifyEnabled();
   updateSpendingActionsPill();
   spendingManageScreen.hidden = false;
+  showKusdtListedSpendingAddresses();
   renderSpendingList();
+  // ...and again once kUSDT's list is current, for this account only (KaPay 3d126db
+  // showKusdtListedAddresses: refreshIfStale first).
+  const account = accountGuard(() => engine.address);
+  kusdtWallet?.refreshIfStale().then(() => {
+    if (account.still() && !spendingManageScreen.hidden && showKusdtListedSpendingAddresses()) renderSpendingList();
+  }).catch(() => {});
+}
+/// Every address Manage kUSDT lists is shown here too (owner's call, 2026-11-20, KaPay 3d126db):
+/// one hidden here (Hide, Hide All, an older choice) is shown again. True when anything changed.
+function kusdtListedSpendingIndices() {
+  try { return kusdtWallet?.listedSpendingIndices() || new Set(); } catch { return new Set(); }
+}
+function showKusdtListedSpendingAddresses() {
+  const state = getSpendingState();
+  const next = reshowListedHidden(state.hidden, kusdtListedSpendingIndices());
+  if (next === state.hidden) return false;
+  saveSpendingState({ hidden: next });
+  return true;
 }
 
 // A new chatting balance, on Manage Addresses' first row and its total, without a full reload.
@@ -11038,7 +11087,7 @@ function spendingVisibilityChattingRowHtml() {
 // One row of Address Visibility (iOS SpendingAddressVisibilityView). Every row toggles both ways,
 // funded ones too (iOS 245a5d2): Hide All starts the list over, and nothing is lost - hidden
 // addresses still count in the totals.
-function spendingVisibilityRowHtml(index, address, state, visible) {
+function spendingVisibilityRowHtml(index, address, state, visible, kusdtListed = false) {
   const customLabel = (state.labels?.[index] ?? state.labels?.[String(index)] ?? "").toString().trim();
   const checkSvg = visible
     ? SPENDING_VIS_CHECKED_SVG
@@ -11050,7 +11099,7 @@ function spendingVisibilityRowHtml(index, address, state, visible) {
     ? '<span class="spending-visibility-shield" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.2 4 5.3v6.2c0 5 3.4 9.3 8 10.5 4.6-1.2 8-5.5 8-10.5V5.3Z"/></svg></span>'
     : "";
   return `
-    <div class="spending-visibility-row${visible ? "" : " off"}" data-vis-row="${index}">
+    <div class="spending-visibility-row${visible ? "" : " off"}${kusdtListed ? " kusdt-listed" : ""}" data-vis-row="${index}"${kusdtListed ? " data-vis-kusdt-listed" : ""}>
       <button type="button" class="spending-visibility-toggle${visible ? " on" : ""}" data-spending-vis-toggle="${index}" aria-pressed="${visible}" aria-label="Toggle visibility of spending address #${number}">${checkSvg}</button>
       <div class="spending-visibility-info">
         <div class="spending-visibility-head">
@@ -11086,8 +11135,12 @@ async function renderSpendingVisibilityPage() {
   const pageChanged = spendingVisibilityList.dataset.page !== `${spendingVisibilityChain}:${spendingVisibilityPage}`;
   spendingVisibilityList.dataset.page = `${spendingVisibilityChain}:${spendingVisibilityPage}`;
   const chattingRow = spendingVisibilityChain === "legacy" && spendingVisibilityPage === 0 && engine.address ? spendingVisibilityChattingRowHtml() : "";
+  // On the kUSDT list: always shown here, checked and dimmed (KaPay 3d126db).
+  const kusdtListed = kusdtListedSpendingIndices();
   spendingVisibilityList.innerHTML = chattingRow + rows
-    .map((r) => spendingVisibilityRowHtml(r.index, r.address, state, r.visible))
+    .map((r) => (kusdtListed.has(r.index)
+      ? spendingVisibilityRowHtml(r.index, r.address, state, true, true)
+      : spendingVisibilityRowHtml(r.index, r.address, state, r.visible)))
     .join("");
   // Every page (and every chain) starts at its top, as iOS's list does (.id(page)); a toggle keeps
   // the place.
@@ -11147,8 +11200,9 @@ spendingVisHideAllBtn?.addEventListener("click", async () => {
     destructive: true,
   });
   if (!ok) return;
-  // Both chains (iOS bba1b1e hideAllSpendingAddresses); the cards' counts follow.
-  saveSpendingState({ hidden: spendingRevealedIndices() });
+  // Both chains (iOS bba1b1e hideAllSpendingAddresses); the cards' counts follow. The kUSDT-listed
+  // addresses stay shown (KaPay 3d126db).
+  saveSpendingState({ hidden: hideAllKeepingListed(spendingRevealedIndices(), kusdtListedSpendingIndices()) });
   renderSpendingVisibilityCards();
 });
 spendingVisibilityDoneBtn?.addEventListener("click", () => {
@@ -11176,6 +11230,11 @@ spendingVisibilityList?.addEventListener("click", async (event) => {
   // The WHOLE row toggles, not just the checkmark.
   const row = event.target.closest("[data-vis-row]");
   if (!row) return;
+  // A kUSDT-listed address can't be hidden here (KaPay 3d126db "Shown for kUSDT").
+  if (row.hasAttribute("data-vis-kusdt-listed")) {
+    alertDialog({ title: KUSDT_LISTED_ALERT_TITLE, message: KUSDT_LISTED_HIDE_MESSAGE });
+    return;
+  }
   const index = Number(row.dataset.visRow);
   if (!Number.isInteger(index) || index < 0) return;
   const state = getSpendingState();
@@ -11232,6 +11291,9 @@ spendingListEl?.addEventListener("click", async (event) => {
       saveSpendingState({ labels });
       renderSpendingList();
     } else if (action === "hide") {
+      // An address on the kUSDT list stays (KaPay 3d126db): hide it from Manage kUSDT first.
+      const refusal = manageAddressesHideRefusal(index, kusdtListedSpendingIndices());
+      if (refusal) { showCopyToast(refusal); return; }
       // Same effect as unchecking it in Address Visibility. Any address, funded too (iOS 245a5d2):
       // it comes back from there, and its Kaspa still counts in the total.
       const hiddenSet = new Set(state.hidden || []);
@@ -11313,6 +11375,149 @@ initAddressDomainsTab({
   refreshKachat: async () => { await kachatNames()?.registry?.refresh?.(); },
   escapeHtml,
 });
+
+// --- kUSDT (KaPay iOS 3d126db; ui/kusdt-wallet.js, ui/kusdt-screens.js) ---
+// What only app.js knows, handed to the kUSDT modules: the account's regular spending addresses and
+// their keys, Send Kaspa (Fund This Address), the recipient card's lookups, the bell. Keys: the
+// Chatting Address's is engine.privateKeyHex; a regular spending address's is derived from the
+// account's words for that one build (never a quantum-safe one: they don't hold kUSDT). No password
+// is asked: plain sends need none (owner, 2026-11-17).
+/// A regular spending index of the active account (kUSDT never lives on a quantum-safe one).
+function kusdtRegularAddressAt(index) {
+  if (!Number.isInteger(index) || index < 0 || isQuantumIndex(index) || !activeAccountMnemonic()) return null;
+  return deriveSpendingAddressAt(index);
+}
+async function kusdtRegularAddressesInRange(start, end) {
+  const account = captureActiveSpendingAccount();
+  if (!account) return new Map();
+  const map = await deriveSpendingAddressesInRangeFor(account, Math.max(0, start), Math.min(end, QUANTUM_INDEX_BASE));
+  // the account the range was derived for, still the one on screen
+  return account.owner === engine.address ? map : new Map();
+}
+/// A regular slot onto `owner`'s Manage Addresses list (Discover's furthest find, Generate New
+/// Address, a fresh receive address once handed out): its bound raised to it with the slots between
+/// left hidden, and the slot itself shown (iOS revealSpendingAddress(at:owner:)). Nothing is written
+/// once that account was removed.
+function kusdtRevealSpendingSlot(index, owner = engine.address) {
+  if (!Number.isInteger(index) || index < 0 || isQuantumIndex(index) || !spendingAccountStillSaved(owner)) return;
+  const current = getSpendingState(owner);
+  let hidden = current.hidden;
+  const patch = {};
+  if (index > current.maxIndex) {
+    patch.maxIndex = index;
+    for (let n = current.maxIndex + 1; n < index; n += 1) if (!hidden.includes(n)) hidden = [...hidden, n];
+  }
+  if (hidden.includes(index)) hidden = hidden.filter((i) => i !== index);
+  if (hidden !== current.hidden) patch.hidden = hidden;
+  if (Object.keys(patch).length) saveSpendingState(patch, owner);
+  if (owner !== engine.address) return;
+  try { if (spendingManageScreen && !spendingManageScreen.hidden) renderSpendingList(); } catch { /* repaints on the next open */ }
+  try { refreshSpendingSummary(); } catch { /* the Wallet repaints on show */ }
+}
+/// A transaction's inputs, resolved (findReceived's own-transfer check): null when the REST API
+/// can't say.
+async function kusdtTransactionInputs(txid) {
+  const base = String(getEndpoint("kaspaApi") || "").replace(/\/+$/, "");
+  const response = await fetch(`${base}/transactions/${encodeURIComponent(txid)}?resolve_previous_outpoints=light`, { headers: { Accept: "application/json" }, cache: "no-store" });
+  if (!response.ok) return null;
+  const tx = await response.json();
+  if (!Array.isArray(tx?.inputs)) return null;
+  return tx.inputs.map((input) => ({
+    hash: input?.previous_outpoint_hash ?? input?.previousOutpoint?.transactionId ?? null,
+    index: input?.previous_outpoint_index ?? input?.previousOutpoint?.index ?? null,
+    address: input?.previous_outpoint_address || input?.previous_outpoint_resolved?.script_public_key_address || null,
+  }));
+}
+function initKusdt() {
+  kusdtWallet = createKusdtWallet({
+    account: () => engine.address,
+    network: NETWORK_ID,
+    storage: localStorage,
+    engine,
+    apiBase: () => getEndpoint("trestlyApi"),
+    // Straight to Trestly, past the relay wrapper (engine/endpoints.js): never through /nc-proxy.
+    fetchImpl: (url, init) => (window.__kasiaNativeFetch || window.fetch.bind(window))(url, init),
+    maxSpendingIndex: () => (activeAccountMnemonic() ? getSpendingState().maxIndex : -1),
+    spendingAddressAt: kusdtRegularAddressAt,
+    spendingAddressesInRange: kusdtRegularAddressesInRange,
+    revealSpendingSlot: kusdtRevealSpendingSlot,
+    spendingLabel: (index) => spendingLabelFor(getSpendingState(), index),
+    ownAddresses: () => [engine.address, ...(activeAccountMnemonic() ? spendingRevealedIndices().map((i) => deriveSpendingAddressAt(i)) : [])].filter(Boolean),
+    fetchTransactionInputs: kusdtTransactionInputs,
+    // Settings > Notifications > Address Activity, as Kaspa's receives (KaPay 3d126db).
+    notificationsEnabled: () => addressActivityFeatureEnabled(),
+    notify: ({ title, body }) => {
+      const stamp = Date.now();
+      postDesktopNotification({
+        title, body, tag: `kachat-kusdt-received-${stamp}`, route: { kind: "tab", tab: "wallet" },
+        onClick: () => { setActiveAppTab("wallet"); openManageKusdt(); },
+      });
+      recordGlobalNotification({ id: `kusdt-${stamp}`, source: "wallet", title, body, timestamp: stamp, targetKind: "kusdt" });
+    },
+    markOwnTransaction: (txid) => markOwnTransaction(txid),
+    isVisible: () => document.visibilityState === "visible",
+    log: appendEngineLog,
+  });
+  initKusdtScreens({
+    wallet: kusdtWallet, engine, network: NETWORK_ID, kasUnit: KAS_UNIT,
+    account: () => engine.address,
+    showToast: showCopyToast, copyText: copyTextToClipboard, addressCopiedToastText,
+    explorerTxUrl, explorerAddressUrl,
+    addressCardHtml: (address, opts) => addressResolutionCardHtml(address, opts),
+    addressBookName: (address) => addressBookEntry(address)?.name || null,
+    // Send Kaspa's own recipient lookup (address or name on every service, Other domains), no balance.
+    makeRecipientController: (els, { onRecipientChange }) => makeSendController(els, { slideToSend: true, onRecipientChange, getBalance: async () => ({}) }),
+    pickFromAddressBook: () => pickFromAddressBook(),
+    drawQr: (canvas, address) => engine.drawQrFor(canvas, address, { dark: "#06110f", light: "#ffffff" }),
+    secretKeyFor: (holding) => {
+      if (holding?.spendingIndex == null) return String(engine.privateKeyHex || "").trim() || null;
+      if (isQuantumIndex(holding.spendingIndex)) return null;
+      const account = captureActiveSpendingAccount();
+      if (!account || account.owner !== engine.address) return null;
+      const spending = engine.deriveSpendingWallet(account.mnemonic, holding.spendingIndex, account.passphrase, { passphraseForm: account.passphraseForm });
+      if (String(spending?.address || "").toLowerCase() !== String(holding.address || "").toLowerCase()) return null;
+      return String(spending?.privateKeyHex || "").trim() || null;
+    },
+    // Fund This Address's request (KaPay 3d126db openFunding): the shortfall to the sending address,
+    // signed by the Chatting Address so it reads as yours. Paid as a plain send even to the Chatting
+    // Address: Desktop pays a chatting-address request as a chat payment, which here would be a chat
+    // with yourself.
+    makeFundingRequest: ({ address, amountSompi, memo }) => {
+      const unsigned = makePaymentRequest({ address, amountSompi, memo, toChattingAddress: false });
+      const key = String(engine.privateKeyHex || "").trim();
+      return (key && engine.address && signPaymentRequest(unsigned, engine.address, key)) || unsigned;
+    },
+    openSendKaspa: (options) => openSendKaspaModal(options || {}),
+    openManageAddresses: () => openSpendingManageScreen(),
+    kaspaTotalSompi: () => walletTotalSompi(sompiFromUserText(String(currentBalanceKas ?? "")), profileSpendingTotal.get()),
+    spendingAddressesInRange: kusdtRegularAddressesInRange,
+    revealSpendingSlot: kusdtRevealSpendingSlot,
+    customLabel: (index) => spendingCustomLabel(getSpendingState(), index),
+    renameSpending: (index, label) => {
+      const state = getSpendingState();
+      const labels = { ...state.labels };
+      if (label) labels[index] = label; else { delete labels[index]; delete labels[String(index)]; }
+      saveSpendingState({ labels });
+      try { if (spendingManageScreen && !spendingManageScreen.hidden) renderSpendingList(); } catch { /* repaints on the next open */ }
+    },
+    // Manage Addresses' Used: ever used or holding KAS, as last known.
+    usedSpendingIndices: () => {
+      const used = new Set();
+      if (!activeAccountMnemonic()) return used;
+      const cache = loadSpendingBalCache();
+      for (const index of spendingRevealedIndices()) {
+        if (isQuantumIndex(index)) continue;
+        const entry = cache[deriveSpendingAddressAt(index)];
+        if (entry?.used === true || Number(entry?.kas) > 0) used.add(index);
+      }
+      return used;
+    },
+    // The kUSDT sheets sit just under Send Kaspa's, so Fund This Address's Send Kaspa (and the
+    // scanner and pickers after it) open over them.
+    modalAnchor: () => sendKaspaModal,
+    log: appendEngineLog,
+  });
+}
 
 // --- Send Domain (iOS ContactsView.swift KNSDomainSendView) ---
 // The recipient takes an address or a domain on any service, .kachat first, with Other domains
@@ -11943,6 +12148,13 @@ async function openSpendingQrScreen(index, address) {
   if (title) title.textContent = spendingIndexTitle(index); // iOS bba1b1e entry.displayTitle
   const addressEl = spendingQrScreen.querySelector("[data-spending-qr-address]");
   if (addressEl) addressEl.textContent = address;
+  // A regular address takes Kaspa and kUSDT; a quantum-resistant one Kaspa only (KaPay 3d126db
+  // ManageAddressesView's receive notes).
+  const { privacyHtml, notesHtml } = receiveNotesHtml(isQuantumIndex(index) ? "quantum" : "spending");
+  const privacyEl = spendingQrScreen.querySelector("[data-spending-qr-privacy]");
+  const notesEl = spendingQrScreen.querySelector("[data-spending-qr-notes]");
+  if (privacyEl) { privacyEl.innerHTML = privacyHtml; privacyEl.hidden = !privacyHtml; }
+  if (notesEl) { notesEl.innerHTML = notesHtml; notesEl.hidden = !notesHtml; }
   spendingQrScreen.hidden = false;
   const canvas = spendingQrScreen.querySelector("[data-spending-qr-canvas]");
   if (canvas) {
@@ -12378,7 +12590,7 @@ function setActiveAppTab(tab) {
   updateDetailActiveClass();
   try { markOpenChatsRead(); } catch { /* not started */ }
   if (screenTab === "profile") refreshOwnKnsProfile();
-  try { if (screenTab === "wallet") { renderProfileAccountTotal(); refreshSpendingSummaryOnShow(); warmReceiveAddressOnShow(); } } catch { /* not started */ }
+  try { if (screenTab === "wallet") { renderProfileAccountTotal(); refreshSpendingSummaryOnShow(); warmReceiveAddressOnShow(); kusdtWallet?.refreshIfStale().catch(() => {}); } } catch { /* not started */ }
   if (screenTab === "kaposts") refreshKaPostsFeed();
   else stopKaPostsPolling();
   // The rooms stay live while Chats or Public Chats is up, so the Public Chats badge keeps count.
@@ -12672,9 +12884,8 @@ applyDockLayout();
 //   2. the lowest hidden regular slot confirmed unused, else one past the regular chain's end.
 const RECEIVE_INDEX_KEY = "kachat-receive-address-index-v1";
 // Receive is for everything except chatting and domains; the chatting address caption below is the
-// other half (iOS 492aa53). Both go through kasLabel like every amount string (the word "Kaspa" is
-// never relabelled, only a bare KAS).
-const RECEIVE_SUBTITLE = "This is a fresh address, never used before.";
+// other half (iOS 492aa53). Wallet's Receive says it in its notes now (KaPay 3d126db), so its old
+// "This is a fresh address, never used before." subtitle is gone.
 const CHATTING_ADDRESS_SUBTITLE = "Use for chatting and acquiring .kachat domains.";
 async function freshReceiveAddress({ revealing = true } = {}) {
   if (!activeAccountMnemonic()) return null;
@@ -12829,7 +13040,9 @@ function setChattingAddressStatus(text, { spinner = false } = {}) {
 // The screen opens at once: on the warmed address when Wallet already decided one, else on
 // "Preparing a fresh address" until it is decided. The live check then runs either way and swaps
 // the code only if the warmed answer went stale - a QR is scanned the instant it appears.
-const RECEIVE_SCREEN_OPTIONS = { balanceText: "--", subtitle: RECEIVE_SUBTITLE, title: "Receive Kaspa", showsBalance: false };
+// Its notes say the rest (KaPay 3d126db WalletView receive): fresh and private, Kaspa and kUSDT both
+// welcome, and that it lands in this account - so no subtitle under the address.
+const RECEIVE_SCREEN_OPTIONS = { balanceText: "--", subtitle: null, notes: "wallet", title: "Receive Kaspa", showsBalance: false };
 let receiveScreenRun = 0;
 async function openReceiveKaspaScreen() {
   if (!engine.address || !chattingAddressScreen) return;
@@ -12898,6 +13111,16 @@ async function openChattingAddressScreen(options = {}) {
       subtitleEl.hidden = true;
     }
   }
+  // What the address means for privacy, and what may be sent to it (KaPay 3d126db ReceiveNotes):
+  // the Chatting Address's own unless the caller names others ("wallet" for Wallet's Receive). Its
+  // notes carry the chatting caption, so the default subtitle steps aside for them.
+  const notesKind = typeof options.notes === "string" ? options.notes : (address === engine.address ? "chatting" : "");
+  const { privacyHtml, notesHtml } = receiveNotesHtml(notesKind);
+  const privacyEl = chattingAddressScreen.querySelector("[data-chatting-address-privacy]");
+  const notesEl = chattingAddressScreen.querySelector("[data-chatting-address-notes]");
+  if (privacyEl) { privacyEl.innerHTML = privacyHtml; privacyEl.hidden = !privacyHtml; }
+  if (notesEl) { notesEl.innerHTML = notesHtml; notesEl.hidden = !notesHtml; }
+  if (subtitleEl && options.subtitle === undefined && notesHtml) subtitleEl.hidden = true;
   chattingAddressScreenAddress = address;
   if (chattingAddressValue) chattingAddressValue.textContent = address;
   if (chattingAddressBalance) chattingAddressBalance.textContent = balanceText;
@@ -13397,13 +13620,15 @@ document.querySelector("[data-help-welcome]")?.addEventListener("click", () => {
 document.querySelector("[data-help-kns]")?.addEventListener("click", () => {
   openKachatSetupGuide();
 });
+// ...and the kUSDT Guide after it (KaPay 3d126db TokenGuideView), over Help like the others.
+document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { openKusdtGuide(); });
 // The Profile hero's button edits your .kachat profile (iOS 09e0403).
 document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", () => openKachatProfileEditor());
 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 306;
+const APP_BUILD = 307;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -13809,7 +14034,19 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
 // Paste, fiat/KAS toggle + conversion, Max, Network Fee tiers (Normal/Priority/Custom), and Coin
 // Control (UTXO selection).
 const sendKaspaModal = document.querySelector("[data-send-kaspa-modal]");
-function closeSendKaspaModal() { closeOwnAddressPicker(); closeCoinControlPicker(); if (sendKaspaModal) sendKaspaModal.hidden = true; }
+function closeSendKaspaModal() {
+  closeOwnAddressPicker();
+  closeCoinControlPicker();
+  const wasOpen = sendKaspaModal && !sendKaspaModal.hidden;
+  if (sendKaspaModal) sendKaspaModal.hidden = true;
+  // Whoever opened it to top up an address (kUSDT's Fund This Address, KaPay 3d126db) hears how it
+  // ended: a send went out, or not. Once per opening.
+  const onClosed = sendKaspaOnClosed;
+  sendKaspaOnClosed = null;
+  if (wasOpen && onClosed) { try { onClosed({ sent: sendKaspaSentThisOpen }); } catch { /* the opener's own problem */ } }
+}
+let sendKaspaOnClosed = null;
+let sendKaspaSentThisOpen = false;
 // The screen is built from the shared Send Kaspa pieces (send-kaspa-components.js, iOS 4d0324f),
 // mounted before the element lookups below.
 mountSendPieces(sendKaspaModal, {
@@ -14966,6 +15203,7 @@ const sendKaspaController = makeSendController({
   // iOS parity: a send from the CHATTING address (not a spending index, not a
   // compound) surfaces as a chat with the destination holding the payment bubble.
   onSent: ({ txid, destination, amountKas }) => {
+    if (txid) sendKaspaSentThisOpen = true;
     // A request paid as a chat payment already has its bubble in that chat.
     if (sendKaspaPaidAsChatPayment) { sendKaspaPaidAsChatPayment = false; return; }
     if (sendKaspaCompound || sendKaspaSourceIndex != null) return;
@@ -14983,6 +15221,8 @@ function openSendKaspaModal(options = {}) {
   }
   sendKaspaCompound = Boolean(options?.compound);
   sendKaspaSourceIndex = spendingIndex;
+  sendKaspaOnClosed = typeof options?.onClosed === "function" ? options.onClosed : null;
+  sendKaspaSentThisOpen = false;
   sendKaspaSourceLabel = null;
   // From an address's own page the Kaspa leaves from that address, with no other to pick (iOS
   // 7a8102b); every other send keeps the choice.
@@ -32598,6 +32838,7 @@ queueMicrotask(async () => {
       openSpendingAddresses: () => openSpendingManageScreen(),
     });
   } catch (error) { appendEngineLog(`initSwaps did not start: ${error?.message || error}`); }
+  try { initKusdt(); } catch (error) { appendEngineLog(`kUSDT did not start: ${error?.message || error}`); }
   try {
     initNextcloud({
       accountScopedKey, escapeHtml, appendEngineLog,
