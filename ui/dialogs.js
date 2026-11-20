@@ -264,7 +264,7 @@ export function chooseDialog({ title, message = "", messageHtml = "", kicker = n
       </div>` : `
       <div class="cold-action-rows">
         ${list.map((option) => `
-          <button type="button" class="cold-action-row${option.destructive ? " cold-action-row-danger" : ""}" data-app-dialog-choice="${escape(option.id)}">
+          <button type="button" class="cold-action-row${option.destructive ? " cold-action-row-danger" : ""}" data-app-dialog-choice="${escape(option.id)}"${option.disabled ? " disabled" : ""}>
             <span class="cold-action-copy">
               <strong>${escape(option.title)}</strong>
               ${option.subtitle ? `<small>${escape(option.subtitle)}</small>` : ""}

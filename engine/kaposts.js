@@ -552,19 +552,33 @@ export function checkKaPostPayloadFits(payloadBytes) {
   throw error;
 }
 
+/** Every KaPost action belongs to the account that signed it (KaPost iOS f954738 expectedOwner):
+ *  one that changed before it went out is refused, so account A's signed action never goes out from
+ *  account B and ties the two together on chain. */
+export const KAPOST_ACCOUNT_CHANGED = "KAPOST_ACCOUNT_CHANGED";
+export function kapostAccountChangedError() {
+  const error = new Error("The account changed before this went out. Nothing was sent.");
+  error.code = KAPOST_ACCOUNT_CHANGED;
+  return error;
+}
+
 async function submitKaPostPayload(engine, protocolString) {
   if (!engine?.kaspa || !engine?.privateKey || !engine?.address) {
     throw new Error("Load WASM and generate/import a wallet first.");
   }
   checkKaPostPayloadFits(new TextEncoder().encode(protocolString).length);
+  // The account the payload was just signed by, and its key, taken before anything waits.
+  const owner = engine.address;
+  const privateKey = engine.privateKey;
   await engine.connect();
+  if (engine.address !== owner) throw kapostAccountChangedError();
   const sendResult = await sendPayloadTransaction({
     kaspa: engine.kaspa,
     rpc: engine.rpc,
     withRpc: engine.withRpc.bind(engine),
-    privateKey: engine.privateKey,
-    sourceAddress: engine.address,
-    destinationAddress: engine.address, // SELF-SEND — the indexer ingests the payload
+    privateKey,
+    sourceAddress: owner,
+    destinationAddress: owner, // SELF-SEND — the indexer ingests the payload
     amountKas: KAPOST_ACTION_AMOUNT_KAS,
     feeKas: "0",
     payload: new TextEncoder().encode(protocolString),
@@ -572,7 +586,7 @@ async function submitKaPostPayload(engine, protocolString) {
   });
   const txid = sendResult.txids?.[0] || "";
   if (!txid) throw new Error("KaPost transaction broadcast returned no txid.");
-  if (kapostActionShowsOnProfile(protocolString)) ownKaPostActivity = { address: engine.address, at: Date.now() };
+  if (kapostActionShowsOnProfile(protocolString)) ownKaPostActivity = { address: owner, at: Date.now() };
   engine.log?.(`KaPost action on-chain: ${protocolString.slice(0, 12)}… tx ${txid.slice(0, 12)}…`);
   return txid;
 }
@@ -603,7 +617,10 @@ export function lastOwnKaPostActivityAt(address) {
 export async function buildKaPostTipPayload({ engine, receiver, note = "", amountSompi, postId, authorPubkey }) {
   if (!/^[0-9a-f]{64}$/i.test(String(postId || ""))) throw new Error("This post isn't on the network yet.");
   if (!/^0[23][0-9a-f]{64}$/i.test(String(authorPubkey || ""))) throw new Error("This post has no author key.");
+  const owner = engine.address;
   const { sealedHex } = await engine.sealPaymentRecord({ receiver, note, amountSompi });
+  // Sealed for one account, signed by another: refused (KaPost iOS f954738).
+  if (engine.address !== owner) throw kapostAccountChangedError();
   return kaPostTipPayloadFor({
     pubkey: requesterPubkeyFor(engine),
     sign: (message) => signKaPostString(engine, message),

@@ -2,6 +2,7 @@
 // turning a recording into on-chain parts, the parts' envelopes, and drawing a note or photo whose
 // parts arrive as several messages as ONE bubble.
 
+import { guardedImageBlobUrl } from "./image-guard.js";
 import {
   MAX_PARTS, VOICE_PATHS, makePartTag, newPartGroupId, voicePartFileName, photoPartFileName,
   photoChunks, sniffPartTag,
@@ -150,9 +151,10 @@ export function joinedPhoto(texts) {
     const out = new Uint8Array(total);
     let offset = 0;
     for (const bytes of parts) { out.set(bytes, offset); offset += bytes.length; }
-    // The parts' own type: a GIF's parts join into a GIF (KaChat iOS d7c56280).
+    // The parts' own type: a GIF's parts join into a GIF (KaChat iOS d7c56280). Checked from its
+    // headers like any received picture (ui/image-guard.js).
     const mime = /"mimeType"\s*:\s*"(image\/[a-z0-9.+-]+)"/i.exec(String(texts[0] || "").slice(0, 2048))?.[1] || "image/jpeg";
-    return URL.createObjectURL(new Blob([out], { type: mime }));
+    return guardedImageBlobUrl(out, mime);
   });
 }
 

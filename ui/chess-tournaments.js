@@ -1610,8 +1610,15 @@ function checkWaitingRoom() {
 
 // --- Tournament: seats or bracket (no lobby chat; iOS cd6aed5) ---
 
+// Which of a tournament's games are decided, as last drawn: the tick redraws when one runs out.
+let paintedTournamentDecided = "";
+function tournamentDecidedKey(t) {
+  if (!t?.games) return "";
+  return Object.values(t.games).map((game) => `${game.id}:${T.isDecided(game, now) ? T.decidedWinner(game, now) || "-" : ""}`).join("|");
+}
 function renderTournament() {
   const t = tournaments[view.tournamentId];
+  paintedTournamentDecided = tournamentDecidedKey(t);
   if (!t) return `${headerHtml("Tournament", { back: true })}<div class="chess-t-body"><p class="field-hint">Loading the tournament from the arena…</p></div>`;
   const my = me();
   const status = T.tournamentStatus(t);
@@ -1657,7 +1664,7 @@ function renderTournament() {
         icon: null,
         title: gameNamesHtml(game, { chainWinner: true }),
         subtitle: esc(game.winner && game.outcome ? outcomeText(game, { short: true }) : `Move ${Math.floor(game.moves.length / 2) + 1} · ${game.board.sideToMove} to move`),
-        trailing: game.winner ? "" : `<span class="chess-t-row-action mono" data-chess-t-clock-for="${esc(keyOf(t.id, game.id))}">${clockText(T.remainingMs(game, game.board.sideToMove, now))}</span>`,
+        trailing: T.isDecided(game, now) ? "" : `<span class="chess-t-row-action mono" data-chess-t-clock-for="${esc(keyOf(t.id, game.id))}">${clockText(T.remainingMs(game, game.board.sideToMove, now))}</span>`,
         attrs: `data-chess-t-game="${esc(game.id)}"`,
       })).join("")}</div>`;
     }
@@ -1694,17 +1701,20 @@ function bracketHtml_(t) {
   join(colX[0], [r1Y[2], r1Y[3]], colX[1], semiY[1]);
   join(colX[1], [semiY[0], semiY[1]], colX[2], finalY);
   join(colX[2], [finalY], colX[3], finalY);
+  // Decided by the clock too (KaPlay iOS 32e6392 decidedWinner(at:)): a game lost on time with no
+  // claim yet shows its winner, not "LIVE 0:00" forever.
   const playerRow = (address, game) => {
-    const isWinner = game.winner === address;
-    const isLoser = Boolean(game.winner) && !isWinner;
-    const toMove = !game.winner && T.addressOf(game, game.board.sideToMove) === address;
+    const winner = T.decidedWinner(game, now);
+    const isWinner = winner === address;
+    const isLoser = Boolean(winner) && !isWinner;
+    const toMove = !T.isDecided(game, now) && T.addressOf(game, game.board.sideToMove) === address;
     return `<span class="chess-t-br-player${isLoser ? " lost" : ""}">${avatarFor(address, "chess-t-avatar tiny")}<b>${esc(nameFor(address))}</b>${isWinner ? `<i class="win">✓</i>` : toMove ? `<i class="dot"></i>` : ""}</span>`;
   };
   const placeholderRow = (text) => `<span class="chess-t-br-player placeholder"><span class="chess-t-avatar tiny empty"></span><b>${esc(text)}</b></span>`;
   const card = (gameId, ph, x, y) => {
     const game = t.games[gameId];
     const mine = Boolean(game && my && (game.white === my || game.black === my));
-    const live = game && !game.winner;
+    const live = game && !T.isDecided(game, now);
     return `
       <button class="chess-t-br-card${mine ? " mine" : ""}${game ? "" : " empty"}" type="button" style="left:${x}px;top:${y}px" ${game ? `data-chess-t-game="${esc(game.id)}"` : "disabled"}>
         ${game ? playerRow(game.white, game) : placeholderRow(ph[0])}
@@ -2306,6 +2316,8 @@ export function showChessTournaments() {
     takeHeldBotChallengeIfReady();
     // A flag on the clock frees the board, shows Claim win and lifts the waiting overlay.
     if (view.name === "game" && gameScreenState(tournaments[view.tournamentId]?.games[view.gameId]) !== paintedGameState) render();
+    // A bracket or game list whose game just ran out of time: drawn again with its winner.
+    if (view.name === "tournament" && tournamentDecidedKey(tournaments[view.tournamentId]) !== paintedTournamentDecided) render();
     renderClocks();
   }, TICK_MS);
   showWaitingRoomIfSeated();

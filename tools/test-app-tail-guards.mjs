@@ -371,8 +371,9 @@ await test("photo preview Share keeps only a plain image name from the sender", 
   for (const name of ["beach.png", "invoice.html", "../../x.jpg", "", "Holiday 2026.JPEG"]) {
     const ctx = sandbox([body], {
       photoPreviewOverlay: { hidden: true, querySelector: () => null, classList: { toggle() {} } },
-      photoPreviewImage: { style: {} },
+      photoPreviewImage: { style: {}, classList: { remove() {} } },
       setPhotoPreviewZoom() {},
+      setGuardedImageSrc() {},
     });
     ctx.fns.openPhotoPreview("data:image/png;base64,eA==", name);
     names.push(ctx.scope.photoPreviewName);

@@ -28,6 +28,7 @@ import { groupParts, unreadUnits, isLaterPart, sniffPartTag, VOICE_PATHS, voiceP
 import * as VoiceNotes from "./voice-notes.js";
 import { loadPhotoSource, prepareJpegForTiers } from "./photo-tiers.js";
 import { isAnimatedGif, prepareGifForTiers, GifNotAnimatedError } from "./gif.js";
+import { setGuardedImageSrc, planForDataUrl } from "./image-guard.js";
 import { initKaPosts, refreshKaPostsFeed, resetKaPostsForAccount, openKaPostFromNotification, kaPostsFollowingAddresses, stopKaPostsPolling, peekKaPostLinkPreview, resolveKaPostLinkPreview, canOfferTextTranslation, textTranslationState, translatedTextFor, showOriginalText, showTranslatedText, readerLanguageName, translateText, onTranslationChange, showKaPostsActionToast } from "./kaposts.js";
 import { allowsPreviewPage, allowsPreviewImage, socialPreviewBrand, isSameSiteHost } from "../engine/link-preview-policy.js";
 import { SOCIAL_LOGOS } from "./social-logos.js";
@@ -36,7 +37,7 @@ import { fetchFollowListAll, requesterPubkeyFor, kaspaAddressFromPubkey, KAPOSTS
 import { initBroadcasts, refreshBroadcasts, repaintBroadcastIdentities, resetBroadcastsForAccount, stopBroadcastPolling, openBroadcastChannelFromNotification, openBroadcastRoomFromLink, broadcastUnreadTotal, broadcastJoinError, joinBroadcastChannelFromSheet, chatListRooms, openBroadcastRoom, closeBroadcastRoom, markBroadcastRooms, removeBroadcastRooms, setBroadcastRoomNotify, copyBroadcastRoomLink } from "./broadcasts.js";
 import { initChessTournaments, showChessTournaments, hideChessTournaments, resetChessTournamentsForAccount, chessTournamentsMayLeave, openChessBotChallenge } from "./chess-tournaments.js";
 import { parseBotChallengeLink, botChallengeFromLaunchSearch } from "../engine/chess-bot-links.js";
-import { initKachatNamesRuntime, kachatNames, kachatNamesUiEnabled, kachatNamesLaunched, kachatProfiles } from "./kachat-names-runtime.js";
+import { initKachatNamesRuntime, kachatNames, kachatNamesUiEnabled, kachatNamesLaunched, kachatProfiles, kachatVerifiedLabel, kachatLabelChecking, verifyKachatLabel } from "./kachat-names-runtime.js";
 import { PHOTO_UNLOCK_DELAY_MS, photosUnlockTime, photosAreHidden } from "./photo-unlock.js";
 import { createProfileRescans } from "./profile-rescan.js";
 import { kachatHeroProfile, kachatCachedOwnedNameCount, onKachatSocialChange, kachatImageSrc, kachatCachedIdentity, kachatCachedLabel, kachatCachedDisplayLabel, kachatNameDisplay, kachatShowsEndings, setKachatShowsEndings, kachatCachedAvatarUrl, kachatCachedProfilePieces, onKachatIdentityChange, kachatRetryImage, kachatOwnersOfNames, kachatHeldNamesOf, kachatRescanProfile, kachatOwnedNameCount, onKachatRegistryChange, kachatClearProfileCache, kachatExpiredNames, startKachatUnnamedIdentitySweep } from "./kachat-names-live.js";
@@ -1892,6 +1893,10 @@ function removeSavedAccountFromDevice(account, context = null) {
   }
   // Its keys opened in this tab go too: they must not outlive the account in memory (iOS 3942a5b7).
   forgetAccountSecrets(address);
+  // The profile caches go with it (KaChat iOS 5b7c772c audit #15, CacheManager.clearAll): avatars,
+  // banners, bios and name records it loaded, which can tie it to the people it saw.
+  try { kachatClearProfileCache().catch(() => {}); } catch { /* not loaded yet */ }
+  try { clearAllKnsCache(); } catch { /* not loaded yet */ }
   // Its own password and Face ID record protect nothing now, whether or not other accounts remain;
   // the shared one goes once no account is left in it.
   if (releaseAppPasswordIfUnused()) refreshPasswordStatus();
@@ -2033,7 +2038,8 @@ function openPhotoPreview(dataUrl, name = "") {
   // image ending, so a "photo" can't land in Downloads as invoice.html (saveAudioEnvelope's rule).
   const offered = String(name || "").trim();
   photoPreviewName = /^[\w][\w .-]{0,79}\.(jpe?g|png|gif|webp|heic|heif|avif|bmp)$/i.test(offered) ? offered : "photo.jpg";
-  photoPreviewImage.src = dataUrl;
+  photoPreviewImage.classList.remove("image-blocked");
+  setGuardedImageSrc(photoPreviewImage, dataUrl);
   const title = photoPreviewOverlay.querySelector("[data-photo-preview-title]");
   if (title) title.textContent = String(name || "").trim() || "Photo";
   photoPreviewImage.style.transformOrigin = "";
@@ -10659,7 +10665,7 @@ function spendingRowHtml(index, address, state, balanceText, used, hasDomain = f
     `<button type="button" role="menuitem" class="spending-row-menu-item" data-spending-action="hide" data-index="${index}">Hide Address</button>`,
   ].join("");
   return `
-    <div class="spending-address-row" data-spending-row="${index}">
+    <div class="spending-address-row" data-spending-row="${index}"${funded ? " data-spending-funded" : ""}>
       <button type="button" class="spending-address-row-main" data-spending-open="${index}" aria-label="Open ${escapeHtml(label)}">
         <span class="spending-address-label">${escapeHtml(label)}${shield}</span>
         <span class="spending-address-value">${escapeHtml(spendingShortAddress(address))}</span>
@@ -11221,12 +11227,18 @@ spendingListEl?.addEventListener("click", async (event) => {
       { id: "rename", title: "Rename Address", subtitle: "Gives this address a label of your own." },
       { id: "copy", title: "Copy Address", subtitle: "Puts the full address on the clipboard." },
       { id: "receive", title: "Show QR Code", subtitle: "Full screen, for scanning with another device." },
+      // KaChat iOS 5b7c772c / KaPay 17bda71: this address's Kaspa to the chatting address.
+      { id: "send-chatting", title: "Send to Chatting Address", subtitle: "Moves Kaspa from this address to your Chatting Address.", disabled: !menuToggle.closest("[data-spending-row]")?.hasAttribute("data-spending-funded") },
       { id: "hide", title: "Hide Address", subtitle: "Removes it from this list. Re-enable it in Address Visibility." },
     ];
     // Its own label, else "Address N" (iOS addressRowActionsSheet), over the short address.
     const label = spendingCustomLabel(state, index);
     // By the number on its row (iOS d1844582 addressNumber).
     const choice = await chooseDialog({ title: label || `Address ${addressNumber(index)}`, message: address ? spendingShortAddress(address) : "", options });
+    if (choice === "send-chatting") {
+      if (engine.address) openSendKaspaModal({ spendingIndex: index, lockSource: true, prefillAddress: engine.address });
+      return;
+    }
     if (choice) spendingListEl.querySelector(`[data-spending-action="${choice}"][data-index="${index}"]`)?.click();
     return;
   }
@@ -13324,7 +13336,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 304;
+const APP_BUILD = 305;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -13817,6 +13829,14 @@ const MAX_CAPPED_NOTE = `Max is what one transaction can carry: its largest ${MA
 // amountSompi, outpoints }. The send pays exactly amountSompi from exactly those coins, or refuses.
 let sendKaspaMaxPin = null;
 let sendKaspaMaxToken = 0;
+// The Max that typing stopped (KaPlay iOS 32e6392 exact Max): typing while Max is still being worked
+// out ends it, so its answer can't overwrite what was typed nor leave its all-coins fee behind.
+let sendKaspaMaxStopped = -1;
+function stopSendKaspaMaxForTyping() {
+  sendKaspaMaxMode = false;
+  sendKaspaMaxStopped = sendKaspaMaxToken;
+  sendKaspaMaxToken += 1;
+}
 let sendKaspaFeeTier = "normal";
 let sendKaspaUtxos = [];           // UTXO entries at the source address, for coin control
 const sendKaspaSelected = new Set();
@@ -13990,8 +14010,8 @@ wireKeypad(sendKaspaAmountBody.querySelector(".ss-keypad"), (key) => {
   if (!sendKaspaAmountInput || sendKaspaPaymentRequest || sendKaspaSlider.busy) return false;
   const next = applyKeypadKey(key, sendKaspaAmountInput.value, sendKaspaUnit === "fiat" && selectedCurrency !== "btc" ? 2 : 8);
   if (next === sendKaspaAmountInput.value) return false;
-  // A key press stops treating the amount as Max (iOS onKeyTyped).
-  sendKaspaMaxMode = false;
+  // A key press stops treating the amount as Max (iOS onKeyTyped), and a Max still running.
+  stopSendKaspaMaxForTyping();
   setSendKaspaError("");
   sendKaspaAmountInput.value = next;
   sendKaspaAmountInput.dispatchEvent(new Event("input"));
@@ -14510,6 +14530,15 @@ async function fillMaxAmountNow() {
   // The fee Max worked out, put back once the amount is in (keepMaxFee): anything that cleared the
   // fee while Max was busy must not leave Review with "--" and a spinning Total.
   let maxFee = null;
+  // Stopped by typing after its fee went in: the fee from before Max, and the typed amount's own
+  // estimate again.
+  const maxSuperseded = () => {
+    if (!maxFee || sendKaspaMaxStopped !== token || sendKaspaMaxMode) return;
+    sendKaspaBaseFeeKas = feeBefore.base;
+    sendKaspaSdkBaseKas = feeBefore.sdkBase;
+    applySendKaspaFeeField();
+    scheduleSendKaspaFeeEstimate();
+  };
   const keepMaxFee = () => {
     if (!maxFee || sendKaspaBaseFeeKas === maxFee.base) return;
     sendKaspaBaseFeeKas = maxFee.base;
@@ -14537,7 +14566,7 @@ async function fillMaxAmountNow() {
       applySendKaspaFeeField();
     }
   } catch { /* keep whatever base fee we have */ }
-  if (token !== sendKaspaMaxToken || source !== sendKaspaSourceIndex) return; // superseded
+  if (token !== sendKaspaMaxToken || source !== sendKaspaSourceIndex) { maxSuperseded(); return; }
 
   const fiatDecimals = selectedCurrency === "btc" ? 8 : 2;
   if (sendKaspaCompound) {
@@ -14574,7 +14603,7 @@ async function fillMaxAmountNow() {
     restoreFee();
     return;
   }
-  if (token !== sendKaspaMaxToken || source !== sendKaspaSourceIndex) return; // superseded
+  if (token !== sendKaspaMaxToken || source !== sendKaspaSourceIndex) { maxSuperseded(); return; }
   // Available follows the coins Max was just computed from (reserved ones left out).
   sendKaspaAvailableKas = Number(plan.availableSompi) / 1e8;
   renderSendKaspaSourcePill(kasTextFromSompi(plan.availableSompi));
@@ -14656,7 +14685,7 @@ async function sendKaspaPinnedMax(destination, selectedOutpoints) {
 sendKaspaMaxButton?.addEventListener("click", () => { fillMaxAmount(); });
 // Any USER edit of the amount leaves max mode (the programmatic fill from fillMaxAmount
 // dispatches an untrusted Event, so it never clears its own flag).
-sendKaspaAmountInput?.addEventListener("input", (event) => { if (event.isTrusted) sendKaspaMaxMode = false; });
+sendKaspaAmountInput?.addEventListener("input", (event) => { if (event.isTrusted) stopSendKaspaMaxForTyping(); });
 
 sendKaspaPasteButton?.addEventListener("click", async () => {
   try {
@@ -17956,21 +17985,15 @@ function createChatEffectiveAddress() {
 function resolutionCardName(address, domain = null, onLabel = null) {
   if (domain) return domain;
   if (kachatNamesUiEnabled()) {
-    const label = kachatCachedDisplayLabel(address);
-    if (label) return label;
-    if (typeof onLabel === "function") {
-      const pending = resolutionCardName.pending || (resolutionCardName.pending = new Map());
-      pending.set(address, onLabel);
-      if (!resolutionCardName.listening) {
-        resolutionCardName.listening = true;
-        onKachatIdentityChange(() => {
-          const due = [...pending.entries()].filter(([a]) => kachatCachedLabel(a));
-          for (const [a, repaint] of due) {
-            pending.delete(a);
-            try { repaint(a); } catch { /* cosmetic */ }
-          }
-        });
-      }
+    // Only a label the chain confirmed (KaPost iOS f954738 AddressResolutionCard): the indexer's
+    // word alone never names who you pay. The card is drawn again once the check is in.
+    const label = kachatVerifiedLabel(address);
+    if (label) return kachatNameDisplay(label);
+    const checking = verifyKachatLabel(address);
+    // Drawn again once a check that is running now ends (never for an answer already in, which
+    // would draw forever); each caller's repaint checks the address is still the one it shows.
+    if (typeof onLabel === "function" && kachatLabelChecking(address)) {
+      checking.then(() => { try { onLabel(address); } catch { /* cosmetic */ } });
     }
   }
   const info = engine.peekKnsAddressInfo?.(address);
@@ -17983,6 +18006,8 @@ function resolutionCardName(address, domain = null, onLabel = null) {
 /// lookups count for a minute (state on the function object, as resolutionCardName's).
 function resolutionCardLooking(address) {
   if (!address || !isValidKaspaAddressString(address)) return false;
+  // a .kachat label still being confirmed on the chain (KaPost iOS f954738)
+  if (kachatLabelChecking(address)) return true;
   if (engine.peekKnsAddressProfile?.(address) || engine.peekKnsAddressInfo?.(address)) return false;
   const endedAt = resolutionCardLooking.ended?.get(address);
   return !(endedAt && Date.now() - endedAt < 60_000);
@@ -19240,8 +19265,9 @@ function renderMessages(conversationEntry) {
         bubble.classList.add("photo-bubble");
         const img = document.createElement("img");
         img.className = "message-photo";
-        img.src = imageEnvelope.content;
         img.alt = imageEnvelope.name || "Photo";
+        // Checked from its headers first (KaChat iOS 5b7c772c audit #2): ui/image-guard.js.
+        setGuardedImageSrc(img, imageEnvelope.content);
         img.addEventListener("click", () => openPhotoPreview(imageEnvelope.content, imageEnvelope.name));
         bubble.append(img);
       }
@@ -27469,6 +27495,25 @@ function applyLocalEdit(conversationEntry, targetTxId, editorAddress, text, at, 
 // Matches iOS's MessageReactionContent: reactions are sent as a normal
 // message but intercepted before ever being appended to the conversation —
 // they only ever update the reactions store, never render as their own bubble.
+/** One emoji (iOS MessageReactionCodec.isReactionEmoji): one grapheme of at most 48 UTF-8 bytes,
+ *  starting with an emoji, made only of emoji, modifiers, VS16, ZWJ, the keycap mark and tags, and
+ *  shown as an emoji (emoji presentation, or more than one scalar). */
+function isReactionEmoji(text) {
+  const value = String(text || "");
+  if (!value || new TextEncoder().encode(value).length > 48) return false;
+  try {
+    const graphemes = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
+    if (graphemes.length !== 1) return false;
+  } catch { /* no Segmenter: the scalar rules below still hold */ }
+  const scalars = [...value];
+  if (!/^\p{Emoji}$/u.test(scalars[0])) return false;
+  const allParts = scalars.every((ch) => {
+    const code = ch.codePointAt(0);
+    return /^\p{Emoji}$/u.test(ch) || /^\p{Emoji_Modifier}$/u.test(ch)
+      || code === 0xfe0f || code === 0x200d || code === 0x20e3 || (code >= 0xe0020 && code <= 0xe007f);
+  });
+  return allParts && (/^\p{Emoji_Presentation}$/u.test(scalars[0]) || scalars.length > 1);
+}
 function parseReactionEnvelope(text) {
   const trimmed = String(text || "").trim();
   if (!trimmed.startsWith("{") || trimmed.length > 200000) return null;
@@ -27478,6 +27523,9 @@ function parseReactionEnvelope(text) {
     const targetTxId = String(parsed.targetTxId || "");
     const emoji = String(parsed.emoji || "");
     if (!targetTxId || !emoji || targetTxId.length > 200 || isUnsafeObjectKey(targetTxId)) return null;
+    // Not one real emoji (KaChat iOS 5b7c772c audit #12): read as taking that sender's reaction
+    // away, so it never shows as a pill of arbitrary text nor falls through as a JSON bubble.
+    if (!isReactionEmoji(emoji)) return { targetTxId, emoji: "", action: "remove" };
     return { targetTxId, emoji, action: parsed.action === "remove" ? "remove" : "add" };
   } catch {
     return null;
@@ -33640,7 +33688,10 @@ function groupPhotoDataUrl(hex) {
   try {
     let bin = "";
     for (let i = 0; i < hex.length; i += 2) bin += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
-    return "data:image/jpeg;base64," + btoa(bin);
+    const url = "data:image/jpeg;base64," + btoa(bin);
+    // Any member can set it: one that isn't a plain picture of sane size shows the group glyph
+    // (KaChat iOS 5b7c772c audit #2).
+    return planForDataUrl(url) === "show" ? url : "";
   } catch { return ""; }
 }
 function groupPhotoHexFromDataUrl(dataUrl) {
@@ -34687,8 +34738,8 @@ function renderGroupMessages() {
       bubble.classList.add("photo-bubble");
       const img = document.createElement("img");
       img.className = "message-photo";
-      img.src = imageEnvelope.content;
       img.alt = imageEnvelope.name || "Photo";
+      setGuardedImageSrc(img, imageEnvelope.content);
       img.addEventListener("click", () => openPhotoPreview(imageEnvelope.content, imageEnvelope.name));
       bubble.append(img);
     } else if (audioEnvelope) {

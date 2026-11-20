@@ -20,7 +20,7 @@
 //    `kachatProfiles()` is the registry runtime itself.
 import { getEndpoint } from "../engine/endpoints.js";
 import { KachatNamesService } from "../engine/kachat-names/service.js";
-import { KachatNamesRegistry } from "../engine/kachat-names/registry.js";
+import { KachatNamesRegistry, addressOf as registryAddressOf } from "../engine/kachat-names/registry.js";
 import { KachatNamesActions } from "../engine/kachat-names/actions.js";
 
 let runtime = null;
@@ -119,6 +119,58 @@ function initProfilesOnly(engine) {
 
 /** The shared registry runtime, or null where the registry is not launched or before init. */
 export function kachatNames() { return runtime; }
+
+// --- .kachat names on payment screens, confirmed on the chain (KaPost iOS f954738 verifyLabel) ---
+// A payment card names an address by its .kachat label only once the chain backs it: the label the
+// identity gives, looked up as a registered name of that same owner, not lapsed, and the record held
+// by a node (confirmOnChain). The indexer's word alone never names who you pay. Kept ten minutes; one
+// check per address at a time; a check that couldn't finish isn't kept.
+const VERIFIED_LABEL_MAX_AGE_MS = 600_000;
+const verifiedLabels = new Map();
+const labelChecks = new Map();
+const labelCheckFailedAt = new Map();
+/** The address's confirmed label (in the last ten minutes), else null. Never starts a check. */
+export function kachatVerifiedLabel(address) {
+  const entry = verifiedLabels.get(String(address || "").trim().toLowerCase());
+  return entry && Date.now() - entry.at < VERIFIED_LABEL_MAX_AGE_MS ? entry.label : null;
+}
+/** Whether a check for the address is running now. */
+export function kachatLabelChecking(address) {
+  return labelChecks.has(String(address || "").trim().toLowerCase());
+}
+/** Confirms the address's label on the chain: the label, or null (no name, or none confirmed). */
+export function verifyKachatLabel(address) {
+  const key = String(address || "").trim().toLowerCase();
+  if (!runtime || !KachatNamesService.isLaunched || !KachatNamesService.profilesEnabled || !KachatNamesRegistry.keyOf(key)) return Promise.resolve(null);
+  const cached = verifiedLabels.get(key);
+  if (cached && Date.now() - cached.at < VERIFIED_LABEL_MAX_AGE_MS) return Promise.resolve(cached.label);
+  if (labelChecks.has(key)) return labelChecks.get(key);
+  // one that couldn't be checked is asked again after a minute, not on every redraw
+  if (Date.now() - (labelCheckFailedAt.get(key) || 0) < 60_000) return Promise.resolve(null);
+  const { registry, service } = runtime;
+  const check = (async () => {
+    let identity;
+    try { identity = await registry.identity(key); } catch { return undefined; }
+    const candidate = identity?.label;
+    if (!candidate) return null;
+    try {
+      const found = await registry.lookup(candidate);
+      const n = found?.kind === "registered" ? found.info : null;
+      if (!n || n.name !== candidate) return null;
+      if (String(KachatNamesRegistry.addressOf?.(n.owner) ?? registryAddressOf(n.owner) ?? "").toLowerCase() !== key) return null;
+      if (n.status(registry.graceMs, Date.now()) === "lapsed") return null;
+      await registry.confirmOnChain(n, service);
+      return candidate;
+    } catch { return undefined; }
+  })().then((answer) => {
+    labelChecks.delete(key);
+    if (answer === undefined) { labelCheckFailedAt.set(key, Date.now()); return null; } // couldn't be checked: not kept
+    verifiedLabels.set(key, { label: answer, at: Date.now() });
+    return answer;
+  });
+  labelChecks.set(key, check);
+  return check;
+}
 
 /** The runtime for address profiles on every network (`{ engine, service, registry, actions }`):
  *  the registry runtime where it is launched, else the profile-only one (inert registry). Null

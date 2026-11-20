@@ -126,6 +126,24 @@ function holdForSubmit(keys, now = Date.now()) {
 function releaseHeld(keys) {
   for (const key of keys || []) justSpent.delete(key);
 }
+/** "txid:index" keys of the outpoints a node's message names: a 64-hex id then its index, as
+ *  "(txid, 1)", "(txid: 1)" or "txid:1" (KaPay iOS 3d126db outpointsNamed). */
+export function outpointsNamedIn(message) {
+  const keys = new Set();
+  for (const match of String(message || "").toLowerCase().matchAll(/([0-9a-f]{64})\s*[:,]\s*([0-9]+)/g)) keys.add(`${match[1]}:${match[2]}`);
+  return keys;
+}
+/** After a refusal (KaPay iOS 3d126db releaseUnlessSpent): every coin is free again, unless the node
+ *  said "spent" - then only the coins it named stay held (another send of ours may have spent
+ *  them), or all of them when it named none of this transaction's. */
+export function releaseUnlessSpent(held, error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  if (!(message.includes("spent") || message.includes("double spend"))) { releaseHeld(held); return; }
+  const named = outpointsNamedIn(message);
+  const spent = (held || []).filter((key) => named.has(String(key).toLowerCase()));
+  if (!spent.length) return;
+  releaseHeld((held || []).filter((key) => !spent.includes(key)));
+}
 export function excludeJustSpentUtxos(entries, now = Date.now()) {
   if (!justSpent.size) return entries;
   for (const [key, until] of justSpent) if (until <= now) justSpent.delete(key);
@@ -315,8 +333,8 @@ export async function submitConfirmingAcceptance({ rpc = null, withRpc = null, s
     // Not after an unknown outcome: a resend then builds on the same coins, so the network can only
     // take one of the two. After a refusal the coins are free again - unless the node said they
     // are already spent, which another send of ours may have done.
-    const message = String(error?.message || error || "").toLowerCase();
-    if (error?.code === SEND_OUTCOME_UNKNOWN || !(message.includes("spent") || message.includes("double spend"))) releaseHeld(held);
+    if (error?.code === SEND_OUTCOME_UNKNOWN) releaseHeld(held);
+    else releaseUnlessSpent(held, error);
     throw error;
   }
   noteSpentOutpoints(spends);

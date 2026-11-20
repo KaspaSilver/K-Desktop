@@ -145,7 +145,7 @@ assert.doesNotMatch(kaposts, /keptNotificationsPanel = \{ panel, loadedAt: Date\
 assert.match(kaposts, /if \(threadRootProbe\.get\(post\.remoteId\) === false\) threadRootProbe\.delete\(post\.remoteId\);/, "a failed probe is unclaimed");
 
 const engineKaposts = readFileSync(new URL("../engine/kaposts.js", import.meta.url), "utf8");
-assert.match(engineKaposts, /if \(kapostActionShowsOnProfile\(protocolString\)\) ownKaPostActivity = \{ address: engine\.address, at: Date\.now\(\) \};/);
+assert.match(engineKaposts, /if \(kapostActionShowsOnProfile\(protocolString\)\) ownKaPostActivity = \{ address: owner, at: Date\.now\(\) \};/);
 
 const names = readFileSync(new URL("../engine/kachat-names/actions.js", import.meta.url), "utf8");
 const combine = names.slice(names.indexOf("async combineCoins(s) {"), names.indexOf("async _build("));
