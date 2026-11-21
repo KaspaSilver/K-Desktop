@@ -196,6 +196,14 @@ export function broadcastUnreadTotal() {
   for (const name of listedChannels()) total += unreadFor(name);
   return total;
 }
+/** The rooms' share of the Chats badge (KaChat 148a5331 AppTabBadge .chats): unread in the listed
+ *  rooms whose bell is on. */
+export function broadcastNotifyingUnreadTotal() {
+  if (!deps) return 0;
+  let total = 0;
+  for (const name of listedChannels()) if (notifyByChannel[name]) total += unreadFor(name);
+  return total;
+}
 // --- Select mode (iOS e08c4cc): rooms picked in bulk for Mark as Read / Unread / Delete --------
 let roomSelectionActive = false;
 const selectedRooms = new Set();
@@ -399,8 +407,9 @@ export function setAllLanguageRooms(shown) {
   }
 }
 
-/** Public Chats settings, behind the gear at the top right of the tab. */
-function openPublicChatsSettings() {
+/** Edit Default Public Chats, from the Chats New sheet (KaChat 148a5331; it was the gear on the
+ *  Public Chats screen). */
+export function openPublicChatsSettings() {
   // iOS PublicChatsSettingsView (d37f64d): a Form titled "Public Chats" with Done, a Popular
   // section with its footer, then the Languages switch - every language room off at once, and
   // while it is on, each language with its own switch. Each room a toggle with its language under
@@ -3361,7 +3370,6 @@ export function initBroadcasts(dependencies) {
   }
 
   document.querySelector("[data-broadcast-back]")?.addEventListener("click", closeRoom);
-  document.querySelector("[data-public-chats-settings]")?.addEventListener("click", openPublicChatsSettings);
   // The bell in the room's top-right: on or off, on a sheet (iOS eff5c09).
   document.querySelector("[data-broadcast-room-bell]")?.addEventListener("click", async () => {
     const name = activeChannel;

@@ -4,7 +4,8 @@
 // and narrow windows keep a bottom bar of five, the last of which is More, holding the rest.
 // The old saved arrangement (Kaspa Hub and its Customize Dock moves) was removed in Build 289.
 export const RAIL_ORDER = [
-  "chats", "broadcasts", "address-book",
+  // No Public Chats item (owner, 2026-11-21, KaChat 148a5331): its rooms are rows in Chats.
+  "chats", "address-book",
   "kaposts",
   "wallet", "portfolio", "cold-storage", "kachat-names", "swaps",
   "chess",
@@ -12,7 +13,8 @@ export const RAIL_ORDER = [
   "kachat-stats", "apps",
   "profile", "settings",
 ];
-export const PHONE_BAR = ["chats", "broadcasts", "wallet", "profile", "hub"];
+// iOS's default dock (KaChat 148a5331): Wallet, Chats, Profile, Settings, with More for the Hub.
+export const PHONE_BAR = ["chats", "wallet", "profile", "settings", "hub"];
 
 /** What the dock holds for the window's width: `{dock, hub}`, the hub being More's list. */
 export function dockLayoutFor(wide) {

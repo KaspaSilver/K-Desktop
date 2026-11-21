@@ -73,13 +73,14 @@ async function test(name, fn) {
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 // --- Chats and Public Chats ---------------------------------------------------------------------
-await test("Chats redraws its list whenever the list last drew rooms (Public Chats -> Wallet -> Chats)", () => {
+// Since Build 309 (KaChat 148a5331) the rooms are rows in Chats again: no Public Chats screen.
+await test("rooms are on screen while Chats is up; an old Public Chats spot lands on Chats", () => {
   const body = extractFunction(app, "setActiveAppTab");
-  assert.match(body, /appSidebar\?\.dataset\.listMode !== \(isRooms \? "rooms" : "chats"\)\) \{ try \{ renderChats\(\);/);
-  assert.match(body, /refreshBroadcasts\(\{ onScreen: isRooms \}\)/);
+  assert.match(body, /if \(tab === "broadcasts"\) tab = "chats";/);
+  assert.match(body, /refreshBroadcasts\(\{ onScreen: true \}\)/);
 });
 
-await test("an open room starts polling again when its screen comes back, and is read only on Public Chats", () => {
+await test("an open room starts polling again when its screen comes back, and is read only on Chats", () => {
   const body = extractFunction(broadcasts, "refreshBroadcasts");
   assert.match(body, /roomOnScreen = Boolean\(onScreen\)/);
   assert.match(body, /if \(!pollTimer && isIndexerTrackedBroadcastChannel\(activeChannel\)\) \{[\s\S]*startPolling\(channel\)/);
