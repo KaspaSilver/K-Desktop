@@ -61,7 +61,8 @@ const TESTNET_ENDPOINT_DEFAULTS = Object.freeze({
   kachatNamesIndexer: DEFAULT_TESTNET_INDEXER,
   knsApi: "https://api.knsdomains.org/tn10/api/v1",
   trestlyApi: "https://testnet.trestly.io/api/v1",
-  // Translating text has nothing to do with the chain: testnet uses the same service (iOS 2ca41aa).
+  // Not read: translation follows the message indexer, so it's off on testnet (KaChat iOS 148a5331,
+  // getEndpoint's FOLLOWS_MESSAGE_INDEXER). Kept so an older stored value isn't an unknown key.
   translationService: DEFAULT_MAINNET_INDEXER,
   trustedNode: "",
   nodeScan: "",
@@ -418,7 +419,14 @@ function persist() {
 
 // Returns the effective endpoint for a key (override if set and non-empty, else
 // the default). Trailing slashes are trimmed so callers can append paths safely.
+// KaPost, Public Chats and post translation run on KaChat's own indexer, so they follow the
+// message indexer (KaChat iOS 148a5331 AppSettings.kaPostIndexerURL / publicChatIndexerURL /
+// translationServiceURL = indexerURL): on testnet, where it's blank, they are off. Settings has no
+// field of their own any more, and a value saved for one of them earlier is not read.
+const FOLLOWS_MESSAGE_INDEXER = new Set(["kapostIndexer", "broadcastIndexer", "translationService"]);
+
 export function getEndpoint(key) {
+  if (FOLLOWS_MESSAGE_INDEXER.has(key)) return getEndpoint("kasiaIndexer");
   const value = overrides[key];
   const resolved = (value != null && String(value).trim()) ? String(value).trim() : (ENDPOINT_DEFAULTS[key] || "");
   return resolved.replace(/\/+$/, "");
@@ -437,7 +445,7 @@ export function getEndpointOverride(key) {
 }
 
 export function setEndpoint(key, value) {
-  if (!(key in ENDPOINT_DEFAULTS)) return;
+  if (!(key in ENDPOINT_DEFAULTS) || FOLLOWS_MESSAGE_INDEXER.has(key)) return;
   const clean = String(value ?? "").trim();
   if (!clean || clean === ENDPOINT_DEFAULTS[key]) delete overrides[key];
   else overrides[key] = clean;

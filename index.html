@@ -1121,7 +1121,6 @@
             <nav class="domains-tabs connection-tabs" aria-label="Connection type">
               <button type="button" class="domains-tab active" data-connection-tab="indexer">Indexer</button>
               <button type="button" class="domains-tab" data-connection-tab="node">Node</button>
-              <button type="button" class="domains-tab" data-connection-tab="translation">Translation</button>
               <button type="button" class="domains-tab" data-connection-tab="domains">Domains</button>
               <button type="button" class="domains-tab" data-connection-tab="explorer">Explorer</button>
             </nav>
@@ -1135,24 +1134,8 @@
                   <p class="field-hint danger" data-endpoint-error="kasiaIndexer" hidden></p>
               </div>
             </div>
-            <p class="settings-group-label">KaPost Indexer</p>
-            <div class="settings-list-card">
-              <div class="settings-page-form">
-                  <label class="field-label compact">KaPost Indexer URL
-                    <input class="field-input" type="url" data-endpoint="kapostIndexer" autocomplete="off" spellcheck="false" />
-                  </label>
-                  <p class="field-hint danger" data-endpoint-error="kapostIndexer" hidden></p>
-              </div>
-            </div>
-            <p class="settings-group-label">Public Chats Indexer</p>
-            <div class="settings-list-card">
-              <div class="settings-page-form">
-                  <label class="field-label compact">Public Chats Indexer URL
-                    <input class="field-input" type="url" data-endpoint="broadcastIndexer" autocomplete="off" spellcheck="false" />
-                  </label>
-                  <p class="field-hint danger" data-endpoint-error="broadcastIndexer" hidden></p>
-              </div>
-            </div>
+            <!-- KaChat iOS 148a5331: one indexer for everything it serves. -->
+            <p class="settings-group-footer">KaPost, Public Chats, Chess and translation are read from this indexer too.</p>
             <p class="settings-group-label">Push Registration</p>
             <div class="settings-list-card">
               <div class="settings-page-form">
@@ -1188,17 +1171,6 @@
                   <p class="field-hint danger" data-saved-node-error hidden></p>
               </div>
               <div class="saved-node-list" data-saved-nodes-list></div>
-            </div>
-            </div>
-            <div class="connection-panel" data-connection-panel="translation" hidden>
-            <p class="settings-group-label">Translation Service</p>
-            <div class="settings-list-card">
-              <div class="settings-page-form">
-                  <label class="field-label compact">Translation Service URL
-                    <input class="field-input" type="url" data-endpoint="translationService" autocomplete="off" spellcheck="false" />
-                  </label>
-                  <p class="field-hint danger" data-endpoint-error="translationService" hidden></p>
-              </div>
             </div>
             </div>
             <div class="connection-panel" data-connection-panel="domains" hidden>

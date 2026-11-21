@@ -16,7 +16,7 @@
 
 import { getEndpoint } from "../engine/endpoints.js";
 import { isNetworkAddress, otherNetworkReason, isValidKaspaAddress as isWellFormedKaspaAddress, lowercasedKaspaAddress } from "../engine/network.js";
-import { submitConfirmingAcceptance, transactionSpends, excludeCovenantUtxos, excludeJustSpentUtxos } from "../engine/transactions.js";
+import { submitConfirmingAcceptance, transactionSpends, excludeCovenantUtxos, excludeJustSpentUtxos, SEND_OUTCOME_UNKNOWN } from "../engine/transactions.js";
 import { maxFeerate } from "../engine/kachat-names/codec.js";
 
 // Matches firmware MAX_INPUTS=32 as of KasSigner v1.0.5 (was 8; devices on older
@@ -445,8 +445,32 @@ export function isValidKaspaAddress(engine, address) {
 // lower, so this never underpays the network.
 // ---------------------------------------------------------------------------
 
-function selectUtxos(utxos, amountSompi, feeRateSompiPerGram, recipientScriptLen, changeScriptLen) {
+// After a "Not confirmed" send (its answer was lost), the next automatic pick leads with the largest
+// of its coins, so the new send and the unconfirmed one conflict and at most one lands (KaPay's
+// rule, KaChat iOS 148a5331 ChatService.conflictingOutpoint in ColdStorageSendEngine). A coin-control
+// pick is the person's own and is left as it is. Remembered as long as a send holds its coins.
+const UNKNOWN_OUTCOME_MS = 10 * 60 * 1000;
+const unknownOutcomeCoins = new Map(); // "txid:index" -> remembered until (ms)
+export function markColdUnknownOutcome(keys, now = Date.now()) {
+  for (const key of keys || []) unknownOutcomeCoins.set(String(key).toLowerCase(), now + UNKNOWN_OUTCOME_MS);
+}
+/** The coin an automatic pick leads with, or null: the largest of `spendable` a "Not confirmed"
+ *  send used. */
+export function conflictingOutpointKey(spendable, now = Date.now()) {
+  for (const [key, until] of unknownOutcomeCoins) if (until <= now) unknownOutcomeCoins.delete(key);
+  if (!unknownOutcomeCoins.size) return null;
+  let best = null;
+  for (const utxo of spendable || []) {
+    if (!unknownOutcomeCoins.has(utxoKey(utxo).toLowerCase())) continue;
+    if (!best || utxo.amountSompi > best.amountSompi) best = utxo;
+  }
+  return best ? utxoKey(best) : null;
+}
+
+function selectUtxos(utxos, amountSompi, feeRateSompiPerGram, recipientScriptLen, changeScriptLen, leadingKey = null) {
   const sorted = [...utxos].sort((a, b) => (a.amountSompi > b.amountSompi ? -1 : a.amountSompi < b.amountSompi ? 1 : 0));
+  const leadAt = leadingKey ? sorted.findIndex((u) => utxoKey(u) === leadingKey) : -1;
+  if (leadAt > 0) sorted.unshift(...sorted.splice(leadAt, 1));
   const selected = [];
   let totalSelected = 0n;
   let estimatedFee = 0n;
@@ -509,7 +533,7 @@ function scriptFor(engine, address) {
  *  set (re-resolved against this call's own fresh fetch by outpoint, so a UTXO spent since
  *  the picker was shown can't silently get included). Returns the unsigned model used for
  *  KSPT encoding, verification, and broadcast. */
-export async function buildUnsignedTransaction({ engine, fromAddress, toAddress, amountSompi, feeRateOverride = null, manualUtxoKeys = null }) {
+export async function buildUnsignedTransaction({ engine, fromAddress, toAddress, amountSompi, feeRateOverride = null, manualUtxoKeys = null, previewed = false }) {
   if (amountSompi <= 0n) throw new Error("Amount must be greater than zero");
   let recipientScript, changeScript;
   // The script ignores the prefix: the other network's address would pay this chain's script
@@ -524,12 +548,16 @@ export async function buildUnsignedTransaction({ engine, fromAddress, toAddress,
   const feeRate = feeRateOverride ?? await fetchQuotedFeeRateSompiPerGram();
 
   let selection;
-  if (manualUtxoKeys && manualUtxoKeys.length) {
+  const lead = conflictingOutpointKey(spendable);
+  // `previewed`: the keys are the review's automatic preview, not a coin-control pick. A preview
+  // without the coin to lead with (the earlier send ended after it was shown) is chosen again.
+  const previewMissesLead = previewed && lead != null && !(manualUtxoKeys || []).includes(lead);
+  if (manualUtxoKeys && manualUtxoKeys.length && !previewMissesLead) {
     const freshByKey = new Map(spendable.map((u) => [utxoKey(u), u]));
     const resolved = manualUtxoKeys.map((k) => freshByKey.get(k)).filter(Boolean);
     selection = buildManualSelection(resolved, amountSompi, feeRate, recipientScript.scriptHex.length / 2, changeScript.scriptHex.length / 2);
   } else {
-    selection = selectUtxos(spendable, amountSompi, feeRate, recipientScript.scriptHex.length / 2, changeScript.scriptHex.length / 2);
+    selection = selectUtxos(spendable, amountSompi, feeRate, recipientScript.scriptHex.length / 2, changeScript.scriptHex.length / 2, lead);
   }
   if (!selection) throw new Error("Insufficient funds to cover that amount plus the network fee");
   if (selection.utxos.length > KSPT_MAX_INPUTS) {
@@ -598,7 +626,8 @@ export async function previewAutomaticSelection({ engine, fromAddress, amountSom
   let spendable;
   try { spendable = await fetchSpendableUtxos(engine, fromAddress); } catch { return null; }
   if (!spendable.length) return null;
-  const selection = selectUtxos(spendable, amountSompi, feeRateSompiPerGram, 34, 34);
+  // the same lead the build takes, so the review shows the coins it will spend
+  const selection = selectUtxos(spendable, amountSompi, feeRateSompiPerGram, 34, 34, conflictingOutpointKey(spendable));
   if (!selection) return null;
   return { utxoKeys: selection.utxos.map(utxoKey), feeSompi: selection.feeSompi };
 }
@@ -731,17 +760,22 @@ export async function broadcastSigned({ engine, unsigned, decoded }) {
   // (iOS IOS-014): the person must not be told to sign and send it again.
   let localId = null;
   try { localId = tx.id ? String(tx.id) : null; } catch { localId = null; }
+  const spends = transactionSpends(tx);
   const txid = await submitConfirmingAcceptance({
     withRpc: engine.withRpc.bind(engine),
     submit: (rpc, { allowOrphan = false } = {}) => rpc.submitTransaction({ transaction: tx, allowOrphan }),
     txid: localId,
     // Every submit holds its coins back, sent or with an unknown outcome (KaPay 1652437: Cold
     // Storage too), so no build here picks them again before a block shows them spent.
-    spends: transactionSpends(tx),
+    spends,
     // a signed send never waits in a node's orphan pool (KaPay 5848fb0)
     escalateOrphan: false,
     label: "Cold storage broadcast",
     log: typeof engine.log === "function" ? engine.log : () => {},
+  }).catch((error) => {
+    // "Not confirmed": the next automatic pick leads with one of these coins.
+    if (error?.code === SEND_OUTCOME_UNKNOWN) markColdUnknownOutcome(spends);
+    throw error;
   });
   return txid || tx.id;
 }

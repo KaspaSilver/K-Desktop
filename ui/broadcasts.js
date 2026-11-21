@@ -1107,6 +1107,45 @@ function handleIndexerAvailability({ key, down, downSinceMs }) {
 }
 // ...and of those, the ones whose page-back ran to the end: their whole history is in.
 const deepBackfillDone = new Set();
+// A page-back that failed part-way: where the next poll picks it up ({ before, cutoff, failures }),
+// so older history isn't lost for the rest of the session. Three failed tries in a row and it gives
+// up (KaChat iOS 148a5331 PublicChatService deepBackfillResume / failedBackfillResumes).
+const deepBackfillResume = new Map();
+const BACKFILL_RESUME_TRIES = 3;
+
+/** Pages a room's history backwards from `before` (null: the newest) down to `cutoff`, up to 20
+ *  pages of 500. Returns { added, stale }; a page that throws records where to resume and rethrows. */
+async function pageBackHistory(channel, { before, cutoff, baseUrl, generation }) {
+  let added = 0;
+  listRenderSuppressed = true; // one list rebuild at the end, not one per page
+  try {
+    for (let page = 0; page < 20; page++) {
+      let result;
+      try {
+        result = await fetchBroadcastHistory({ channel, limit: 500, before, baseUrl });
+      } catch (error) {
+        const failures = (deepBackfillResume.get(channel)?.failures || 0) + 1;
+        if (failures < BACKFILL_RESUME_TRIES) deepBackfillResume.set(channel, { before, cutoff, failures });
+        else deepBackfillResume.delete(channel);
+        throw error;
+      }
+      if (generation !== roomAccountGeneration) return { added: 0, stale: true };
+      added += mergeMessages(channel, result.messages);
+      noteRoomNewest(channel, result.messages);
+      if (!result.hasMore || !result.messages.length) break;
+      const oldest = result.messages.reduce(
+        (min, m) => Math.min(min, Number(m.blockTime) || Infinity), Infinity);
+      if (!Number.isFinite(oldest)) break;
+      if (cutoff && oldest < cutoff) break; // older pages would be pruned anyway
+      // Inclusive of the oldest millisecond (KaPost 369794e): rows sharing it past the page's
+      // end were skipped; the overlap dedupes by txid. A page all in one millisecond can't
+      // move on that way, so it steps past it.
+      before = oldest + 1 === before ? oldest : oldest + 1;
+    }
+  } finally { listRenderSuppressed = false; }
+  deepBackfillResume.delete(channel);
+  return { added, stale: false };
+}
 
 // Sends started in this run, by pending id. A row still pending that isn't one of these was left by
 // a run that ended mid-send, and nothing is working on it (iOS e5a9b11 PublicChatService).
@@ -1150,6 +1189,15 @@ async function backfillChannel(channel, { quiet = true } = {}) {
       }
       // After an account switch the room's history is already in, so its next poll settles it.
       if (deepBackfillDone.has(channel) && settlePendingFromEarlierRuns(channel)) added += 1;
+      // A page-back that failed part-way carries on from where it stopped.
+      const resume = deepBackfilled.has(channel) ? deepBackfillResume.get(channel) : null;
+      if (resume) {
+        const paged = await pageBackHistory(channel, { before: resume.before, cutoff: resume.cutoff, baseUrl, generation });
+        if (paged.stale) return 0;
+        added += paged.added;
+        deepBackfillDone.add(channel);
+        if (settlePendingFromEarlierRuns(channel)) added += 1;
+      }
     }
     if (!deepBackfilled.has(channel)) {
       // First open this session: page backwards through the indexer's full history
@@ -1159,25 +1207,10 @@ async function backfillChannel(channel, { quiet = true } = {}) {
       const outageFloor = deepBackfillFloor.get(channel);
       deepBackfillFloor.delete(channel);
       const cutoff = Math.max(retentionCutoffMs(channel) || 0, outageFloor || 0) || retentionCutoffMs(channel);
-      let before = null;
-      listRenderSuppressed = true; // one list rebuild at the end, not one per page
-      try {
-      for (let page = 0; page < 20; page++) {
-        const result = await fetchBroadcastHistory({ channel, limit: 500, before, baseUrl });
-        if (generation !== roomAccountGeneration) return 0;
-        added += mergeMessages(channel, result.messages);
-        noteRoomNewest(channel, result.messages);
-        if (!result.hasMore || !result.messages.length) break;
-        const oldest = result.messages.reduce(
-          (min, m) => Math.min(min, Number(m.blockTime) || Infinity), Infinity);
-        if (!Number.isFinite(oldest)) break;
-        if (cutoff && oldest < cutoff) break; // older pages would be pruned anyway
-        // Inclusive of the oldest millisecond (KaPost 369794e): rows sharing it past the page's
-        // end were skipped; the overlap dedupes by txid. A page all in one millisecond can't
-        // move on that way, so it steps past it.
-        before = oldest + 1 === before ? oldest : oldest + 1;
-      }
-      } finally { listRenderSuppressed = false; }
+      deepBackfillResume.delete(channel);
+      const paged = await pageBackHistory(channel, { before: null, cutoff, baseUrl, generation });
+      if (paged.stale) return 0;
+      added += paged.added;
       // The whole history is in, so a send that did land has its copy to match (iOS e5a9b11).
       deepBackfillDone.add(channel);
       if (settlePendingFromEarlierRuns(channel)) added += 1;
@@ -2706,6 +2739,7 @@ function leaveChannel(name) {
   deepBackfilled.delete(name);
   deepBackfillFloor.delete(name);
   deepBackfillDone.delete(name);
+  deepBackfillResume.delete(name);
   roomNewestSeen.delete(name);
   if (activeChannel === name) closeRoom();
   syncScanWanted();
@@ -3006,6 +3040,7 @@ async function saveRoomIndexer(value) {
   saveIndexerOverrides();
   deps.showToast?.(trimmed ? `Indexer updated for #${channel}.` : "This room follows the app's indexer again.");
   deepBackfilled.delete(channel);
+  deepBackfillResume.delete(channel);
   // Whichever one the room now reads from. Nothing to check when that is no indexer at all
   // (following the app-wide setting on a network without one).
   const target = trimmed || String(deps.appWideBroadcastIndexer?.() || "").trim();

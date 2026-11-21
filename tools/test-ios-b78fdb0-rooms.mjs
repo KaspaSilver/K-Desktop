@@ -20,7 +20,9 @@ async function test(name, fn) {
 
 await test("an account change drops room answers still on their way; no sweep while signed out", () => {
   assert.match(rooms, /export function resetBroadcastsForAccount\(\) \{\n[^\n]*\n\s+roomAccountGeneration \+= 1;/);
-  assert.equal((rooms.match(/if \(generation !== roomAccountGeneration\) return 0;/g) || []).length, 3, "backfill: poll, page, failure");
+  // the newest page and the failure in backfillChannel; each page in pageBackHistory (Build 312)
+  assert.equal((rooms.match(/if \(generation !== roomAccountGeneration\) return 0;/g) || []).length, 2, "backfill: poll, failure");
+  assert.match(rooms, /if \(generation !== roomAccountGeneration\) return \{ added: 0, stale: true \};/);
   assert.match(rooms, /!deps\.engine\?\.address \|\| !hasBroadcastIndexer\(\)\) return;/);
   assert.equal((rooms.match(/if \(generation !== roomAccountGeneration\) return;/g) || []).length, 2, "sweep: per room and after its fetch");
 });

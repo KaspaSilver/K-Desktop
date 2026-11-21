@@ -88,7 +88,7 @@ assert.match(app, /if \(link\?\.kind !== "pay"\) return;[\s\S]{0,400}if \(link\.
 
 // --- Cold Storage holds its coins too --------------------------------------------------------
 const kspt = read("../ui/kspt.js");
-assert.match(between(kspt, "export async function broadcastSigned", "\n}\n"), /spends: transactionSpends\(tx\),/);
+assert.match(between(kspt, "export async function broadcastSigned", "\n}\n"), /const spends = transactionSpends\(tx\);[\s\S]*spends,\n/);
 
 // --- A handshake with an unknown outcome -----------------------------------------------------
 const handshake = between(app, "async function sendOutgoingHandshake", "\n}\n");

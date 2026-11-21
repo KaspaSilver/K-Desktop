@@ -1679,6 +1679,8 @@ async function sendBuild() {
       amountSompi,
       feeRateOverride: sendFeeRateOverride(),
       manualUtxoKeys: flow.manualUtxoKeys ?? flow.preview?.utxoKeys ?? null,
+      // the preview's keys, not a coin-control pick: re-chosen if they miss the coin to lead with
+      previewed: !flow.manualUtxoKeys && Boolean(flow.preview?.utxoKeys),
     });
     if (send !== flow) return;
     flow.unsigned = unsigned;

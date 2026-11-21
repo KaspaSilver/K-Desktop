@@ -53,6 +53,75 @@
     if (raw.length > 200 && !/\s/.test(raw)) return fallback; // base64 / hex blob
     return raw.slice(0, 240);
   }
+  // A room push's body is the raw on-chain message (KaChat iOS 148a5331 publicChatPreviewText): the
+  // content after the kchat:1:bcast:<channel>: prefix, a lone base64 run decoded, and an envelope
+  // read for what it is - a reaction, a chess move, a reply's own text, a voice note, a photo, a
+  // video, an edit - never raw JSON.
+  function looseJsonString(name, json) {
+    const start = new RegExp(`"${name}"\\s*:\\s*"`).exec(json);
+    if (!start) return null;
+    let out = "";
+    let escaped = false;
+    for (const ch of json.slice(start.index + start[0].length)) {
+      if (escaped) { out += ch === "n" ? "\n" : ch === "t" ? "\t" : ch; escaped = false; continue; }
+      if (ch === "\\") { escaped = true; continue; }
+      if (ch === '"') break;
+      out += ch;
+    }
+    out = out.trim();
+    return out || null;
+  }
+  function roomEnvelope(raw) {
+    try { const parsed = JSON.parse(raw); return parsed && typeof parsed === "object" ? parsed : null; } catch { return null; }
+  }
+  function isRoomEdit(text) {
+    const raw = String(text || "").trim();
+    if (raw[0] !== "{") return false;
+    const parsed = roomEnvelope(raw);
+    if (parsed) return parsed.type === "edit" && Boolean(parsed.targetTxId);
+    return raw.replace(/ /g, "").includes('"type":"edit"'); // a cut-off envelope still says what it is
+  }
+  function roomPreviewText(body) {
+    let text = String(body || "").trim();
+    for (const prefix of ["kchat:1:bcast:", "ciph_msg:1:bcast:"]) {
+      if (!text.startsWith(prefix)) continue;
+      const rest = text.slice(prefix.length);
+      const colon = rest.indexOf(":");
+      if (colon >= 0) text = rest.slice(colon + 1).trim();
+    }
+    if (text[0] !== "{" && text.length >= 16 && /^[A-Za-z0-9+/=_-]+$/.test(text)) {
+      try {
+        let b64 = text.replace(/-/g, "+").replace(/_/g, "/");
+        while (b64.length % 4) b64 += "=";
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        if (decoded && !/[\u0000-\u0008\u000B-\u001F]/.test(decoded)) text = decoded.replace(/\u2060/g, "").trim();
+      } catch { /* not base64 text: shown as it is */ }
+    }
+    if (text[0] !== "{") {
+      // a long run that didn't decode to text is a blob (base64 / hex), never shown as it is
+      if (!text || (text.length > 200 && !/\s/.test(text))) return "New message";
+      return text.slice(0, 240);
+    }
+    const parsed = roomEnvelope(text);
+    if (parsed) {
+      if (parsed.type === "reaction" && typeof parsed.emoji === "string" && parsed.emoji) {
+        return parsed.action === "remove" ? `Removed their ${parsed.emoji} reaction` : `Reacted ${parsed.emoji} to a message`;
+      }
+      if (typeof parsed.type === "string" && parsed.type.startsWith("chess")) return "Chess move";
+      if (parsed.type === "reply" && typeof parsed.text === "string" && parsed.text.trim()) {
+        const inner = parsed.text.trim();
+        return inner[0] === "{" ? roomPreviewText(inner) : inner.slice(0, 240);
+      }
+    }
+    const compact = text.replace(/ /g, "");
+    if (compact.includes('"type":"reply"')) return looseJsonString("text", text) || "Replied to a message";
+    if (compact.includes('"mimeType":"audio')) return "Voice message";
+    if (compact.includes('"mimeType":"image')) return "Photo";
+    if (compact.includes('"mimeType":"video')) return "Video";
+    if (compact.includes('"type":"edit"')) return "Edited a message";
+    return (looseJsonString("text", text) || "New message").slice(0, 240);
+  }
   function joined(a, b, sep) { return a && b ? `${a}${sep}${b}` : (a || b || ""); }
 
   // A reply or quote push opens the reply or quote itself, the same target the in-app bell uses
@@ -155,8 +224,10 @@
       // only a joined room with its bell on rings (KaPost b78fdb0): one left or muted since the
       // push service last heard is silent
       if (Array.isArray(m.rooms) && !m.rooms.includes(channel)) out.suppress = true;
+      // An edit changes an earlier message in place: nothing to announce (KaChat iOS 148a5331).
+      if (isRoomEdit(p.body)) out.suppress = true;
       out.title = String(p.title || "").trim() || `#${channel}`;
-      out.options.body = joined(String(p.subtitle || "").trim(), tidy(p.body, "New message"), ": ");
+      out.options.body = joined(String(p.subtitle || "").trim(), roomPreviewText(p.body), ": ");
       out.options.tag = `kachat-broadcast-${p.tx_id || channel}`;
       out.options.data.route = { kind: "room", channel };
       return out;
