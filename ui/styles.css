@@ -15218,16 +15218,6 @@ body.settings-tab [data-account-overlay] .settings-done-button { visibility: hid
 .wallet-action { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 15px; cursor: pointer; }
 .wallet-action-circle { width: 60px; height: 60px; display: grid; place-items: center; border-radius: 50%; background: var(--kaspa); color: #000; }
 .wallet-action-circle svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
-/* Two 1:1 squares, radius 18. */
-.wallet-squares { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.wallet-square { aspect-ratio: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 10px; color: var(--text); font: inherit; text-align: center; cursor: pointer; }
-.wallet-square strong { font-size: 15px; font-weight: 600; }
-/* As wide as half a large window a square would fill most of the screen with nothing, so there it
-   keeps the width and a set height (KaPay 652c8af). */
-@media (min-width: 768px) { .wallet-square { aspect-ratio: auto; height: 170px; } }
-.wallet-square-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 50%; background: var(--fill-tertiary); color: var(--kaspa-ink); }
-.wallet-square-icon svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.wallet-square-icon svg.qr-glyph { fill: currentColor; stroke: none; }
 
 /* ==== The backup strip, 1:1 with iOS AccountBackupBanner (bfe9f022) ==== */
 .account-backup-banner {
@@ -15506,11 +15496,6 @@ textarea.composer-input { overflow-y: hidden; }
 .wallet-card-pill.selected { background: var(--kaspa); border-color: transparent; color: #000; }
 .wallet-card-pill:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: 2px; }
 /* Swap Stablecoins, a card row under the squares (iOS BuyStablecoinsSheet's entry). */
-.wallet-swap-card { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
-.wallet-swap-card strong { flex: 1; font-size: 15px; font-weight: 600; }
-.wallet-swap-icon { width: 36px; height: 36px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: var(--fill-tertiary); color: var(--kaspa-ink); }
-.wallet-swap-icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.wallet-swap-card .profile-manage-addresses-chevron { width: 14px; height: 14px; fill: none; stroke: var(--muted); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 
 /* The coin (iOS TokenIcon): the USDT mark, the Kaspa logo at its corner. */
 .kusdt-coin { position: relative; display: inline-block; flex: 0 0 auto; width: var(--kusdt-coin, 40px); height: var(--kusdt-coin, 40px); }
@@ -15722,3 +15707,6 @@ body .sidebar-tabbar .sidebar-tab[data-app-tab="leaderboard"] > span:last-child 
 @media (max-height: 640px) {
   .logged-out-content > h1.logged-out-logo { width: 96px; height: 96px; }
 }
+
+/* Wallet's rows (KaChat iOS WalletView): Chatting Address's QR glyph is filled, like SF qrcode. */
+.wallet-screen .profile-recovery-row > svg.qr-glyph { fill: currentColor; stroke: none; }

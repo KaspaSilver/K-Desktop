@@ -9083,7 +9083,9 @@ function updateProfileHero(info, profileInfo) {
 // opens, and only goes to the indexer when the cache is missing, older than the debounce
 // window, or a write just cleared it (`force` for callers that know the data changed).
 async function refreshOwnKnsProfile({ force = false } = {}) {
-  if (!engine.address || !profileKnsOwned || !profileKnsEmptyCta) return;
+  // Not tied to the old Profile screen's KNS rows any more (gone since KaChat iOS 148a5331, Build
+  // 310): Wallet's Your Domains count and the dock's picture are read from here too.
+  if (!engine.address) return;
   const address = engine.address;
   // The Profile's Your Domains count includes the .k and .kaspa names (iOS 09e0403).
   if (otherServiceNamesFor !== address || Date.now() - otherServiceNamesAt > 5 * 60_000) {
@@ -9112,15 +9114,15 @@ function applyOwnKnsProfile(info, profileInfo) {
   setProfileDomains(info);
 
   if (!info?.primaryDomain) {
-    profileKnsEmptyCta.hidden = false;
-    profileKnsOwned.hidden = true;
+    if (profileKnsEmptyCta) profileKnsEmptyCta.hidden = false;
+    if (profileKnsOwned) profileKnsOwned.hidden = true;
     ownKnsAssetId = null;
     ownKnsProfileFields = null;
     return;
   }
 
-  profileKnsEmptyCta.hidden = true;
-  profileKnsOwned.hidden = false;
+  if (profileKnsEmptyCta) profileKnsEmptyCta.hidden = true;
+  if (profileKnsOwned) profileKnsOwned.hidden = false;
   ownKnsAssetId = info.primaryInscriptionId || null;
   ownKnsProfileFields = profileInfo?.profile || null;
 }
@@ -9142,7 +9144,7 @@ async function refreshOwnKnsProfileUntilResolved({ attempts = 6, delayMs = 5000 
     }
     await refreshOwnKnsProfile();
     if (token !== ownKnsProfileRefreshToken || engine.address !== address) return;
-    if (profileKnsOwned && !profileKnsOwned.hidden) return; // domain is live: row now reads "Edit KNS Profile"
+    if (ownKnsAssetId) return; // the domain is live
   }
 }
 
@@ -12819,7 +12821,7 @@ spendingScanBtn?.addEventListener("click", async () => {
 });
 
 // Wallet's Manage Addresses square (iOS bfe9f022).
-document.querySelector("[data-open-spending-manage]")?.addEventListener("click", openSpendingManageScreen);
+// (No Manage Addresses tile on Wallet: the Kaspa card's Tap to Manage opens it, as on KaChat iOS.)
 document.querySelector("[data-close-spending-manage]")?.addEventListener("click", closeSpendingManageScreen);
 
 
@@ -12925,7 +12927,8 @@ function setActiveAppTab(tab) {
   }
   updateDetailActiveClass();
   try { markOpenChatsRead(); } catch { /* not started */ }
-  if (screenTab === "profile") refreshOwnKnsProfile();
+  // Wallet's Your Domains count reads it too, since the old Profile screen went (Build 310).
+  if (screenTab === "profile" || screenTab === "wallet") refreshOwnKnsProfile();
   try { if (screenTab === "wallet") { renderProfileAccountTotal(); refreshSpendingSummaryOnShow(); warmReceiveAddressOnShow(); kusdtWallet?.refreshIfStale().catch(() => {}); } } catch { /* not started */ }
   if (screenTab === "kaposts") { try { setKaPostsRootMode("feed"); } catch { /* not started */ } refreshKaPostsFeed(); }
   else {
@@ -13971,7 +13974,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 316;
+const APP_BUILD = 317;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
