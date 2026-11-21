@@ -15687,3 +15687,7 @@ button.kusdt-activity-row:hover { background: var(--surface-1, rgba(255,255,255,
 .message-payment-card.incoming .payment-card-logo.is-token { background: none; box-shadow: none; }
 .payment-card-logo.is-token .kusdt-coin-kaspa { box-shadow: 0 0 0 1.5px #fff; background: #fff; }
 .payment-detail-head .kusdt-coin { margin: 0 auto; }
+
+/* "Leaderboard" is the dock's longest name (KaChat iOS 148a5331): a touch smaller so it fits the
+   72px left dock whole. */
+body .sidebar-tabbar .sidebar-tab[data-app-tab="leaderboard"] > span:last-child { font-size: 10px; letter-spacing: -.01em; }

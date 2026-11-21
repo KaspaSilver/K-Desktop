@@ -19,7 +19,7 @@ function test(name, fn) {
 
 test("Profile shows KaPost's screen in its profile mode, behind the Terms", () => {
   assert.doesNotMatch(html, /data-app-tab-screen="profile"/);
-  assert.match(app, /screen\.hidden = screen\.dataset\.appTabScreen !== \(screenTab === "profile" \? "kaposts" : screenTab\);/);
+  assert.match(app, /const shown = screenTab === "profile" \? "kaposts" : /);
   assert.match(app, /if \(screenTab === "profile"\) \{ try \{ setKaPostsRootMode\("myProfile"\); \}/);
   assert.match(app, /const kaPostScreen = tab === "kaposts" \|\| tab === "profile"/);
 });

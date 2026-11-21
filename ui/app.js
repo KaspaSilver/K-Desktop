@@ -12882,7 +12882,9 @@ function setActiveAppTab(tab) {
   publishDockHeight();
   appTabScreens.forEach((screen) => {
     // Profile shows KaPost's screen with your profile as its page (KaChat iOS 148a5331).
-    screen.hidden = screen.dataset.appTabScreen !== (screenTab === "profile" ? "kaposts" : screenTab);
+    // Leaderboard is the Chess screen on its own first page (KaChat iOS 148a5331).
+    const shown = screenTab === "profile" ? "kaposts" : screenTab === "leaderboard" ? "chess" : screenTab;
+    screen.hidden = screen.dataset.appTabScreen !== shown;
   });
   // Looked up here: the startup tab restore runs this before `groupChatScreen` (declared far below)
   // is initialised, which throws in dev (the build lowers const to var, so production was spared).
@@ -12916,7 +12918,8 @@ function setActiveAppTab(tab) {
   if (screenTab === "cold-storage") refreshColdStorage();
   try { if (screenTab === "swaps") refreshSwaps(); } catch { /* not started */ }
   // Chess keeps the arena scanned only while its screen is up (iOS acquire/release).
-  if (screenTab === "chess") showChessTournaments(); else hideChessTournaments();
+  if (screenTab === "chess" || screenTab === "leaderboard") showChessTournaments({ root: screenTab === "leaderboard" ? "leaderboard" : "games" });
+  else hideChessTournaments();
   try { if (screenTab === "kachat-names") showKachatMarket(); else hideKachatMarket(); } catch { /* not started */ }
   try { if (screenTab === "kachat-stats") showKachatStats(); else hideKachatStats(); } catch { /* not started */ }
   try { if (screenTab === "address-book") showAddressBook(); else hideAddressBook(); } catch { /* not started */ }
@@ -12970,7 +12973,7 @@ sidebarTabButtons.forEach((button) => {
 // ---------------------------------------------------------------------------
 
 /** Full names, used in the More grid where a dock label is too short. */
-const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "ChangeNOW Swap", chess: "KaPlay", "kachat-names": ".kachat Domains", "kachat-stats": "KaChat Stats" };
+const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "ChangeNOW Swap", chess: "KaPlay", leaderboard: "Leaderboard", "kachat-names": ".kachat Domains", "kachat-stats": "KaChat Stats" };
 
 function tabFullName(tab) {
   if (TAB_FULL_NAMES[tab]) return TAB_FULL_NAMES[tab];
@@ -13946,7 +13949,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 312;
+const APP_BUILD = 313;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of

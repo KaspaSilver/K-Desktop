@@ -8,7 +8,7 @@ export const RAIL_ORDER = [
   "chats", "address-book",
   "kaposts",
   "wallet", "portfolio", "cold-storage", "kachat-names", "swaps",
-  "chess",
+  "chess", "leaderboard",
   // No KaChat Bots item (owner, 2026-11-12): the bots live in Chats, as circles above the list.
   "kachat-stats", "apps",
   "profile", "settings",

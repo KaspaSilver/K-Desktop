@@ -158,6 +158,11 @@ let joinFeeText = null;               // "0.0017 KAS" once estimated this sessio
 // name "leaderboard": the Leaderboard's squares; name "board": 1v1's or Tournaments' page, by `mode`.
 // name "bots": Play > Bots and Leaderboard > Bots (ui/chess-bots.js paints and drives its own screens).
 let view = { name: "games", mode: "duel", tab: "play", tournamentId: null, gameId: null };
+// Which dock item the screen is for (KaChat iOS 148a5331): KaPlay ("games": the games, then Chess)
+// or Leaderboard ("leaderboard": its three rows as the first page, no way back from it). Each keeps
+// where it was while the other is up, as iOS's tabs keep their own pages.
+let rootView = "games";
+const viewByRoot = {};
 let autoOpenedGameId = null;
 let spectatorSwitchedFor = null;  // the player's game the board-watching spectator was sent to the bracket for
 let selectedSquare = null;
@@ -1169,7 +1174,6 @@ const ICON_TROPHY = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h1
 // person.2.fill / trophy.fill: the home screen's game cards draw their symbols filled (iOS gameCard).
 const ICON_TWO_FILLED = `<svg viewBox="0 0 24 24" aria-hidden="true" class="filled"><circle cx="8.5" cy="7.6" r="3.6"/><path d="M1.8 19.2c.5-4 3.2-6.3 6.7-6.3s6.2 2.3 6.7 6.3c.1.5-.3.8-.8.8H2.6c-.5 0-.9-.3-.8-.8Z"/><circle cx="17" cy="8.4" r="3"/><path d="M16.2 13.3c3.7-.3 5.7 2 6.1 5.4.1.6-.3 1.3-1 1.3h-4.5c.2-.5.2-1 .1-1.6-.2-1.9-.4-3.5-.7-5.1Z"/></svg>`;
 // Desktop's Leaderboard card: three steps of a podium. iOS has a dock tab for this instead of a card.
-const ICON_PODIUM_FILLED = `<svg viewBox="0 0 24 24" aria-hidden="true" class="filled"><rect x="9" y="5" width="6" height="15" rx="1"/><rect x="2.5" y="10" width="6" height="10" rx="1"/><rect x="15.5" y="13" width="6" height="7" rx="1"/></svg>`;
 const ICON_TROPHY_FILLED = `<svg viewBox="0 0 24 24" aria-hidden="true" class="filled"><path d="M6.5 3.5h11v5.8a5.5 5.5 0 0 1-11 0Z"/><path d="M6.6 5.3H3.8a.8.8 0 0 0-.8.9 4.6 4.6 0 0 0 3.9 4.1l.4-1.6a3 3 0 0 1-2.4-1.9h1.7ZM17.4 5.3h2.8c.5 0 .9.4.8.9a4.6 4.6 0 0 1-3.9 4.1l-.4-1.6a3 3 0 0 0 2.4-1.9h-1.7Z"/><path d="M10.8 14.4h2.4v3.1h-2.4Z"/><rect x="7.5" y="17.5" width="9" height="3" rx="1"/></svg>`;
 const ICON_BACK = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/></svg>`;
 const ICON_CHEVRON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>`;
@@ -1275,11 +1279,7 @@ function renderHome() {
         <span class="chess-t-row-main"><strong>Bots</strong><small>Five bots, level 1 to 5, from Kaspa Silver to Yonatan Sompolinsky. Beat one to unlock the next. The result goes on Kaspa.</small></span>
         <span class="chess-t-row-chevron">${ICON_CHEVRON}</span>
       </button>
-      <button class="chess-t-game-card" type="button" data-chess-t-leaderboard>
-        <span class="chess-t-game-card-icon">${ICON_PODIUM_FILLED}</span>
-        <span class="chess-t-row-main"><strong>Leaderboard</strong><small>1v1, Tournaments and Bots, this month and all time.</small></span>
-        <span class="chess-t-row-chevron">${ICON_CHEVRON}</span>
-      </button>
+      ${/* No Leaderboard card: it's a dock item of its own (KaChat iOS 148a5331). */ ""}
       ${errorHtml()}
     </div>`;
 }
@@ -1474,7 +1474,7 @@ function squareHtml({ title, icon, attrs }) {
 
 function renderLeaderboard() {
   return `
-    ${headerHtml("Leaderboard", { back: true })}
+    ${headerHtml("Leaderboard", { back: rootView !== "leaderboard" })}
     <div class="chess-t-squares">
       ${squareHtml({ title: "1v1", icon: ICON_TWO_FILLED, attrs: `data-chess-t-board="duel"` })}
       ${squareHtml({ title: "Tournaments", icon: ICON_TROPHY_FILLED, attrs: `data-chess-t-board="tournament"` })}
@@ -2118,14 +2118,6 @@ function onClick(event) {
     render();
     return;
   }
-  if (event.target.closest("[data-chess-t-leaderboard]")) {
-    // Comes up on This month, and asks the indexer for fresh boards.
-    view = { ...view, name: "leaderboard", mode: "duel", tournamentId: null, gameId: null };
-    leaderboardPeriod = "month";
-    refreshIndexerLeaderboards();
-    render();
-    return;
-  }
   const board = event.target.closest("[data-chess-t-board]");
   if (board) { view = { ...view, name: "board", mode: board.dataset.chessTBoard }; render(); return; }
   if (event.target.closest("[data-chess-t-board-bots]")) {
@@ -2285,8 +2277,19 @@ export function initChessTournaments(dependencies) {
 }
 
 /** The Chess screen came on: keep the arena scanned and polled while it is up. */
-export function showChessTournaments() {
-  if (!deps || active) { if (active) render(); return; }
+export function showChessTournaments({ root = "games" } = {}) {
+  if (!deps) return;
+  const nextRoot = root === "leaderboard" ? "leaderboard" : "games";
+  if (nextRoot !== rootView) {
+    viewByRoot[rootView] = view;
+    rootView = nextRoot;
+    view = viewByRoot[nextRoot] || { ...view, name: nextRoot, mode: "duel", tournamentId: null, gameId: null };
+    selectedSquare = null;
+    pendingPromotion = null;
+    // The Leaderboard comes up on This month, with fresh boards asked for.
+    if (nextRoot === "leaderboard" && !viewByRoot.leaderboard) { leaderboardPeriod = "month"; refreshIndexerLeaderboards(); }
+  }
+  if (active) { render(); return; }
   active = true;
   now = Date.now();
   // Our rows still unseen are looked up on the chain once the history is in (iOS 4922804): a row
