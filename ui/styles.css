@@ -11585,7 +11585,6 @@ button.chess-t-row { cursor: pointer; }
 .profile-share-button { width: 34px; height: 34px; background: var(--fill-tertiary); }
 
 /* Plain screens (iOS systemBackground) are white in light mode; grouped ones stay #F2F2F7. */
-:root[data-theme="light"] body:has(.profile-screen[data-app-tab-screen="profile"]:not([hidden])),
 :root[data-theme="light"] body:has([data-app-tab-screen="cold-storage"]:not([hidden])),
 :root[data-theme="light"] body:has([data-app-tab-screen="hub"]:not([hidden])),
 :root[data-theme="light"] body:has([data-app-tab-screen="apps"]:not([hidden])),
@@ -12570,8 +12569,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .profile-share-button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Bell on the right of the bar, Profile only. */
-.topbar-profile-cluster { display: none; align-items: center; }
-body:has(.profile-screen[data-app-tab-screen="profile"]:not([hidden])) .topbar-profile-cluster { display: flex; }
 .topbar-bell-button { position: relative; width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--kaspa-ink); cursor: pointer; }
 .topbar-bell-button:hover { background: var(--fill-tertiary); }
 .topbar-bell-button svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -13792,7 +13789,6 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
   }
   .app-topbar .toolbar-balance > span { overflow: hidden; text-overflow: ellipsis; }
   .app-topbar .topbar-select-cluster,
-  .app-topbar .topbar-profile-cluster { margin-left: auto; }
   body .app-body,
   body.chats-tab .app-body { padding-top: var(--topbar-h); padding-bottom: 0; }
   body.chats-tab .app-sidebar { padding-top: 0; padding-bottom: 0; margin-bottom: 0; }
@@ -14894,7 +14890,6 @@ html.keyboard-open .chat-funding-gate { gap: 8px; margin-top: 8px; padding: 12px
   body[data-app-tab="kaposts"]:not(.chats-tab) .app-topbar { width: min(100%, 900px); padding-left: 32px; padding-right: 32px; }
   .app-topbar .toolbar-balance { flex: 1 1 auto; min-width: 0; max-width: none; justify-content: flex-start; }
   .app-topbar .topbar-select-cluster,
-  .app-topbar .topbar-profile-cluster { margin-left: auto; flex: 0 0 auto; }
 
   body .app-body { padding-top: var(--topbar-h); padding-bottom: var(--dock-inset); }
   body.chats-tab .app-body { padding-top: 0; padding-bottom: var(--dock-inset); }
@@ -15121,7 +15116,6 @@ html.keyboard-open .chat-funding-gate { gap: 8px; margin-top: 8px; padding: 12px
 /* Profile's Send and Receive (iOS 7abc06e8): the up/down arrow in Contacts' + spot, and room
    under the screen so its last row clears it. */
 .profile-send-receive-fab svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.profile-screen[data-app-tab-screen="profile"] { padding-bottom: calc(var(--dock-inset, 124px) + 96px); }
 .settings-logout-card { margin-top: 20px; }
 /* Settings as a dock tab (iOS d54ea87c, KaPay 040f91a): the Settings page in place - under the dock,
    on the app's own background, a column like the other tabs - with no Done (it closes by picking

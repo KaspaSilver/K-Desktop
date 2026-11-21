@@ -13,7 +13,7 @@
   <!-- Too-old browsers (no WebAssembly / modern JS, e.g. iOS 10) get a clear message, not a blank layout. -->
   <script src="/browser-check.js"></script>
   <title>KaChat Desktop</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=417" />
+  <link rel="stylesheet" href="./ui/styles.css?v=418" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The KaChat logo the app already ships (432px PNG) doubles as the tab icon. -->
@@ -86,13 +86,6 @@
       <div class="topbar-select-cluster" data-topbar-select-cluster>
         <button type="button" class="chat-select-all" data-chat-select-all hidden>Select All</button>
         <button type="button" class="chat-select-toggle" data-chat-select-toggle>Select</button>
-      </div>
-      <!-- Help sits on the right of the bar, as in the iOS Profile toolbar (bfe9f022: dot left, balance
-           centre, Help right). Shown only while Profile is on screen. -->
-      <div class="topbar-profile-cluster">
-        <button class="topbar-bell-button" type="button" data-open-help-screen aria-label="Help" title="Help">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"/><path d="M9.7 9.4a2.4 2.4 0 0 1 4.66.8c0 1.6-2.36 2-2.36 3.3"/><circle cx="12" cy="16.8" r=".2"/></svg>
-        </button>
       </div>
     </header>
     <!-- The strip under the bar on every main screen until this account's backup steps are finished
@@ -613,17 +606,9 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.25 12 11.204 3.045c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75"/></svg>
               <span>Feed</span>
             </button>
-            <button class="kaposts-rail-item" type="button" data-kaposts-rail="profile">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.118a7.5 7.5 0 0 1 15 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.5-1.632Z"/></svg>
-              <span>Profile</span>
-            </button>
             <button class="kaposts-rail-item" type="button" data-kaposts-rail="search">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg>
               <span>Search</span>
-            </button>
-            <button class="kaposts-rail-item" type="button" data-kaposts-rail="notifications">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/></svg>
-              <span>Notifications</span>
             </button>
             <button class="kaposts-rail-item" type="button" data-kaposts-rail="drafts">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.862 4.487l1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z"/><path d="M19.5 14.25v4.125c0 1.243-1.007 2.25-2.25 2.25H5.625a2.25 2.25 0 0 1-2.25-2.25V6.375c0-1.243 1.007-2.25 2.25-2.25h4.125"/></svg>
@@ -641,15 +626,12 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636"/></svg>
               <span>Blocked</span>
             </button>
-            <!-- iOS SideMenuItem order: Profile, Search, Notifications, Drafts, Bookmarks, Muted,
-                 Blocked, Scheduled, Settings (Feed above them is the desktop way back). -->
+            <!-- iOS SideMenuItem order: Search, Drafts, Bookmarks, Muted, Blocked, Scheduled (Feed above
+                 them is the desktop way back). Profile is the dock's Profile tab, the notifications
+                 are behind its bell and KaPost's settings are in Settings (KaChat iOS 148a5331). -->
             <button class="kaposts-rail-item" type="button" data-kaposts-rail="scheduled">
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
               <span>Scheduled</span>
-            </button>
-            <button class="kaposts-rail-item" type="button" data-kaposts-rail="settings">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
-              <span>Settings</span>
             </button>
             <!-- The pencil, as on the iOS create-post button the empty feed points at. -->
             <button class="primary-button kaposts-rail-post" type="button" data-kaposts-compose aria-label="Post">
@@ -791,6 +773,9 @@
             </button>
           </div>
 
+          <!-- On Wallet with Your Domains since the old Profile screen went (KaChat iOS 148a5331). One of your .kachat names expired and is in its grace period: renew it in time (iOS 6ac48a7). -->
+          <div class="kachat-expired-banner" data-kachat-expired-banner hidden></div>
+
           <!-- The balance cards side by side, one showing, the pills under them choosing (KaPay 3d126db
                SlidingCardPager / BalancePagePills): Kaspa, then kUSDT. Each card opens its Manage
                screen (Tap to Manage); a finger can drag between them, a mouse uses the pills. -->
@@ -883,47 +868,8 @@
             <strong>Swap Stablecoins</strong>
             <svg class="profile-manage-addresses-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
           </button>
-        </div>
 
-        <div class="profile-screen" data-app-tab-screen="profile" hidden>
-          <div class="profile-screen-header" hidden aria-hidden="true">
-            <button class="profile-gear-button" type="button" data-open-account-view="settings" aria-label="Settings" title="Settings">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 0 1 0 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 0 1 0-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.369-.491l1.217.456c.355.133.75.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281Z"/>
-                <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
-              </svg>
-            </button>
-          </div>
-
-          <div class="kaposts-header profile-title-row">
-            <h1 class="kaposts-title">Profile</h1>
-          </div>
-
-          <!-- One of your .kachat names expired and is in its grace period: renew it in time (iOS 6ac48a7). -->
-          <div class="kachat-expired-banner" data-kachat-expired-banner hidden></div>
-
-          <div class="profile-card profile-hero-card">
-            <div class="profile-hero-banner" data-profile-hero-banner></div>
-            <div class="profile-hero-top">
-              <span class="kaposts-avatar profile-hero-avatar" data-profile-hero-avatar aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.118a7.5 7.5 0 0 1 15 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.5-1.632Z"/></svg></span>
-              <!-- 5.2: the Profile hero edits your .kachat profile (iOS 09e0403); .kas profiles are edited per
-                   domain from Your Domains. The two KNS buttons stay for those flows but never show here. -->
-              <button class="profile-hero-kns" type="button" data-open-kachat-profile>Edit KaChat Profile</button>
-              <button class="profile-hero-kns retired" type="button" data-open-kns-register data-profile-kns-empty-cta hidden>Create KNS Profile</button>
-              <button class="profile-hero-kns retired" type="button" data-open-kns-editor data-profile-kns-owned hidden>Edit KNS Profile</button>
-            </div>
-            <div class="profile-hero-meta">
-              <strong data-profile-hero-name>Account</strong>
-              <span class="profile-hero-bio" data-profile-hero-bio hidden></span>
-              <!-- Testnet: the .kachat profile's Linktree link (iOS 1322216). -->
-              <a class="profile-hero-linktree" data-profile-hero-linktree href="#" target="_blank" rel="noopener noreferrer" hidden>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>
-                <span data-profile-hero-linktree-text></span>
-              </a>
-            </div>
-          </div>
-
-          <!-- Your Domains: a top-level row rather than a page inside the KNS editor - domains are
+          <!-- Wallet's cards are Chatting Address, Swap Stablecoins and Your Domains (KaChat iOS 148a5331). Your Domains: a top-level row rather than a page inside the KNS editor - domains are
                something you own, not a setting of the profile that happens to use one (iOS
                yourDomainsSection). Shown for every account, since the list has an empty state. -->
           <button class="profile-card profile-recovery-row" type="button" data-open-domains-screen>
@@ -934,39 +880,8 @@
               <svg viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5l5 5-5 5"/></svg>
             </span>
           </button>
-
-          <!-- The notification center, with its unread count (iOS bfe9f022 notificationsSection). -->
-          <button class="profile-card profile-recovery-row" type="button" data-open-notif-center>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a5.5 5.5 0 0 1 5.5 5.5c0 3.2.8 5 1.8 6.2.4.5.05 1.3-.6 1.3H5.3c-.65 0-1-.8-.6-1.3 1-1.2 1.8-3 1.8-6.2A5.5 5.5 0 0 1 12 4Z"/><path d="M10 19.5a2 2 0 0 0 4 0"/></svg>
-            <span>Notifications</span>
-            <span class="profile-row-trailing">
-              <span class="profile-domains-count" data-notif-count>0</span>
-              <svg viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5l5 5-5 5"/></svg>
-            </span>
-          </button>
-
-          <!-- The chatting address's QR code, and only that: the balance is Wallet's (iOS bfe9f022). -->
-          <button class="profile-card profile-recovery-row" type="button" data-profile-chatting-address>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 3.5h6.5V10H3.5zM14 3.5h6.5V10H14zM3.5 14H10v6.5H3.5z"/><path d="M14 14h2.5v2.5H14zM18.5 18.5h2V20.5h-2zM14 18.5h2v2h-2zM18.5 14h2v2h-2z"/></svg>
-            <span>Chatting Address</span>
-          </button>
-
-          <button class="profile-card profile-recovery-row" type="button" data-profile-share aria-label="Share your profile">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12"/></svg>
-            <span>Share Profile</span>
-          </button>
-
-          <button class="profile-card profile-recovery-row" type="button" data-open-account-view="settings">
-            <span>Settings</span>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 0 1 0 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 0 1 0-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.369-.491l1.217.456c.355.133.75.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
-          </button>
-
-          <!-- Red, no chevron, last (iOS bfe9f022 logOutSection). -->
-          <button class="profile-card profile-logout-row" type="button" data-shell-action="logout">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H5.75A1.75 1.75 0 0 0 4 5.75v12.5C4 19.22 4.78 20 5.75 20H10"/><path d="M14 8l4 4-4 4"/><path d="M18 12H9"/></svg>
-            <span>Log Out</span>
-          </button>
         </div>
+
       </section>
     </div>
 

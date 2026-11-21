@@ -56,6 +56,7 @@ import { kaPostsWatchedAuthorAddresses, kaPostsHiddenXOnlyKeys } from "./kaposts
 import { openKaPostComposerWithText } from "./kaposts.js";
 // Terms of Use, Block and tapped room links (KaPosts-iPhone 9e22075); Feed to its top (45de945).
 import { blockKaPostAccount, closeKaPostCovers, kaPostsBlockedAddresses, kaPostsFeedToTop } from "./kaposts.js";
+import { setKaPostsRootMode, syncKaPostsBell, kaPostsUnseenCount } from "./kaposts.js";
 import { broadcastBlockedAccountsChanged } from "./broadcasts.js";
 import { askKaPostTerms, kaPostTermsAccepted, kaPostTermsHtml } from "./kapost-moderation.js";
 import { isKachatBot, kachatBotFor, kachatBotIconHtml, KACHAT_BOTS } from "./kachat-bots.js";
@@ -8560,6 +8561,8 @@ function unreadNotifCount() {
 }
 function updateNotifBadge() {
   try { refreshTabBadges(); } catch {}
+  // Profile's bell lists these with KaPost's (KaChat iOS 148a5331).
+  try { syncKaPostsBell(); } catch { /* KaPost not started */ }
   // Profile's Notifications row (iOS bfe9f022 notificationsSection): its unread count, 0 included.
   const count = document.querySelector("[data-notif-count]");
   if (count) count.textContent = String(unreadNotifCount());
@@ -8602,8 +8605,27 @@ document.querySelector("[data-notif-clear]")?.addEventListener("click", () => {
 document.querySelector("[data-notif-list]")?.addEventListener("click", (event) => {
   const row = event.target.closest("[data-notif-id]");
   if (!row) return;
-  const notif = globalNotifications.find((n) => n.id === row.dataset.notifId);
   closeNotifCenter();
+  openGlobalNotification(row.dataset.notifId);
+});
+/** The wallet's rows in Profile's one notifications list (KaChat iOS 148a5331), newest first. */
+function walletNotificationRows() {
+  return globalNotifications.map((n) => ({
+    id: n.id,
+    title: n.title,
+    body: n.body,
+    timestamp: n.timestamp,
+    kind: n.targetKind === "kusdt" ? "kusdt" : n.source === "wallet" ? "kaspa" : "kachat",
+  }));
+}
+function markWalletNotificationsSeen() {
+  notifCenterLastSeenAt = Date.now();
+  try { localStorage.setItem(accountScopedKey(NOTIF_CENTER_SEEN_KEY), String(notifCenterLastSeenAt)); } catch {}
+  updateNotifBadge();
+}
+/** Where a wallet notification goes when it's opened: the address, kUSDT, the .kachat name... */
+function openGlobalNotification(id) {
+  const notif = globalNotifications.find((n) => n.id === id);
   if (!notif) return;
   if (notif.targetKind === "broadcast") {
     // The room opens straight in the detail pane (iOS a062577); Simple Mode opens nothing.
@@ -8632,7 +8654,7 @@ document.querySelector("[data-notif-list]")?.addEventListener("click", (event) =
       try { openKaPostFromNotification(notif.targetId); } catch {}
     }
   }
-});
+}
 loadNotifCenter();
 
 // Reconnect always drops the current node and connects again (a plain connect kept a node that
@@ -12812,9 +12834,12 @@ function setActiveAppTab(tab) {
   // KaPost asks for its Terms of Use the first time it is opened (KaPosts-iPhone 9e22075, which asks
   // on the KaPost app's first launch; Desktop is one app), from wherever: the dock, the Hub, a link.
   // The tab doesn't change until they agree. A post a link asked for loads behind and is there then.
-  if (!kaPostTermsAccepted() && (tab === "kaposts" || (tab === "hub" && hubSection === "kaposts"))) {
+  // Profile is your KaPost profile now (KaChat iOS 148a5331), so it asks too.
+  const kaPostScreen = tab === "kaposts" || tab === "profile" || (tab === "hub" && (hubSection === "kaposts" || hubSection === "profile"));
+  if (!kaPostTermsAccepted() && kaPostScreen) {
+    const wanted = tab === "hub" ? hubSection : tab;
     if (tab === "hub") hubSection = null;
-    askKaPostTerms({ onAgree: () => { setActiveAppTab("kaposts"); applyDockLayout(); } });
+    askKaPostTerms({ onAgree: () => { setActiveAppTab(wanted); applyDockLayout(); } });
     return;
   }
   // A tab that lives in the Hub is REACHED through the Hub, so asking for it directly - a deep
@@ -12854,7 +12879,8 @@ function setActiveAppTab(tab) {
   document.body.dataset.appTab = screenTab;
   publishDockHeight();
   appTabScreens.forEach((screen) => {
-    screen.hidden = screen.dataset.appTabScreen !== screenTab;
+    // Profile shows KaPost's screen with your profile as its page (KaChat iOS 148a5331).
+    screen.hidden = screen.dataset.appTabScreen !== (screenTab === "profile" ? "kaposts" : screenTab);
   });
   // Looked up here: the startup tab restore runs this before `groupChatScreen` (declared far below)
   // is initialised, which throws in dev (the build lowers const to var, so production was spared).
@@ -12875,8 +12901,11 @@ function setActiveAppTab(tab) {
   try { markOpenChatsRead(); } catch { /* not started */ }
   if (screenTab === "profile") refreshOwnKnsProfile();
   try { if (screenTab === "wallet") { renderProfileAccountTotal(); refreshSpendingSummaryOnShow(); warmReceiveAddressOnShow(); kusdtWallet?.refreshIfStale().catch(() => {}); } } catch { /* not started */ }
-  if (screenTab === "kaposts") refreshKaPostsFeed();
-  else stopKaPostsPolling();
+  if (screenTab === "kaposts") { try { setKaPostsRootMode("feed"); } catch { /* not started */ } refreshKaPostsFeed(); }
+  else {
+    stopKaPostsPolling();
+    if (screenTab === "profile") { try { setKaPostsRootMode("myProfile"); } catch { /* not started */ } }
+  }
   // The rooms are rows in Chats (KaChat 148a5331): they stay live while Chats is up, and
   // syncPublicChatsPane gives the pane to the open chat, group or room. Simple Mode hides them.
   if (isChats && !isChildModeEnabled()) { refreshBroadcasts({ onScreen: true }); syncPublicChatsPane(); }
@@ -13064,7 +13093,8 @@ const hubEmpty = document.querySelector("[data-hub-empty]");
 
 function tabUnreadCount(tab) {
   try {
-    if (tab === "profile") return unreadNotifCount();
+    // Profile's bell holds KaPost's activity and the wallet's (KaChat iOS 148a5331).
+    if (tab === "profile") return unreadNotifCount() + (Number(kaPostsUnseenCount()) || 0);
     // KaPosts has no count on its dock tab or Hub tile: its unseen notifications show only on the
     // bell inside KaPosts (owner, 2026-10-23). It stays in refreshTabBadges' list so an old badge
     // is taken off.
@@ -13914,7 +13944,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 309;
+const APP_BUILD = 310;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -13955,7 +13985,8 @@ const OPEN_SOURCE_NOTICES = [
 // Profile's Share Profile row (iOS 863b0e9, bfe9f022): a kachat.app link to you. Pasted anywhere it previews
 // with your KNS name and avatar; opened with KaChat it starts a chat with you; without it, the
 // page offers the download. The browser's share sheet when there is one, else the clipboard.
-document.querySelector("[data-profile-share]")?.addEventListener("click", async () => {
+document.querySelector("[data-profile-share]")?.addEventListener("click", () => shareOwnProfile());
+async function shareOwnProfile() {
   if (!engine.address) { showCopyToast("Sign in to share your profile."); return; }
   // The link and nothing else (iOS 7ce35ef): it previews with your name and avatar on its own.
   const url = profileUniversalLink(engine.address);
@@ -13965,7 +13996,7 @@ document.querySelector("[data-profile-share]")?.addEventListener("click", async 
   }
   try { await navigator.clipboard.writeText(url); showCopyToast("Profile link copied"); }
   catch { showCopyToast(url); }
-});
+}
 
 document.querySelector("[data-profile-licenses]")?.addEventListener("click", () => {
   const cards = OPEN_SOURCE_NOTICES.map((n) => `
@@ -22789,7 +22820,9 @@ const SETTINGS_HUB_ICONS = {
 };
 // iOS SettingsView (d1844582): alphabetical, down to Terms of Use and the wipe row. The sections sit
 // in any order in index.html; this is the order the hub lists them in.
-const SETTINGS_HUB_ORDER = ["About", "Account Name", "Back Up Account", "Chats", "Connection", "Customization", "Diagnostics", "Notifications", "Security", "Storage"];
+// KaPost and Help joined it when the old Profile screen became your KaPost profile (KaChat iOS
+// 148a5331): KaPost's own settings, and the guides that sat behind Profile's Help button.
+const SETTINGS_HUB_ORDER = ["About", "Account Name", "Back Up Account", "Chats", "Connection", "Customization", "Diagnostics", "Help", "KaPost", "Notifications", "Security", "Storage"];
 
 
 const settingsHubEl = (() => {
@@ -22808,6 +22841,17 @@ const settingsHubEl = (() => {
       ${chevron}
     </button>` });
   });
+  // Rows that open something of their own rather than a section of this page.
+  categories.push({ label: "KaPost", html: `<button class="settings-list-row settings-hub-row" type="button" data-settings-hub-kapost>
+      <span class="settings-hub-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="3.5"/><path d="M7.5 8.5h9M7.5 12h9M7.5 15.5h5.5"/></svg></span>
+      <span class="settings-hub-label">KaPost</span>
+      ${chevron}
+    </button>` });
+  categories.push({ label: "Help", html: `<button class="settings-list-row settings-hub-row" type="button" data-settings-hub-help>
+      <span class="settings-hub-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.25"/><path d="M9.7 9.4a2.4 2.4 0 0 1 4.66.8c0 1.6-2.36 2-2.36 3.3"/><circle cx="12" cy="16.8" r=".2"/></svg></span>
+      <span class="settings-hub-label">Help</span>
+      ${chevron}
+    </button>` });
   const hubRank = ({ label }) => { const at = SETTINGS_HUB_ORDER.indexOf(label); return at < 0 ? SETTINGS_HUB_ORDER.length : at; };
   rows.push(...categories.sort((a, b) => hubRank(a) - hubRank(b)).map((category) => category.html));
   // Terms of Use (KaPosts-iPhone 9e22075): to read again. Desktop keeps it, above the wipe.
@@ -23025,6 +23069,8 @@ settingsScreenEl?.addEventListener("click", (event) => {
   if (event.target.closest("[data-settings-hub-terms]")) {
     infoSheet({ title: "Terms of Use", html: kaPostTermsHtml() });
   }
+  if (event.target.closest("[data-settings-hub-kapost]")) openKaPostsSettings();
+  if (event.target.closest("[data-settings-hub-help]")) { if (helpScreenEl) helpScreenEl.hidden = false; }
 });
 showSettingsCategory(null);
 
@@ -23146,6 +23192,8 @@ function setSettingsAppOnlyMode(appOnly) {
   });
   const termsRow = settingsHubEl?.querySelector("[data-settings-hub-terms]");
   if (termsRow) termsRow.hidden = appOnly;
+  const kapostRow = settingsHubEl?.querySelector("[data-settings-hub-kapost]");
+  if (kapostRow) kapostRow.hidden = appOnly;
   const resyncRow = settingsHubEl?.querySelector("[data-shell-action=\"resync\"]");
   if (resyncRow) resyncRow.hidden = appOnly;
   const deleteRow = settingsHubEl?.querySelector("[data-shell-action=\"delete-account\"]");
@@ -32975,6 +33023,15 @@ queueMicrotask(async () => {
       // Routes to the Profile tab's KNS editor rather than a second copy of it.
       // KaPosts' profile button edits your .kachat profile too (iOS 09e0403).
       editKnsProfile: () => openKachatProfileEditor(),
+      // The Profile tab (KaChat iOS 148a5331): Share Profile and Log Out under your name, and the
+      // wallet's notifications in the bell's one list.
+      shareProfile: () => shareOwnProfile(),
+      logOut: () => openLogoutModal(),
+      walletNotifications: () => walletNotificationRows(),
+      walletNotificationsUnseen: () => unreadNotifCount(),
+      markWalletNotificationsSeen: () => markWalletNotificationsSeen(),
+      openWalletNotification: (id) => openGlobalNotification(id),
+      onKaPostsUnseenChanged: () => { try { refreshTabBadges(); } catch { /* not ready */ } },
       // Wallet beside Edit Profile (iOS 865c9ab): the chatting address's balance, history and coins.
       openChattingWallet: () => openManageAddressScreen(),
       // Request beside it (KaPost 9653c04).

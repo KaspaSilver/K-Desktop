@@ -180,6 +180,10 @@ let threadStack = [];     // post ids (local ids)
 // the thread and its Back returns to the thread — the desktop stand-in for the sheets iOS
 // presents from the thread's own hierarchy. False = the thread owns the viewport.
 let panelOverThread = false;
+// What the screen is for (KaChat iOS 148a5331 KaPostsView RootMode): "feed" is the KaPost tab;
+// "myProfile" is the dock's Profile tab, your KaPost profile as its root page (no way back from it,
+// and anything opened from it closes back to it).
+let rootMode = "feed";
 // Reply-notification landing: the txid of the reply to scroll to once the parent thread's
 // comment list contains it, and the txid currently flashing after that landing.
 let pendingThreadScrollRemoteId = null;
@@ -3744,6 +3748,123 @@ function removePostEverywhere(post) {
 // Panels (profile / notifications / engagement / bookmarks / muted / blocked / menu)
 // ---------------------------------------------------------------------------
 
+// newspaper, person.text.rectangle, square.and.arrow.up and rectangle.portrait.and.arrow.right:
+// the Profile tab's header buttons (KaChat iOS 148a5331 profileHeaderButtonLabel).
+const NEWSPAPER_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 5.5h12v13a1.5 1.5 0 0 1-1.5 1.5H6a1.5 1.5 0 0 1-1.5-1.5Z"/><path d="M16.5 9h3v9.5a1.5 1.5 0 0 1-3 0M7.5 8.5h6M7.5 11.5h6M7.5 14.5h6M7.5 17h4"/></svg>';
+const SHARE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12"/></svg>';
+const LOGOUT_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H5.75A1.75 1.75 0 0 0 4 5.75v12.5C4 19.22 4.78 20 5.75 20H10"/><path d="M14 8l4 4-4 4"/><path d="M18 12H9"/></svg>';
+/** Edit Profile, Share Profile and Log Out under your name on the Profile tab (owner's calls on
+ *  iOS, 2026-11-21: Share beside Edit, and Log Out, which lived on the old Profile screen). */
+function rootProfileButtonsHtml() {
+  return `<span class="kaposts-profile-buttons kaposts-root-buttons">`
+    + `<button class="kaposts-edit-kns" type="button" data-kaposts-edit-kns><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PANEL_ICONS.idCard}"/></svg>Edit Profile</button>`
+    + `<button class="kaposts-edit-kns" type="button" data-kaposts-share-profile>${SHARE_SVG}Share Profile</button>`
+    + `<button class="kaposts-edit-kns kaposts-logout" type="button" data-kaposts-log-out>${LOGOUT_SVG}Log Out</button>`
+    + `</span>`;
+}
+
+/** Your own profile, as the Profile tab's page (not over a thread). */
+function isRootProfilePanel(panel) {
+  return rootMode === "myProfile" && panel?.type === "profile" && !panelOverThread
+    && Boolean(deps?.engine?.address) && sameAddress(panel.address, deps.engine.address);
+}
+
+/**
+ * The dock's Profile tab is your KaPost profile (KaChat iOS 148a5331, `KaPostsView(rootMode:
+ * .myProfile)`): this screen with the profile as its root page; the KaPost tab is the feed. Each
+ * switch starts the screen afresh: what one tab had open is not carried into the other.
+ */
+export function setKaPostsRootMode(mode) {
+  if (!deps) return;
+  const next = mode === "myProfile" ? "myProfile" : "feed";
+  const changed = next !== rootMode;
+  rootMode = next;
+  document.querySelector('[data-app-tab-screen="kaposts"]')?.classList.toggle("kaposts-root-profile", next === "myProfile");
+  closeFeedDrawer();
+  if (next === "myProfile") {
+    if (!changed && isRootProfilePanel(activePanel) && threadStack.length === 0) { renderPanel(); return; }
+    threadStack = [];
+    threadGeneration += 1;
+    panelOverThread = false;
+    pendingThreadScrollRemoteId = null;
+    if (deps.engine.address) openPosterProfile(deps.engine.address, safeRequesterPubkey());
+    else { activePanel = null; renderPanel(); }
+    renderThread();
+    syncRailActive();
+    return;
+  }
+  if (!changed) return;
+  threadStack = [];
+  threadGeneration += 1;
+  panelOverThread = false;
+  pendingThreadScrollRemoteId = null;
+  activePanel = null;
+  panelGeneration += 1;
+  clearPanelPagerSentinels();
+  renderPanel();
+  renderThread();
+  renderFeed();
+  syncRailActive();
+}
+
+/** Everything unseen behind Profile's bell: KaPost activity and the wallet's (KaChat iOS 148a5331
+ *  AllNotificationsBadge). */
+function allNotificationsUnseen() {
+  return loadUnseenKaPostsCount() + (Number(deps?.walletNotificationsUnseen?.()) || 0);
+}
+
+let rootBellEl = null;
+/** Profile's bell, top right: every notification, KaPost's and the wallet's, in one list. A dot
+ *  while any is unseen. */
+function ensureRootBell() {
+  if (rootBellEl || !panelEl) return rootBellEl;
+  const header = panelEl.querySelector(".kaposts-thread-header");
+  if (!header) return null;
+  rootBellEl = document.createElement("button");
+  rootBellEl.type = "button";
+  rootBellEl.className = "kaposts-icon-button kaposts-root-bell";
+  rootBellEl.setAttribute("data-kaposts-root-bell", "");
+  rootBellEl.setAttribute("aria-label", "Notifications");
+  rootBellEl.title = "Notifications";
+  rootBellEl.hidden = true;
+  rootBellEl.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PANEL_ICONS.bell}"/></svg><span class="kaposts-root-bell-dot" data-kaposts-root-bell-dot hidden></span>`;
+  rootBellEl.addEventListener("click", () => openNotificationsPanel());
+  header.appendChild(rootBellEl);
+  return rootBellEl;
+}
+/** Redraws the bell's dot: the app calls it when the wallet's notifications change. */
+export function syncKaPostsBell() {
+  if (!deps) return;
+  const bell = ensureRootBell();
+  if (!bell) return;
+  bell.hidden = !isRootProfilePanel(activePanel);
+  const unseen = allNotificationsUnseen();
+  const dot = bell.querySelector("[data-kaposts-root-bell-dot]");
+  if (dot) dot.hidden = unseen === 0;
+  bell.setAttribute("aria-label", unseen ? "Notifications, unread" : "Notifications");
+}
+
+let rootComposeEl = null;
+/** Profile's compose button (iOS createPostButton, on the Profile tab too): post from your profile. */
+function syncRootCompose() {
+  if (!rootComposeEl) {
+    const host = document.querySelector('[data-app-tab-screen="kaposts"] .kaposts-content');
+    if (!host) return;
+    rootComposeEl = document.createElement("button");
+    rootComposeEl.type = "button";
+    rootComposeEl.className = "kaposts-root-compose";
+    rootComposeEl.setAttribute("aria-label", "New Post");
+    rootComposeEl.title = "New Post";
+    rootComposeEl.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PANEL_ICONS.compose}"/></svg>`;
+    rootComposeEl.addEventListener("click", () => {
+      if (deps.isChattingBalanceZero?.()) { deps.showFundingGate?.(); return; }
+      openComposer();
+    });
+    host.appendChild(rootComposeEl);
+  }
+  rootComposeEl.hidden = !isRootProfilePanel(activePanel);
+}
+
 function syncRailActive() {
   syncRailBadge();
   const current = !activePanel
@@ -3777,9 +3898,17 @@ function beginPanel(next) {
 }
 
 function closePanel() {
+  // The Profile tab's own profile is its page, not something to close.
+  if (isRootProfilePanel(activePanel)) return;
   // An over-thread panel closes back to the thread, handing the viewport to whatever panel
   // the thread was opened from (usually none).
   activePanel = panelOverThread ? (activePanel?.beneath || null) : null;
+  // On the Profile tab, closing the last thing opened from your profile lands back on it.
+  if (!activePanel && rootMode === "myProfile" && threadStack.length === 0 && deps?.engine?.address) {
+    panelOverThread = false;
+    openPosterProfile(deps.engine.address, safeRequesterPubkey());
+    return;
+  }
   panelOverThread = false;
   panelGeneration += 1; // any page still in flight for the panel we just left is now stale
   clearPanelPagerSentinels();
@@ -3809,6 +3938,25 @@ const PANEL_ICONS = {
   xCircle: "m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z", // xmark.circle
   chevron: "m8.25 4.5 7.5 7.5-7.5 7.5", // chevron.right
 };
+
+/** A wallet notification in Profile's one list: the coin it was about, what happened, when. */
+function walletNotificationRowHtml(item) {
+  const icon = item.kind === "kusdt"
+    ? `<span class="kaposts-wallet-notification-icon kusdt" aria-hidden="true">$</span>`
+    : item.kind === "kaspa"
+      ? `<span class="kaposts-wallet-notification-icon" aria-hidden="true"><img src="${kaspaLogoUrl}" alt="" /></span>`
+      : `<span class="kaposts-wallet-notification-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${PANEL_ICONS.bell}"/></svg></span>`;
+  return `
+            <div class="kaposts-notification-row openable" data-kaposts-wallet-notification="${deps.escapeHtml(item.id)}">
+              <span class="kaposts-notification-avatar">${icon}</span>
+              <div class="kaposts-notification-main">
+                <span><strong>${deps.escapeHtml(item.title || "")}</strong></span>
+                ${item.body ? `<span class="kaposts-notification-snippet">${deps.escapeHtml(item.body)}</span>` : ""}
+                <span class="kaposts-cell-time">${deps.escapeHtml(formatRelativeTime(item.timestamp))}</span>
+              </div>
+              <svg class="kaposts-search-chevron kaposts-notification-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="${PANEL_ICONS.chevron}"/></svg>
+            </div>`;
+}
 
 /** iOS's empty-state stack: a large secondary icon, a headline, then the optional body line. */
 function panelEmptyHtml(icon, title, body = null) {
@@ -3860,10 +4008,15 @@ function renderPanel() {
   if (!show) clearPanelPagerSentinels();
   const refreshButton = ensurePanelRefreshButton();
   if (refreshButton) refreshButton.hidden = !show || !panelHasRefresh(activePanel);
-  // Notifications' cog, top left (iOS d37f64d): what notifies you.
+  // No cog on the notifications list any more (KaChat iOS 148a5331: one list, no settings gear;
+  // KaPost's switches are in Settings > KaPost).
   const cog = ensureNotificationSettingsButton();
-  if (cog) cog.hidden = !show || activePanel?.type !== "notifications";
+  if (cog) cog.hidden = true;
   panelEl?.toggleAttribute("data-kaposts-panel-notifications", show && activePanel?.type === "notifications");
+  // The Profile tab's own profile: no back arrow, the bell top right, the compose button.
+  panelEl?.toggleAttribute("data-kaposts-panel-root", show && isRootProfilePanel(activePanel));
+  syncKaPostsBell();
+  syncRootCompose();
   if (!show || !panelBodyEl) return;
   const panel = activePanel;
   // A Post Activity kind's list is a screen pushed inside the sheet: at phone width its header
@@ -3908,7 +4061,7 @@ function renderPanel() {
         <div class="kaposts-profile-banner${kachatBanner ? " has-img" : ""}"${knsBanner ? ` style="background-image:url('${deps.escapeHtml(knsBanner)}')"` : ""}>${kachatBanner}</div>
         ${/* Someone else's: Follow and Chat beside the avatar, above the name, so a long name never
              squeezes them (iOS 472cb72, .kaposts-profile-row.other). */ ""}
-        <div class="kaposts-profile-row${isMine ? "" : " other"}">
+        <div class="kaposts-profile-row${isMine && !isRootProfilePanel(panel) ? "" : " other"}">
           ${posterAvatarHtml(address)}
           <div class="kaposts-profile-meta">
             ${/* iOS myProfileSheet / posterProfileSheet order: name, counts, bio, then (own
@@ -3919,9 +4072,13 @@ function renderPanel() {
               <button type="button" class="kaposts-count-link" data-kaposts-follow-list="followers"${panel.pubkey ? "" : " disabled"}><b>${panel.details?.followersCount ?? 0}</b> Followers</button>
             </span>
             ${profile.bio ? `<span class="kaposts-profile-bio" data-kaposts-profile-bio>${deps.escapeHtml(profile.bio)}</span><button type="button" class="kaposts-bio-more" data-kaposts-bio-more hidden>More</button>` : ""}
-            ${isMine ? `<span class="kaposts-profile-buttons"><button class="kaposts-edit-kns" type="button" data-kaposts-edit-kns><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PANEL_ICONS.idCard}"/></svg>Edit KaChat Profile</button>${/* Beside it, Wallet (iOS 865c9ab): the chatting address's balance, history and coins -
+            ${isMine && isRootProfilePanel(panel) ? rootProfileButtonsHtml() : ""}
+            ${isMine && !isRootProfilePanel(panel) ? `<span class="kaposts-profile-buttons"><button class="kaposts-edit-kns" type="button" data-kaposts-edit-kns><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PANEL_ICONS.idCard}"/></svg>Edit KaChat Profile</button>${/* Beside it, Wallet (iOS 865c9ab): the chatting address's balance, history and coins -
                  Desktop's Manage Address screen. */ ""}${deps.openChattingWallet && deps.engine.address ? `<button class="kaposts-edit-kns kaposts-wallet-button" type="button" data-kaposts-wallet>${WALLET_SVG}Wallet</button>` : ""}${/* And Request (KaPost 9653c04): a payment request link to copy or share. */ ""}${deps.openRequestPayment && deps.engine.address ? `<button class="kaposts-edit-kns kaposts-wallet-button" type="button" data-kaposts-request aria-label="Request Payment">${REQUEST_SVG}Request</button>` : ""}</span>` : ""}
           </div>
+          ${isRootProfilePanel(panel) ? `<span class="kaposts-profile-actions">
+            <button class="kaposts-edit-kns kaposts-see-all" type="button" data-kaposts-see-all title="Opens KaPost, where everyone's posts are.">${NEWSPAPER_SVG}See All Posts</button>
+          </span>` : ""}
           ${!isMine ? `<span class="kaposts-profile-actions">
             <button class="kaposts-follow${isFollowing ? " following" : ""}" type="button" data-kaposts-profile-follow>${isFollowing ? "Following" : "Follow"}</button>
             <button class="kaposts-profile-chat" type="button" data-kaposts-profile-chat title="Open a chat with ${deps.escapeHtml(posterName(address))}">
@@ -3966,13 +4123,17 @@ function renderPanel() {
   }
 
   if (panel.type === "notifications") {
-    const items = panel.items || [];
+    // One list, newest first: KaPost activity and the wallet's (Kaspa and kUSDT received, news about
+    // your .kachat names), KaChat iOS 148a5331 KaPostsNotificationsView(allInOne: true).
+    const walletRows = (deps.walletNotifications?.() || []).map((row) => ({ ...row, wallet: true }));
+    const items = [...(panel.items || []), ...walletRows]
+      .sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
     panelBodyEl.innerHTML = `<div class="kaposts-panel-list" data-kaposts-panel-list>${
       panel.loading && items.length === 0
       ? `<div class="kaposts-feed-status">Loading…</div>`
       : items.length === 0
-        ? panelEmptyHtml("bell", "Nothing yet", "When someone likes, replies to or shares your posts, it shows up here.")
-        : items.map((item) => `
+        ? panelEmptyHtml("bell", "Nothing yet", "Likes, replies and shares of your posts, and the Kaspa and kUSDT you receive, show up here.")
+        : items.map((item) => item.wallet ? walletNotificationRowHtml(item) : `
             <div class="kaposts-notification-row openable" data-kaposts-notification="${deps.escapeHtml(item.id)}">
               <span class="kaposts-notification-avatar">
                 ${posterAvatarHtml(item.actorAddress)}
@@ -4709,20 +4870,10 @@ export function kaPostsUnseenCount() {
 }
 function syncRailBadge() {
   if (!deps) return;
-  const count = loadUnseenKaPostsCount();
-  // The rail's bell, and the phone header's (where iOS's Notifications dock tab carries it).
-  document.querySelectorAll('[data-kaposts-rail="notifications"], [data-kaposts-phone-section="notifications"]').forEach((button) => {
-    let badge = button.querySelector("[data-kaposts-rail-badge]");
-    if (!count) { badge?.remove(); button.setAttribute("aria-label", "Notifications"); return; }
-    if (!badge) {
-      badge = document.createElement("span");
-      badge.className = "kaposts-rail-badge";
-      badge.setAttribute("data-kaposts-rail-badge", "");
-      button.appendChild(badge);
-    }
-    badge.textContent = count > 99 ? "99+" : String(count);
-    button.setAttribute("aria-label", `Notifications, ${count} unseen`);
-  });
+  syncKaPostsBell();
+  deps.onKaPostsUnseenChanged?.();
+  // The count shows as the Profile tab's dot and its bell's (KaChat iOS 148a5331): KaPost's menu
+  // has no Notifications row any more.
 }
 
 function loadSeenKaPostNotificationIds() {
@@ -4996,8 +5147,10 @@ async function openNotificationsPanel() {
   renderPanel();
   syncRailActive();
   // Opening the list IS seeing them - cleared on open rather than on close so the badge does
-  // not sit there while you read.
+  // not sit there while you read. The wallet's rows are in the same list (KaChat iOS 148a5331).
+  deps.markWalletNotificationsSeen?.();
   markAllKaPostsNotificationsSeen();
+  syncKaPostsBell();
   if (reuse || generation !== panelGeneration) return;
   keptNotificationsPanel = null;
   if (await loadNotificationsFirstPage(panel)) keptNotificationsPanel = { panel, loadedAt: Date.now() };
@@ -6579,7 +6732,6 @@ export function kaPostsFeedToTop({ animated = true } = {}) {
 const MENU_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>`;
 const XMARK_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>`;
 const GEAR_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>`;
-const PERSON_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.118a7.5 7.5 0 0 1 15 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.5-1.632Z"/></svg>`;
 // wallet.bifold, for the Wallet button beside Edit Profile (iOS 865c9ab).
 const WALLET_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h11.5A1.5 1.5 0 0 1 19 6.5V8"/><path d="M3.5 7.5v10A2.5 2.5 0 0 0 6 20h12.5a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 18.5 8H6a2.5 2.5 0 0 1-2.5-2.5"/><path d="M16.5 14h.01"/></svg>`;
 const REQUEST_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h7.5L19 8v12.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5Z"/><path d="M9 11.5h6.5M9 14.5h6.5M9 17.5h4"/></svg>';
@@ -6602,8 +6754,8 @@ let drawerCardEl = null;
 let drawerOpen = false;
 let drawerClosing = false;
 
-/** The header iOS draws above the feed tabs at phone width: ☰, the large KaPosts title, and (the
- *  Desktop stand-in for iOS's dock tabs) Notifications, Profile and Settings on the right. */
+/** The header iOS draws above the feed tabs at phone width: ☰ and the large KaPost title. Profile,
+ *  its bell and KaPost's settings are the dock's Profile tab and Settings (KaChat iOS 148a5331). */
 function mountPhoneBar() {
   const screen = document.querySelector('[data-app-tab-screen="kaposts"]');
   if (!screen || screen.querySelector("[data-kaposts-phone-bar]")) return;
@@ -6613,11 +6765,7 @@ function mountPhoneBar() {
   phoneBarEl.innerHTML = `
     <button class="kaposts-menu-button" type="button" data-kaposts-menu aria-label="Menu" aria-haspopup="dialog" aria-expanded="false">${MENU_SVG}</button>
     <h1 class="kaposts-title">KaPost</h1>
-    <span class="kaposts-phone-bar-actions">
-      <button class="kaposts-phone-bar-item" type="button" data-kaposts-phone-section="notifications" aria-label="Notifications" title="Notifications"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PANEL_ICONS.bell}"/></svg></button>
-      <button class="kaposts-phone-bar-item" type="button" data-kaposts-phone-section="profile" aria-label="Profile" title="Profile">${PERSON_SVG}</button>
-      <button class="kaposts-phone-bar-item" type="button" data-kaposts-phone-section="settings" aria-label="Settings" title="Settings">${GEAR_SVG}</button>
-    </span>`;
+    <span class="kaposts-phone-bar-actions"></span>`;
   screen.prepend(phoneBarEl);
   phoneBarEl.addEventListener("click", (event) => {
     if (event.target.closest("[data-kaposts-menu]")) { openFeedDrawer(); return; }
@@ -7371,6 +7519,9 @@ export function initKaPosts(dependencies) {
       return;
     }
     if (event.target.closest("[data-kaposts-edit-kns]")) { deps.editKnsProfile?.(); return; }
+    if (event.target.closest("[data-kaposts-see-all]")) { deps.openKaPostsTab?.(); return; }
+    if (event.target.closest("[data-kaposts-share-profile]")) { deps.shareProfile?.(); return; }
+    if (event.target.closest("[data-kaposts-log-out]")) { deps.logOut?.(); return; }
     if (event.target.closest("[data-kaposts-wallet]")) { deps.openChattingWallet?.(); return; }
     if (event.target.closest("[data-kaposts-request]")) { deps.openRequestPayment?.(); return; }
     if (event.target.closest("[data-kaposts-bio-more]") && activePanel?.type === "profile") {
@@ -7522,6 +7673,12 @@ export function initKaPosts(dependencies) {
       return;
     }
 
+    const walletRow = event.target.closest("[data-kaposts-wallet-notification]");
+    if (walletRow && activePanel?.type === "notifications") {
+      event.stopPropagation();
+      deps.openWalletNotification?.(walletRow.dataset.kapostsWalletNotification);
+      return;
+    }
     const notificationRow = event.target.closest("[data-kaposts-notification]");
     if (notificationRow && activePanel?.type === "notifications") {
       const item = (activePanel.items || []).find((row) => String(row.id) === notificationRow.dataset.kapostsNotification);
