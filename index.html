@@ -13,7 +13,7 @@
   <!-- Too-old browsers (no WebAssembly / modern JS, e.g. iOS 10) get a clear message, not a blank layout. -->
   <script src="/browser-check.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=419" />
+  <link rel="stylesheet" href="./ui/styles.css?v=420" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (KaChat iOS 148a5331's new globe) is the tab icon too. -->
@@ -41,9 +41,10 @@
       </svg>
     </button>
     <div class="logged-out-content">
-      <span class="logged-out-logo" aria-hidden="true"><img src="./ui/assets/kachat-logo.png" alt="" /></span>
-      <h1>K</h1>
-      <p class="logged-out-tagline">Secure messaging on Kaspa BlockDAG</p>
+      <!-- The K globe, cut from the app icon, glowing like it (KaChat iOS 58cfbf6f KLogo); it is the
+           page's title, so it is the h1 and reads "K". -->
+      <h1 class="logged-out-logo"><img src="./ui/assets/k-logo.png" alt="K" width="132" height="132" /></h1>
+      <p class="logged-out-tagline">Digital Freedom on the Kaspa Network</p>
 
       <section class="saved-accounts-section">
         <p class="logged-out-section-label">Saved Accounts</p>
@@ -766,7 +767,7 @@
              Request; then the two ways into the addresses themselves. -->
         <div class="profile-screen wallet-screen" data-app-tab-screen="wallet" hidden>
           <div class="kaposts-header profile-title-row">
-            <h1 class="kaposts-title">KaPay</h1>
+            <h1 class="kaposts-title">Wallet</h1>
             <!-- Refresh: the platform's stand-in for iOS's pull-to-refresh, as on Your Domains. -->
             <button class="chatting-address-back domains-refresh wallet-refresh" type="button" data-wallet-refresh aria-label="Refresh" title="Refresh">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 12.6A7.5 7.5 0 1 1 17 6.6"/><path d="M19.6 3.8v4.6H15"/></svg>
@@ -895,7 +896,7 @@
       <button class="sidebar-tab" type="button" data-app-tab="wallet">
         <!-- wallet.bifold (iOS bfe9f022 AppTab.wallet). -->
         <span class="sidebar-tab-icon" aria-hidden="true"><svg class="tab-glyph-outline" viewBox="0 0 24 24"><rect x="2.75" y="6.5" width="18.5" height="13.75" rx="3"/><path d="M5.2 6.5 14.7 3.7a1.6 1.6 0 0 1 2 1.1l.5 1.7"/><path d="M21.25 11h-4.5a2.5 2.5 0 0 0 0 5h4.5"/></svg><svg class="tab-glyph-filled" viewBox="0 0 24 24"><path d="M6.6 5.1 14.6 2.8a1.9 1.9 0 0 1 2.4 1.3l.3 1Z"/><path d="M5.5 6.3h13a3 3 0 0 1 3 3v1.5h-4.8a2.7 2.7 0 0 0 0 5.4h4.8v1.5a3 3 0 0 1-3 3h-13a3 3 0 0 1-3-3V9.3a3 3 0 0 1 3-3Z"/><path d="M21.5 12.2v2.6h-4.8a1.3 1.3 0 0 1 0-2.6Z"/></svg></span>
-        <span>KaPay</span>
+        <span>Wallet</span>
       </button>
       <button class="sidebar-tab" type="button" data-app-tab="portfolio" hidden>
         <span class="sidebar-tab-icon" aria-hidden="true"><svg class="tab-glyph-outline" viewBox="0 0 24 24"><path d="M21.18 15.9A10 10 0 1 1 8.1 2.82"/><path d="M22 12A10 10 0 0 0 12 2v10Z"/></svg><svg class="tab-glyph-filled" viewBox="0 0 24 24"><path d="M10.6 4.8A8.4 8.4 0 1 0 19 13.2h-8.4Z"/><path d="M12.4 3a8.4 8.4 0 0 1 8.4 8.4h-8.4Z"/></svg></span>

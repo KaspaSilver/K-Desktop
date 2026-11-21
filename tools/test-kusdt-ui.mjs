@@ -384,7 +384,7 @@ await check("exact strings (§1-§13)", () => {
     "KAS for a kUSDT send", "This address's key isn't available on this computer.",
     "Every kUSDT coin holds 1.5 KAS. Combining them into one coin gives the extra KAS back to this address as regular KAS, less the network fee. Your kUSDT stays the same.",
     "Not independently audited yet. Hold only what you can afford to lose.",
-    "Receive it on a fresh address, or buy it with Swap Stablecoins on the KaPay tab.",
+    "Receive it on a fresh address, or buy it with Swap Stablecoins on the Wallet tab.",
     "Sends, receives and combines on this computer show here from now on.",
     "More stablecoins will show here as K adds them.",
     "These addresses couldn't be derived right now. Go back a page or reopen this screen to retry.",

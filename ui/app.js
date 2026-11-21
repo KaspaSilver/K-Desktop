@@ -1504,6 +1504,8 @@ function renderSavedAccountsScreen() {
   // iOS OnboardingView: no Saved Accounts section at all until there is one.
   const section = savedAccountList.closest(".saved-accounts-section");
   if (section) section.hidden = !accounts.length;
+  // a smaller K globe when saved accounts share the page (iOS 58cfbf6f hasSavedAccounts)
+  savedAccountList.closest(".logged-out-screen")?.classList.toggle("has-saved-accounts", accounts.length > 0);
   if (!accounts.length) { applySavedAccountActionsEnabled(); return; }
   for (const account of accounts) {
     const row = document.createElement("div");
@@ -8524,7 +8526,7 @@ const NOTIF_SESSION_START = Date.now();
 const notifOverlay = document.querySelector("[data-notif-overlay]");
 let globalNotifications = [];
 let notifCenterLastSeenAt = 0;
-const NOTIF_SOURCE_LABELS = { kaposts: "KaPost", group: "Group", broadcast: "Public Chats", wallet: "KaPay", kachat: ".kachat" };
+const NOTIF_SOURCE_LABELS = { kaposts: "KaPost", group: "Group", broadcast: "Public Chats", wallet: "Wallet", kachat: ".kachat" };
 // The Profile bell is for broadcasts and for Kaspa arriving on your addresses (chatting,
 // spending, cold storage). KaPosts has its own bell inside KaPosts, and group @mentions ping
 // the chat itself, so neither lands here.
@@ -13983,7 +13985,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 314;
+const APP_BUILD = 315;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of

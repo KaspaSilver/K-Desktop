@@ -1,5 +1,5 @@
-// KaChat iOS 4703f59b, 6aa8b515 and 47ee52b1: the app is called K; its chats tab is KaChat and its
-// wallet tab KaPay; a kUSDT payment card in a 1:1 chat no longer vanishes for the payer.
+// KaChat iOS 4703f59b, 6aa8b515, 47ee52b1 and 58cfbf6f: the app is called K; its chats tab is KaChat and its
+// wallet tab Wallet (KaPay for a few hours, reverted in 58cfbf6f); the sign-in screen's K globe; a kUSDT payment card in a 1:1 chat no longer vanishes for the payer.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -95,17 +95,30 @@ await test("every token card is listed: the payer's, our own notice read back, a
   assert.match(check, /markTokenNoticeFiled\(txId, walletAddress\);\n\s*markTokenPaymentBubble\(txId, walletAddress\);/);
 });
 
-await test("the tabs are KaChat and KaPay; Settings keeps its Chats and Wallet categories", () => {
+await test("the chats tab is KaChat; the wallet tab is Wallet again (58cfbf6f); Settings keeps Chats and Wallet", () => {
   assert.match(html, /<h1 class="kaposts-title chats-list-title">KaChat<\/h1>/);
-  assert.match(html, /<h1 class="kaposts-title">KaPay<\/h1>/);
-  assert.match(html, /data-app-tab="wallet">[\s\S]*?<span>KaPay<\/span>/);
+  assert.match(html, /<h1 class="kaposts-title">Wallet<\/h1>/);
+  assert.match(html, /data-app-tab="wallet">[\s\S]*?<span>Wallet<\/span>/);
   assert.match(html, /data-app-tab="chats"[^>]*>[\s\S]*?<span>KaChat<\/span>/);
   assert.match(html, /<p class="settings-group-label">Wallet<\/p>/);
   assert.match(html, /<p class="settings-group-label">Chats<\/p>/);
-  assert.match(app, /wallet: "KaPay", kachat: ".kachat" \};/);
+  assert.match(app, /wallet: "Wallet", kachat: ".kachat" \};/);
   const kusdt = read("ui", "kusdt-screens.js");
-  assert.doesNotMatch(kusdt, /on the Wallet tab/);
-  assert.equal((kusdt.match(/Swap Stablecoins on the KaPay tab/g) || []).length, 2);
+  assert.doesNotMatch(kusdt, /KaPay tab/);
+  assert.equal((kusdt.match(/Swap Stablecoins on the Wallet tab/g) || []).length, 2);
+  assert.doesNotMatch(html, /KaPay<\/(span|h1)>/);
+});
+
+await test("sign-in shows the K globe over the new motto, smaller beside saved accounts (58cfbf6f)", () => {
+  assert.match(html, /<h1 class="logged-out-logo"><img src="\.\/ui\/assets\/k-logo\.png" alt="K"/);
+  assert.match(html, /<p class="logged-out-tagline">Digital Freedom on the Kaspa Network<\/p>/);
+  assert.doesNotMatch(html, /Secure messaging on Kaspa BlockDAG/);
+  assert.ok(readFileSync(join(here, "..", "ui", "assets", "k-logo.png")).length > 1000);
+  assert.match(app, /classList\.toggle\("has-saved-accounts", accounts\.length > 0\)/);
+  const css = read("ui", "styles.css");
+  assert.match(css, /--onboarding-bg: #070d0e;/);
+  assert.match(css, /\.has-saved-accounts \.logged-out-content > h1\.logged-out-logo \{ width: 76px; height: 76px; \}/);
+  assert.match(css, /\.logged-out-content > h1\.logged-out-logo \{[^}]*width: 132px; height: 132px;/);
 });
 
 await test("the app is K: page title, home-screen name and the sentences that mean the app", () => {
@@ -134,4 +147,4 @@ await test("KaChat stays where it names something real", () => {
   assert.match(html, /autocomplete="username" value="KaChat"/);
 });
 
-console.log(`${passed}/6 passed`);
+console.log(`${passed}/7 passed`);
