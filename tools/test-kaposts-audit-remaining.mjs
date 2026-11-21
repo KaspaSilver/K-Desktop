@@ -454,10 +454,10 @@ test("8: the prompt is iOS's, with the warning only when it applies", () => {
     "A link wants to add this room to your Public Chats.\n\nThis name mixes letters from different alphabets, so it may be imitating another room.");
 });
 
-test("8: wiring: only a room not on the list asks, and the Terms still come first", () => {
+test("8: wiring: only a room not on the list asks, with no Terms before it (none on the website)", () => {
   const open = fnText(broadcasts, "openBroadcastRoomFromLink");
   assert.match(open, /isCuratedBroadcastChannel\(name\) \|\| joinedChannels\.includes\(name\)/);
-  ordered(open, "kaPostTermsAccepted()", "confirmDialog(roomLinkJoinPrompt(name))", "Terms before the join question");
+  assert.doesNotMatch(open, /kaPostTermsAccepted|askKaPostTerms/);
   assert.match(open, /confirmDialog\(roomLinkJoinPrompt\(name\)\)\.then\(\(join\) => \{ if \(join\) joinChannel\(channel\); \}\)/);
 });
 

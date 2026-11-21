@@ -99,14 +99,8 @@ export function roomHiddenSenders(roomHides, blocked) {
 
 // ---- Terms of Use (iOS TermsOfUseView.swift) ---------------------------------------------------
 
-// KaChat's Terms of Use since KaChat iOS 148a5331 (2026-11-21): KaPost's terms, reworded for the
-// whole app, are the first screen until agreed. Bump the version when the text changes, and
-// everyone is asked again. The key is KaChat iOS's (KaChatTerms.acceptedVersionKey), new with it, so
-// an earlier "I Agree" to KaPost's terms is asked again once, as on iOS; agreeing belongs to this
-// device, not to an account. The KAPOST_ names stay from when only KaPost asked.
-export const KAPOST_TERMS_VERSION = 1;
-export const KAPOST_TERMS_ACCEPTED_KEY = "kachat_terms_accepted_version";
-
+// The Terms of Use, to read in Settings. Nothing asks for them to be agreed on the website (owner,
+// 2026-11-21): KaChat iOS shows them as its first screen because the App Store requires it.
 export const KAPOST_TERMS_SECTIONS = [
   {
     title: "No objectionable content or abuse",
@@ -134,15 +128,7 @@ export const KAPOST_TERMS_SECTIONS = [
   },
 ];
 
-export function kaPostTermsAccepted(storage = globalThis.localStorage) {
-  try { return Number(storage.getItem(KAPOST_TERMS_ACCEPTED_KEY)) >= KAPOST_TERMS_VERSION; } catch { return false; }
-}
-
-export function acceptKaPostTerms(storage = globalThis.localStorage) {
-  try { storage.setItem(KAPOST_TERMS_ACCEPTED_KEY, String(KAPOST_TERMS_VERSION)); } catch { /* asked again next time */ }
-}
-
-/** The terms' text, shared by the first-open screen and Settings (iOS KaPostTermsText). No text
+/** The terms' text, as Settings shows it (iOS KaPostTermsText). No text
  *  here comes from outside this file, so it needs no escaping beyond the apostrophes HTML allows. */
 export function kaPostTermsHtml() {
   return `<div class="kapost-terms-text">${KAPOST_TERMS_SECTIONS.map((section) => `
@@ -150,57 +136,4 @@ export function kaPostTermsHtml() {
       <h3>${section.title}</h3>
       <p>${section.text}</p>
     </section>`).join("")}</div>`;
-}
-
-let termsCover = null;
-
-/**
- * The Terms' screen (iOS TermsAcceptanceView). `required` is KaChat iOS 148a5331's first screen:
- * nothing else until "I Agree", and no way past it. Otherwise (a KaPost screen or a public room
- * opened while it is somehow unanswered) there is Not Now (or Escape), and `onAgree` carries on to
- * what was being opened.
- */
-export function askKaPostTerms({ onAgree = null, required = false } = {}) {
-  // Asked again while it is up (a second tap, a link): the latest destination wins.
-  if (termsCover) { termsCover.onAgree = onAgree || termsCover.onAgree; return; }
-  const el = document.createElement("div");
-  el.className = `kapost-terms-cover${required ? " required" : ""}`;
-  el.setAttribute("role", "dialog");
-  el.setAttribute("aria-modal", "true");
-  el.setAttribute("aria-labelledby", "kapost-terms-title");
-  el.innerHTML = `
-    <div class="kapost-terms-card">
-      <h1 id="kapost-terms-title" class="kapost-terms-title">Terms of Use</h1>
-      <div class="kapost-terms-scroll">${kaPostTermsHtml()}</div>
-      <div class="kapost-terms-footer">
-        <p>You need to agree to use K.</p>
-        <button class="primary-button kapost-terms-agree" type="button" data-kapost-terms-agree>I Agree</button>
-        ${required ? "" : `<button class="kapost-terms-later" type="button" data-kapost-terms-later>Not Now</button>`}
-      </div>
-    </div>`;
-  const restoreFocus = document.activeElement;
-  const close = () => {
-    window.removeEventListener("keydown", onKey, true);
-    el.remove();
-    termsCover = null;
-    try { restoreFocus?.focus?.(); } catch { /* it went away */ }
-  };
-  const onKey = (event) => {
-    if (event.key !== "Escape" || required) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    close();
-  };
-  termsCover = { onAgree };
-  el.addEventListener("click", (event) => {
-    if (event.target.closest("[data-kapost-terms-later]")) { close(); return; }
-    if (!event.target.closest("[data-kapost-terms-agree]")) return;
-    const carryOn = termsCover?.onAgree;
-    acceptKaPostTerms();
-    close();
-    carryOn?.();
-  });
-  window.addEventListener("keydown", onKey, true);
-  document.body.appendChild(el);
-  el.querySelector("[data-kapost-terms-agree]")?.focus();
 }

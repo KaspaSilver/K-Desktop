@@ -33,7 +33,7 @@ import { isIndexerDown, onIndexerAvailabilityChange, indexerKey, INDEXER_RECOVER
 import { getEndpoint } from "../engine/endpoints.js";
 import { confirmDialog, promptDialog, PROMPT_EXTRA, alertDialog, chooseDialog, userFacingError, ACTION_TILE_ICONS } from "./dialogs.js";
 import { onContextGesture, attachDoubleTap, onMessageClick, isTouchDevice, releaseTypingFocus } from "./touch.js";
-import { askKaPostTerms, kaPostTermsAccepted, roomHiddenSenders, roomMessageReportBody, sendContentReport } from "./kapost-moderation.js";
+import { roomHiddenSenders, roomMessageReportBody, sendContentReport } from "./kapost-moderation.js";
 import { SEND_OUTCOME_UNKNOWN, SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/transactions.js";
 import { settleLeftoverRoomRows, markRoomRowUnconfirmed, settleRoomCopy, ROOM_UNCONFIRMED } from "./leftover-sends.js";
 import { accountGuard } from "./account-guard.js";
@@ -2587,9 +2587,6 @@ function cancelVoiceRecordingIfActive() {
 // ---------------------------------------------------------------------------
 
 function openRoom(channel) {
-  // The Terms of Use come first the first time (KaPosts-iPhone 9e22075 ContentView), wherever the
-  // room was opened from: a circle, a link, a notification.
-  if (!kaPostTermsAccepted()) { askKaPostTerms({ onAgree: () => openRoom(channel) }); return; }
   if (normalizeBroadcastChannel(channel) !== activeChannel) releaseTypingFocus();
   activeChannel = normalizeBroadcastChannel(channel);
   // Every default room is joined at load (iOS 865c9ab) unless it was switched off; a link or a
@@ -3235,8 +3232,6 @@ export function stopBroadcastPolling() {
 // post can hand over a link, and the name is whatever it likes (iOS ee5ec98).
 export function openBroadcastRoomFromLink(channel) {
   if (!deps) return;
-  // Before the join: Not Now on the Terms leaves the list as it was (KaPosts-iPhone 9e22075).
-  if (!kaPostTermsAccepted()) { askKaPostTerms({ onAgree: () => openBroadcastRoomFromLink(channel) }); return; }
   loadState({ caches: false });
   const name = normalizeBroadcastChannel(channel);
   const listed = isCuratedBroadcastChannel(name) || joinedChannels.includes(name);

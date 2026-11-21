@@ -58,11 +58,10 @@ import { openKaPostComposerWithText } from "./kaposts.js";
 import { blockKaPostAccount, closeKaPostCovers, kaPostsBlockedAddresses, kaPostsFeedToTop } from "./kaposts.js";
 import { setKaPostsRootMode, syncKaPostsBell, kaPostsUnseenCount } from "./kaposts.js";
 import { broadcastBlockedAccountsChanged } from "./broadcasts.js";
-import { askKaPostTerms, kaPostTermsAccepted, kaPostTermsHtml } from "./kapost-moderation.js";
-// KaChat iOS 148a5331: the Terms of Use are the first screen until agreed, before signing in or
-// anything else, with no way past them. (KaPost and the public rooms still ask on their own if they
-// are ever reached unanswered.)
-if (!kaPostTermsAccepted()) askKaPostTerms({ required: true });
+import { kaPostTermsHtml } from "./kapost-moderation.js";
+// No Terms of Use to agree to on the website (owner, 2026-11-21): iOS asks because the App Store
+// requires it of apps with posts and rooms; Desktop doesn't, so nothing asks before signing in,
+// KaPost, Profile or a public room. The terms are still there to read, in Settings.
 import { isKachatBot, kachatBotFor, kachatBotIconHtml, KACHAT_BOTS } from "./kachat-bots.js";
 import {
   configureAddressBook, addressBookName, addressBookEntry, addressBookEntries, addressBookPhoto, addressBookIsEmpty, archiveAddressBook,
@@ -12833,8 +12832,6 @@ function restoreLastAppTab() {
   try {
     const saved = localStorage.getItem(UI_SPOT_TAB_KEY);
     if (saved && document.querySelector(`.sidebar-tab[data-app-tab="${saved}"]`)) tab = saved;
-    // Coming back to where you were isn't opening KaPost: the Terms wait for a tap, not a reload.
-    if (tab === "kaposts" && !kaPostTermsAccepted()) tab = "chats";
   } catch { /* restoring the spot is best-effort */ }
   // Always applied, Chats included. Skipping Chats because the markup "already shows it" left the
   // layout state setActiveAppTab owns (the chats-tab body class, the dock height) unset until the
@@ -12869,17 +12866,6 @@ function setActiveAppTab(tab) {
   // Public Chats is no screen of its own any more: its rooms are rows in Chats (KaChat 148a5331;
   // owner, 2026-11-21). A saved spot or an old link asking for it lands on Chats.
   if (tab === "broadcasts") tab = "chats";
-  // KaPost asks for its Terms of Use the first time it is opened (KaPosts-iPhone 9e22075, which asks
-  // on the KaPost app's first launch; Desktop is one app), from wherever: the dock, the Hub, a link.
-  // The tab doesn't change until they agree. A post a link asked for loads behind and is there then.
-  // Profile is your KaPost profile now (KaChat iOS 148a5331), so it asks too.
-  const kaPostScreen = tab === "kaposts" || tab === "profile" || (tab === "hub" && (hubSection === "kaposts" || hubSection === "profile"));
-  if (!kaPostTermsAccepted() && kaPostScreen) {
-    const wanted = tab === "hub" ? hubSection : tab;
-    if (tab === "hub") hubSection = null;
-    askKaPostTerms({ onAgree: () => { setActiveAppTab(wanted); applyDockLayout(); } });
-    return;
-  }
   // A tab that lives in the Hub is REACHED through the Hub, so asking for it directly - a deep
   // link, a notification tap, the restored spot - opens it there rather than failing.
   if (tab !== "hub" && !dockPrefs.dock.includes(tab) && dockPrefs.hub.includes(tab)) {
@@ -13985,7 +13971,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 315;
+const APP_BUILD = 316;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -23849,8 +23835,6 @@ function chatCirclesHtml(items, pins, selecting) {
 // chat row.
 function openRoomFromRow(name) {
   if (isChildModeEnabled()) return;
-  // Asked before the chat gives the pane up, so Not Now leaves it as it was.
-  if (!kaPostTermsAccepted()) { askKaPostTerms({ onAgree: () => openRoomFromRow(name) }); return; }
   let rooms = [];
   try { rooms = chatListRooms(); } catch { rooms = []; }
   if (rooms.find((room) => room.name === name)?.open) return;

@@ -17,11 +17,11 @@ function test(name, fn) {
   try { fn(); passed += 1; console.log(`ok - ${name}`); } catch (error) { console.error(`not ok - ${name}`); throw error; }
 }
 
-test("Profile shows KaPost's screen in its profile mode, behind the Terms", () => {
+test("Profile shows KaPost's screen in its profile mode (no Terms first on the website)", () => {
   assert.doesNotMatch(html, /data-app-tab-screen="profile"/);
   assert.match(app, /const shown = screenTab === "profile" \? "kaposts" : /);
   assert.match(app, /if \(screenTab === "profile"\) \{ try \{ setKaPostsRootMode\("myProfile"\); \}/);
-  assert.match(app, /const kaPostScreen = tab === "kaposts" \|\| tab === "profile"/);
+  assert.doesNotMatch(app, /const kaPostScreen = /);
 });
 
 test("your profile is the root page: no back, closes back to it", () => {

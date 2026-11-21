@@ -18,12 +18,12 @@ async function test(name, fn) {
   try { await fn(); passed += 1; console.log(`ok - ${name}`); } catch (error) { console.error(`not ok - ${name}`); throw error; }
 }
 
-await test("the Terms come first, with no way past them, under KaChat's own key", () => {
-  assert.match(app, /if \(!kaPostTermsAccepted\(\)\) askKaPostTerms\(\{ required: true \}\);/);
-  assert.match(moderation, /export const KAPOST_TERMS_ACCEPTED_KEY = "kachat_terms_accepted_version";/);
-  assert.match(moderation, /\$\{required \? "" : `<button class="kapost-terms-later"/);
-  assert.match(moderation, /if \(event\.key !== "Escape" \|\| required\) return;/);
-  assert.match(moderation, /You need to agree to use K\./);
+await test("no Terms to agree to on the website (owner, 2026-11-21); the text stays readable in Settings", () => {
+  for (const source of [app, moderation, read("ui", "broadcasts.js")]) {
+    assert.doesNotMatch(source, /askKaPostTerms|kaPostTermsAccepted|acceptKaPostTerms|I Agree|You need to agree/);
+  }
+  assert.match(app, /infoSheet\(\{ title: "Terms of Use", html: kaPostTermsHtml\(\) \}\)/);
+  assert.doesNotMatch(read("ui", "kapost-terms.css"), /kapost-terms-cover/);
 });
 
 await test("every Manage kUSDT row has its menu; the Chatting Address's is Copy, QR, Combine", () => {
