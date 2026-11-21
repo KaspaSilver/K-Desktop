@@ -110,17 +110,17 @@ test("the Terms' page shows every section", () => {
   assert.ok(html.includes(`Questions and reports: ${SUPPORT_EMAIL}`));
 });
 
-const iosDir = [process.env.KAPOSTS_IPHONE_DIR, path.resolve(here, "../../../Everything KaChat iPhone/KaPosts-iPhone")].find((dir) => dir && existsSync(dir));
+// Since KaChat iOS 148a5331 the Terms are KaChat's own, the app's first screen.
+const iosDir = [process.env.KACHAT_IPHONE_DIR, path.resolve(here, "../../../Everything KaChat iPhone/KaChat-iPhone")].find((dir) => dir && existsSync(dir));
 if (iosDir) {
-  test("the Terms and the report address match KaPosts-iPhone's source", () => {
-    const terms = readFileSync(path.join(iosDir, "KaPosts/Views/Onboarding/TermsOfUseView.swift"), "utf8");
+  test("the Terms and the report address match KaChat-iPhone's source", () => {
+    const terms = readFileSync(path.join(iosDir, "KaChat/Views/Onboarding/TermsOfUseView.swift"), "utf8");
     assert.equal(Number(terms.match(/currentVersion = (\d+)/)[1]), KAPOST_TERMS_VERSION);
     assert.equal(terms.match(/acceptedVersionKey = "([^"]+)"/)[1], KAPOST_TERMS_ACCEPTED_KEY);
-    // iOS's "not Apple" is App Store wording, which a web app has no reason to carry. "12 or 24 words"
-    // is KaChat's wording (iOS bfe9f022), which KaPosts-iPhone hasn't taken up yet.
-    const pairs = [...terms.matchAll(/\(\s*"([^"]+)",\s*"([^"]+)"\s*\)/g)].map((m) => ({ title: m[1], text: m[2].replace(", not Apple.", ".").replace("\\(ContentReport.supportEmail)", SUPPORT_EMAIL).replace("Your account is a seed phrase kept on your device. We never have it, so we can't recover a lost one", "Your account is 12 or 24 words kept on your device. We never have them, so we can't recover lost ones") }));
+    // iOS's "not Apple" is App Store wording, which a web app has no reason to carry.
+    const pairs = [...terms.matchAll(/\(\s*"([^"]+)",\s*"([^"]+)"\s*\)/g)].map((m) => ({ title: m[1], text: m[2].replace(", not Apple.", ".").replace("\\(ContentReport.supportEmail)", SUPPORT_EMAIL) }));
     assert.deepEqual(pairs, KAPOST_TERMS_SECTIONS);
-    const report = readFileSync(path.join(iosDir, "KaPosts/Views/Shared/ContentReport.swift"), "utf8");
+    const report = readFileSync(path.join(iosDir, "KaChat/Views/Shared/ContentReport.swift"), "utf8");
     assert.equal(report.match(/supportEmail = "([^"]+)"/)[1], SUPPORT_EMAIL);
   });
 }

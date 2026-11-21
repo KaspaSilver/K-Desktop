@@ -3763,6 +3763,13 @@ function rootProfileButtonsHtml() {
     + `</span>`;
 }
 
+/** Which profile tab a finished swipe lands on, or null when it wasn't a sideways swipe: left
+ *  goes to Replies, right back to Posts (KaChat iOS 148a5331 ProfileTabSwipe). */
+export function profileTabAfterSwipe(dx, dy) {
+  if (Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy) * 1.5) return null;
+  return dx < 0 ? "replies" : "posts";
+}
+
 /** Your own profile, as the Profile tab's page (not over a thread). */
 function isRootProfilePanel(panel) {
   return rootMode === "myProfile" && panel?.type === "profile" && !panelOverThread
@@ -7085,6 +7092,27 @@ export function initKaPosts(dependencies) {
   panelEl = document.querySelector("[data-kaposts-panel]");
   panelTitleEl = document.querySelector("[data-kaposts-panel-title]");
   panelBodyEl = document.querySelector("[data-kaposts-panel-body]");
+  // A profile's Posts and Replies change with a sideways swipe (KaChat iOS 148a5331 ProfileTabSwipe,
+  // owner's call): wider than 1.5x its height and at least 60 px. Touch only; a mouse uses the tabs.
+  if (panelBodyEl && !panelBodyEl.dataset.profileSwipe) {
+    panelBodyEl.dataset.profileSwipe = "1";
+    let start = null;
+    panelBodyEl.addEventListener("touchstart", (event) => {
+      const t = event.touches[0];
+      start = event.touches.length === 1 && t ? { x: t.clientX, y: t.clientY } : null;
+    }, { passive: true });
+    panelBodyEl.addEventListener("touchend", (event) => {
+      const t = event.changedTouches[0];
+      const from = start;
+      start = null;
+      if (!from || !t || activePanel?.type !== "profile") return;
+      const next = profileTabAfterSwipe(t.clientX - from.x, t.clientY - from.y);
+      if (next && next !== (activePanel.tab === "replies" ? "replies" : "posts")) {
+        activePanel.tab = next;
+        renderPanel();
+      }
+    }, { passive: true });
+  }
   if (!initKaPosts.siteCardsWired) {
     initKaPosts.siteCardsWired = true;
     const siteCards = new MutationObserver((changes) => {

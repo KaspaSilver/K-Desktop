@@ -5089,14 +5089,20 @@ export function openLiveProfileEditor(owner = "profile") {
           <option value="" ${form.primary ? "" : "selected"}>None</option>
           ${activeNames.map((n) => `<option value="${esc(n)}" ${n === form.primary ? "selected" : ""}>${esc(kachatNameDisplay(n))}</option>`).join("")}
         </select>
-      </label>`, {
+      </label>
+      <button type="button" class="kmkt-form-row kl-get-name" data-kl-get-kachat-name>
+        <span class="kl-get-name-label">${kit.ICON?.at || ""}Get a .kachat name</span>
+      </button>`, {
       header: ".kachat Name",
       footerHtml: footer("KaChat shows you by your primary name while you own it and it's active; otherwise by your oldest active name, or your address."),
     }) : section(`
       <div class="kmkt-form-row">
         <span>Primary name</span>
         <span class="kmkt-muted">Coming soon</span>
-      </div>`, {
+      </div>
+      <button type="button" class="kmkt-form-row kl-get-name" data-kl-get-kachat-name>
+        <span class="kl-get-name-label">${kit.ICON?.at || ""}Get a .kachat name</span>
+      </button>`, {
       header: ".kachat Name",
       footerHtml: footer(".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch."),
     })}
@@ -5283,6 +5289,13 @@ export function openLiveProfileEditor(owner = "profile") {
       <div class="kmkt-sheet-body kmkt-form" data-kl-profile-body></div>`,
     onClick(event) {
       if (event.target.closest("[data-kl-profile-save]")) { save(); return; }
+      // Names are claimed right here now (KaChat iOS 148a5331): the editor closes and the .kachat
+      // screen opens.
+      if (event.target.closest("[data-kl-get-kachat-name]")) {
+        kit.closeLayer(layer);
+        deps().openKachatNames?.();
+        return;
+      }
       if (event.target.closest("[data-kl-profile-clear]")) { clearProfile(); return; }
       const clearField = event.target.closest("[data-kl-src-clear]");
       if (clearField && fields[clearField.dataset.klSrcClear]) {

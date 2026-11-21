@@ -525,3 +525,8 @@ a.kl-receipt-txid:hover { background: var(--primary-08, var(--row-hover)); }
 .kl-hub-claims { display: flex; flex-direction: column; gap: 10px; }
 .kl-hub-loading { display: flex; justify-content: center; padding: 12px 0; }
 .kl-hub-error { margin: 0; padding: 0 32px; text-align: center; font-size: 13px; line-height: 18px; color: var(--muted); }
+
+/* Edit Profile's "Get a .kachat name" (KaChat iOS 148a5331): a plain accent row under the picker. */
+.kl-get-name { width: 100%; background: none; border: 0; border-top: .5px solid var(--line); cursor: pointer; text-align: left; color: var(--accent); font: inherit; }
+.kl-get-name-label { display: inline-flex; align-items: center; gap: 8px; }
+.kl-get-name-label svg { width: 18px; height: 18px; }

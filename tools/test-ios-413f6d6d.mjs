@@ -46,15 +46,16 @@ await test("Set as Name fills the field without saving; the one in the field rea
 await test("Share Profile sits under the share circle, and shares too", () => {
   assert.match(html, /data-chat-info-share aria-label="Share this profile"[^>]*><span class="chat-info-share-button"[\s\S]*?<span class="chat-info-share-caption">Share Profile<\/span><\/button>/);
 });
-await test("Show Request As QR: a kapay:// link, or the kachat.app one for the chatting address", async () => {
-  const { makePaymentRequest, paymentRequestKaPayLink, paymentRequestUniversalLink } = await import("../engine/payment-request.js");
+// KaChat iOS 148a5331 retired KaPay: every request's QR holds its kachat.app link (kapay:// links
+// older apps made are still read, engine/payment-request.js PAY_LINK_RE).
+await test("Show Request As QR: the kachat.app link, always", async () => {
+  const { makePaymentRequest, paymentRequestUniversalLink } = await import("../engine/payment-request.js");
   const address = "kaspa:qpzry9x8gf2tvdw0s3jn54khce6mua7lqpzry9x8gf2tvdw0s3jn5abcde";
   const request = makePaymentRequest({ address, amountSompi: 150_000_000n, memo: "Coffee" });
-  assert.match(paymentRequestKaPayLink(request), /^kapay:\/\/pay\/qpzry9x8.*\?amount=1\.5&memo=Coffee$/);
-  assert.match(app, /request\.toChattingAddress \? paymentRequestUniversalLink\(request\) : paymentRequestKaPayLink\(request\)/);
+  assert.match(app, /const payload = paymentRequestUniversalLink\(request\);/);
   assert.ok(paymentRequestUniversalLink(request).startsWith("https://"));
   assert.match(app, /secondaryTitle: "Show Request As QR",/);
-  assert.match(app, /Scan it with an iPhone's camera to pay in KaPay, with everything filled in\./);
+  assert.doesNotMatch(app, /to pay in KaPay/);
   assert.match(app, /Scan it with an iPhone's camera to pay in KaChat, with everything filled in\./);
   assert.match(read("ui/send-steps.js"), /if \(step\.secondaryButton\) step\.secondaryButton\.disabled = !ok;/);
 });

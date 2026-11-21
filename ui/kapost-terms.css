@@ -45,3 +45,6 @@
     box-sizing: border-box;
   }
 }
+
+/* The app's first screen (KaChat iOS 148a5331): nothing shows behind it until "I Agree". */
+.kapost-terms-cover.required { background: var(--bg-grouped, var(--bg, #000)); z-index: 5000; }

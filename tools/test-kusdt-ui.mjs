@@ -449,7 +449,8 @@ await check("index.html: the pager and its pills, Swap, the Help row, the Trestl
     "Tap to Manage", "data-wallet-swap", "Swap Stablecoins", "data-help-kusdt", "kUSDT Guide",
     "What kUSDT is, where it lives, and how sending and swapping work.", "data-endpoint=\"trestlyApi\"", "Trestly API URL",
     "data-chatting-address-notes", "data-spending-qr-notes"]) assert.ok(html.includes(marker), marker);
-  assert.match(html, /\.\/ui\/styles\.css\?v=417"/);
+  // 417 came with kUSDT; later builds only move it up.
+  assert.ok(Number(html.match(/\.\/ui\/styles\.css\?v=(\d+)"/)[1]) >= 417);
   assert.ok(css.includes(".kusdt-balance-card") && css.includes("rgba(38,161,123,.32)"), "the green card");
   const helpKns = html.indexOf("data-help-kns");
   assert.ok(helpKns > 0 && html.indexOf("data-help-kusdt") > helpKns, "after the .kachat Names Guide");

@@ -17,7 +17,7 @@ import { addressFromPrivateKey, passphraseFormForRecord, passphraseIsNfkd, norma
 import { QUANTUM_INDEX_BASE, QUANTUM_SCAN_FLOOR, QUANTUM_SCAN_LIMIT, QUANTUM_CHANGE_UNAVAILABLE, KIP22_SIGNATURE_SCRIPT_SIZE, isQuantumIndex, chainLocalIndex, addressNumber, spendingIndexTitle, visibilityPagerRange, spendingChainSummaries, spendingStateFromRecord, spendingRecordFromState, revealedSpendingIndices, spendingChangeIndex, freshChangeRequired, quantumSpentFromHistory } from "../engine/quantum.js";
 import { createGroupManager } from "../engine/group-store.js";
 import { sompiFromUserText, kasTextFromSompi, kasToSompi, fiatTextFloorFromSompi, checkedUtxoAnswer, kasExact8Text } from "../engine/amounts.js";
-import { makePaymentRequest, signPaymentRequest, parsePaymentRequestLink, paymentRequestAmountText, paymentRequestUniversalLink, paymentRequestKaPayLink, clampMemoText, memoCharacters, PAYMENT_REQUEST_MEMO_LIMIT } from "../engine/payment-request.js";
+import { makePaymentRequest, signPaymentRequest, parsePaymentRequestLink, paymentRequestAmountText, paymentRequestUniversalLink, clampMemoText, memoCharacters, PAYMENT_REQUEST_MEMO_LIMIT } from "../engine/payment-request.js";
 import { excludeReservedUtxos, excludeJustSpentUtxos, excludeCovenantUtxos, isTransactionKnown, maxSendOutpointKeys, MAX_AMOUNT_CHANGED, MAX_AMOUNT_CHANGED_MESSAGE, MAX_SEND_INPUT_LIMIT, SEND_FEE_CHANGED, SEND_OUTCOME_UNKNOWN, SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/transactions.js";
 import { isLeftoverSend, undeliveredRowFor, settleLeftoverGroupRows } from "./leftover-sends.js";
 import { parsePaymentPoolEnvelope, validPaymentNotice, encodePaymentNotice, paymentNoticeText, paymentNoticePlacement, checkPaymentNoticeTx, chatPaymentNotificationBody } from "../engine/payment-notice.js";
@@ -59,6 +59,10 @@ import { blockKaPostAccount, closeKaPostCovers, kaPostsBlockedAddresses, kaPosts
 import { setKaPostsRootMode, syncKaPostsBell, kaPostsUnseenCount } from "./kaposts.js";
 import { broadcastBlockedAccountsChanged } from "./broadcasts.js";
 import { askKaPostTerms, kaPostTermsAccepted, kaPostTermsHtml } from "./kapost-moderation.js";
+// KaChat iOS 148a5331: the Terms of Use are the first screen until agreed, before signing in or
+// anything else, with no way past them. (KaPost and the public rooms still ask on their own if they
+// are ever reached unanswered.)
+if (!kaPostTermsAccepted()) askKaPostTerms({ required: true });
 import { isKachatBot, kachatBotFor, kachatBotIconHtml, KACHAT_BOTS } from "./kachat-bots.js";
 import {
   configureAddressBook, addressBookName, addressBookEntry, addressBookEntries, addressBookPhoto, addressBookIsEmpty, archiveAddressBook,
@@ -133,7 +137,6 @@ import { normalizeDomainLabel, isKnsEntryFresh } from "../engine/kns.js";
 // a path inside a string is invisible to it - so these 404'd on the built site (a broken-image
 // icon in the notification and on the KAS mark).
 import kaspaLogoUrl from "./assets/kaspa-logo.png";
-import kachatLogoUrl from "./assets/kachat-logo.png";
 import { confirmText, promptText, confirmDialog, chooseDialog, alertDialog, promptDialog, PROMPT_EXTRA, infoSheet, userFacingError, ACTION_TILE_ICONS } from "./dialogs.js";
 import { onContextGesture, attachDoubleTap, onMessageClick, isTouchDevice, releaseTypingFocus } from "./touch.js";
 import { attachRowSwipes, chatRowSwipeActions } from "./row-swipe.js";
@@ -2553,13 +2556,11 @@ function openPaymentRequestBackdrop(label, innerHtml, { over = false } = {}) {
   return { backdrop, sheet: backdrop.querySelector(".payment-request-modal"), close };
 }
 /** A request as a QR code (KaChat 413f6d6d PaymentRequestQRSheet): the amount, the memo, the code on
- *  white and what scanning it does. A request to the chatting address carries its kachat.app link
- *  (it opens KaChat); any other the kapay:// one (KaPay's Send, everything filled in). */
+ *  white and what scanning it does. Every request's QR holds its kachat.app link: KaPay is retired
+ *  and every request is paid in KaChat (KaChat iOS 148a5331). */
 function openPaymentRequestQrSheet(request) {
-  const payload = request.toChattingAddress ? paymentRequestUniversalLink(request) : paymentRequestKaPayLink(request);
-  const note = request.toChattingAddress
-    ? "Scan it with an iPhone's camera to pay in KaChat, with everything filled in."
-    : "Scan it with an iPhone's camera to pay in KaPay, with everything filled in.";
+  const payload = paymentRequestUniversalLink(request);
+  const note = "Scan it with an iPhone's camera to pay in KaChat, with everything filled in.";
   const { sheet } = openPaymentRequestBackdrop("Payment Request", `
     <div class="modal-header">
       <div><h2>Payment Request</h2></div>
@@ -4387,7 +4388,8 @@ async function showAppNotification({ title, body, tag, key = "", silent = false,
   // Push Notifications off silences every OS notification (iOS NotificationsHubPage footer).
   if (!pushNotificationsEnabled()) return false;
   if (key && !claimNotificationKey(`${tag || ""}|${key}`)) return false;
-  const options = { body: body || "", tag: tag || undefined, icon: kachatLogoUrl, silent: Boolean(silent) };
+  // The app icon (KaChat iOS 148a5331's globe), as the system shows it beside a push.
+  const options = { body: body || "", tag: tag || undefined, icon: "/icons/icon-192.png", silent: Boolean(silent) };
   const registration = await notificationWorkerRegistration();
   if (registration) {
     // A closed-app push already put this very message up (its generic "New message"): this
@@ -13944,7 +13946,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 310;
+const APP_BUILD = 311;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -33415,6 +33417,8 @@ queueMicrotask(async () => {
         return requestPassword({ mode: "verify", title: "Confirm Transaction", message: reason || "Confirm this transaction." });
       },
       walletAddress: () => engine.address || "",
+      // Edit Profile's "Get a .kachat name" (KaChat iOS 148a5331): the .kachat screen.
+      openKachatNames: () => setActiveAppTab("kachat-names"),
       // The chatting address's balance in sompi (iOS currentWallet.balanceSompi), or null while unknown.
       walletBalanceSompi: () => {
         const text = String(currentBalanceKas ?? "");

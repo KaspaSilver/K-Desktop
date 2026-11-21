@@ -99,23 +99,26 @@ export function roomHiddenSenders(roomHides, blocked) {
 
 // ---- Terms of Use (iOS TermsOfUseView.swift) ---------------------------------------------------
 
-// Bump the version when the text changes, and everyone is asked again. The key is iOS's: agreeing
-// belongs to this device, not to an account.
+// KaChat's Terms of Use since KaChat iOS 148a5331 (2026-11-21): KaPost's terms, reworded for the
+// whole app, are the first screen until agreed. Bump the version when the text changes, and
+// everyone is asked again. The key is KaChat iOS's (KaChatTerms.acceptedVersionKey), new with it, so
+// an earlier "I Agree" to KaPost's terms is asked again once, as on iOS; agreeing belongs to this
+// device, not to an account. The KAPOST_ names stay from when only KaPost asked.
 export const KAPOST_TERMS_VERSION = 1;
-export const KAPOST_TERMS_ACCEPTED_KEY = "kaposts_terms_accepted_version";
+export const KAPOST_TERMS_ACCEPTED_KEY = "kachat_terms_accepted_version";
 
 export const KAPOST_TERMS_SECTIONS = [
   {
     title: "No objectionable content or abuse",
-    text: "KaPost has no tolerance for objectionable content or abusive users. You may not post anything that is illegal, sexual content involving children, hate speech, threats, harassment, content that encourages violence or self-harm, or scams. Accounts that do can be removed from what KaPost shows, without notice.",
+    text: "KaChat has no tolerance for objectionable content or abusive users. You may not post anything that is illegal, sexual content involving children, hate speech, threats, harassment, content that encourages violence or self-harm, or scams. Accounts that do can be removed from what KaChat shows, without notice.",
   },
   {
     title: "Your posts are public and permanent",
-    text: "Posts, replies, likes and room messages are public transactions on the Kaspa network. You are responsible for what you post. Deleting a post removes it from KaPost, but nobody can erase a transaction from the network.",
+    text: "Posts, replies, likes and room messages are public transactions on the Kaspa network. You are responsible for what you post. Deleting a post removes it from KaChat, but nobody can erase a transaction from the network.",
   },
   {
     title: "Reporting and blocking",
-    text: "Use Report on a post or room message to tell us about objectionable content; a person reads every report. Use Block to stop seeing an account's posts and room messages. We can remove content and accounts from the KaChat indexer, which KaPost reads by default.",
+    text: "Use Report on a post or room message to tell us about objectionable content; a person reads every report. Use Block to stop seeing an account's posts and room messages. We can remove content and accounts from the KaChat indexer, which KaChat reads by default.",
   },
   {
     title: "Your account and your funds",
@@ -123,7 +126,7 @@ export const KAPOST_TERMS_SECTIONS = [
   },
   {
     title: "No warranty",
-    text: "KaPost is provided as it is, without warranty, and to the extent the law allows we are not liable for losses from using it or from what other users post. These terms are between you and KaPost's developer.",
+    text: "KaChat is provided as it is, without warranty, and to the extent the law allows we are not liable for losses from using it or from what other users post. These terms are between you and KaChat's developer.",
   },
   {
     title: "Contact",
@@ -152,16 +155,16 @@ export function kaPostTermsHtml() {
 let termsCover = null;
 
 /**
- * The Terms' screen (iOS TermsAcceptanceView). On iOS it is the first thing the KaPost app shows;
- * Desktop is one app, so it comes up the first time someone opens KaPost or a public room, and
- * `onAgree` then carries on to what they were opening. Unlike iOS there is a way out, Not Now (or
- * Escape): the rest of the app doesn't depend on these terms, so nothing here should hold it up.
+ * The Terms' screen (iOS TermsAcceptanceView). `required` is KaChat iOS 148a5331's first screen:
+ * nothing else until "I Agree", and no way past it. Otherwise (a KaPost screen or a public room
+ * opened while it is somehow unanswered) there is Not Now (or Escape), and `onAgree` carries on to
+ * what was being opened.
  */
-export function askKaPostTerms({ onAgree = null } = {}) {
+export function askKaPostTerms({ onAgree = null, required = false } = {}) {
   // Asked again while it is up (a second tap, a link): the latest destination wins.
-  if (termsCover) { termsCover.onAgree = onAgree; return; }
+  if (termsCover) { termsCover.onAgree = onAgree || termsCover.onAgree; return; }
   const el = document.createElement("div");
-  el.className = "kapost-terms-cover";
+  el.className = `kapost-terms-cover${required ? " required" : ""}`;
   el.setAttribute("role", "dialog");
   el.setAttribute("aria-modal", "true");
   el.setAttribute("aria-labelledby", "kapost-terms-title");
@@ -170,9 +173,9 @@ export function askKaPostTerms({ onAgree = null } = {}) {
       <h1 id="kapost-terms-title" class="kapost-terms-title">Terms of Use</h1>
       <div class="kapost-terms-scroll">${kaPostTermsHtml()}</div>
       <div class="kapost-terms-footer">
-        <p>You need to agree to use KaPost.</p>
+        <p>You need to agree to use KaChat.</p>
         <button class="primary-button kapost-terms-agree" type="button" data-kapost-terms-agree>I Agree</button>
-        <button class="kapost-terms-later" type="button" data-kapost-terms-later>Not Now</button>
+        ${required ? "" : `<button class="kapost-terms-later" type="button" data-kapost-terms-later>Not Now</button>`}
       </div>
     </div>`;
   const restoreFocus = document.activeElement;
@@ -183,7 +186,7 @@ export function askKaPostTerms({ onAgree = null } = {}) {
     try { restoreFocus?.focus?.(); } catch { /* it went away */ }
   };
   const onKey = (event) => {
-    if (event.key !== "Escape") return;
+    if (event.key !== "Escape" || required) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     close();

@@ -1074,9 +1074,8 @@ function holdingRowHtml(h) {
         <span class="spending-address-balance kusdt-row-amount">${esc(formatKusdt(h.units))}<small>${esc(`${kas(BigInt(h.coinCount) * KAS_PER_COIN)} held with it`)}</small></span>
         <span class="spending-address-row-tags"><span class="spending-address-usage ${used ? "used" : "unused"}">${used ? "Used" : "Unused"}</span></span>
       </button>
-      ${chatting
-    ? `<span class="chatting-address-row-chevron kusdt-row-chevron">${KUSDT_ICONS.chevronRight}</span>`
-    : `<div class="spending-address-row-menu-wrap"><button type="button" class="spending-row-menu-btn" data-kusdt-row-menu="${esc(h.id)}" aria-label="Address Actions">${KUSDT_ICONS.ellipsisVertical}</button></div>`}
+      ${/* Every row has its ⋮, the Chatting Address's too (KaChat iOS 148a5331, owner's call). */ ""}
+      <div class="spending-address-row-menu-wrap"><button type="button" class="spending-row-menu-btn" data-kusdt-row-menu="${esc(h.id)}" aria-label="Address Actions">${KUSDT_ICONS.ellipsisVertical}</button></div>
     </div>`;
 }
 
@@ -1106,14 +1105,17 @@ export function openManageKusdt() {
 
 async function openRowMenu(id) {
   const h = wallet.holdingById(id);
-  if (!h || h.spendingIndex == null) return;
+  if (!h) return;
+  // The Chatting Address's ⋮ has only Copy, Show QR Code and Combine Coins (KaChat iOS 148a5331):
+  // it can't be renamed, hidden or sent to itself.
+  const chatting = h.spendingIndex == null;
   const options = [
-    { id: "rename", title: "Rename Address", subtitle: "Gives this address a label of your own." },
+    chatting ? null : { id: "rename", title: "Rename Address", subtitle: "Gives this address a label of your own." },
     { id: "copy", title: "Copy Address", subtitle: "Puts the full address on the clipboard." },
     { id: "qr", title: "Show QR Code", subtitle: "Full screen, for scanning with another device." },
-    { id: "send-chatting", title: "Send to Chatting Address", subtitle: "Moves kUSDT from this address to your Chatting Address.", disabled: !(h.units > 0n) },
+    chatting ? null : { id: "send-chatting", title: "Send to Chatting Address", subtitle: "Moves kUSDT from this address to your Chatting Address.", disabled: !(h.units > 0n) },
     h.coinCount > 1 ? { id: "combine", title: "Combine Coins", subtitle: "Merges its coins into one and gives the extra KAS back." } : null,
-    { id: "hide", title: "Hide Address", subtitle: `Removes it from this list. Re-enable it in ${SYMBOL} Address Visibility.`, destructive: true },
+    chatting ? null : { id: "hide", title: "Hide Address", subtitle: `Removes it from this list. Re-enable it in ${SYMBOL} Address Visibility.`, destructive: true },
   ];
   const choice = await chooseDialog({ title: holdingLabel(h), message: shortKusdtAddress(h.address), options });
   if (choice === "rename") {
