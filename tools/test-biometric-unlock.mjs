@@ -56,7 +56,7 @@ class FakeAuthenticator {
     assert.equal(publicKey.authenticatorSelection.authenticatorAttachment, "platform");
     assert.equal(publicKey.authenticatorSelection.userVerification, "required");
     assert.equal(publicKey.authenticatorSelection.residentKey, "required");
-    assert.equal(publicKey.user.name, "KaChat");
+    assert.equal(publicKey.user.name, "K");
     assert.equal(bytes(publicKey.extensions.prf.eval.first).length, 32);
     const userId = b64u(publicKey.user.id);
     for (const [id, entry] of this.credentials) if (entry.rpId === publicKey.rp.id && entry.userId === userId) this.credentials.delete(id);

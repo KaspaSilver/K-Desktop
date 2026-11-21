@@ -23,7 +23,7 @@ await test("the Terms come first, with no way past them, under KaChat's own key"
   assert.match(moderation, /export const KAPOST_TERMS_ACCEPTED_KEY = "kachat_terms_accepted_version";/);
   assert.match(moderation, /\$\{required \? "" : `<button class="kapost-terms-later"/);
   assert.match(moderation, /if \(event\.key !== "Escape" \|\| required\) return;/);
-  assert.match(moderation, /You need to agree to use KaChat\./);
+  assert.match(moderation, /You need to agree to use K\./);
 });
 
 await test("every Manage kUSDT row has its menu; the Chatting Address's is Copy, QR, Combine", () => {

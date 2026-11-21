@@ -56,7 +56,7 @@ await test("Show Request As QR: the kachat.app link, always", async () => {
   assert.ok(paymentRequestUniversalLink(request).startsWith("https://"));
   assert.match(app, /secondaryTitle: "Show Request As QR",/);
   assert.doesNotMatch(app, /to pay in KaPay/);
-  assert.match(app, /Scan it with an iPhone's camera to pay in KaChat, with everything filled in\./);
+  assert.match(app, /Scan it with an iPhone's camera to pay in K, with everything filled in\./);
   assert.match(read("ui/send-steps.js"), /if \(step\.secondaryButton\) step\.secondaryButton\.disabled = !ok;/);
 });
 await test("a sheet over another closes alone on Escape", () => {

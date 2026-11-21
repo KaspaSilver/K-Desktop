@@ -1,7 +1,7 @@
 {
   "id": "./",
-  "name": "KaChat",
-  "short_name": "KaChat",
+  "name": "K",
+  "short_name": "K",
   "description": "Secure messaging on the Kaspa BlockDAG",
   "start_url": "./",
   "scope": "./",

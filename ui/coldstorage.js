@@ -3389,7 +3389,7 @@ async function removeActiveAccount() {
   if (!account) return;
   const confirmed = await confirmModal({
     title: "Remove Cold Storage Account",
-    message: "This only removes it from KaChat's watch list. It has no effect on the KasSigner device or any funds it holds.",
+    message: "This only removes it from K's watch list. It has no effect on the KasSigner device or any funds it holds.",
     okLabel: "Remove",
   });
   if (!confirmed) return;

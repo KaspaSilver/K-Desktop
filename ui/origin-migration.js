@@ -10,7 +10,7 @@
 //   old  location.origin === MIGRATE_FROM and the path is under MIGRATE_FROM_PATH (/desktop/).
 //        The app does not start. With saved accounts: "KaChat Desktop has moved" + "Move my
 //        accounts". Without: a plain notice that forwards to the new address. After a move: the
-//        moved screen, a link, and "Remove KaChat data from the old address".
+//        moved screen, a link, and "Remove K data from the old address".
 //   new  location.origin === MIGRATE_TO. With ?migrate=1 and a window.opener: the receiving
 //        screen (the app does not start until the data is written and the page reloads). Opened
 //        directly with no accounts yet: the normal app plus a small "Coming from kachat.app/desktop?"
@@ -70,7 +70,7 @@ const MAX_LS_KEY_LENGTH = 512;
 const MAX_CHAT_KEY_LENGTH = 1024;
 const READY_TIMEOUT_MS = 120_000;
 const RECEIVE_TIMEOUT_MS = 180_000;
-/** "Not now - open KaChat here this time" on the old address (owner decision, see the doc). */
+/** "Not now - open K here this time" on the old address (owner decision, see the doc). */
 export const ALLOW_STAY_ON_OLD_ADDRESS = true;
 
 // Keys this module owns. They never travel and are never wiped by a move or by "Remove".
@@ -442,7 +442,7 @@ function openChatDb({ create }) {
       if (absent) { try { indexedDB.deleteDatabase(CHAT_DB_NAME); } catch { /* nothing */ } resolve(null); }
       else reject(request.error || new Error("IndexedDB open failed"));
     };
-    request.onblocked = () => reject(new Error("The chat database is open in another tab. Close other KaChat tabs and try again."));
+    request.onblocked = () => reject(new Error("The chat database is open in another tab. Close other K tabs and try again."));
   });
 }
 async function readAllFrom(db) {
@@ -613,11 +613,11 @@ function shortAddress(address) {
 function newAddressUrl(cfg) { return `${cfg.to}${cfg.toPath}`; }
 
 function showOldNoAccounts(cfg) {
-  const { card } = mountScreen("KaChat Desktop has moved");
+  const { card } = mountScreen("K has moved");
   card.append(
-    el("p", { text: `KaChat Desktop now lives at ${hostOf(cfg.to)}. Taking you there…` }),
+    el("p", { text: `K now lives at ${hostOf(cfg.to)}. Taking you there…` }),
     el("div", { class: "kom-actions" }, el("a", { class: "kom-btn kom-primary", href: newAddressUrl(cfg), text: `Go to ${hostOf(cfg.to)}` })),
-    el("p", { class: "kom-fine", text: "Update your bookmark. If you installed KaChat as an app, install it again from the new address." }),
+    el("p", { class: "kom-fine", text: "Update your bookmark. If you installed K as an app, install it again from the new address." }),
   );
   setTimeout(() => { try { location.replace(newAddressUrl(cfg)); } catch { /* the link still works */ } }, 4000);
 }
@@ -626,43 +626,43 @@ function showOldMoved(cfg, marker) {
   const storage = globalThis.localStorage;
   const dataLeft = storageKeys(storage).some(isAppKey);
   const when = Number(marker?.at) ? new Date(Number(marker.at)).toLocaleString() : "";
-  const { card, status, setStatus } = mountScreen("KaChat Desktop has moved");
-  card.append(el("p", { text: `Your accounts were moved to ${hostOf(cfg.to)}${when ? ` on ${when}` : ""}. Use KaChat there from now on.` }));
-  card.append(el("p", { text: "If you installed KaChat as an app, install it again from the new address." }));
+  const { card, status, setStatus } = mountScreen("K has moved");
+  card.append(el("p", { text: `Your accounts were moved to ${hostOf(cfg.to)}${when ? ` on ${when}` : ""}. Use K there from now on.` }));
+  card.append(el("p", { text: "If you installed K as an app, install it again from the new address." }));
   const actions = el("div", { class: "kom-actions" }, el("a", { class: "kom-btn kom-primary", href: newAddressUrl(cfg), text: `Open ${hostOf(cfg.to)}` }));
   card.append(actions);
   if (dataLeft) {
-    const remove = el("button", { type: "button", class: "kom-btn kom-danger", text: "Remove KaChat data from the old address" });
+    const remove = el("button", { type: "button", class: "kom-btn kom-danger", text: "Remove K data from the old address" });
     remove.addEventListener("click", async () => {
       // eslint-disable-next-line no-alert
-      if (!window.confirm(`Remove all KaChat data stored under ${oldAddressLabel(cfg)} in this browser?\n\nYour accounts are already on ${hostOf(cfg.to)}. Make sure you can sign in there first: this cannot be undone here.`)) return;
+      if (!window.confirm(`Remove all K data stored under ${oldAddressLabel(cfg)} in this browser?\n\nYour accounts are already on ${hostOf(cfg.to)}. Make sure you can sign in there first: this cannot be undone here.`)) return;
       remove.disabled = true;
       setStatus("Removing…");
       await removeOldAddressData();
       try { storage.setItem(MIGRATED_MARKER_KEY, JSON.stringify({ ...(marker || {}), removedAt: Date.now() })); } catch { /* marker only */ }
       showOldMoved(cfg, { ...(marker || {}), removedAt: Date.now() });
-      document.querySelector("#kom-root .kom-status")?.replaceChildren("KaChat data was removed from the old address.");
+      document.querySelector("#kom-root .kom-status")?.replaceChildren("K data was removed from the old address.");
     });
     const again = el("button", { type: "button", class: "kom-btn kom-link", text: "Move my accounts again" });
     again.addEventListener("click", () => startMove(cfg, { setStatus, buttons: [again, remove] }));
     actions.append(remove, again);
   } else {
-    card.append(el("p", { class: "kom-fine", text: "No KaChat data is left under the old address in this browser." }));
+    card.append(el("p", { class: "kom-fine", text: "No K data is left under the old address in this browser." }));
   }
   card.append(status);
 }
 
 function showOldOffer(cfg) {
-  const { card, status, setStatus } = mountScreen(`KaChat Desktop has moved to ${hostOf(cfg.to)}`);
+  const { card, status, setStatus } = mountScreen(`K has moved to ${hostOf(cfg.to)}`);
   card.append(
-    el("p", { text: `KaChat now has an address of its own, so nothing else on kachat.app can reach its storage. Your accounts are still saved in this browser under the old address: move them across once.` }),
+    el("p", { text: `K now has an address of its own, so nothing else on kachat.app can reach its storage. Your accounts are still saved in this browser under the old address: move them across once.` }),
     el("p", { text: `A new window opens at ${hostOf(cfg.to)} and asks you to confirm. Nothing is decrypted on the way: password-protected accounts stay encrypted and open there with the same password.` }),
   );
   const move = el("button", { type: "button", class: "kom-btn kom-primary", text: "Move my accounts" });
   const actions = el("div", { class: "kom-actions" }, move);
   move.addEventListener("click", () => startMove(cfg, { setStatus, buttons: [move] }));
   if (ALLOW_STAY_ON_OLD_ADDRESS) {
-    const stay = el("button", { type: "button", class: "kom-btn kom-link", text: "Not now - open KaChat here this time" });
+    const stay = el("button", { type: "button", class: "kom-btn kom-link", text: "Not now - open K here this time" });
     stay.addEventListener("click", () => {
       try { sessionStorage.setItem(BYPASS_SESSION_KEY, "1"); } catch { /* then it just shows again */ }
       location.reload();
@@ -672,7 +672,7 @@ function showOldOffer(cfg) {
   card.append(actions, status);
   const standaloneIos = (navigator.standalone === true) || (/iPhone|iPad|iPod/.test(navigator.userAgent || "") && matchMedia("(display-mode: standalone)").matches);
   card.append(el("p", { class: "kom-fine", text: standaloneIos
-    ? `On iPhone and iPad a Home Screen app keeps its own storage and cannot hand it to a browser window. Open KaChat here this time, write down each account's 12 or 24 words (or export a backup), then restore it at ${hostOf(cfg.to)}.`
+    ? `On iPhone and iPad a Home Screen app keeps its own storage and cannot hand it to a browser window. Open K here this time, write down each account's 12 or 24 words (or export a backup), then restore it at ${hostOf(cfg.to)}.`
     : `Allow pop-ups for kachat.app if your browser blocks the new window. Keep this tab open until the move is confirmed.` }));
 }
 
@@ -706,14 +706,14 @@ function startMove(cfg, { setStatus, buttons }) {
       try {
         const { snapshot, skipped } = await collectSnapshot();
         const chars = snapshotChars(snapshot);
-        if (chars > MAX_PAYLOAD_CHARS) { finish(`Your KaChat data (${formatSize(chars)}) is larger than one move can carry. Remove old chat media in Settings and try again.`, true); return; }
+        if (chars > MAX_PAYLOAD_CHARS) { finish(`Your K data (${formatSize(chars)}) is larger than one move can carry. Remove old chat media in Settings and try again.`, true); return; }
         expectedHash = hashSnapshot(snapshot);
         snapshotCounts = { localStorage: snapshot.localStorage.length, chatStore: snapshot.chatStore.length, skipped };
         popup.postMessage({ type: MSG_DATA, v: PROTOCOL_VERSION, nonce, token, path: location.pathname, snapshot }, cfg.to);
         phase = "ack";
         setStatus(`Sent. Confirm the move in the ${hostOf(cfg.to)} window.`);
       } catch (error) {
-        finish(`Could not read your KaChat data: ${error?.message || error}`, true);
+        finish(`Could not read your K data: ${error?.message || error}`, true);
       }
       return;
     }
@@ -784,7 +784,7 @@ function confirmOnScreen(cfg, summary, ui) {
       ? "These accounts are protected by your app password. Sign in here with the same password."
       : "These accounts have no app password. Consider setting one in Settings after the move." }));
     if (summary.existingAccounts > 0) {
-      fresh.card.append(el("p", { class: "kom-warn", text: `This address already has ${summary.existingAccounts} account${summary.existingAccounts === 1 ? "" : "s"}. Moving replaces all KaChat data here with what was sent. Make sure you have their 12 or 24 words first.` }));
+      fresh.card.append(el("p", { class: "kom-warn", text: `This address already has ${summary.existingAccounts} account${summary.existingAccounts === 1 ? "" : "s"}. Moving replaces all K data here with what was sent. Make sure you have their 12 or 24 words first.` }));
     }
     fresh.card.append(el("p", { class: "kom-fine", text: `Only accept if you pressed "Move my accounts" on ${oldAddressLabel(cfg)} just now.` }));
     const yes = el("button", { type: "button", class: "kom-btn kom-primary", text: summary.existingAccounts > 0 ? "Replace and move here" : "Move accounts here" });
@@ -802,7 +802,7 @@ function receiveFlow(cfg, token) {
   const nonce = randomNonce();
   const ui = mountScreen("Receiving your accounts…");
   ui.card.append(el("p", { text: `Waiting for ${oldAddressLabel(cfg)} to send your accounts. Keep that tab open.` }));
-  const cancel = el("button", { type: "button", class: "kom-btn kom-secondary", text: "Cancel and open KaChat" });
+  const cancel = el("button", { type: "button", class: "kom-btn kom-secondary", text: "Cancel and open K" });
   ui.card.append(el("div", { class: "kom-actions" }, cancel), ui.status);
   const chatStore = browserChatStore();
   const reply = (message) => { try { opener?.postMessage(message, cfg.from); } catch { /* opener gone */ } };
@@ -826,13 +826,13 @@ function receiveFlow(cfg, token) {
     stop();
     chatStore.close();
     if (result.stored) {
-      ui.setStatus("Done. Opening KaChat…");
+      ui.setStatus("Done. Opening K…");
       setTimeout(() => location.replace(cleanAppUrl()), 900);
     } else if (result.reason === "declined") {
       location.replace(cleanAppUrl());
     } else {
       ui.setStatus(`Saving failed: ${result.error?.message || result.reason}. Nothing was changed here.`, true);
-      ui.card.append(el("div", { class: "kom-actions" }, el("a", { class: "kom-btn kom-secondary", href: cleanAppUrl(), text: "Open KaChat" })));
+      ui.card.append(el("div", { class: "kom-actions" }, el("a", { class: "kom-btn kom-secondary", href: cleanAppUrl(), text: "Open K" })));
     }
   };
   window.addEventListener("message", onMessage);

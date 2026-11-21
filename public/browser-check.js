@@ -25,10 +25,10 @@
     box.setAttribute("style", "max-width:420px;padding:32px 24px;text-align:center;");
     var title = document.createElement("h1");
     title.setAttribute("style", "font-size:24px;margin:0 0 12px;");
-    title.appendChild(document.createTextNode("This browser is too old for KaChat"));
+    title.appendChild(document.createTextNode("This browser is too old for K"));
     var text = document.createElement("p");
     text.setAttribute("style", "font-size:16px;line-height:1.5;margin:0 0 12px;color:#b9c7c2;");
-    text.appendChild(document.createTextNode("KaChat Desktop needs a newer browser. Please open it in Safari on iOS 15 or later, or in a current version of Chrome, Firefox or Edge."));
+    text.appendChild(document.createTextNode("K needs a newer browser. Please open it in Safari on iOS 15 or later, or in a current version of Chrome, Firefox or Edge."));
     var note = document.createElement("p");
     note.setAttribute("style", "font-size:14px;line-height:1.5;margin:0;color:#8ea39c;");
     note.appendChild(document.createTextNode("Nothing was saved on this device."));
@@ -36,7 +36,7 @@
     box.appendChild(text);
     box.appendChild(note);
     body.appendChild(box);
-    try { document.title = "KaChat: browser not supported"; } catch (e) { /* ignore */ }
+    try { document.title = "K: browser not supported"; } catch (e) { /* ignore */ }
   }
 
   if (document.readyState === "loading") {

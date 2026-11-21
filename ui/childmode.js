@@ -285,7 +285,7 @@ export function renderUserTypeGuideStep(container) {
     { key: "child", title: "Simple", sub: "Chats, Portfolio and Cold Storage only. A password unlocks the rest later." },
   ];
   container.innerHTML = `
-    <p class="setup-usertype-note">Simple Mode is a smaller KaChat: just Chats, Group Chats, Portfolio and Cold Storage. Swaps, KaPost and Public Chats stay hidden until the password unlocks them.</p>
+    <p class="setup-usertype-note">Simple Mode is a smaller K: just Chats, Group Chats, Portfolio and Cold Storage. Swaps, KaPost and Public Chats stay hidden until the password unlocks them.</p>
     <div class="setup-choice-list">
       ${rows.map((row) => `<button type="button" class="setup-node-row${guideChoice === row.key ? " selected" : ""}" data-cm-usertype="${row.key}"><span class="setup-node-dot"></span><span class="setup-node-copy"><strong>${row.title}</strong><small>${row.sub}</small></span></button>`).join("")}
     </div>

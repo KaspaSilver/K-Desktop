@@ -45,7 +45,7 @@ function showPill() {
   pill = document.createElement("button");
   pill.type = "button";
   pill.className = "app-update-pill";
-  pill.innerHTML = `<span>New version of KaChat</span><strong>Update</strong>`;
+  pill.innerHTML = `<span>New version of K</span><strong>Update</strong>`;
   pill.addEventListener("click", () => window.location.reload());
   document.body.appendChild(pill);
 }

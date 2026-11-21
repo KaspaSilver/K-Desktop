@@ -31,7 +31,7 @@ export const FOLLOW_UP_MS = 5_000;
 
 /** iOS texts (KusdtBalances.Failure). */
 export const BALANCE_MESSAGES = Object.freeze({
-  templateMissing: "KaChat's kUSDT template is missing, so kUSDT can't be checked.",
+  templateMissing: "K's kUSDT template is missing, so kUSDT can't be checked.",
   badApiUrl: "The Trestly API address in Connection Settings isn't a valid https address.",
   noAnswer: "Trestly didn't answer.",
   httpStatus: (status) => `Trestly answered HTTP ${status}.`,

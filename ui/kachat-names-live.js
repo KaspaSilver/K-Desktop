@@ -890,7 +890,7 @@ function registrationStageText(p) {
     case Stage.waiting:
       return p.commitDaa == null
         ? "Waiting for the commit to confirm..."
-        : "The commit has to age for about a minute before the name can be registered. Keep KaChat open - it registers by itself, and picks up where it left off if you leave.";
+        : "The commit has to age for about a minute before the name can be registered. Keep K open - it registers by itself, and picks up where it left off if you leave.";
     case Stage.registering: return "Registering...";
     case Stage.registered: return "Registered. It's yours.";
     case Stage.taken: return kasLabel("Someone registered this name first. Cancel the commit to get its 0.2 KAS back.");
@@ -964,7 +964,7 @@ function progressRegistration() {
   return id ? kachatNames()?.actions.pending.find((p) => p.id === id) ?? null : null;
 }
 
-const KEEP_OPEN_NOTE = "Keep KaChat open: the name is registered about a minute after the hidden commit confirms. If you leave, it picks up where it left off when you come back.";
+const KEEP_OPEN_NOTE = "Keep K open: the name is registered about a minute after the hidden commit confirms. If you leave, it picks up where it left off when you come back.";
 
 function progressBodyHtml(p) {
   return `
@@ -1651,8 +1651,8 @@ const TX_DONE_TITLES = Object.freeze({
 /** What the receipt says under its title for each stage (iOS KachatTxDoneSheet.stageText). */
 function txStageText(stage) {
   switch (stage) {
-    case TxStage.accepted: return "It's in a block. Updating KaChat...";
-    case TxStage.shown: return "Done. It shows in KaChat now.";
+    case TxStage.accepted: return "It's in a block. Updating K...";
+    case TxStage.shown: return "Done. It shows in K now.";
     case TxStage.dropped: return "The network hasn't taken it. Nothing was spent if it never lands - try again with a faster fee.";
     default: return "Waiting for the network to put it in a block. Usually a few seconds; longer when it's busy.";
   }
@@ -1672,7 +1672,7 @@ function txStageStepsHtml(stage) {
     <div class="sk-card kl-receipt-steps">
       ${txStepHtml("Sent to the network", { done: true })}
       ${txStepHtml("In a block", { done: inBlock, active: !inBlock && stage !== TxStage.dropped })}
-      ${txStepHtml("Updated in KaChat", { done: stage === TxStage.shown, active: stage === TxStage.accepted })}
+      ${txStepHtml("Updated in K", { done: stage === TxStage.shown, active: stage === TxStage.accepted })}
     </div>`;
 }
 
@@ -1884,7 +1884,7 @@ function openTxSheet(cfg) {
     // and the device lock (iOS 778a8fc, IOS-075/DSK-047).
     if (sheet.combinesCoins && sheet.plan && !sheet.txId) {
       out += `<div class="kl-combine-note">${LI.merge}<span>${esc(
-        `Your KAS is in many small coins. When you ${swipeBarIsTapped() ? "tap" : "swipe"}, KaChat first combines them into one (a separate transaction with its own small fee), then sends this.`)}</span></div>`;
+        `Your KAS is in many small coins. When you ${swipeBarIsTapped() ? "tap" : "swipe"}, K first combines them into one (a separate transaction with its own small fee), then sends this.`)}</span></div>`;
     }
     return out;
   };
@@ -2954,7 +2954,7 @@ function openClaimSheet({ name, gap, owner = "market" }) {
     const combine = q("[data-kl-claim-combine]");
     if (combine) {
       combine.innerHTML = quote?.combinesCoins && quote.affordable
-        ? `<div class="kl-combine-note">${LI.merge}<span>${esc(kasLabel("Your KAS is in many small coins. KaChat combines them into one before registering, for a tiny extra network fee."))}</span></div>`
+        ? `<div class="kl-combine-note">${LI.merge}<span>${esc(kasLabel("Your KAS is in many small coins. K combines them into one before registering, for a tiny extra network fee."))}</span></div>`
         : "";
     }
     const foot = q("[data-kl-claim-foot]");
@@ -3131,7 +3131,7 @@ function openClaimSheet({ name, gap, owner = "market" }) {
         </button>`;
       }).join("")}
     </div>
-    <p class="kmkt-muted kl-claim-years-note">The price goes to the miners - KaChat takes nothing.</p>`);
+    <p class="kmkt-muted kl-claim-years-note">The price goes to the miners - K takes nothing.</p>`);
   const continueButton = yearsBody.closest(".ss-step")?.querySelector("[data-ss-continue]");
   if (continueButton) continueButton.hidden = true;
   swipe.setBack(() => flow.go("years"));
@@ -3314,7 +3314,7 @@ export function createNameDetail(initial, { mode = "market", owner = "market", h
     // The primary name is the chatting address's identity: a name on a spending address can't be it.
     if (mine()) {
       items.push({
-        id: "primary", title: "Set as Primary", subtitle: "Shows you by this name across KaChat.", icon: LI.personCheck,
+        id: "primary", title: "Set as Primary", subtitle: "Shows you by this name across K.", icon: LI.personCheck,
         disabled: s !== Status.active || d.primaryWorking,
       });
     }
@@ -5040,7 +5040,7 @@ export function openLiveProfileEditor(owner = "profile") {
   // Same gate as saving: a clear IS a save, of the empty record.
   const clearHtml = () => section(
     `<button class="kmkt-form-button kl-destructive" type="button" data-kl-profile-clear ${saving || !loaded || !rt ? "disabled" : ""}>Clear Profile</button>`,
-    { footerHtml: footer("Clearing writes an empty profile to the chain from your address to itself, for a network fee, so KaChat shows nothing for your address again.") },
+    { footerHtml: footer("Clearing writes an empty profile to the chain from your address to itself, for a network fee, so K shows nothing for your address again.") },
   );
 
   /** Platform picker, the handle after the platform's prefix, and where its lookup stands. */
@@ -5094,7 +5094,7 @@ export function openLiveProfileEditor(owner = "profile") {
         <span class="kl-get-name-label">${kit.ICON?.at || ""}Get a .kachat name</span>
       </button>`, {
       header: ".kachat Name",
-      footerHtml: footer("KaChat shows you by your primary name while you own it and it's active; otherwise by your oldest active name, or your address."),
+      footerHtml: footer("K shows you by your primary name while you own it and it's active; otherwise by your oldest active name, or your address."),
     }) : section(`
       <div class="kmkt-form-row">
         <span>Primary name</span>

@@ -360,7 +360,7 @@ test("an unread hint sets the badge; an unknown type uses the server's words", (
   assert.equal(other.title, "T");
   assert.equal(other.options.body, "B");
   const empty = plain(notificationFromPush(null, null));
-  assert.equal(empty.title, "KaChat");
+  assert.equal(empty.title, "K");
 });
 
 test("route keys match the app's focus keys (sw.js keeps quiet for the stream on screen)", () => {

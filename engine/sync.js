@@ -158,7 +158,7 @@ export function isKip22Spend(input) {
 function normalizeBaseUrl(value) {
   const raw = String(value || DEFAULT_KASIA_INDEXER_URL).trim().replace(/\/+$/, "");
   // Testnet has no KaChat indexer yet: blank means none (never the mainnet one).
-  if (!raw) throw new Error("No KaChat indexer on this network yet.");
+  if (!raw) throw new Error("No K indexer on this network yet.");
   if (!/^https?:\/\//i.test(raw)) throw new Error("Indexer URL must begin with http:// or https://");
   return raw;
 }

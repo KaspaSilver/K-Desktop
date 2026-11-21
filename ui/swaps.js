@@ -234,7 +234,7 @@ function render() {
     rootEl.innerHTML = `<div class="swap-root">${header}<div class="hub-empty swap-unavailable swap-own-key">
       <span class="swap-unavailable-icon" aria-hidden="true">${ICONS.swap}</span>
       <h3>Add Your ChangeNOW API Key</h3>
-      <p>This KaChat runs on your own computer, so swaps use your own ChangeNOW API key. Create a free ChangeNOW partner account, copy its API key and paste it here. It stays in this browser and goes only to ChangeNOW, through this KaChat.</p>
+      <p>This K runs on your own computer, so swaps use your own ChangeNOW API key. Create a free ChangeNOW partner account, copy its API key and paste it here. It stays in this browser and goes only to ChangeNOW, through this K.</p>
       <input class="field-input swap-own-key-input" type="password" data-swap-own-key placeholder="ChangeNOW API key" autocomplete="off" autocapitalize="none" spellcheck="false" />
       ${pastedKeyError ? `<p class="field-error">${esc(pastedKeyError)}</p>` : ""}
       <button type="button" class="primary-button" data-swap-own-key-save>Save Key</button>
@@ -268,7 +268,7 @@ function renderDisclaimer() {
   return `<div class="swap-disclaimer-overlay">
     <div class="swap-disclaimer-card" role="dialog" aria-modal="true" aria-labelledby="swap-disclaimer-title">
       <strong id="swap-disclaimer-title">Before You Swap</strong>
-      <p class="swap-disclaimer-text">Swaps are processed by ChangeNOW, a third-party exchange. KaChat only submits your swap request and displays its status; KaChat is not responsible for failed, delayed, or lost swaps. If a swap doesn't go through, contact ChangeNOW support directly.</p>
+      <p class="swap-disclaimer-text">Swaps are processed by ChangeNOW, a third-party exchange. K only submits your swap request and displays its status; K is not responsible for failed, delayed, or lost swaps. If a swap doesn't go through, contact ChangeNOW support directly.</p>
       <a class="swap-link strong" href="https://changenow.io/terms-of-use" target="_blank" rel="noopener noreferrer">Read ChangeNOW's Terms of Use</a>
       <label class="swap-terms-check">
         <input type="checkbox" data-swap-terms ${termsChecked ? "checked" : ""} />

@@ -43,7 +43,7 @@ export class Failure extends Error {
 /** The message of `Failure.outdatedRegistry()`. */
 export const outdatedRegistryMessage = "manifest: an earlier registry; this app needs a registry v4 or v5 manifest";
 /** The message of `Failure.newerRegistry()`. */
-export const newerRegistryMessage = "manifest: a later registry version than this app builds for; update KaChat";
+export const newerRegistryMessage = "manifest: a later registry version than this app builds for; update K";
 
 // MARK: - Constants (rusty-kaspa a41a333, kachat-domains params)
 

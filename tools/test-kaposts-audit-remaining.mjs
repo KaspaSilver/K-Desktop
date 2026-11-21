@@ -149,7 +149,7 @@ test("1: a post past its time reads as on its way, whoever holds it", () => {
   assert.equal(scheduledWaitingLine(entry({ onServer: true }), "Nov 9", NOW), KAPOSTS_SCHEDULED_SENDING_SOON);
   assert.equal(scheduledWaitingLine(entry(), "Nov 9", NOW), KAPOSTS_SCHEDULED_SENDING_SOON);
   assert.equal(scheduledWaitingLine(entry({ onServer: true, notBefore: NOW + 1 }), "Nov 9", NOW), "Goes out Nov 9");
-  assert.equal(scheduledWaitingLine(entry({ notBefore: NOW + 1 }), "Nov 9", NOW), "Goes out Nov 9 - from this browser, so keep KaChat open around then");
+  assert.equal(scheduledWaitingLine(entry({ notBefore: NOW + 1 }), "Nov 9", NOW), "Goes out Nov 9 - from this browser, so keep K open around then");
 });
 
 test("1: wiring: outcomes are read first, and the panel sends what they turned local", () => {

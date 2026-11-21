@@ -1206,7 +1206,7 @@ export async function flushPendingScheduledCancels({ ids, cancel }) {
 /** The status line of a post still waiting: past its time, it's on its way (iOS scheduledLine). */
 export function scheduledWaitingLine(entry, when, now = Date.now()) {
   if (entry.notBefore <= now) return KAPOSTS_SCHEDULED_SENDING_SOON;
-  return entry.onServer ? `Goes out ${when}` : `Goes out ${when} - from this browser, so keep KaChat open around then`;
+  return entry.onServer ? `Goes out ${when}` : `Goes out ${when} - from this browser, so keep K open around then`;
 }
 
 export const KAPOSTS_DRAFT_SOURCE_LOADING = "Loading the post this draft is about...";

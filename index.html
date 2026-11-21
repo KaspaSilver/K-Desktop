@@ -12,7 +12,7 @@
   <script src="/upgrade-insecure.js"></script>
   <!-- Too-old browsers (no WebAssembly / modern JS, e.g. iOS 10) get a clear message, not a blank layout. -->
   <script src="/browser-check.js"></script>
-  <title>KaChat Desktop</title>
+  <title>K</title>
   <link rel="stylesheet" href="./ui/styles.css?v=419" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
@@ -23,7 +23,7 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="KaChat" />
+  <meta name="apple-mobile-web-app-title" content="K" />
 </head>
 <body class="chats-tab">
   <!-- Launch screen: the Kaspa logo and the version on black from the first paint until the app
@@ -31,7 +31,7 @@
        it, so opening the home-screen app is not a plain black screen while it loads. Pure CSS:
        shows before any script has run; the version is written in at build time (vite.config.mjs). -->
   <div class="boot-splash" aria-hidden="true"><img src="./ui/assets/kaspa-logo.png" alt="" /><span class="boot-splash-version">%KACHAT_VERSION_LABEL%</span></div>
-  <section class="logged-out-screen" data-logged-out-screen hidden aria-label="KaChat saved accounts">
+  <section class="logged-out-screen" data-logged-out-screen hidden aria-label="K saved accounts">
     <!-- App-wide settings without an account (iOS accounts-screen App Settings cog):
          opens the same settings overlay limited to app-wide categories. -->
     <button class="profile-gear-button logged-out-settings-gear" type="button" data-logged-out-settings aria-label="App Settings" title="App Settings">
@@ -42,7 +42,7 @@
     </button>
     <div class="logged-out-content">
       <span class="logged-out-logo" aria-hidden="true"><img src="./ui/assets/kachat-logo.png" alt="" /></span>
-      <h1>KaChat</h1>
+      <h1>K</h1>
       <p class="logged-out-tagline">Secure messaging on Kaspa BlockDAG</p>
 
       <section class="saved-accounts-section">
@@ -72,7 +72,7 @@
     </div>
   </section>
 
-  <main id="app" class="kachat-shell" aria-label="KaChat web shell">
+  <main id="app" class="kachat-shell" aria-label="K web shell">
     <header class="app-topbar">
       <div class="toolbar-health-cluster">
         <button class="service-health-button" data-service-health-button data-open-connection-status type="button" aria-label="Service status. Open Connection Status" title="Open Connection Status">
@@ -104,7 +104,7 @@
       <aside class="app-sidebar" data-app-sidebar>
         <!-- Chats is one list (iOS a062577): the Chats / Group Chats / Public Chats tabs are gone. -->
         <!-- The fixed "Chats" title and search field, outside the list's scroll (iOS PinnedListHeader, KaChat-iPhone d063b897). -->
-        <h1 class="kaposts-title chats-list-title">Chats</h1>
+        <h1 class="kaposts-title chats-list-title">KaChat</h1>
         <div class="pinned-search chats-pinned-search">
           <section class="search-wrap" data-search-wrap aria-label="Search chats">
             <input class="search-input" type="search" placeholder="Search chats" autocomplete="off" />
@@ -766,7 +766,7 @@
              Request; then the two ways into the addresses themselves. -->
         <div class="profile-screen wallet-screen" data-app-tab-screen="wallet" hidden>
           <div class="kaposts-header profile-title-row">
-            <h1 class="kaposts-title">Wallet</h1>
+            <h1 class="kaposts-title">KaPay</h1>
             <!-- Refresh: the platform's stand-in for iOS's pull-to-refresh, as on Your Domains. -->
             <button class="chatting-address-back domains-refresh wallet-refresh" type="button" data-wallet-refresh aria-label="Refresh" title="Refresh">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 12.6A7.5 7.5 0 1 1 17 6.6"/><path d="M19.6 3.8v4.6H15"/></svg>
@@ -895,7 +895,7 @@
       <button class="sidebar-tab" type="button" data-app-tab="wallet">
         <!-- wallet.bifold (iOS bfe9f022 AppTab.wallet). -->
         <span class="sidebar-tab-icon" aria-hidden="true"><svg class="tab-glyph-outline" viewBox="0 0 24 24"><rect x="2.75" y="6.5" width="18.5" height="13.75" rx="3"/><path d="M5.2 6.5 14.7 3.7a1.6 1.6 0 0 1 2 1.1l.5 1.7"/><path d="M21.25 11h-4.5a2.5 2.5 0 0 0 0 5h4.5"/></svg><svg class="tab-glyph-filled" viewBox="0 0 24 24"><path d="M6.6 5.1 14.6 2.8a1.9 1.9 0 0 1 2.4 1.3l.3 1Z"/><path d="M5.5 6.3h13a3 3 0 0 1 3 3v1.5h-4.8a2.7 2.7 0 0 0 0 5.4h4.8v1.5a3 3 0 0 1-3 3h-13a3 3 0 0 1-3-3V9.3a3 3 0 0 1 3-3Z"/><path d="M21.5 12.2v2.6h-4.8a1.3 1.3 0 0 1 0-2.6Z"/></svg></span>
-        <span>Wallet</span>
+        <span>KaPay</span>
       </button>
       <button class="sidebar-tab" type="button" data-app-tab="portfolio" hidden>
         <span class="sidebar-tab-icon" aria-hidden="true"><svg class="tab-glyph-outline" viewBox="0 0 24 24"><path d="M21.18 15.9A10 10 0 1 1 8.1 2.82"/><path d="M22 12A10 10 0 0 0 12 2v10Z"/></svg><svg class="tab-glyph-filled" viewBox="0 0 24 24"><path d="M10.6 4.8A8.4 8.4 0 1 0 19 13.2h-8.4Z"/><path d="M12.4 3a8.4 8.4 0 0 1 8.4 8.4h-8.4Z"/></svg></span>
@@ -903,7 +903,7 @@
       </button>
       <button class="sidebar-tab active" type="button" data-app-tab="chats" aria-current="page">
         <span class="sidebar-tab-icon" aria-hidden="true"><svg class="tab-glyph-outline" viewBox="0 0 24 24"><path d="M4.3 4.5h9.1a3.8 3.8 0 0 1 3.8 3.8v2.7a3.8 3.8 0 0 1-3.8 3.8H8.7l-4.45 3.05.02-3.44A3.78 3.78 0 0 1 .5 10.65V8.3a3.8 3.8 0 0 1 3.8-3.8Z"/><path d="M9.65 8.15h6.1a3.75 3.75 0 0 1 3.75 3.75v1.95a3.75 3.75 0 0 1-3.75 3.75h-2.7L9.5 20.1v-2.5"/></svg><svg class="tab-glyph-filled" viewBox="0 0 24 24"><defs><mask id="kc-dock-cut-chats" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff"/><path d="M5.6 8.4h6.6a4.6 4.6 0 0 1 4.6 4.6v1.4a4.6 4.6 0 0 1-4.6 4.6H8.1l-3.9 2.9.7-3A4.6 4.6 0 0 1 1 14.4V13a4.6 4.6 0 0 1 4.6-4.6Z" fill="#000" stroke="#000" stroke-width="2.6" stroke-linejoin="round"/></mask></defs><path mask="url(#kc-dock-cut-chats)" d="M13 3.2h5.6A4.4 4.4 0 0 1 23 7.6v1.6a4.4 4.4 0 0 1-3.1 4.2l.5 2.6-3.2-2.4H13a4.4 4.4 0 0 1-4.4-4.4V7.6A4.4 4.4 0 0 1 13 3.2Z"/><path d="M5.6 8.4h6.6a4.6 4.6 0 0 1 4.6 4.6v1.4a4.6 4.6 0 0 1-4.6 4.6H8.1l-3.9 2.9.7-3A4.6 4.6 0 0 1 1 14.4V13a4.6 4.6 0 0 1 4.6-4.6Z"/></svg></span>
-        <span>Chats</span>
+        <span>KaChat</span>
       </button>
       <button class="sidebar-tab" type="button" data-app-tab="kaposts" hidden>
         <span class="sidebar-tab-icon" aria-hidden="true"><svg class="tab-glyph-outline" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M16.862 4.487l1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897l12.682-12.68Z"/><path d="M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/></svg><svg class="tab-glyph-filled tab-glyph-stroked" viewBox="0 0 24 24"><path d="M11 4.6H6.9A2.9 2.9 0 0 0 4 7.5v10.6A2.9 2.9 0 0 0 6.9 21h10.6a2.9 2.9 0 0 0 2.9-2.9V14"/><path d="M18.5 3a2 2 0 0 1 2.8 2.8l-8.6 8.6-3.8 1 1-3.8Z"/></svg></span>
@@ -1251,7 +1251,7 @@
             </div>
             <!-- Closed-app notifications (Web Push, ui/web-push.js): on / needs Add to Home Screen /
                  not on this server yet. The button asks the browser (a prompt needs a tap). -->
-            <p class="settings-group-footer" data-web-push-status role="status">Notifications when KaChat is closed: connecting...</p>
+            <p class="settings-group-footer" data-web-push-status role="status">Notifications when K is closed: connecting...</p>
             <div class="settings-list-card" data-web-push-allow hidden><button class="settings-list-row" type="button"><span class="settings-row-copy"><strong>Allow Notifications</strong></span></button></div>
             <p class="settings-group-label">Notifications</p>
             <div class="settings-list-card">
@@ -1276,7 +1276,7 @@
                   <div class="settings-toggle-row"><span><strong>Play sound</strong></span><label class="switch-control"><input type="checkbox" data-pref-notification-sound checked><span></span></label></div>
               </div>
             </div>
-            <p class="settings-group-footer notif-phone-hint" data-notif-phone-hint hidden>On iPhone and iPad, notifications work once KaChat is added to your Home Screen (Share &gt; Add to Home Screen) and allowed when asked.</p>
+            <p class="settings-group-footer notif-phone-hint" data-notif-phone-hint hidden>On iPhone and iPad, notifications work once K is added to your Home Screen (Share &gt; Add to Home Screen) and allowed when asked.</p>
           </section>
 
           <section class="settings-group" data-settings-subscreen="notifications-wallet">
@@ -1394,7 +1394,7 @@
             <summary>Engineering diagnostics</summary>
             <p class="field-hint">Manual controls remain here for troubleshooting. Normal startup is automatic.</p>
 
-            <div class="settings-architecture-stack" aria-label="KaChat architecture status">
+            <div class="settings-architecture-stack" aria-label="K architecture status">
               <section class="settings-status-card">
                 <div class="settings-card-title">
                   <div><p class="screen-kicker">Core</p><h2>Runtime &amp; Identity</h2></div>
@@ -1480,7 +1480,7 @@
                 <button class="danger-button" type="button" data-clear-local-state>Clear Local Data</button>
               </div>
             </div>
-            <div class="engine-log" data-engine-log>Starting KaChat services…</div>
+            <div class="engine-log" data-engine-log>Starting K services…</div>
           </details>
         </section>
       </div>
@@ -1827,7 +1827,7 @@
            preview above moves here while this screen shows. -->
       <div data-import-passphrase-screen="found" hidden>
         <h3 class="passphrase-entry-title">Your Account</h3>
-        <p class="field-hint">KaChat checks your words against every kind of Kaspa wallet, so you don't need to know which one they came from.</p>
+        <p class="field-hint">K checks your words against every kind of Kaspa wallet, so you don't need to know which one they came from.</p>
         <div data-import-preview-slot="found"></div>
         <p class="field-error" data-import-found-error hidden></p>
         <div class="modal-actions passphrase-actions">

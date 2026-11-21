@@ -448,7 +448,7 @@ function listingHtml() {
       <ul class="kmkt-notes">
         <li>${ICON.cart}<span>Buying pays the seller and moves the name to you in one transaction.</span></li>
         <li>${ICON.lock}<span>An offer locks your ${KAS_UNIT} on chain until the seller accepts it, you withdraw it, or it expires.</span></li>
-        <li>${ICON.bubbles}<span>Messages go to the seller like any KaChat chat.</span></li>
+        <li>${ICON.bubbles}<span>Messages go to the seller like any K chat.</span></li>
       </ul>
     </div>`;
 }
@@ -537,7 +537,7 @@ function openOfferSheet() {
 function openHowItWorksSheet() {
   const rows = [
     [ICON.atPlus, "Claim", "Pick a free name and register it on Kaspa. It's yours: your name in chats, your profile, your link."],
-    [ICON.tag, "List", "Set a price. The name waits in an on-chain covenant, not with KaChat or anyone else, until someone buys it or you take it back."],
+    [ICON.tag, "List", "Set a price. The name waits in an on-chain covenant, not with K or anyone else, until someone buys it or you take it back."],
     [ICON.cart, "Buy", "Pay the listed price. The payment reaches the seller and the name reaches you in the same transaction - both happen, or neither does."],
     [ICON.hand, "Offer", `Name your own price. Your ${KAS_UNIT} waits on chain until the seller accepts, you withdraw the offer, or it expires - and you can message the seller first.`],
     [ICON.shieldCheck, "Trustless", "No middleman and no escrow account: Kaspa's own rules enforce every sale."],
@@ -776,7 +776,7 @@ export function openKachatProfileEditor() {
         ${formSection(`
           <div class="kmkt-form-row kmkt-label-row">
             <span class="kmkt-label-icon">${ICON.atCircle}</span>
-            <span class="kmkt-label-text">.kachat names are coming. Once you claim one, your avatar, banner, bio and links are set here - and they're what KaChat shows for you everywhere.</span>
+            <span class="kmkt-label-text">.kachat names are coming. Once you claim one, your avatar, banner, bio and links are set here - and they're what K shows for you everywhere.</span>
           </div>`)}
         ${formSection(`<div class="kmkt-form-row kmkt-label-row kmkt-muted"><span class="kmkt-label-icon">${ICON.photo}</span><span>Choose Avatar</span></div>`, { header: "Avatar" })}
         ${formSection(`<div class="kmkt-form-row kmkt-label-row kmkt-muted"><span class="kmkt-label-icon">${ICON.photoStack}</span><span>Choose Banner</span></div>`, { header: "Banner" })}
@@ -822,7 +822,7 @@ function guideStepHtml(step) {
   switch (step) {
     case "claim": {
       return `
-        ${guideStepHeader("Claim your .kachat name", "It's the name people see you as across KaChat - in chats, on posts and on your profile link. Without one, people see your address.", `<span class="kmkt-guide-mark">${KACHAT_WORDMARK_SVG}</span>`)}
+        ${guideStepHeader("Claim your .kachat name", "It's the name people see you as across K - in chats, on posts and on your profile link. Without one, people see your address.", `<span class="kmkt-guide-mark">${KACHAT_WORDMARK_SVG}</span>`)}
         <div class="kmkt-guide-claim">
           <div class="kmkt-guide-field"><span class="kmkt-placeholder-text">yourname</span><span class="kmkt-search-suffix">.kachat</span></div>
           <small class="kmkt-muted">Search for the name you want in .kachat, then claim it.</small>
@@ -834,11 +834,11 @@ function guideStepHtml(step) {
         ${guideBullets([
           "Claiming takes two quick transactions: the first keeps your pick secret, the second registers it.",
           "You pay for one period at a time. Shorter names cost more.",
-          "The price goes to the network's miners, not to KaChat.",
+          "The price goes to the network's miners, not to K.",
         ])}`;
     case "useIt":
       return `
-        ${guideStepHeader("Make it your name", "Set it as your primary name and it's how you appear everywhere in KaChat.", GUIDE_ICON.personCard)}
+        ${guideStepHeader("Make it your name", "Set it as your primary name and it's how you appear everywhere in K.", GUIDE_ICON.personCard)}
         ${guideBullets([
           "People can find you and message you by typing your name.",
           "They can send you Kaspa to yourname.kachat instead of a long address.",

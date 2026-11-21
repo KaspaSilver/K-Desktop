@@ -433,17 +433,17 @@ test("Nextcloud: manual exports keep their spaces in the KaChat folder", () => {
 
 test("other network (IOS-063): save refuses it, import skips and counts it, all-other-network is refused", () => {
   fresh();
-  const reason = (a) => (a.startsWith("kaspatest:") ? "This is a Testnet address. KaChat is on Mainnet." : null);
+  const reason = (a) => (a.startsWith("kaspatest:") ? "This is a Testnet address. K is on Mainnet." : null);
   // Like the app: isValidAddress only accepts the active network's addresses.
   configureAddressBook({ otherNetworkReason: reason, isValidAddress: (a) => /^kaspa:[a-z0-9]{20,}$/.test(a) });
   const TN = "kaspatest:qptestnet0000000000000000000000000000000000000000000000000";
-  assert.throws(() => saveAddressBookEntry({ address: TN, name: "Testy" }), /This is a Testnet address\. KaChat is on Mainnet\./);
+  assert.throws(() => saveAddressBookEntry({ address: TN, name: "Testy" }), /This is a Testnet address\. K is on Mainnet\./);
   assert.equal(addressBookEntry(TN), null);
   const file = (entries) => ({ type: "kachat-address-book", version: 1, exportedAt: iso(clock), walletAddress: WALLET_A, entries });
   const row = (address, name) => ({ id: crypto.randomUUID(), address, name, note: "", createdAt: iso(clock), updatedAt: iso(clock) });
   assert.deepEqual(importAddressBookExport(file([row(ALICE, "Alice"), row(TN, "Testy")])), { added: 1, updated: 0, skipped: 1 });
   assert.equal(addressBookEntry(TN), null);
-  assert.throws(() => importAddressBookExport(file([row(TN, "Testy")])), /Every address in that file is a Testnet address\. KaChat is on Mainnet\./);
+  assert.throws(() => importAddressBookExport(file([row(TN, "Testy")])), /Every address in that file is a Testnet address\. K is on Mainnet\./);
   assert.deepEqual(importAddressBookExport(file([row(BOB, "Bob"), row(TN, "Testy"), row("kaspa:nope", "Bad")])), { added: 1, updated: 0, skipped: 1 }, "an invalid address is neither added nor skipped");
   configureAddressBook({ otherNetworkReason: () => null });
 });

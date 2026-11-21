@@ -139,7 +139,7 @@ function emptyStateHtml() {
     <div class="ab-empty">
       <span class="ab-empty-icon">${ADDRESS_BOOK_ICONS.book}</span>
       <strong>No contacts yet</strong>
-      <p>Save the Kaspa addresses you use with a name you'll recognize. They stay in KaChat, for this wallet only, and never go into your phone's Contacts app.</p>
+      <p>Save the Kaspa addresses you use with a name you'll recognize. They stay in K, for this wallet only, and never go into your phone's Contacts app.</p>
       <button type="button" class="primary-button ab-empty-add" data-ab-add>${ICONS.plus}<span>Add Contact</span></button>
     </div>`;
 }
@@ -697,7 +697,7 @@ function renderEditor() {
     </section>
     <section class="create-chat-section">
       <textarea class="create-chat-name-input ab-note-input" rows="2" data-ab-editor-note placeholder="Note (optional)" aria-label="Note (optional)">${esc(s.note)}</textarea>
-      <p class="create-chat-help">Saved in KaChat for this wallet only. Never added to your phone's Contacts app.</p>
+      <p class="create-chat-help">Saved in K for this wallet only. Never added to your phone's Contacts app.</p>
     </section>
     ${s.error ? `<p class="create-chat-error ab-editor-error">${ICONS.warn}<span>${esc(s.error)}</span></p>` : ""}
     ${s.address && existing ? `

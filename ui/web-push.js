@@ -131,15 +131,15 @@ export function webPushStatus() { return status; }
 
 /** The Settings line ("Notifications when KaChat is closed: ..."). */
 export function webPushStatusText(value = status) {
-  const prefix = "Notifications when KaChat is closed:";
+  const prefix = "Notifications when K is closed:";
   switch (value.state) {
     case "on": return `${prefix} on.`;
-    case "needs-install": return `${prefix} add KaChat to your Home Screen first (Share > Add to Home Screen), then open it from there and allow notifications.`;
+    case "needs-install": return `${prefix} add K to your Home Screen first (Share > Add to Home Screen), then open it from there and allow notifications.`;
     case "unsupported": return `${prefix} not supported by this browser.`;
     case "off": return `${prefix} off.`;
     case "ask": return `${prefix} allow notifications to turn them on.`;
     case "denied": return `${prefix} blocked in your browser's settings for this site.`;
-    case "unavailable": return `${prefix} not available on this server yet. KaChat notifies you while it is open.`;
+    case "unavailable": return `${prefix} not available on this server yet. K notifies you while it is open.`;
     case "signed-out": return `${prefix} open your account to turn them on.`;
     case "error": return `${prefix} couldn't turn on${value.detail ? ` (${value.detail})` : ""}. Trying again.`;
     default: return `${prefix} connecting...`;

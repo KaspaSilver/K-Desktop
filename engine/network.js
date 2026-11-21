@@ -62,8 +62,8 @@ export function otherNetworkReason(address) {
   const network = networkOfAddress(address);
   if (!network || network === NETWORK || !isValidKaspaAddress(address)) return null;
   return network === "testnet"
-    ? "This is a Testnet address. KaChat is on Mainnet."
-    : "This is a Mainnet address. KaChat is on Testnet.";
+    ? "This is a Testnet address. K is on Mainnet."
+    : "This is a Mainnet address. K is on Testnet.";
 }
 /** Replaces the KAS unit word in already-built text with TKAS on testnet - only as a whole ASCII
  *  word, so "Kaspa" and an existing "TKAS" are untouched. */

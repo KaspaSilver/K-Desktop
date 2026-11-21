@@ -420,7 +420,7 @@ export const KNS_REVEAL_MISSING_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 export const KNS_REVEAL_EMPTY_CHECKS = 2;
 /** Commits made just now are left to the send that made them. */
 const KNS_REVEAL_LEFT_TO_SENDER_MS = 10 * 60 * 1000;
-const KNS_REVEAL_FAILED_MESSAGE = "The first of two transactions went through, but the second didn't. KaChat will finish it the next time it opens.";
+const KNS_REVEAL_FAILED_MESSAGE = "The first of two transactions went through, but the second didn't. K will finish it the next time it opens.";
 const knsRevealsKey = (account) => `kachat-account-data-v1:${account}:${KNS_REVEALS_BASE_KEY}`;
 function readKnsReveals(account) {
   try {

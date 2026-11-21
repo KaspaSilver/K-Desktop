@@ -528,8 +528,8 @@ export function importAddressBookExport(input) {
 /** iOS ImportError.otherNetwork: every address in the file is the other network's. */
 function addressBookImportOtherNetworkText(reason) {
   return /Mainnet address/.test(String(reason || ""))
-    ? "Every address in that file is a Mainnet address. KaChat is on Testnet."
-    : "Every address in that file is a Testnet address. KaChat is on Mainnet.";
+    ? "Every address in that file is a Mainnet address. K is on Testnet."
+    : "Every address in that file is a Testnet address. K is on Mainnet.";
 }
 
 // ---------------------------------------------------------------------------------------------

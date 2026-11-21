@@ -115,7 +115,7 @@ function isIpAddress(host) {
 export function biometricEnvironmentProblem() {
   if (!secureContext()) return "Face ID / Touch ID unlock needs a secure (https) connection.";
   const host = hostname();
-  if (!host || isIpAddress(host)) return "Face ID / Touch ID unlock doesn't work when KaChat is opened by IP address. Open it by its domain name.";
+  if (!host || isIpAddress(host)) return "Face ID / Touch ID unlock doesn't work when K is opened by IP address. Open it by its domain name.";
   const api = credentialsApi();
   if (!pkc() || !api || typeof api.create !== "function" || typeof api.get !== "function") return BIOMETRIC_UNSUPPORTED_MESSAGE;
   return null;
@@ -207,14 +207,14 @@ async function assertPrf({ rpId, credentialId, saltBytes }) {
 // ("KaChat (Alice)") now that every account has its own password and its own Face ID record.
 function passkeyLabel(accountLabel) {
   const clean = String(accountLabel || "").replace(/\s+/g, " ").trim().slice(0, 40);
-  return clean ? `KaChat (${clean})` : "KaChat";
+  return clean ? `K (${clean})` : "K";
 }
 export async function enrolBiometric({ accountLabel = "" } = {}) {
   const problem = biometricEnvironmentProblem();
   if (problem) return { status: "unsupported", message: problem };
   // Checked before any passkey is made (synchronous, so the tap still counts for create()).
   if (!isVaultEnabled()) return { status: "failed", message: "Set a password first." };
-  if (!isVaultUnlocked()) return { status: "failed", message: "KaChat is locked. Enter your password first." };
+  if (!isVaultUnlocked()) return { status: "failed", message: "K is locked. Enter your password first." };
   const rpId = hostname();
   // A previous enrolment's user handle (kept by a password change): the OS replaces that passkey
   // instead of adding a second "KaChat" one.
@@ -227,7 +227,7 @@ export async function enrolBiometric({ accountLabel = "" } = {}) {
   try {
     credential = await credentialsApi().create({
       publicKey: {
-        rp: { id: rpId, name: "KaChat" },
+        rp: { id: rpId, name: "K" },
         user: { id: userId, name: passkeyLabel(accountLabel), displayName: passkeyLabel(accountLabel) },
         challenge: randomBytes(32),
         pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],

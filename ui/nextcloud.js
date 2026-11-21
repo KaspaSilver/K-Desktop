@@ -211,7 +211,7 @@ function normalizedServer(input) {
 
 function authHeader(account = nc) {
   // Never an empty or placeholder password: locked (or disconnected) means no request at all.
-  if (!account?.username || !account?.appPassword) throw new Error("Nextcloud is unavailable while KaChat is locked.");
+  if (!account?.username || !account?.appPassword) throw new Error("Nextcloud is unavailable while K is locked.");
   return "Basic " + btoa(`${account.username}:${account.appPassword}`);
 }
 
@@ -241,7 +241,7 @@ function ncFetch(url, init = {}) {
 }
 
 /** What a direct connection that failed at the network level most likely means. */
-const DIRECT_REFUSED_MESSAGE = "KaChat couldn't connect to this Nextcloud directly. Check the server address. If it's right, the server doesn't allow this website yet: its admin needs to allow https://desktop.kachat.app (Kaspa Quick Start's Nextcloud does this for you). Your login never goes through KaChat's servers.";
+const DIRECT_REFUSED_MESSAGE = "K couldn't connect to this Nextcloud directly. Check the server address. If it's right, the server doesn't allow this website yet: its admin needs to allow https://desktop.kachat.app (Kaspa Quick Start's Nextcloud does this for you). Your login never goes through KaChat's servers.";
 
 function corsHint(error) {
   // Direct (a site KaChat hosts): a TypeError is the server unreachable or not allowing this site.
@@ -264,7 +264,7 @@ async function tooManyRequestsText(response) {
   let relay = false;
   try { relay = (await response.clone().text()).trim() === "Too many requests"; } catch { relay = false; }
   return relay
-    ? "Too many requests through KaChat's relay right now. Wait a minute and try again."
+    ? "Too many requests through K's relay right now. Wait a minute and try again."
     : "Nextcloud is slowing down sign-ins from this connection after too many attempts. Wait a few minutes, check the app password, and try again.";
 }
 
@@ -491,7 +491,7 @@ async function adoptExistingBackupFolder() {
     saveState();
     renderSettings();
     if (found.hasBackup && !nc.autoBackup) {
-      deps.showToast?.(`Found your KaChat contacts in "${found.path}". Turn on Automatic Sync to bring them in.`);
+      deps.showToast?.(`Found your K contacts in "${found.path}". Turn on Automatic Sync to bring them in.`);
     } else if (!found.hasBackup) {
       deps.showToast?.(`Using your existing "${found.path}" folder for backups.`);
     }
@@ -1432,7 +1432,7 @@ function renderSettings() {
     const lockedHost = (() => { try { return new URL(ncLocked.server).host; } catch { return ncLocked.server; } })();
     const note = ncLocked.unreadable
       ? "The stored app password could not be decrypted on this device. Disconnect, then connect again with an app password."
-      : "Your Nextcloud app password is encrypted with your KaChat password. Backup, sync, media and calls through Nextcloud start once KaChat is unlocked.";
+      : "Your Nextcloud app password is encrypted with your K password. Backup, sync, media and calls through Nextcloud start once K is unlocked.";
     settingsEl.innerHTML = `
       <p class="settings-group-label">Connected Account</p>
       <div class="settings-list-card">
@@ -1458,13 +1458,13 @@ function renderSettings() {
         <p class="field-error" data-nc-connect-error hidden></p>
         <button class="primary-button full" type="button" data-nc-connect disabled>Connect</button>
       </div>
-      ${DIRECT_ONLY ? `<p class="settings-group-footer">On this website KaChat connects straight to your Nextcloud, so your login never passes through KaChat's servers. Your Nextcloud has to allow https://desktop.kachat.app; <a href="${KASPA_QUICK_START_URL}" target="_blank" rel="noopener noreferrer">Kaspa Quick Start</a>'s Nextcloud does this for you.</p>` : ""}
+      ${DIRECT_ONLY ? `<p class="settings-group-footer">On this website K connects straight to your Nextcloud, so your login never passes through K's servers. Your Nextcloud has to allow https://desktop.kachat.app; <a href="${KASPA_QUICK_START_URL}" target="_blank" rel="noopener noreferrer">Kaspa Quick Start</a>'s Nextcloud does this for you.</p>` : ""}
       ${legacy ? `<div class="settings-list-card danger-list-card">
         <button class="settings-list-row danger-row" type="button" data-nc-forget-hosted><span class="settings-row-copy"><strong>Remove Saved Nextcloud Login</strong></span></button>
       </div>
-      <p class="settings-group-footer">A Nextcloud login saved in this browser earlier went through KaChat's relay, so it isn't used any more. Remove it, then connect again above.</p>` : ""}`;
+      <p class="settings-group-footer">A Nextcloud login saved in this browser earlier went through K's relay, so it isn't used any more. Remove it, then connect again above.</p>` : ""}`;
     settingsEl.querySelector("[data-nc-forget-hosted]")?.addEventListener("click", async () => {
-      const ok = await confirmDialog({ title: "Remove Saved Login", message: "The Nextcloud login saved in this browser is deleted, and KaChat asks your Nextcloud to revoke its app password. If your server doesn't allow this website, revoke it in Nextcloud's Security settings.", confirmLabel: "Remove", destructive: true });
+      const ok = await confirmDialog({ title: "Remove Saved Login", message: "The Nextcloud login saved in this browser is deleted, and K asks your Nextcloud to revoke its app password. If your server doesn't allow this website, revoke it in Nextcloud's Security settings.", confirmLabel: "Remove", destructive: true });
       if (!ok) return;
       const old = storedRelayLoginToRevoke();
       clearStoredState();
@@ -1874,7 +1874,7 @@ function wireSettings() {
       if (leaving && !(await revokeAppPassword(leaving))) {
         await alertDialog({
           title: "Couldn't Remove App Password",
-          message: `KaChat is disconnected, but ${serverHost(leaving.server)} couldn't be told to remove its app password. Delete it in Nextcloud under Settings > Security > Devices & sessions.`,
+          message: `K is disconnected, but ${serverHost(leaving.server)} couldn't be told to remove its app password. Delete it in Nextcloud under Settings > Security > Devices & sessions.`,
         });
       }
       return;

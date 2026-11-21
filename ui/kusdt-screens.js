@@ -75,11 +75,11 @@ export const KUSDT_TEXT = Object.freeze({
   risk: "Not independently audited yet. Hold only what you can afford to lose.",
   aboutCoin: "Every kUSDT coin holds 1.5 KAS. It goes along with the kUSDT when you send it.",
   emptyTitle: "No kUSDT Yet",
-  emptyText: "Receive it on a fresh address, or buy it with Swap Stablecoins on the Wallet tab.",
+  emptyText: "Receive it on a fresh address, or buy it with Swap Stablecoins on the KaPay tab.",
   historyEmpty: "No kUSDT activity yet.",
   historyEmptyNote: "Sends, receives and combines on this computer show here from now on.",
   swapRowSubtitle: "On Trestly's site, in a new tab",
-  swapFooter: "More stablecoins will show here as KaChat adds them.",
+  swapFooter: "More stablecoins will show here as K adds them.",
   visibilityEmptyPage: "These addresses couldn't be derived right now. Go back a page or reopen this screen to retry.",
   // §14 Send Dollars (KaChat iOS 5b7c772c) and §15 KaPost's Tip In (KaPost iOS f954738)
   sendDollarsTitle: "Send Dollars",
@@ -1498,7 +1498,7 @@ const GUIDE_CARDS = [
   { icon: "arrowUp", title: "Sending kUSDT", detail: "A send takes a little KAS from the same address for the network fee, plus 1.5 KAS for your change coin when you keep some kUSDT. If the address is short, Fund This Address tops it up from another of your addresses." },
   { icon: "merge", title: "Combine Coins", detail: "Each payment you receive is its own coin with its own 1.5 KAS. Combine Coins, in an address's menu, merges them into one and gives the extra KAS back." },
   // Desktop rewrite (owner, 2026-11-20): Trestly's own site, in a new tab, not inside the app.
-  { icon: "swap", title: "Swapping", detail: "To swap KAS and kUSDT, or add to the pool, click Swap Stablecoins on the Wallet tab and choose kUSDT. Trestly's own site opens in a new tab: connect a wallet there, then send what you swapped to one of your addresses here." },
+  { icon: "swap", title: "Swapping", detail: "To swap KAS and kUSDT, or add to the pool, click Swap Stablecoins on the KaPay tab and choose kUSDT. Trestly's own site opens in a new tab: connect a wallet there, then send what you swapped to one of your addresses here." },
   { icon: "clock", title: "History", detail: "kUSDT history is kept on this computer: sends, combines and payments received from now on. What happened before, or in another app, isn't shown." },
   { icon: "warning", title: "The Risks", detail: KUSDT_TEXT.risk, tone: "warn" },
 ];

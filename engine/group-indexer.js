@@ -60,7 +60,7 @@ async function paginate(buildUrl, limit, startCursor, maxPages = 20) {
 function baseUrl(indexerUrl) {
   const base = trimBase(indexerUrl || getEndpoint("kasiaIndexer"));
   // Testnet has no KaChat indexer yet: blank means none, never the mainnet one.
-  if (!base) throw new Error("No KaChat indexer on this network yet.");
+  if (!base) throw new Error("No K indexer on this network yet.");
   return base;
 }
 

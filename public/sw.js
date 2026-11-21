@@ -147,7 +147,7 @@ async function handlePush(event) {
   try {
     mapped = self.KaChatPushMap.notificationFromPush(payload, mirror, { icon: iconUrl() });
   } catch {
-    mapped = { title: String(payload.title || "KaChat"), options: { body: String(payload.body || "New notification"), tag: "kachat-push", icon: iconUrl(), data: { route: { kind: "tab", tab: "chats" }, key: "", push: true } }, badge: null, suppress: false };
+    mapped = { title: String(payload.title || "K"), options: { body: String(payload.body || "New notification"), tag: "kachat-push", icon: iconUrl(), data: { route: { kind: "tab", tab: "chats" }, key: "", push: true } }, badge: null, suppress: false };
   }
   let suppress = Boolean(mapped.suppress) || switchedOff;
   // One ring per burst from a sender or group (iOS part_push_bursts, sw-push.js).
@@ -179,7 +179,7 @@ async function handlePush(event) {
   }
   if (suppress) {
     const tag = `kachat-quiet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    await self.registration.showNotification(mapped.title || "KaChat", { body: "", tag, silent: true, icon: iconUrl(), data: { quiet: true } });
+    await self.registration.showNotification(mapped.title || "K", { body: "", tag, silent: true, icon: iconUrl(), data: { quiet: true } });
     try { for (const note of await self.registration.getNotifications({ tag })) note.close(); } catch { /* it goes with the next one */ }
     return;
   }
@@ -202,7 +202,7 @@ async function handlePush(event) {
     } catch { /* the badge is a nicety */ }
   }
   if (!options.tag) delete options.renotify;
-  await self.registration.showNotification(mapped.title || "KaChat", options);
+  await self.registration.showNotification(mapped.title || "K", options);
 }
 
 // The subscription was renewed or revoked by the browser. Subscribe again with the same server key

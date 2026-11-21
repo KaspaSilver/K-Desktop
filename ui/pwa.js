@@ -38,9 +38,8 @@ const standaloneMedia = window.matchMedia("(display-mode: standalone)");
 function syncStandalone() {
   const standalone = standaloneMedia.matches || window.navigator.standalone === true;
   root.classList.toggle("standalone", standalone);
-  // Installed, it is simply the KaChat app: the app switcher and share sheet show this title, and
-  // "KaChat Desktop" read wrong on a phone.
-  if (standalone && document.title === "KaChat Desktop") document.title = "KaChat";
+  // (The page is titled "K" everywhere since KaChat iOS 6aa8b515's rebrand, so an installed app
+  // needs no title of its own any more.)
 }
 syncStandalone();
 standaloneMedia.addEventListener?.("change", syncStandalone);
@@ -203,7 +202,7 @@ function showIosInstallHint() {
   hint.innerHTML = `
     <span class="ios-install-hint-icon" aria-hidden="true"><img src="${kachatLogoUrl}" alt="" /></span>
     <div class="ios-install-hint-copy">
-      <strong>Get KaChat as an app</strong>
+      <strong>Get K as an app</strong>
       <span>${steps} It opens full screen and can notify you.</span>
     </div>
     <button type="button" class="ios-install-hint-close" aria-label="Dismiss">×</button>`;

@@ -79,7 +79,7 @@ export const VAULT_LEGACY_WALLET_KEY = "kachat-vault-legacy-wallet-v1";
 export const VAULT_SESSION_KEY = "kachat-vault-session-v1"; // pre-DSK-023: deleted, never read
 export const VAULT_HANDOFF_KEY = "kachat-vault-handoff-v1";
 export const VAULT_HANDOFF_TTL_MS = 15_000;
-export const LOCKED_IN_ANOTHER_TAB_MESSAGE = "KaChat was locked in another tab. Enter your password to continue.";
+export const LOCKED_IN_ANOTHER_TAB_MESSAGE = "K was locked in another tab. Enter your password to continue.";
 export const VAULT_PBKDF2_ITERATIONS = 600_000;
 export const MIN_APP_PASSWORD_LENGTH = 8;
 export const BIOMETRIC_UNLOCK_KEY = "kachat-biometric-unlock-v1";
@@ -404,7 +404,7 @@ function checkKeyStillCurrent() {
 }
 /** Throws (and locks) unless `key` is this tab's key for vault `id` and still its stored record's. */
 function requireCurrentKey(key, id = SHARED) {
-  if (!key || key !== heldKey(id)) throw new Error("KaChat is locked. Enter your password first.");
+  if (!key || key !== heldKey(id)) throw new Error("K is locked. Enter your password first.");
   if (!checkKeyStillCurrent()) throw new Error(LOCKED_IN_ANOTHER_TAB_MESSAGE);
 }
 
@@ -609,7 +609,7 @@ export function writeAccountRecords(entries) {
     if (!vaultEnabled(id)) return plainEntry(entry);
     if (!hasSecrets(entry)) return sealEntry(null, entry);
     const key = heldKey(id);
-    if (!key) throw new Error("KaChat is locked. Enter your password before saving an account on this device.");
+    if (!key) throw new Error("K is locked. Enter your password before saving an account on this device.");
     return sealEntry(key, entry);
   });
   ls().setItem(SAVED_ACCOUNTS_KEY, JSON.stringify(out));
@@ -762,7 +762,7 @@ export function writeNextcloudAccount(storageKey, account) {
     return;
   }
   const key = heldKey(id);
-  if (!key) throw new Error("KaChat is locked. Enter your password before saving the Nextcloud connection.");
+  if (!key) throw new Error("K is locked. Enter your password before saving the Nextcloud connection.");
   requireCurrentKey(key, id);
   ls().setItem(storageKey, JSON.stringify(sealNextcloudWith(key, storageKey, account, account.appPassword)));
 }
@@ -843,7 +843,7 @@ function notOwn(entry) { return !!entry && typeof entry === "object" && !hasOwnV
 function collectPlainAccounts(key, mine = () => true) {
   const entries = readRawAccounts().map((entry) => {
     if (!entry || typeof entry !== "object" || !entry.sealed || hasSecrets(entry) || !mine(entry)) return entry;
-    if (!key) throw new Error("KaChat is locked.");
+    if (!key) throw new Error("K is locked.");
     try { return { ...publicPart(entry), ...openSecretsWith(key, entry.address, entry.sealed) }; }
     catch { throw new Error(`A saved account (${String(entry.address || "").slice(-8)}) could not be decrypted. Nothing was changed.`); }
   });
@@ -856,7 +856,7 @@ function plainLegacyWalletKey(key) {
   if (plain) return plain;
   const raw = ls().getItem(VAULT_LEGACY_WALLET_KEY);
   if (!raw) return "";
-  if (!key) throw new Error("KaChat is locked.");
+  if (!key) throw new Error("K is locked.");
   return dec.decode(openBytes(key, JSON.parse(raw), LEGACY_WALLET_AAD)).trim();
 }
 
@@ -1389,7 +1389,7 @@ export async function enrolBiometricUnlock({ credentialId, userId, rpId, salt, p
   const vid = vaultForTarget(address);
   if (!vaultEnabled(vid)) throw new Error("Set a password first.");
   const key = heldKey(vid);
-  if (!key) throw new Error("KaChat is locked. Enter your password first.");
+  if (!key) throw new Error("K is locked. Enter your password first.");
   requireCurrentKey(key, vid);
   const id = String(credentialId || "");
   if (!BIOMETRIC_ID_PATTERN.test(id)) throw new Error("The passkey has no usable ID.");
@@ -1397,7 +1397,7 @@ export async function enrolBiometricUnlock({ credentialId, userId, rpId, salt, p
   if (!/^[0-9a-f]{64}$/.test(saltHex)) throw new Error("The passkey salt must be 32 bytes.");
   const wrappingKey = await biometricWrappingKey(prfOutput);
   // The derivation awaited: another tab may have changed the password meanwhile.
-  if (heldKey(vid) !== key) throw new Error("KaChat is locked. Enter your password first.");
+  if (heldKey(vid) !== key) throw new Error("K is locked. Enter your password first.");
   requireCurrentKey(key, vid);
   const aad = BIOMETRIC_WRAP_AAD_PREFIX + id;
   const sealed = sealBytes(wrappingKey, key, aad);

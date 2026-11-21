@@ -856,7 +856,7 @@ function refreshBiometricRow() {
       ? "On. Your password still works too."
       : biometricUnlockRetiredReason() === "password-changed"
         ? "Turned off because your password changed. Turn it on again to use it."
-        : unsupported ? "Not available on this browser or device." : "Unlock KaChat without typing your password.";
+        : unsupported ? "Not available on this browser or device." : "Unlock K without typing your password.";
   }
 }
 function biometricDisplayName() { const name = biometricName(); return name === "Biometrics" ? "biometric" : name; }
@@ -874,7 +874,7 @@ async function turnOnBiometricUnlock() {
   // This tap starts the passkey prompt (Safari allows WebAuthn only inside a tap).
   const go = await confirmDialog({
     title: biometricRowLabel(),
-    message: `KaChat will save a passkey on this device. ${name} then unlocks KaChat instead of your password. Your password still works, and you need it on other devices.`,
+    message: `K will save a passkey on this device. ${name} then unlocks K instead of your password. Your password still works, and you need it on other devices.`,
     confirmLabel: "Continue",
   });
   if (!go) return;
@@ -913,7 +913,7 @@ async function offerBiometricAfterPasswordSet() {
     const name = biometricDisplayName();
     const go = await confirmDialog({
       title: `Use ${biometricName()}?`,
-      message: `Unlock this account and confirm Send Domain, .kachat transactions and showing your keys with ${name} instead of typing your password. KaChat saves a passkey on this device; your password still works.`,
+      message: `Unlock this account and confirm Send Domain, .kachat transactions and showing your keys with ${name} instead of typing your password. K saves a passkey on this device; your password still works.`,
       confirmLabel: `Turn On ${biometricName()}`,
       cancelLabel: "Not Now",
     });
@@ -925,7 +925,7 @@ function turnOffBiometricUnlockFromUi() {
   const name = biometricDisplayName();
   turnOffBiometricUnlock();
   refreshBiometricRow();
-  showCopyToast(`${name} unlock is off. You can delete the KaChat passkey in your device's Passwords settings.`);
+  showCopyToast(`${name} unlock is off. You can delete the K passkey in your device's Passwords settings.`);
 }
 document.querySelector("[data-biometric-toggle]")?.addEventListener("change", (event) => {
   const wantOn = event.target.checked;
@@ -1020,7 +1020,7 @@ async function runBiometricUnlockFromDialog({ auto = false } = {}) {
   }
   if (result.reason === "no-prf") { showPasswordError("This browser didn't return the passkey's key. Enter your password."); return; }
   if (result.reason === "wrong-key" || result.reason === "stale" || result.reason === "no-record") {
-    showPasswordError(`${name} couldn't unlock KaChat. The passkey may have been deleted or replaced. Enter your password.`);
+    showPasswordError(`${name} couldn't unlock K. The passkey may have been deleted or replaced. Enter your password.`);
     const off = document.querySelector("[data-password-biometric-off]");
     if (off && hasBiometricUnlock()) { off.textContent = `Turn off ${name} unlock`; off.hidden = false; }
     return;
@@ -1075,7 +1075,7 @@ document.querySelector("[data-password-forgot]")?.addEventListener("click", asyn
   closePasswordModal(false);
   const confirmed = await confirmDialog({
     title: "Forgot your password?",
-    message: "This account's keys on this device are encrypted with its password, and nobody can recover it, not even KaChat. Resetting removes the password and the encrypted keys from this browser (any other saved account that still shares this password too), along with the encrypted Nextcloud app password (connect Nextcloud again afterwards). Your chats and settings stay. Afterwards, import the account again with its 12 or 24 words. Without those words, an account cannot be restored.",
+    message: "This account's keys on this device are encrypted with its password, and nobody can recover it, not even K. Resetting removes the password and the encrypted keys from this browser (any other saved account that still shares this password too), along with the encrypted Nextcloud app password (connect Nextcloud again afterwards). Your chats and settings stay. Afterwards, import the account again with its 12 or 24 words. Without those words, an account cannot be restored.",
     confirmLabel: "Reset Password",
     destructive: true,
   });
@@ -1112,7 +1112,7 @@ async function requireAppPasswordIfMissing() {
         mode: "set",
         required: true,
         title: "Set a Password",
-        message: `Create a password for this account, at least ${MIN_APP_PASSWORD_LENGTH} characters. Its keys are encrypted with it, and KaChat asks for it to open this account and to show its 12 or 24 words or private key. Other accounts keep their own passwords. If you forget it, you'll need your 12 or 24 words.`,
+        message: `Create a password for this account, at least ${MIN_APP_PASSWORD_LENGTH} characters. Its keys are encrypted with it, and K asks for it to open this account and to show its 12 or 24 words or private key. Other accounts keep their own passwords. If you forget it, you'll need your 12 or 24 words.`,
       });
       if (ok) {
         refreshPasswordStatus();
@@ -1141,14 +1141,14 @@ function refreshPasswordStatus() {
   const keepNote = document.querySelector("[data-keep-signed-in-note]");
   if (keepNote) {
     keepNote.textContent = hasPassword
-      ? "KaChat opens straight into your account and stays signed in on this device until you log out. Signing in to another saved account, and showing 12 or 24 words or a private key, ask for the password."
-      : "Restore the active account when KaChat opens.";
+      ? "K opens straight into your account and stays signed in on this device until you log out. Signing in to another saved account, and showing 12 or 24 words or a private key, ask for the password."
+      : "Restore the active account when K opens.";
   }
 }
 refreshPasswordStatus();
 document.querySelector("[data-change-password]")?.addEventListener("click", async () => {
   if (!hasAppPassword()) {
-    if (await requestPassword({ mode: "set", title: "Set Password", message: `At least ${MIN_APP_PASSWORD_LENGTH} characters. This account's keys will be encrypted with it, and KaChat will ask for it when you open this account, including after you close the tab or refresh the page. If you forget it, you'll need your 12 or 24 words.` })) {
+    if (await requestPassword({ mode: "set", title: "Set Password", message: `At least ${MIN_APP_PASSWORD_LENGTH} characters. This account's keys will be encrypted with it, and K will ask for it when you open this account, including after you close the tab or refresh the page. If you forget it, you'll need your 12 or 24 words.` })) {
       showCopyToast("Password set. Your keys are now encrypted.");
       refreshPasswordStatus();
     }
@@ -1455,7 +1455,7 @@ async function unlockAppWithPassword(message, { allowForgot = true, autoBiometri
   if (!isAppLocked()) return true;
   const answer = requestPassword({
     mode: "verify",
-    title: "Unlock KaChat",
+    title: "Unlock K",
     message: message || "This account's keys are encrypted on this device. Enter its password to unlock it.",
     allowForgot,
   });
@@ -2299,9 +2299,9 @@ function buildInternalLinkCard(link) {
   const subtitle = isPost
     ? (entry?.snippet || (entry?.action === "quote" ? "Reposted a post." : "Tap to open it in KaPost."))
     : isProfile
-      ? (profileContact ? "Tap to see their User Info." : "Tap to see their profile on KaChat.")
+      ? (profileContact ? "Tap to see their User Info." : "Tap to see their profile on K.")
       // iOS: a featured room or one in your list just opens; any other is joined on the tap.
-      : (knownBroadcastRoom(link.channel) ? "Tap to open this KaChat public chat room." : "Tap to join this KaChat public chat room.");
+      : (knownBroadcastRoom(link.channel) ? "Tap to open this public chat room." : "Tap to join this public chat room.");
   const profileAvatar = isProfile ? (avatarHtmlForAnyAddress(link.address, "message-avatar") || "") : "";
   card.innerHTML = `<span class="internal-link-icon ${entry?.avatarHtml || profileAvatar ? "avatar" : ""}">${entry?.avatarHtml || profileAvatar || icon}</span>
     <span class="message-link-card-meta">
@@ -2560,7 +2560,7 @@ function openPaymentRequestBackdrop(label, innerHtml, { over = false } = {}) {
  *  and every request is paid in KaChat (KaChat iOS 148a5331). */
 function openPaymentRequestQrSheet(request) {
   const payload = paymentRequestUniversalLink(request);
-  const note = "Scan it with an iPhone's camera to pay in KaChat, with everything filled in.";
+  const note = "Scan it with an iPhone's camera to pay in K, with everything filled in.";
   const { sheet } = openPaymentRequestBackdrop("Payment Request", `
     <div class="modal-header">
       <div><h2>Payment Request</h2></div>
@@ -2666,7 +2666,7 @@ function openCreatePaymentRequest({ conversationId = null } = {}) {
     <p class="ss-note" data-payreq-memo-note></p>
     <p class="field-error" data-payreq-error role="alert" hidden></p>
     ${recipient ? "" : '<button class="sk-fee-edit-pill payment-request-share" type="button" data-payreq-share disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3.5M8 7.5l4-4 4 4"/><path d="M6 11H5a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 5 21h14a1.5 1.5 0 0 0 1.5-1.5v-7A1.5 1.5 0 0 0 19 11h-1"/></svg>Share</button>'}
-    <p class="sk-caption payment-request-footnote">Anyone who opens or pastes it in KaChat gets Send Kaspa with this filled in, and sees it was made by your chatting address (signed with its key).</p>`);
+    <p class="sk-caption payment-request-footnote">Anyone who opens or pastes it in K gets Send Kaspa with this filled in, and sees it was made by your chatting address (signed with its key).</p>`);
   // The review's bottom button; Copy / Send run through it (the step's Continue clicks it).
   const actionButton = document.createElement("button");
   actionButton.type = "button";
@@ -4245,8 +4245,8 @@ function notificationsUnavailableMessage() {
   const ua = navigator.userAgent || "";
   const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const standalone = document.documentElement.classList.contains("standalone");
-  if (ios && !standalone) return "On iPhone, add KaChat to your Home Screen (Share > Add to Home Screen) to receive notifications.";
-  if (typeof Notification !== "undefined" && Notification.permission === "denied") return "Notifications are blocked for KaChat in your browser settings.";
+  if (ios && !standalone) return "On iPhone, add K to your Home Screen (Share > Add to Home Screen) to receive notifications.";
+  if (typeof Notification !== "undefined" && Notification.permission === "denied") return "Notifications are blocked for K in your browser settings.";
   return "Allow notifications in your browser to receive them.";
 }
 async function ensureNotificationPermission() {
@@ -4406,11 +4406,11 @@ async function showAppNotification({ title, body, tag, key = "", silent = false,
       if (pendingNotificationClicks.size > 200) pendingNotificationClicks.delete(pendingNotificationClicks.keys().next().value);
     }
     try {
-      await registration.showNotification(title || "KaChat", { ...options, data: { clickId, route, key } });
+      await registration.showNotification(title || "K", { ...options, data: { clickId, route, key } });
       return true;
     } catch { /* fall back to a page notification */ }
   }
-  const note = new Notification(title || "KaChat", options); // throws where only the worker may notify
+  const note = new Notification(title || "K", options); // throws where only the worker may notify
   pageNotifications.add(note);
   note.onclose = () => pageNotifications.delete(note);
   note.onclick = () => {
@@ -4917,10 +4917,10 @@ function persistTestingWallet({ mnemonic = "", passphrase = "", passphraseForm =
   // Create / import pass the new secrets; the background saves (tab hidden or closed, Log Out,
   // restore) pass none and must never fail or overwrite anything when they cannot read (DSK-022).
   const explicitSecrets = !!(mnemonic || passphrase);
-  const lockedMessage = "KaChat is locked. Enter your password before saving an account on this device.";
+  const lockedMessage = "K is locked. Enter your password before saving an account on this device.";
   if (isAppLocked()) {
     if (explicitSecrets) throw new Error(lockedMessage);
-    appendEngineLog(`Account not saved (KaChat is locked): ${address}`);
+    appendEngineLog(`Account not saved (K is locked): ${address}`);
     return false;
   }
   // Its saved entry could not be opened (sealed under a key this tab does not hold): replacing it
@@ -5042,7 +5042,7 @@ function restorePersistedTestingWallet() {
   // A password is set and has not been entered in this tab: the keys are encrypted and nothing
   // signs in until the lock screen opens them (DSK-007). "Keep me signed in" cannot bypass it.
   if (isAppLocked()) {
-    appendEngineLog("KaChat is locked: the password opens the saved accounts.");
+    appendEngineLog("K is locked: the password opens the saved accounts.");
     restoreFailureReason = "This account's password wasn't carried over. Sign in to it again.";
     return false;
   }
@@ -6505,7 +6505,7 @@ function exportMessagePdf(message) {
   const popup = window.open("", "_blank");
   if (!popup) throw new Error("Allow pop-ups to export a PDF.");
   const rows = Object.entries(record || {}).map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(value == null ? "" : typeof value === "object" ? JSON.stringify(value) : String(value))}</td></tr>`).join("");
-  popup.document.write(`<!doctype html><html><head><title>KaChat Message Raw Data</title><style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;padding:32px;color:#111}h1{font-size:24px;margin:0 0 8px}p{color:#555;margin:0 0 24px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ccc;padding:8px;text-align:left;vertical-align:top;overflow-wrap:anywhere}th{width:180px;background:#f4f4f4}@media print{body{padding:0}}</style></head><body><h1>KaChat Message Raw Data</h1><p>Use the browser print dialog and choose “Save as PDF”.</p><table>${rows}</table></body></html>`);
+  popup.document.write(`<!doctype html><html><head><title>K Message Raw Data</title><style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;padding:32px;color:#111}h1{font-size:24px;margin:0 0 8px}p{color:#555;margin:0 0 24px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ccc;padding:8px;text-align:left;vertical-align:top;overflow-wrap:anywhere}th{width:180px;background:#f4f4f4}@media print{body{padding:0}}</style></head><body><h1>KaChat Message Raw Data</h1><p>Use the browser print dialog and choose “Save as PDF”.</p><table>${rows}</table></body></html>`);
   popup.document.close();
   // The print dialog is opened from here: the blank pop-up inherits this page's CSP (no inline
   // script), so a <script> written into it never ran and the dialog never came up.
@@ -7048,7 +7048,7 @@ async function ensureRuntimes({ quiet = false } = {}) {
     }
   }
   updateServiceSummary();
-  if (!failed && !quiet) setStatus("KaChat services ready");
+  if (!failed && !quiet) setStatus("K services ready");
   return !failed;
 }
 
@@ -7315,9 +7315,9 @@ async function syncOneConversationWork(conversationEntry, { quiet, catchUp, cont
       cursor: conversationEntry.sync?.cursor || 0, indexerUrl,
     }).catch((error) => {
       appendEngineLog(`Chat history didn't load: ${error?.message || error}`);
-      return { messages: [], nextCursor: conversationEntry.sync?.cursor || 0, note: "The KaChat indexer didn't answer." };
+      return { messages: [], nextCursor: conversationEntry.sync?.cursor || 0, note: "The K indexer didn't answer." };
     })
-    : { messages: [], nextCursor: conversationEntry.sync?.cursor || 0, note: "No KaChat indexer on this network yet." };
+    : { messages: [], nextCursor: conversationEntry.sync?.cursor || 0, note: "No K indexer on this network yet." };
   if (!account.still()) return 0;
   let added = 0;
   let liveAdded = 0;
@@ -7880,6 +7880,11 @@ function isPaymentBubble(message) {
 /// archive import brings them back. Returns how many went; the caller persists.
 function removeSuppressedPaymentMessages(txIds) {
   if (!txIds?.size) return 0;
+  // a token payment's covenant transaction is hidden as a KAS payment, but its own bubble (kUSDT
+  // sent or received in a chat) stays (KaChat iOS 4703f59b)
+  const tokenBubbles = tokenPaymentBubbleTxIds();
+  if (tokenBubbles.size) txIds = new Set([...txIds].filter((id) => !tokenBubbles.has(normalizePaymentTxId(id))));
+  if (!txIds.size) return 0;
   let removed = 0;
   for (const conversationEntry of state.conversations || []) {
     const gone = (conversationEntry.messages || []).filter((message) => isPaymentBubble(message) && txIds.has(normalizePaymentTxId(message.txid)));
@@ -8519,7 +8524,7 @@ const NOTIF_SESSION_START = Date.now();
 const notifOverlay = document.querySelector("[data-notif-overlay]");
 let globalNotifications = [];
 let notifCenterLastSeenAt = 0;
-const NOTIF_SOURCE_LABELS = { kaposts: "KaPost", group: "Group", broadcast: "Public Chats", wallet: "Wallet", kachat: ".kachat" };
+const NOTIF_SOURCE_LABELS = { kaposts: "KaPost", group: "Group", broadcast: "Public Chats", wallet: "KaPay", kachat: ".kachat" };
 // The Profile bell is for broadcasts and for Kaspa arriving on your addresses (chatting,
 // spending, cold storage). KaPosts has its own bell inside KaPosts, and group @mentions ping
 // the chat itself, so neither lands here.
@@ -8716,7 +8721,7 @@ function renderInsecureNodeWarning(url) {
   if (!el) return;
   const insecure = typeof location !== "undefined" && location.protocol === "https:" && /^ws:\/\//i.test(String(url || "").trim());
   el.hidden = !insecure;
-  if (insecure) el.textContent = "This node uses plain ws://. Because KaChat is loaded over https, the browser will mark the site “Not secure” while connected to it and may block the connection in a future release. Put the node behind a TLS reverse proxy and use wss://, or open KaChat over http on your LAN.";
+  if (insecure) el.textContent = "This node uses plain ws://. Because K is loaded over https, the browser will mark the site “Not secure” while connected to it and may block the connection in a future release. Put the node behind a TLS reverse proxy and use wss://, or open KaChat over http on your LAN.";
 }
 document.querySelector("[data-custom-node-url]")?.addEventListener("input", (event) => renderInsecureNodeWarning(event.target.value));
 function currentSavedNodeMode() {
@@ -8799,7 +8804,7 @@ document.querySelector("[data-node-apply]")?.addEventListener("click", async (ev
       if (previousCustom) engine.forgetNode?.(previousCustom);
       if (liveEndpoint) engine.forgetNode?.(liveEndpoint);
     }
-    setEndpoint("trustedNode", url); // "" clears the override, returning to KaChat's node
+    setEndpoint("trustedNode", url); // "" clears the override, returning to K's node
     setEndpoint("nodeScan", "");
     setStatus(mode === "custom" ? "Connecting to your node…" : mode === "official" ? "Connecting to Kasia's node…" : "Scanning public nodes…");
     await engine.connect({ force: true });
@@ -10486,6 +10491,30 @@ function isTokenNoticeFiled(txId) {
   return readTokenNoticeTxids().includes(String(txId || "").toLowerCase());
 }
 
+// Token payment bubbles, per wallet (KaChat iOS 4703f59b markTokenPaymentBubble). A token
+// payment's txid is a covenant transaction: it spends a token coin (a P2SH input), so the contract
+// filter (isKachatContractTransaction) suppresses it as a KAS payment for good, and
+// removeSuppressedPaymentMessages then took the bubble with it - the payer's card showed and
+// vanished once the chatting address's own transactions were read. The token bubbles are listed
+// here (the newest 2,000), and that cleanup leaves them alone.
+const TOKEN_PAYMENT_BUBBLES_KEY = "kachat-token-payment-bubbles-v1";
+function tokenPaymentBubbleTxIds(walletAddress = engine.address) {
+  if (!walletAddress) return new Set();
+  try {
+    const list = JSON.parse(localStorage.getItem(accountScopedKey(TOKEN_PAYMENT_BUBBLES_KEY, walletAddress)) || "[]");
+    return new Set(Array.isArray(list) ? list.map((id) => String(id).toLowerCase()) : []);
+  } catch { return new Set(); }
+}
+function markTokenPaymentBubble(txId, walletAddress) {
+  const id = normalizePaymentTxId(txId);
+  if (!walletAddress || !id) return;
+  const list = [...tokenPaymentBubbleTxIds(walletAddress)];
+  if (list.includes(id)) return;
+  list.push(id);
+  try { localStorage.setItem(accountScopedKey(TOKEN_PAYMENT_BUBBLES_KEY, walletAddress), JSON.stringify(list.slice(-2000))); }
+  catch { /* storage full: the bubble may go with the next suppression */ }
+}
+
 /** Every stored row (any chat) with this txid. */
 function messagesWithTxid(txId) {
   const rows = [];
@@ -10543,6 +10572,7 @@ function recordTokenPayment({ owner, conversationId, contactAddress, txId, index
       transport: "kaspa-payment",
       createdAt: Date.now(),
     });
+    markTokenPaymentBubble(txid, owner);
     applyMessagePatch(bubble, { messageType: "payment", txid, confirmations: 1, network: NETWORK });
     addMessageToConversation(conversationEntry, bubble);
     schedulePersistState();
@@ -10579,8 +10609,10 @@ function handleTokenPaymentNotice(conversationEntry, message, notice) {
     return null;
   }
   const { txId } = valid;
-  // deleted from this chat stays deleted; never a contract chat's payment (iOS 32fdaa4)
-  if (hiddenInConversation(conversationEntry, txId) || isSuppressedPaymentTxId(txId)) return null;
+  // deleted from this chat stays deleted. Not the suppressed list: a token payment's txid is
+  // always on it, as a covenant transaction (KaChat iOS 4703f59b), and a contract chat's contact
+  // is never a chatting address, so validTokenPaymentNotice already turned that away.
+  if (hiddenInConversation(conversationEntry, txId)) return null;
   const rows = messagesWithTxid(txId);
   if (rows.length) {
     if (outgoing) return null;
@@ -10603,6 +10635,7 @@ function handleTokenPaymentNotice(conversationEntry, message, notice) {
       transport: "kaspa-payment",
       createdAt: messageEventTime(message),
     });
+    markTokenPaymentBubble(txId, walletAddress);
     applyMessagePatch(bubble, { messageType: "payment", txid: txId, confirmations: 1, network: NETWORK });
     addMessageToConversation(conversationEntry, bubble);
     schedulePersistState();
@@ -10690,6 +10723,7 @@ async function checkReceivedTokenNotice(conversationId, contact, message, valid,
     const unverified = verdict.status !== "valid";
     // the generic kUSDT watch leaves it to this notice to announce
     markTokenNoticeFiled(txId, walletAddress);
+    markTokenPaymentBubble(txId, walletAddress);
     const bubble = createMessage({
       conversationId: conversationEntry.id,
       contactId: contact.id,
@@ -13721,7 +13755,7 @@ function renderProfileDomains() {
       <div class="domains-kachat-placeholder">
         <span class="domains-kachat-mark" aria-hidden="true">${KACHAT_WORDMARK_SVG}</span>
         <strong>.kachat names are coming</strong>
-        <p>KaChat's own names will live here: claim one, set it as your name in chats, and share it as your profile link.</p>
+        <p>K's own names will live here: claim one, set it as your name in chats, and share it as your profile link.</p>
       </div>`;
     return;
   }
@@ -13949,7 +13983,7 @@ document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 313;
+const APP_BUILD = 314;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -13961,7 +13995,7 @@ startAppUpdateChecks({
 });
 const profileVersionEl = document.querySelector("[data-profile-version]");
 if (profileVersionEl) profileVersionEl.textContent = APP_VERSION_LABEL;
-{ const el = document.querySelector("[data-logged-out-version]"); if (el) el.textContent = `KaChat ${APP_VERSION_LABEL}`; }
+{ const el = document.querySelector("[data-logged-out-version]"); if (el) el.textContent = `K ${APP_VERSION_LABEL}`; }
 
 // The notices the libraries the desktop ships ask to travel with it (iOS f656d9d has its own list).
 const OPEN_SOURCE_LICENSE_TEXTS = {
@@ -14012,7 +14046,7 @@ document.querySelector("[data-profile-licenses]")?.addEventListener("click", () 
     </div>`).join("");
   infoSheet({
     title: "Open Source Licenses",
-    html: `<p class="field-hint">KaChat is built with these open source libraries. Their authors ask that these notices travel with the app.</p>${cards}`,
+    html: `<p class="field-hint">K is built with these open source libraries. Their authors ask that these notices travel with the app.</p>${cards}`,
   });
 });
 
@@ -17593,7 +17627,7 @@ function renderKnsWizard() {
       const n = w.foundDomains.length;
       html = `<div class="kns-wizard-center">
         <h3>Send your domain here</h3>
-        <p class="field-hint">Transfer your domain to this address so your identity is connected to KaChat.</p>
+        <p class="field-hint">Transfer your domain to this address so your identity is connected to K.</p>
         <canvas class="kns-wizard-qr" data-kns-wizard-qr width="220" height="220"></canvas>
         <p class="kns-wizard-label">Chatting address</p>
         <button type="button" class="kns-wizard-address" data-kns-wizard-action="copy-address">${escapeHtml(address)}</button>
@@ -22959,8 +22993,8 @@ function renderTestnetToggle() {
   const pending = preferred !== NETWORK;
   if (note) note.hidden = !pending;
   if (text) text.textContent = preferred === "testnet"
-    ? "Reload KaChat to finish switching to Testnet."
-    : "Reload KaChat to finish switching back to Mainnet.";
+    ? "Reload K to finish switching to Testnet."
+    : "Reload K to finish switching back to Mainnet.";
 }
 // .kachat registrations in flight resume when the app comes back to the front (iOS app-active).
 document.addEventListener("visibilitychange", () => {
@@ -23283,7 +23317,7 @@ contactAddressBookButton?.addEventListener("click", async () => {
 contactScanButton?.addEventListener("click", async () => {
   const scanned = await scanKaspaAddress({
     title: "Scan a contact code",
-    hint: "Point the camera at a KaChat address QR code.",
+    hint: "Point the camera at a K address QR code.",
   });
   if (!scanned || !contactAddressInput) return;
   contactAddressInput.value = scanned;
@@ -25245,7 +25279,7 @@ function renderPaymentFromWarning() {
   if (!show) return;
   const name = displayNameForAddress(contact) || shortAddress(contact.address);
   const textEl = payFromWarningEl.querySelector("[data-pay-from-warning-text]");
-  if (textEl) textEl.textContent = `Your chatting address has no KAS to tell ${name} about this payment, so they see it as a payment from an unknown address, without the memo. KaChat tells them once your chatting address has some KAS.`;
+  if (textEl) textEl.textContent = `Your chatting address has no KAS to tell ${name} about this payment, so they see it as a payment from an unknown address, without the memo. K tells them once your chatting address has some KAS.`;
 }
 
 // The fee card (iOS SendFeeControls in the Send KAS sheet, 62c2773). The extra over the base fee:
@@ -30354,19 +30388,19 @@ const SETUP_ICONS = {
 };
 
 const SETUP_STEPS = [
-  { icon: SETUP_ICONS.wave, title: "Welcome to KaChat", body: "Let's walk through the basics so you're ready to send your first message." },
+  { icon: SETUP_ICONS.wave, title: "Welcome to K", body: "Let's walk through the basics so you're ready to send your first message." },
   // Child Mode: the Adult/Child question sits at the start of the first-run
   // experience, before language — and is unskippable until answered (see
   // isUserTypePending gating in renderSetupStep/closeSetupGuide).
-  { icon: SETUP_ICONS.shield, title: "How do you want KaChat?", body: "", extra: "usertype" },
-  { icon: SETUP_ICONS.globe, title: "Choose Your Language", body: "Select the language you'd like to use in KaChat.", extra: "language" },
+  { icon: SETUP_ICONS.shield, title: "How do you want K?", body: "", extra: "usertype" },
+  { icon: SETUP_ICONS.globe, title: "Choose Your Language", body: "Select the language you'd like to use in K.", extra: "language" },
   { icon: SETUP_ICONS.currency, title: "Choose Your Currency", body: "Select the currency you'd like prices displayed in.", extra: "currency" },
-  { icon: SETUP_ICONS.network, title: "How KaChat Uses Kaspa", body: "KaChat lets you send and receive messages on the Kaspa network itself. Kaspa is required to pay fees when sending your messages. The fee you pay goes to miners which secure the network." },
+  { icon: SETUP_ICONS.network, title: "How K Uses Kaspa", body: "K lets you send and receive messages on the Kaspa network itself. Kaspa is required to pay fees when sending your messages. The fee you pay goes to miners which secure the network." },
   // The qrcode glyph, as iOS fundingStep's scaffold icon; the code itself is behind Show QR Code.
   { icon: SETUP_ICONS.qrcode, title: "Fund Your Chatting Address", body: "5 Kaspa is enough for about 2500 messages.", extra: "funding" },
-  { icon: SETUP_ICONS.server, title: "Connect to a Node", body: "KaChat needs to connect to a node. How would you like to connect?", extra: "node" },
+  { icon: SETUP_ICONS.server, title: "Connect to a Node", body: "K needs to connect to a node. How would you like to connect?", extra: "node" },
   // The guide's final step (iOS d1844582): Starting a Conversation after it is gone.
-  { icon: null, title: "Your Chatting Address", body: "Think of it like your phone number on KaChat.", extra: "addresses" },
+  { icon: null, title: "Your Chatting Address", body: "Think of it like your phone number on K.", extra: "addresses" },
 ];
 let setupStepIndex = 0;
 const SETUP_USER_TYPE_STEP = SETUP_STEPS.findIndex((step) => step.extra === "usertype");
@@ -32008,7 +32042,7 @@ async function wipeAndResyncIncoming() {
     title: "Wipe and re-sync incoming messages?",
     // Only while a sync is failing (iOS 76aec44f): a failed read moves no cursor, and the sweep
     // keeps retrying, so nobody should need to wipe to repair sync.
-    message: lastSweepFailed ? "KaChat is having trouble syncing right now. It keeps retrying, and your messages catch up on their own once the connection is back, so you shouldn't need to wipe." : "",
+    message: lastSweepFailed ? "K is having trouble syncing right now. It keeps retrying, and your messages catch up on their own once the connection is back, so you shouldn't need to wipe." : "",
     options: [
       { id: "all", title: "Yes, All Chats", subtitle: "Removes every incoming message locally, then re-syncs them from the blockchain. Sent messages and account info are kept." },
       { id: "select", title: "Select Chats...", subtitle: "Pick which chats to wipe and re-sync. Everything else is left alone." },
@@ -32265,7 +32299,7 @@ function exportDiagnosticsFile() {
     const logLines = String(engineLog?.textContent || "").split("\n").filter(Boolean).slice(0, 400);
     const archive = {
       exportedAt: new Date().toISOString(),
-      app: { name: "KaChat Desktop", version: APP_VERSION_LABEL, userAgent: navigator.userAgent, language: navigator.language, online: navigator.onLine },
+      app: { name: "K", version: APP_VERSION_LABEL, userAgent: navigator.userAgent, language: navigator.language, online: navigator.onLine },
       account: { chattingAddress: engine.address ? `${engine.address.slice(0, 16)}…${engine.address.slice(-6)}` : null },
       connection: { endpoints: getEndpoints(), explorer: currentExplorer().displayName, runtime: window.__kaspaEngineStep || null },
       counts: { contacts: (state.contacts || []).length, conversations: conversations.length, incomingMessages: incoming, outgoingMessages: outgoing },
@@ -32885,7 +32919,7 @@ document.addEventListener("visibilitychange", () => {
 // Step 50: start independent services in parallel. Rusty Kaspa gates wallet restore and RPC,
 // while the Kasia cipher loads independently so a slow public node cannot hold messaging startup hostage.
 queueMicrotask(async () => {
-  setStatus("Starting KaChat services…");
+  setStatus("Starting K services…");
   setService(runtimeIndicator, runtimeStatus, "busy", "Loading Rusty Kaspa…");
   setService(messagingIndicator, messagingStatus, "busy", "Loading encryption runtime…");
   setArchitectureBadge(networkBadge, "", "Waiting");
@@ -34862,7 +34896,7 @@ function msgMenuHint(label) {
     Select: "Pick several messages at once.",
     "Copy File Name": "Copies the name to your clipboard.",
     "Save Audio": "Saves or shares the recording as a file.",
-    "Open in KaChat": "Opens it right here in the app.",
+    "Open in K": "Opens it right here in the app.",
   };
   if (hints[text]) return hints[text];
   if (/^Reactions \(\d+\)$/.test(text)) return "Who reacted, and with what.";
@@ -35155,7 +35189,7 @@ function messageMenuRows({ txid, kindInfo, copyText, onReply, onSelect, onRetry,
       explorer, reply, retry, select,
     ];
     case "kachatLink": return [
-      { label: "Open in KaChat", icon: MSG_MENU_ICONS.openApp, onClick: () => openKaChatInternalLink(kindInfo.link) },
+      { label: "Open in K", icon: MSG_MENU_ICONS.openApp, onClick: () => openKaChatInternalLink(kindInfo.link) },
       { label: "Copy Link", icon: MSG_MENU_ICONS.link, onClick: () => copyTextToClipboard(kindInfo.url).catch(() => {}) },
       explorer, reply, select,
     ];

@@ -61,7 +61,7 @@ test("wiring", () => {
   const kns = read("engine/kns-write.js");
   assert.equal(kns.split("commitWithRevealFiled({").length - 1, 3, "defined once, used by registration and profile edits");
   assert.equal(kns.split("revealOrLeaveFiled(() =>").length - 1, 2);
-  assert.match(kns, /KaChat will finish it the next time it opens\./);
+  assert.match(kns, /K will finish it the next time it opens\./);
   assert.match(index, /expectedFeeSompi: options\.expectedFeeSompi \?\? null,\n\s+escalateOrphan: false,/);
   assert.match(index, /options\.ownerAddress && options\.ownerAddress !== this\.address/);
   assert.equal(app.split("ownerAddress: envelope.fromAddress").length - 1, 3, "edits, notices and reactions are bound to their account");

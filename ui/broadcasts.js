@@ -2993,7 +2993,7 @@ function renderRoomInfoPanel() {
       ${row("Kind", curated ? "Popular" : "Added by you")}
       ${joinedAt ? row("Joined", fmtDay(joinedAt)) : ""}
       <p class="broadcast-info-footer">${curated
-        ? "A curated room, always in your list. Anyone running KaChat can post to it."
+        ? "A curated room, always in your list. Anyone on K can post to it."
         : "A room you added. Anyone who knows the name can post to it."}</p>
     </section>
     <section class="broadcast-info-section">
@@ -3014,7 +3014,7 @@ function renderRoomInfoPanel() {
         <span>Hidden users</span>
         <b>${hiddenCount}</b>
       </button>
-      <p class="broadcast-info-footer">Sharing sends a link that opens this room in KaChat, and a web link for anyone without it. Hiding is per room: someone hidden here still shows in every other room.</p>
+      <p class="broadcast-info-footer">Sharing sends a link that opens this room in K, and a web link for anyone without it. Hiding is per room: someone hidden here still shows in every other room.</p>
     </section>
     <section class="broadcast-info-section">
       <h3>Indexer for this room</h3>

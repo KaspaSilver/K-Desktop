@@ -276,7 +276,7 @@ function renderWhy(body, foot) {
     ${headingHtml("Protect your funds")}
     ${pointHtml(ICONS.key, "Your 12 or 24 words are your account", "These secret words are created just for you. They are the master key to your funds.")}
     ${pointHtml(ICONS.noDevice, "Your device can't be your only copy", "If you lose, break or replace this device, these words are the only way back to your account.")}
-    ${pointHtml(ICONS.noPerson, "Nobody can reset them", "There is no password reset. KaChat never sees your words, so we can't recover them for you.")}
+    ${pointHtml(ICONS.noPerson, "Nobody can reset them", "There is no password reset. K never sees your words, so we can't recover them for you.")}
     <button class="linklike-button account-backup-link" type="button" data-account-backup-explain>${ICONS.question}<span>What are my 12 or 24 words?</span></button>`));
   body.querySelector("[data-account-backup-explain]").addEventListener("click", () => goTo("explainer"));
   addFootButton(foot, "Start Backup", { action: () => goTo("prepare") });
@@ -287,7 +287,7 @@ function renderExplainer(body) {
   body.append(htmlBlock(`
     <div class="passphrase-explainer account-backup-explainer">
       <section><h4>The short version</h4><p>Your 12 or 24 words are ordinary words that work as the master key to your account. Your wallet, your chatting address and your messages all come from them.</p></section>
-      <section><h4>Anyone with it can take everything</h4><p>Anyone who has these words can take everything in your account. If you lose them and lose this device, nobody can get your account back, not even KaChat.</p></section>
+      <section><h4>Anyone with it can take everything</h4><p>Anyone who has these words can take everything in your account. If you lose them and lose this device, nobody can get your account back, not even K.</p></section>
       <section><h4>How to keep it safe</h4><p>Write the words on paper, in order, and keep them somewhere safe and private. Never type them into a website, send them in a chat, or keep them in a screenshot or cloud notes.</p></section>
     </div>`));
 }
@@ -424,7 +424,7 @@ function renderTips(body, foot) {
     ${headingHtml("Keep it safe", "Your copy is right. Now keep it that way.")}
     ${pointHtml(ICONS.paper, "Keep it on paper", "Store it somewhere safe and private, away from fire and water.")}
     ${pointHtml(ICONS.noCloud, "Never keep it online", "No photos, screenshots, cloud storage, notes apps, email or chats.")}
-    ${pointHtml(ICONS.hand, "Never share it", "Nobody needs your words. KaChat and real support will never ask for them. Anyone who asks is trying to take your funds.")}
+    ${pointHtml(ICONS.hand, "Never share it", "Nobody needs your words. K and real support will never ask for them. Anyone who asks is trying to take your funds.")}
     ${hasPassphrase() ? pointHtml(ICONS.split, "Keep your passphrase apart", "Store it away from your 12 or 24 words. You need both, and losing either one loses the account.") : ""}
     ${pointHtml(ICONS.gear, "You can see it again", "Your 12 or 24 words stay available in Settings > Back Up Account.")}`));
   addFootButton(foot, "Finish Backup", {

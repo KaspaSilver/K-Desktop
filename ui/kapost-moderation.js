@@ -110,15 +110,15 @@ export const KAPOST_TERMS_ACCEPTED_KEY = "kachat_terms_accepted_version";
 export const KAPOST_TERMS_SECTIONS = [
   {
     title: "No objectionable content or abuse",
-    text: "KaChat has no tolerance for objectionable content or abusive users. You may not post anything that is illegal, sexual content involving children, hate speech, threats, harassment, content that encourages violence or self-harm, or scams. Accounts that do can be removed from what KaChat shows, without notice.",
+    text: "K has no tolerance for objectionable content or abusive users. You may not post anything that is illegal, sexual content involving children, hate speech, threats, harassment, content that encourages violence or self-harm, or scams. Accounts that do can be removed from what K shows, without notice.",
   },
   {
     title: "Your posts are public and permanent",
-    text: "Posts, replies, likes and room messages are public transactions on the Kaspa network. You are responsible for what you post. Deleting a post removes it from KaChat, but nobody can erase a transaction from the network.",
+    text: "Posts, replies, likes and room messages are public transactions on the Kaspa network. You are responsible for what you post. Deleting a post removes it from K, but nobody can erase a transaction from the network.",
   },
   {
     title: "Reporting and blocking",
-    text: "Use Report on a post or room message to tell us about objectionable content; a person reads every report. Use Block to stop seeing an account's posts and room messages. We can remove content and accounts from the KaChat indexer, which KaChat reads by default.",
+    text: "Use Report on a post or room message to tell us about objectionable content; a person reads every report. Use Block to stop seeing an account's posts and room messages. We can remove content and accounts from the K indexer, which K reads by default.",
   },
   {
     title: "Your account and your funds",
@@ -126,7 +126,7 @@ export const KAPOST_TERMS_SECTIONS = [
   },
   {
     title: "No warranty",
-    text: "KaChat is provided as it is, without warranty, and to the extent the law allows we are not liable for losses from using it or from what other users post. These terms are between you and KaChat's developer.",
+    text: "K is provided as it is, without warranty, and to the extent the law allows we are not liable for losses from using it or from what other users post. These terms are between you and K's developer.",
   },
   {
     title: "Contact",
@@ -173,7 +173,7 @@ export function askKaPostTerms({ onAgree = null, required = false } = {}) {
       <h1 id="kapost-terms-title" class="kapost-terms-title">Terms of Use</h1>
       <div class="kapost-terms-scroll">${kaPostTermsHtml()}</div>
       <div class="kapost-terms-footer">
-        <p>You need to agree to use KaChat.</p>
+        <p>You need to agree to use K.</p>
         <button class="primary-button kapost-terms-agree" type="button" data-kapost-terms-agree>I Agree</button>
         ${required ? "" : `<button class="kapost-terms-later" type="button" data-kapost-terms-later>Not Now</button>`}
       </div>

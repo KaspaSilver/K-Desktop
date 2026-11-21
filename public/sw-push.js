@@ -158,7 +158,7 @@
     const soundOn = m.sound !== false;
     const unreadHint = Number.isFinite(Number(p.unread)) && String(p.unread).trim() !== "" ? Math.max(0, Math.floor(Number(p.unread))) : null;
     const out = {
-      title: "KaChat",
+      title: "K",
       options: { body: "", tag: "kachat-push", icon: o.icon || undefined, badge: o.badgeIcon || undefined, silent: !soundOn, renotify: false, data: { route: { kind: "tab", tab: "chats" }, key: String(p.tx_id || p.dedup || ""), push: true } },
       badge: null,
       suppress: false,
@@ -265,8 +265,8 @@
     }
 
     // A type this build doesn't know yet: the server's own wording.
-    out.title = String(p.title || "").trim() || "KaChat";
-    out.options.body = String(p.body || "").trim() || "Something new in KaChat";
+    out.title = String(p.title || "").trim() || "K";
+    out.options.body = String(p.body || "").trim() || "Something new in K";
     out.options.tag = `kachat-push-${p.tx_id || type || "other"}`;
     return out;
   }
