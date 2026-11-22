@@ -25,10 +25,8 @@ import { otherNetworkReason } from "../engine/network.js";
 import { SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/transactions.js";
 
 import { sanitizeAmountInput, groupedAmountText } from "../engine/amounts.js";
-import { splitTypedName, notFoundMessage } from "../engine/name-services.js";
+import { notFoundMessage } from "../engine/name-services.js";
 import { isQuantumIndex, spendingIndexTitle } from "../engine/quantum.js";
-
-const KNOB_INSET = 4;
 
 export function escapeSendHtml(value) {
   return String(value ?? "")
@@ -424,154 +422,6 @@ export function feeControls(root, prefix) {
 
 // --- Send button --------------------------------------------------------------------------------
 
-/**
- * The send button. Slide (default): a track with a white knob; slide it to the right end to send.
- * Plain (`requiresSlide: false`): an ordinary button in the same look (KasSigner's Build Unsigned
- * Transaction, which moves nothing by itself). `attr` is the button's data attribute, `labelAttr`
- * its label's.
- */
-export function sendActionButtonHtml({
-  attr, labelAttr = "", title = "Slide to Send", requiresSlide = true, disabled = true, busy = false,
-  busyLabel = "", type = "button",
-} = {}) {
-  const a = attrName(attr);
-  const l = labelAttr ? `data-${attrName(labelAttr)}` : "";
-  // Busy is a spinner only (iOS SendActionButton label: ProgressView), unless a screen names a label.
-  const text = busy ? busyLabel : title;
-  if (!requiresSlide) {
-    return `<button type="${type === "submit" ? "submit" : "button"}" class="sk-action sk-action-plain${busy ? " busy" : ""}" data-${a} ${disabled || busy ? "disabled" : ""} aria-busy="${busy ? "true" : "false"}">
-      <span class="sk-action-label" ${l}>${busy ? '<span class="sk-spinner" aria-hidden="true"></span>' : ""}${esc(text)}</span>
-    </button>`;
-  }
-  return `<button type="button" class="sk-action sk-slide" data-${a} data-sk-slide ${disabled ? "disabled" : ""} aria-label="${esc(title)}" aria-busy="false">
-      <span class="sk-slide-fill" aria-hidden="true"></span>
-      <span class="sk-action-label sk-slide-label" ${l}>${esc(title)}</span>
-      <span class="sk-slide-knob" aria-hidden="true">${SEND_ICONS.slide}</span>
-    </button>`;
-}
-
-/**
- * Drives a slide button: drag the knob to the right end (95% counts) to call `onAction`. Released
- * early it springs back; after an action that didn't start a send (the small-amount question, an
- * error) it resets by itself, and again when `setBusy(false)` says the send finished. A keyboard
- * press or a screen reader's activation (a click with no pointer behind it, detail 0) is the plain
- * action; a mouse click on the track does nothing. Returns { setBusy, setEnabled, setTitle, reset }.
- */
-export function createSendActionButton(root, { onAction, busyLabel = "" } = {}) {
-  const noop = { setBusy() {}, setEnabled() {}, setTitle() {}, reset() {}, get busy() { return false; } };
-  if (!root) return noop;
-  const knob = root.querySelector(".sk-slide-knob");
-  const fill = root.querySelector(".sk-slide-fill");
-  const label = root.querySelector(".sk-action-label");
-  let title = root.getAttribute("aria-label") || label?.textContent || "Slide to Send";
-  let offset = 0;
-  let dragging = false;
-  let pointerId = null;
-  let startX = 0;
-  let busy = false;
-  let enabled = !root.disabled;
-  let resetTimer = null;
-
-  const knobWidth = () => knob?.offsetWidth || 48;
-  const maxOffset = () => Math.max(1, root.clientWidth - knobWidth() - KNOB_INSET * 2);
-  function paint(animate) {
-    root.classList.toggle("sk-slide-animating", Boolean(animate));
-    const progress = Math.min(1, offset / maxOffset());
-    if (knob) knob.style.transform = `translateX(${offset}px)`;
-    if (fill) fill.style.width = `${KNOB_INSET * 2 + knobWidth() + offset}px`;
-    if (label) label.style.opacity = busy ? "1" : String(1 - progress);
-    root.classList.toggle("sk-slide-end", progress >= 0.95);
-  }
-  function reset() {
-    dragging = false;
-    pointerId = null;
-    offset = 0;
-    paint(true);
-  }
-  function fire() {
-    if (busy || root.disabled) { reset(); return; }
-    try { onAction?.(); } catch { /* the screen reports its own errors */ }
-    if (resetTimer) clearTimeout(resetTimer);
-    // A send that didn't start (dust question, a validation error) leaves it not busy: put the
-    // knob back.
-    resetTimer = setTimeout(() => { resetTimer = null; if (!busy) reset(); }, 600);
-  }
-  // A screen that drives `disabled` itself (never calls setEnabled) keeps doing so: busy only
-  // ever adds a disable, and finishing leaves the screen's own state alone.
-  let enabledManaged = false;
-  function applyDisabled() {
-    if (enabledManaged) root.disabled = busy || !enabled;
-    else if (busy) root.disabled = true;
-  }
-
-  root.addEventListener("pointerdown", (event) => {
-    if (root.disabled || busy || !knob) return;
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    // The knob is what you slide - but a touch close to it counts, it is small on a phone.
-    const knobBox = knob.getBoundingClientRect();
-    if (event.clientX > knobBox.right + 12) return;
-    event.preventDefault();
-    dragging = true;
-    pointerId = event.pointerId;
-    startX = event.clientX - offset;
-    try { root.setPointerCapture(event.pointerId); } catch { /* fine */ }
-    root.classList.add("sk-slide-dragging");
-    paint(false);
-  });
-  root.addEventListener("pointermove", (event) => {
-    if (!dragging || event.pointerId !== pointerId) return;
-    offset = Math.min(Math.max(0, event.clientX - startX), maxOffset());
-    paint(false);
-  });
-  const end = (event, cancelled) => {
-    if (!dragging || event.pointerId !== pointerId) return;
-    dragging = false;
-    pointerId = null;
-    root.classList.remove("sk-slide-dragging");
-    if (!cancelled && offset >= maxOffset() * 0.95) {
-      offset = maxOffset();
-      paint(true);
-      fire();
-    } else {
-      reset();
-    }
-  };
-  root.addEventListener("pointerup", (event) => end(event, false));
-  root.addEventListener("pointercancel", (event) => end(event, true));
-  root.addEventListener("lostpointercapture", (event) => end(event, true));
-  root.addEventListener("contextmenu", (event) => event.preventDefault());
-  root.addEventListener("click", (event) => {
-    // Pointer clicks are the end of a slide the handlers above already judged.
-    if (event.detail !== 0 || root.disabled || busy) return;
-    fire();
-  });
-  window.addEventListener("resize", () => { if (!dragging && offset) reset(); });
-
-  paint(false);
-  return {
-    setBusy(on) {
-      busy = Boolean(on);
-      root.classList.toggle("busy", busy);
-      root.setAttribute("aria-busy", busy ? "true" : "false");
-      // Busy: the spinner only (iOS SendActionButton), or a screen's own busy label beside it.
-      if (label) {
-        if (busy) label.innerHTML = `<span class="sk-spinner" aria-hidden="true"></span>${busyLabel ? esc(busyLabel) : ""}`;
-        else label.textContent = title;
-      }
-      applyDisabled();
-      if (!busy) reset(); else paint(false);
-    },
-    setEnabled(on) { enabledManaged = true; enabled = Boolean(on); applyDisabled(); if (root.disabled && !busy && offset) reset(); },
-    setTitle(text) {
-      title = String(text || "");
-      root.setAttribute("aria-label", title);
-      if (label && !busy) label.textContent = title;
-    },
-    reset,
-    get busy() { return busy; },
-  };
-}
-
 // --- Mounting into a static screen --------------------------------------------------------------
 
 /** Replaces each `[data-sk-mount="name"]` placeholder inside `root` with `html[name]`. */
@@ -630,7 +480,7 @@ export function sendFromSectionHtml({ prefix }) {
 
 /**
  * Wires a From section. `onChatting()` runs for the Chatting Address pill, `onChoose()` for Choose
- * an Address (the screen opens `openOwnAddressPicker`). `render({ chatting, title, address,
+ * an Address. `render({ chatting, title, address,
  * balanceText })` shows the source (balanceText null = still loading); `setDisabled` locks the
  * pills while a send is on its way.
  */
@@ -678,75 +528,20 @@ export function usedTagHtml(used) {
   return '<span class="sk-used-tag checking">Checking</span>';
 }
 
-let activeOwnAddressPicker = null;
-
-/**
- * Your addresses to pick from (iOS OwnAddressPicker): the chatting address, then the spending
- * addresses (the ones Manage Addresses shows, plus hidden ones holding Kaspa, in number order),
- * each with its name, balance and whether it was ever used - a balance means used, else
- * `cachedUsed(address)` (true / false / null), else `probeUsed(address)` (a history lookup, eight
- * at a time). A send's Choose an Address ("Send From") and Request Payment's.
- *
- * `loadEntries()` resolves to { chatting: { address, balanceSompi }, spending: [{ index, address,
- * label, balanceSompi, hidden }] }. Picking a row calls `onPick({ kind: "chatting", address })` or
- * `onPick({ kind: "spending", index, address, label })` and closes; Cancel, Escape or the backdrop
- * leave things as they were.
- *
- * `excludeQuantum`: leave the quantum-safe (KIP-22) addresses out - the .kachat market signs its
- * funding inputs as plain P2PK, which a quantum-safe address can't be (iOS bba1b1e OwnAddressPicker).
- */
-export function openOwnAddressPicker({ title = "Choose an Address", selectedAddress = null, loadEntries, cachedUsed, probeUsed, kasUnit = "KAS", onPick, excludeQuantum = false } = {}) {
-  closeOwnAddressPicker();
-  const backdrop = document.createElement("div");
-  backdrop.className = "modal-backdrop sk-source-backdrop";
-  backdrop.dataset.skSourcePicker = "";
-  backdrop.innerHTML = `
-    <section class="contact-modal sk-source-sheet" role="dialog" aria-modal="true" aria-labelledby="sk-source-title">
-      <div class="modal-header">
-        <div><h2 id="sk-source-title">${esc(title)}</h2></div>
-        <button class="modal-close" type="button" data-sk-source-cancel aria-label="Cancel">×</button>
-      </div>
-      <div class="sk-source-list" data-sk-source-list role="listbox" aria-label="Your addresses">
-        <p class="sk-source-empty"><span class="sk-spinner" aria-hidden="true"></span>Loading addresses…</p>
-      </div>
-      <div class="modal-actions">
-        <button class="secondary-button" type="button" data-sk-source-cancel>Cancel</button>
-      </div>
-    </section>`;
-  const list = backdrop.querySelector("[data-sk-source-list]");
-
-  const onKey = (event) => {
-    if (event.key !== "Escape") return;
-    // Only the picker closes, not the screen under it.
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation?.();
-    close();
-  };
-  const close = () => {
-    window.removeEventListener("keydown", onKey, true);
-    backdrop.remove();
-    if (activeOwnAddressPicker === close) activeOwnAddressPicker = null;
-  };
-  activeOwnAddressPicker = close;
-  window.addEventListener("keydown", onKey, true);
-
-  backdrop.addEventListener("mousedown", (event) => { if (event.target === backdrop) close(); });
-  backdrop.addEventListener("click", (event) => { if (event.target.closest("[data-sk-source-cancel]")) close(); });
-  document.body.appendChild(backdrop);
-  mountOwnAddressList(list, {
-    selectedAddress, loadEntries, cachedUsed, probeUsed, kasUnit, excludeQuantum,
-    onPick: (source) => { close(); try { onPick?.(source); } catch { /* the screen reports its own errors */ } },
-  });
-  list.querySelector(".sk-source-row.current")?.focus?.();
-  return close;
-}
-
 /**
  * The address list itself (iOS OwnAddressList), in `list`: on a screen (a send's "Where are you
- * sending from?", Request Payment's "Where do you want to be paid?") or in the picker's sheet. The
- * options are `openOwnAddressPicker`'s; a row's click calls `onPick(source)`. Returns
- * { setSelected(address) } to move the check without loading again.
+ * sending from?", Request Payment's "Where do you want to be paid?"). Your addresses: the chatting
+ * address, then the spending addresses (the ones Manage Addresses shows, plus hidden ones holding
+ * Kaspa, in number order), each with its name, balance and whether it was ever used - a balance
+ * means used, else `cachedUsed(address)` (true / false / null), else `probeUsed(address)` (a
+ * history lookup, eight at a time).
+ *
+ * `loadEntries()` resolves to { chatting: { address, balanceSompi }, spending: [{ index, address,
+ * label, balanceSompi, hidden }] }. A row's click calls `onPick({ kind: "chatting", address })` or
+ * `onPick({ kind: "spending", index, address, label })`. `excludeQuantum`: leave the quantum-safe
+ * (KIP-22) addresses out - the .kachat market signs its funding inputs as plain P2PK, which a
+ * quantum-safe address can't be (iOS bba1b1e OwnAddressPicker). Returns { setSelected(address) }
+ * to move the check without loading again.
  */
 export function mountOwnAddressList(list, { selectedAddress = null, loadEntries, cachedUsed, probeUsed, kasUnit = "KAS", onPick, excludeQuantum = false } = {}) {
   if (!list) return { setSelected() {} };
@@ -847,10 +642,6 @@ export function mountOwnAddressList(list, { selectedAddress = null, loadEntries,
       });
     },
   };
-}
-
-export function closeOwnAddressPicker() {
-  if (activeOwnAddressPicker) activeOwnAddressPicker();
 }
 
 // --- Coin Control (which coins pay) -------------------------------------------------------------

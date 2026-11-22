@@ -24,23 +24,23 @@ import { parsePaymentPoolEnvelope, validPaymentNotice, encodePaymentNotice, paym
 import { isScriptAddress, isKachatContractTransaction, legacyWireAliases, transactionBelongsInHistory, restPaymentSompiTo, restPaymentSender, fetchHeldPaymentRows, strangerPaymentStep } from "../engine/sync.js";
 import { KASIA_PROTOCOL } from "../engine/kasia-protocol.js";
 import { mediaFrameByteLength, mediaFrameForEnvelope } from "../engine/media-frame.js";
-import { groupParts, unreadUnits, isLaterPart, sniffPartTag, VOICE_PATHS, voicePartSizes, PHOTO_TIERS, photoEstimatedFeeSompi, photoTierMaxBytes } from "../engine/voice-parts.js";
+import { groupParts, isLaterPart, VOICE_PATHS, voicePartSizes, PHOTO_TIERS, photoEstimatedFeeSompi, photoTierMaxBytes } from "../engine/voice-parts.js";
 import * as VoiceNotes from "./voice-notes.js";
 import { loadPhotoSource, prepareJpegForTiers } from "./photo-tiers.js";
 import { isAnimatedGif, prepareGifForTiers, GifNotAnimatedError } from "./gif.js";
 import { setGuardedImageSrc, planForDataUrl } from "./image-guard.js";
-import { initKaPosts, refreshKaPostsFeed, resetKaPostsForAccount, openKaPostFromNotification, kaPostsFollowingAddresses, stopKaPostsPolling, peekKaPostLinkPreview, resolveKaPostLinkPreview, canOfferTextTranslation, textTranslationState, translatedTextFor, showOriginalText, showTranslatedText, readerLanguageName, translateText, onTranslationChange, showKaPostsActionToast } from "./kaposts.js";
+import { initKaPosts, refreshKaPostsFeed, resetKaPostsForAccount, openKaPostFromNotification, stopKaPostsPolling, peekKaPostLinkPreview, resolveKaPostLinkPreview, canOfferTextTranslation, textTranslationState, translatedTextFor, showOriginalText, showTranslatedText, readerLanguageName, translateText, onTranslationChange, showKaPostsActionToast } from "./kaposts.js";
 import { allowsPreviewPage, allowsPreviewImage, socialPreviewBrand, isSameSiteHost } from "../engine/link-preview-policy.js";
 import { SOCIAL_LOGOS } from "./social-logos.js";
 import { kapostsFiatFieldText, kapostsKasFieldText, kapostsTipFieldAmount, kapostsSwitchTipText, kapostsDefaultTipSompi, KAPOSTS_TIP_MIN_SOMPI } from "./kaposts-format.js";
-import { fetchFollowListAll, requesterPubkeyFor, kaspaAddressFromPubkey, KAPOSTS_PROTOCOL, KACHAT_MARKER as KAPOSTS_MARKER, utf8ToBase64 as kapostsUtf8ToBase64, buildKaPostTipPayload } from "../engine/kaposts.js";
+import { requesterPubkeyFor, KAPOSTS_PROTOCOL, KACHAT_MARKER as KAPOSTS_MARKER, utf8ToBase64 as kapostsUtf8ToBase64, buildKaPostTipPayload } from "../engine/kaposts.js";
 import { initBroadcasts, refreshBroadcasts, repaintBroadcastIdentities, resetBroadcastsForAccount, stopBroadcastPolling, openBroadcastChannelFromNotification, openBroadcastRoomFromLink, openPublicChatsSettings, broadcastNotifyingUnreadTotal, broadcastJoinError, joinBroadcastChannelFromSheet, chatListRooms, openBroadcastRoom, closeBroadcastRoom, markBroadcastRooms, removeBroadcastRooms, setBroadcastRoomNotify, copyBroadcastRoomLink } from "./broadcasts.js";
 import { initChessTournaments, showChessTournaments, hideChessTournaments, resetChessTournamentsForAccount, chessTournamentsMayLeave, openChessBotChallenge } from "./chess-tournaments.js";
 import { parseBotChallengeLink, botChallengeFromLaunchSearch } from "../engine/chess-bot-links.js";
 import { initKachatNamesRuntime, kachatNames, kachatNamesUiEnabled, kachatNamesLaunched, kachatProfiles, kachatVerifiedLabel, kachatLabelChecking, verifyKachatLabel } from "./kachat-names-runtime.js";
 import { PHOTO_UNLOCK_DELAY_MS, photosUnlockTime, photosAreHidden } from "./photo-unlock.js";
 import { createProfileRescans } from "./profile-rescan.js";
-import { kachatHeroProfile, kachatCachedOwnedNameCount, onKachatSocialChange, kachatImageSrc, kachatCachedIdentity, kachatCachedLabel, kachatCachedDisplayLabel, kachatNameDisplay, kachatShowsEndings, setKachatShowsEndings, kachatCachedAvatarUrl, kachatCachedProfilePieces, onKachatIdentityChange, kachatRetryImage, kachatOwnersOfNames, kachatHeldNamesOf, kachatRescanProfile, kachatOwnedNameCount, onKachatRegistryChange, kachatClearProfileCache, kachatExpiredNames, startKachatUnnamedIdentitySweep } from "./kachat-names-live.js";
+import { kachatHeroProfile, kachatCachedOwnedNameCount, onKachatSocialChange, kachatCachedIdentity, kachatCachedLabel, kachatCachedDisplayLabel, kachatNameDisplay, kachatShowsEndings, setKachatShowsEndings, kachatCachedAvatarUrl, kachatCachedProfilePieces, onKachatIdentityChange, kachatRetryImage, kachatOwnersOfNames, kachatHeldNamesOf, kachatRescanProfile, kachatOwnedNameCount, onKachatRegistryChange, kachatClearProfileCache, kachatExpiredNames, startKachatUnnamedIdentitySweep } from "./kachat-names-live.js";
 import { startKachatNamesNotifier, openKachatNameFromNotification as openKachatNameFromBell, removeKachatNameReminders } from "./kachat-names-notifier.js";
 import { initKachatMarket, showKachatMarket, hideKachatMarket, openKachatProfileEditor, openKachatSetupGuide, KACHAT_WORDMARK_SVG, kachatAddressDomainsHtml, renderKachatLiveDomainsTab, openKachatMarketSheet } from "./kachat-market.js";
 import { initKachatStats, showKachatStats, hideKachatStats } from "./kachat-stats.js";
@@ -77,19 +77,19 @@ import { initColdStorage, refreshColdStorage, refreshColdStorageOnActivity, rese
 import { scanKaspaAddress } from "./qr-scan.js";
 import {
   mountSendPieces, recipientCardHtml, recipientStatusHtml, setRecipientLocked, amountEntryHtml, layoutAmountEntry,
-  sanitizeAmountText, availablePillInnerHtml, infoPillHtml, feeControlsHtml, feeControls, sendActionButtonHtml,
-  createSendActionButton, openOwnAddressPicker, closeOwnAddressPicker, mountOwnAddressList,
+  sanitizeAmountText, availablePillInnerHtml, infoPillHtml, feeControlsHtml, feeControls,
+  mountOwnAddressList,
   sendFromSectionHtml, sendFromControls, selectablePillHtml, setSelectedPill,
   otherDomainsHtml, pickOtherDomain, nameNotFoundText,
   configureSendAddressBook, refreshRecipientAddressBook, coinControlSummaryText, openCoinControlPicker, closeCoinControlPicker, formatSompiPlain, utxoEntryKey, utxoEntrySompi,
-  openSentConfirmation, closeSentConfirmation, fixedKas8,
-  createSwipeUpScreen, SWIPE_UP_LABELS, NOT_CONFIRMED_ON_DEVICE,
+  openSentConfirmation, closeSentConfirmation,
+  createSwipeUpScreen, NOT_CONFIRMED_ON_DEVICE,
 } from "./send-kaspa-components.js";
 import {
   createStepFlow, createFeeEditorStep, keypadHtml, wireKeypad, applyKeypadKey, stepChipHtml, stepQuestionHtml, reviewRowHtml, reviewAddressHtml,
 } from "./send-steps.js";
 import "./send-steps.css";
-import { initNextcloud, noteContactActivity, resetNextcloudForAccount, uploadNextcloudMedia, isNextcloudConnected, openNextcloudMediaPicker, deleteRemoteNextcloudBackup, nextcloudUnavailableReason, nextcloudDirectOnly, storedNextcloudLoginsFor, revokeNextcloudLogins } from "./nextcloud.js";
+import { initNextcloud, noteContactActivity, resetNextcloudForAccount, uploadNextcloudMedia, isNextcloudConnected, openNextcloudMediaPicker, nextcloudDirectOnly, storedNextcloudLoginsFor, revokeNextcloudLogins } from "./nextcloud.js";
 // Kaspa Hub > ChangeNOW Swap (iOS SwapView), back on Desktop (owner, 2026-10-22).
 import { initSwaps, refreshSwaps, resetSwapsForAccount } from "./swaps.js";
 import { sealBackupEnvelope, openBackupEnvelope, openEncryptedArchive } from "./backup-crypto.js";
@@ -116,12 +116,11 @@ import {
   normalizeMessage as normalizeEngineMessage,
   applyMessagePatch,
   addMessageToConversation,
-  lastMessage as engineLastMessage,
   statusLabel as engineStatusLabel,
 } from "../engine/conversations.js";
 import { KNSProfileLinkBuilder, safeExternalHref, clearAllKnsCache } from "../engine/kns.js";
 import { onIndexerAvailabilityChange, indexerKey, isIndexerDown, INDEXER_RECOVERY_MARGIN_MS } from "../engine/indexer-health.js";
-import { getEndpoint, getEndpoints, getEndpointOverride, setEndpoint, resetEndpoints, ENDPOINT_DEFAULTS, DEFAULT_TRUSTED_NODE, DEFAULT_MAINNET_INDEXER, setVerboseApiLogging, isProxyAvailable, proxiedUrl } from "../engine/endpoints.js";
+import { getEndpoint, getEndpoints, getEndpointOverride, setEndpoint, ENDPOINT_DEFAULTS, DEFAULT_TRUSTED_NODE, DEFAULT_MAINNET_INDEXER, setVerboseApiLogging, isProxyAvailable, proxiedUrl } from "../engine/endpoints.js";
 import { isBip39Word, bip39Matches } from "./bip39-english.js";
 import { createAccountBackupStatus, nextDefaultAccountName, accountHasFunds } from "./account-backup-status.js";
 import { walletTotalSompi, spendingTotalAfterRead, sumBalancesSompi, walletAmountText } from "./wallet-balance.js";
@@ -136,7 +135,7 @@ import { normalizeDomainLabel, isKnsEntryFresh } from "../engine/kns.js";
 // a path inside a string is invisible to it - so these 404'd on the built site (a broken-image
 // icon in the notification and on the KAS mark).
 import kaspaLogoUrl from "./assets/kaspa-logo.png";
-import { confirmText, promptText, confirmDialog, chooseDialog, alertDialog, promptDialog, PROMPT_EXTRA, infoSheet, userFacingError, ACTION_TILE_ICONS } from "./dialogs.js";
+import { confirmText, confirmDialog, chooseDialog, alertDialog, promptDialog, PROMPT_EXTRA, infoSheet, userFacingError, ACTION_TILE_ICONS } from "./dialogs.js";
 import { onContextGesture, attachDoubleTap, onMessageClick, isTouchDevice, releaseTypingFocus } from "./touch.js";
 import { attachRowSwipes, chatRowSwipeActions } from "./row-swipe.js";
 import { IMPORT_ADDRESS_SEARCH_TIMEOUT_MS, raceImportSearch, rankImportAccounts, importChoiceKey, visibleImportRows, importFundsHint, rediscoveredGroupIsRead, pastedWordsInvalidMessage } from "./account-import.js";
@@ -147,7 +146,7 @@ import { saveFile } from "./save-file.js";
 import { createStoredZip } from "./zip-store.js";
 import { fetchAddressActivity, runSpendingDiscovery, captureSpendingAccount, deriveSpendingAddressForAccount, deriveSpendingAddressesForAccount, probeFreshQuantumSlot, chooseReceiveAddress, revealSpendingIndexFor, setPrimarySpendingIndexFor, markQuantumSpentFor } from "./spending-discovery.js";
 import { restoreRememberedVaults } from "./vault-remember.js";
-import { configureKeyVault, hasAppPassword as vaultHasAppPassword, isVaultEnabled, isAppLocked, unlockKeyVault, unlockKeyVaultFromSession, lockKeyVault, setAppPassword as vaultSetAppPassword, removeAppPassword as vaultRemoveAppPassword, resetForgottenAppPassword, releaseAppPasswordIfUnused, forgetAccountSecrets, isPasswordStorageKey, isBiometricStorageKey, readAccountRecords, writeAccountRecords, persistedWalletRecordForStorage, readLegacyWalletKey, clearLegacyWalletKey, appPasswordLockoutMessage, MIN_APP_PASSWORD_LENGTH, writeKeyVaultHandoff, keyVaultStorageChanged, onKeyVaultLockedByAnotherTab, VAULT_HANDOFF_TTL_MS, LOCKED_IN_ANOTHER_TAB_MESSAGE, APP_PASSWORD_KEY, APP_PASSWORD_PENDING_KEY, hasBiometricUnlock, biometricUnlockRetiredReason, loadBiometricRecord, removeBiometricUnlock, BIOMETRIC_UNLOCK_KEY } from "./key-vault.js";
+import { configureKeyVault, hasAppPassword as vaultHasAppPassword, isAppLocked, unlockKeyVault, unlockKeyVaultFromSession, lockKeyVault, setAppPassword as vaultSetAppPassword, resetForgottenAppPassword, releaseAppPasswordIfUnused, forgetAccountSecrets, isPasswordStorageKey, isBiometricStorageKey, readAccountRecords, writeAccountRecords, persistedWalletRecordForStorage, readLegacyWalletKey, clearLegacyWalletKey, appPasswordLockoutMessage, MIN_APP_PASSWORD_LENGTH, writeKeyVaultHandoff, keyVaultStorageChanged, onKeyVaultLockedByAnotherTab, VAULT_HANDOFF_TTL_MS, LOCKED_IN_ANOTHER_TAB_MESSAGE, hasBiometricUnlock, biometricUnlockRetiredReason, loadBiometricRecord, removeBiometricUnlock } from "./key-vault.js";
 import { biometricName, biometricRowLabel, biometricButtonLabel, biometricEnvironmentProblem, canOfferBiometricUnlock, canAutoPromptBiometric, checkBiometricSupport, enrolBiometric, finishBiometricEnrolment, unlockWithBiometric, turnOffBiometricUnlock, BIOMETRIC_UNSUPPORTED_MESSAGE } from "./biometric-unlock.js";
 import { sameAccountAddress as sameStoredAccountAddress } from "../engine/network.js";
 import { openEmojiReactionPicker, openComposerEmojiPopover, closeComposerEmojiPopover, recordEmojiRecent } from "./emoji.js";
@@ -155,7 +154,7 @@ import { openEmojiReactionPicker, openComposerEmojiPopover, closeComposerEmojiPo
 import { NETWORK_ID } from "../engine/network.js";
 import { forgetAccount as forgetKusdtStorage } from "../engine/kusdt-store.js";
 import { createKusdtWallet, manageAddressesHideRefusal, reshowListedHidden, hideAllKeepingListed, KUSDT_LISTED_HIDE_MESSAGE, KUSDT_LISTED_ALERT_TITLE, kasAmountText as kusdtKasAmountText } from "./kusdt-wallet.js";
-import { initKusdtScreens, openManageKusdt, openWalletSend, openKusdtGuide, receiveNotesHtml, renderKusdtWalletCard, closeKusdtForAccountSwitch, openKusdtSend, openTipAssetChooser, kusdtTotalText, kusdtLooking } from "./kusdt-screens.js";
+import { initKusdtScreens, openManageKusdt, openWalletSend, openKusdtGuide, receiveNotesHtml, closeKusdtForAccountSwitch, openKusdtSend, openTipAssetChooser, kusdtTotalText, kusdtLooking } from "./kusdt-screens.js";
 import { kusdtCoinIconHtml } from "./kusdt-icons.js";
 // Send Dollars in a 1:1 chat (KaChat iOS 5b7c772c): the token_payment_notice and its chain check.
 import { validTokenPaymentNotice, encodeTokenPaymentNotice, tokenPaymentText, unverifiedTokenPaymentText, tokenOfPaymentText, checkTokenNoticeOnChain } from "../engine/token-payment-notice.js";
@@ -186,8 +185,6 @@ let kusdtWallet = null;
 // e5a9b11, as rooms, KaPosts and chess do). See sendFailurePatch and settleUnconfirmedSends.
 const MESSAGE_STATUS_UNCONFIRMED = "unconfirmed";
 const unconfirmedLookupAt = new Map();
-// The .kachat wordmark is the .kachat section's dock and Hub icon (iOS KachatTabIcon).
-document.querySelectorAll("[data-kachat-wordmark]").forEach((el) => { el.innerHTML = KACHAT_WORDMARK_SVG; });
 // Testnet: the page's static amounts ("-- KAS" placeholders, "Amount (KAS)" labels, fee pills)
 // read TKAS (iOS KaspaUnit). Runs once at load, over the markup only; market text (the KAS price,
 // "KAS value") is marked data-kas-literal and stays KAS.
@@ -239,6 +236,10 @@ const MESSAGE_HISTORY_KEY = "kachat-shell-message-history-v1";
 const STATE_BACKUP_KEY = "kachat-shell-state-backup-v1";
 const STATE_BACKUP_MIN_INTERVAL_MS = 60_000;
 let lastStateBackupWriteAt = 0;
+// Per-text answers the thread asks of every message on every redraw (is it a control envelope, is
+// it a chess move): each was a trim + JSON.parse of photo/voice JSON up to 200 KB, for the whole
+// chat, not just the drawn window (audit 2026-11-21). Declared up here so an early render finds them.
+const renderEnvelopeMemos = { control: new Map(), groupControl: new Map(), chess: new Map(), groupPhoto: new Map() };
 const ACCOUNT_DATA_PREFIX = "kachat-account-data-v1";
 // Which accounts still owe the backup steps, and when each was last checked (iOS d063b897
 // AccountBackupStatus). One key, two addresses: kept on both networks.
@@ -397,7 +398,6 @@ const MESSAGE_REFRESH_MS = 5000;
 const MESSAGE_REFRESH_MAX_MS = 60000;
 // The open conversation polls faster than the sweep - iOS uses the same 2s.
 const ACTIVE_CHAT_POLL_MS = 2000;
-const INDEXER_URL_KEY = "kachat-shell-step27-indexer-url";
 const PERSISTED_WALLET_KEY = "kachat-shell-testing-wallet-v2";
 const LEGACY_PERSISTED_WALLET_KEY = "kachat-shell-testing-wallet-private-key";
 const HANDSHAKE_SYNC_KEY = "kachat-shell-handshake-sync-v1";
@@ -595,7 +595,6 @@ let handshakeSendInFlight = false;
 // meant messages never actually reached the network (and thus never showed
 // up on a peer's iOS/Android app) unless the toggle was found and flipped.
 const transportMode = "onchain";
-let pendingOnchainDraft = null;
 let balanceRefreshTimer = null;
 let messageRefreshTimer = null;
 let activeChatPollTimer = null;
@@ -631,7 +630,6 @@ function isLiveMessageTime(createdAt) {
   return at > 0 && at >= liveSinceMs;
 }
 let walletActivityRefreshTimer = null;
-let activeMessageActionId = null;
 let messageSelectionMode = false;
 const selectedMessageIds = new Set();
 const ACCOUNT_SHELL_PREFS_KEY = "kachat-account-shell-preferences-v1";
@@ -1130,19 +1128,6 @@ function refreshPasswordStatus() {
   const hasPassword = hasAppPassword();
   refreshBiometricRow();
   if (passwordStatusEl) passwordStatusEl.textContent = hasPassword ? "Password set. This account's keys are encrypted." : "No password set. This account's keys are not encrypted.";
-  // Honest about what is at rest (DSK-006): no password = plaintext in this browser.
-  const saveNote = document.querySelector("[data-save-account-note]");
-  if (saveNote) {
-    saveNote.textContent = hasPassword
-      ? "Keys are encrypted with each account's password. If you forget one, you'll need that account's 12 or 24 words."
-      : "Without a password, keys are stored unencrypted in this browser. Set a password to encrypt them.";
-  }
-  const keepNote = document.querySelector("[data-keep-signed-in-note]");
-  if (keepNote) {
-    keepNote.textContent = hasPassword
-      ? "K opens straight into your account and stays signed in on this device until you log out. Signing in to another saved account, and showing 12 or 24 words or a private key, ask for the password."
-      : "Restore the active account when K opens.";
-  }
 }
 refreshPasswordStatus();
 document.querySelector("[data-change-password]")?.addEventListener("click", async () => {
@@ -2029,19 +2014,11 @@ utxoRenameModal?.addEventListener("click", (event) => {
   if (event.target === utxoRenameModal) closeUtxoRename();
 });
 
-const searchWrap = document.querySelector("[data-search-wrap]");
 const serviceHealthButton = document.querySelector("[data-service-health-button]");
 const serviceHealthLed = document.querySelector("[data-service-health-led]");
 let latestServiceStatusText = "Starting services";
 const toolbarBalance = document.querySelector("[data-toolbar-balance]");
 const toolbarBalanceValue = document.querySelector("[data-toolbar-balance-value]");
-const profileAddress = document.querySelector("[data-profile-address]");
-const profileInitial = document.querySelector("[data-profile-initial]");
-const profileKnsEmptyCta = document.querySelector("[data-profile-kns-empty-cta]");
-const profileKnsOwned = document.querySelector("[data-profile-kns-owned]");
-const profileQr = document.querySelector("[data-profile-qr]");
-const profileQrCard = document.querySelector("[data-profile-qr-card]");
-const profileQrOverlay = document.querySelector("[data-profile-qr-overlay]");
 const photoPreviewOverlay = document.querySelector("[data-photo-preview-overlay]");
 const photoPreviewImage = document.querySelector("[data-photo-preview-image]");
 
@@ -3817,7 +3794,6 @@ function jumpToMessageByTxid(txid) {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && photoPreviewOverlay && !photoPreviewOverlay.hidden) photoPreviewOverlay.hidden = true;
 });
-const profileQrOverlayCanvas = document.querySelector("[data-profile-qr-overlay-canvas]");
 const chattingAddressScreen = document.querySelector("[data-chatting-address-screen]");
 // The chatting-address screen is REUSED for the spending Receive view, so its copy
 // button must copy whatever address is on screen - it used to always copy the chatting
@@ -3827,31 +3803,19 @@ const chattingAddressQr = document.querySelector("[data-chatting-address-qr]");
 const chattingAddressValue = document.querySelector("[data-chatting-address-value]");
 const chattingAddressBalance = document.querySelector("[data-chatting-address-balance]");
 const profileAccountName = document.querySelector("[data-profile-account-name]");
-const profileSessionState = document.querySelector("[data-profile-session-state]");
 const profileCreated = document.querySelector("[data-profile-created]");
-const settingsAccountName = document.querySelector("[data-settings-account-name]");
-const settingsAccountAddress = document.querySelector("[data-settings-account-address]");
 const accountModalName = null;
 const accountModalAddress = null;
 const accountModalInitial = null;
 const engineLog = document.querySelector("[data-engine-log]");
-const privateKeyInput = document.querySelector("[data-private-key-input]");
-const messageDetailsModal = document.querySelector("[data-message-details-modal]");
-const messageDetailsBody = document.querySelector("[data-message-details-body]");
-const messageActionSheet = document.querySelector("[data-message-action-sheet]");
 const copyToast = document.querySelector("[data-copy-toast]");
 const copyToastText = document.querySelector("[data-copy-toast-text]");
 let copyToastTimer = null;
-const exportChoiceModal = document.querySelector("[data-export-choice-modal]");
 const selectionToolbar = document.querySelector("[data-selection-toolbar]");
-const selectionCount = document.querySelector("[data-selection-count]");
 const deleteConfirmModal = document.querySelector("[data-delete-confirm-modal]");
 const deleteConfirmCopy = document.querySelector("[data-delete-confirm-copy]");
 const readinessList = document.querySelector("[data-readiness-list]");
-const indexerUrlInput = document.querySelector("[data-indexer-url]");
 const testIndexerButton = document.querySelector("[data-test-indexer]");
-const onchainConfirmModal = document.querySelector("[data-onchain-confirm-modal]");
-const onchainSummary = document.querySelector("[data-onchain-summary]");
 const importPayloadModal = document.querySelector("[data-import-payload-modal]");
 const importPayloadForm = document.querySelector("[data-import-payload-form]");
 const importPayloadInput = document.querySelector("[data-import-payload-input]");
@@ -3883,6 +3847,9 @@ const emptyState = document.querySelector("[data-empty-state]");
 const chatList = document.querySelector("[data-chat-list]");
 // Set once the rows' swipes are wired, further down; renderChats can run before that.
 let chatRowSwipes = null;
+// The chat list's last drawn HTML: a redraw that would draw the same thing leaves the rows (and an
+// image's decode, a row slid open) alone. Anything that edits the rows in place clears it.
+let lastChatListHtml = null;
 const chatSelectToggle = document.querySelector("[data-chat-select-toggle]");
 const chatSelectAll = document.querySelector("[data-chat-select-all]");
 const chatSelectionBar = document.querySelector("[data-chat-selection-bar]");
@@ -3908,8 +3875,6 @@ let groupManager = null;
 let groupManagerForAddress = null;
 const conversation = document.querySelector("[data-conversation]");
 const conversationName = document.querySelector("[data-conversation-name]");
-const conversationAddress = document.querySelector("[data-conversation-address]");
-const conversationAvatar = document.querySelector("[data-conversation-avatar]");
 const conversationAvatarInitials = document.querySelector("[data-conversation-avatar-initials]");
 const conversationAvatarImage = document.querySelector("[data-conversation-avatar-image]");
 const conversationBio = document.querySelector("[data-conversation-bio]");
@@ -4088,7 +4053,6 @@ function updateAvatarElement(initialsEl, imageEl, contact) {
   }
 }
 const chatInfoOverlay = document.querySelector("[data-chat-info-overlay]");
-const chatInfoAvatar = document.querySelector("[data-chat-info-avatar]");
 const chatInfoAvatarInitials = document.querySelector("[data-chat-info-avatar-initials]");
 const chatInfoAvatarImage = document.querySelector("[data-chat-info-avatar-image]");
 const chatInfoNameInput = document.querySelector("[data-chat-info-name-input]");
@@ -4538,11 +4502,6 @@ const feeEstimateBanner = document.querySelector("[data-fee-estimate-banner]");
 const handshakeWarningBanner = document.querySelector("[data-handshake-warning-banner]");
 let feeEstimateDebounceTimer = null;
 let feeEstimateRequestToken = 0;
-const kasPaymentAlert = document.querySelector("[data-kas-payment-alert]");
-const kasPaymentAlertTitle = document.querySelector("[data-kas-payment-alert-title]");
-const kasPaymentAlertMessage = document.querySelector("[data-kas-payment-alert-message]");
-const kasPaymentAlertPrimary = document.querySelector("[data-kas-payment-alert-primary]");
-const kasPaymentAlertCancel = document.querySelector("[data-kas-payment-alert-cancel]");
 const contactModal = document.querySelector("[data-contact-modal]");
 const contactForm = document.querySelector("[data-contact-form]");
 const contactAddressInput = contactForm?.elements?.address;
@@ -4600,6 +4559,7 @@ function updateDetailActiveClass() {
 // full list re-render. Needed because openConversation() renders the list before the active
 // id is set, so the highlight would otherwise never land on the clicked row.
 function updateActiveRowHighlight() {
+  lastChatListHtml = null;
   document.querySelectorAll("[data-conversation-id]").forEach((row) => {
     row.classList.toggle("active", Boolean(activeConversationId) && row.dataset.conversationId === activeConversationId);
   });
@@ -5116,8 +5076,25 @@ function normalizeMessage(message, conversationId) {
   return normalizeEngineMessage(message, conversationId);
 }
 
+// id -> index into state.contacts, checked on every hit (the contact at that index must still have
+// that id) and rebuilt when it isn't, so pushes, splices and a replaced state all stay correct. The
+// chat list asked this several times per row, each a linear find: chats x contacts per redraw.
+let contactIndexById = { list: null, map: new Map() };
 function contactForConversation(conversationEntry) {
-  return state.contacts.find((contact) => contact.id === conversationEntry?.contactId) || null;
+  const id = conversationEntry?.contactId;
+  if (id == null) return null;
+  const contacts = state.contacts;
+  if (contactIndexById.list === contacts) {
+    const index = contactIndexById.map.get(id);
+    if (index !== undefined && contacts[index]?.id === id) return contacts[index];
+  }
+  contactIndexById = { list: contacts, map: new Map() };
+  let found = null;
+  contacts.forEach((contact, index) => {
+    if (!contactIndexById.map.has(contact?.id)) contactIndexById.map.set(contact?.id, index);
+    if (!found && contact?.id === id) found = contact;
+  });
+  return found;
 }
 
 // --- Message Requests and no-handshake first contact (iOS 5.2, NO_HANDSHAKE_MESSAGING.md) ------
@@ -5268,7 +5245,7 @@ function rejectChatRequest(conversationEntry) {
 /** Whether the configured indexer answers inbox lookups - probed once per indexer URL; an
  *  unreachable indexer is asked again next time. `inboxSupportKnown` is the cached answer for
  *  synchronous UI (undefined until probed). */
-function currentIndexerUrl() { return indexerUrlInput?.value?.trim() || getEndpoint("kasiaIndexer"); }
+function currentIndexerUrl() { return getEndpoint("kasiaIndexer"); }
 /** KaChat's own indexer, however the URL is written (a trailing slash, or the same-origin proxy that
  *  stands in for it in a browser). */
 function isDefaultKachatIndexer(url) {
@@ -6140,11 +6117,15 @@ function persistStateWrites({ includeBackup = true } = {}) {
     const now = Date.now();
     if (now - lastStateBackupWriteAt >= STATE_BACKUP_MIN_INTERVAL_MS) {
       chatStorageSetSync(accountScopedKey(STATE_BACKUP_KEY), serialized);
+      // The message history is a second recovery copy of the same messages (STORAGE_KEY already
+      // holds them all), unioned in on load like the backup, with deletions kept out by
+      // hiddenMessageKeys. Stringifying every message again on every persist was a second
+      // multi-MB pass per send/sync (audit 2026-11-21); it now rides the backup's minute.
+      const history = Object.fromEntries((state.conversations || []).map((entry) => [entry.id, entry.messages || []]));
+      chatStorageSetSync(accountScopedKey(MESSAGE_HISTORY_KEY), JSON.stringify(history));
       lastStateBackupWriteAt = now;
     }
   }
-  const history = Object.fromEntries((state.conversations || []).map((entry) => [entry.id, entry.messages || []]));
-  chatStorageSetSync(accountScopedKey(MESSAGE_HISTORY_KEY), JSON.stringify(history));
   const verified = chatStorageGetSync(accountScopedKey(STORAGE_KEY));
   if (verified !== serialized) throw new Error("Local conversation storage verification failed.");
 }
@@ -6403,84 +6384,6 @@ function statusLabel(status) {
   return status === MESSAGE_STATUS_UNCONFIRMED ? "Not confirmed" : engineStatusLabel(status);
 }
 
-function protocolSummary(message) {
-  if (!message) return "No message selected.";
-  const rows = [
-    ["Status", statusLabel(message.status)],
-    ["Direction", message.direction || "outgoing"],
-    ["Protocol", `${message.protocol || "kasia"} v${message.protocolVersion || 1}`],
-    ["Network", message.network || NETWORK],
-    ["Type", message.messageType || "not created yet"],
-    ["Transport", message.transport || "preview"],
-    ["Payload bytes", message.payloadBytes ?? "--"],
-    ["TXID", message.txid || "--"],
-    ["DAA score", message.daaScore || "--"],
-    ["Confirmations", message.confirmations ?? 0],
-    ["Sender", message.sender || "--"],
-    ["Receiver", message.receiver || "--"],
-    ["Created", new Date(message.createdAt).toLocaleString()],
-  ];
-
-  const meta = rows.map(([label, value]) => `
-    <div class="detail-row">
-      <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(value)}</strong>
-    </div>`).join("");
-
-  const payload = message.payloadHex
-    ? `<div class="payload-box" data-copy-payload title="Click to copy payload hex">${escapeHtml(message.payloadHex)}</div>`
-    : `<div class="payload-box muted">Payload will appear after KaspaEngine creates it.</div>`;
-
-  const protocolString = message.protocolString
-    ? `<div class="detail-section-title">Kasia protocol string</div><div class="payload-box muted">${escapeHtml(message.protocolString)}</div>`
-    : "";
-
-  return `${meta}
-    <div class="detail-section-title">Kasia payload hex</div>
-    ${payload}
-    ${protocolString}`;
-}
-
-function closeMessageDetails() {
-  activeMessageActionId = null;
-  if (messageDetailsModal) messageDetailsModal.hidden = true;
-}
-
-function activeMessageRecord() {
-  const conversationEntry = state.conversations.find((entry) => entry.id === activeConversationId);
-  const message = conversationEntry?.messages.find((entry) => entry.id === activeMessageActionId);
-  return { conversationEntry, message };
-}
-
-function rawMessageRecord(message) {
-  if (!message) return null;
-  return {
-    id: message.id,
-    status: message.status,
-    direction: message.direction,
-    protocol: message.protocol,
-    protocolVersion: message.protocolVersion,
-    network: message.network || NETWORK,
-    messageType: message.messageType,
-    transport: message.transport,
-    payloadBytes: message.payloadBytes,
-    txid: message.txid,
-    daaScore: message.daaScore,
-    confirmations: message.confirmations,
-    sender: message.sender,
-    receiver: message.receiver,
-    createdAt: new Date(message.createdAt).toISOString(),
-    updatedAt: new Date(message.updatedAt || message.createdAt).toISOString(),
-    text: message.text,
-    payloadHex: message.payloadHex,
-    protocolString: message.protocolString,
-  };
-}
-
-function rawMessageText(message) {
-  return JSON.stringify(rawMessageRecord(message), null, 2);
-}
-
 function downloadBlob(filename, type, content) {
   // Download on a desktop, the share sheet on a phone (ui/save-file.js).
   saveFile(filename, type, content).catch(() => setStatus("Could not save the file."));
@@ -6494,47 +6397,10 @@ function csvEscape(value) {
   return `"${text.replaceAll('"', '""')}"`;
 }
 
-function exportMessageCsv(message) {
-  const record = rawMessageRecord(message);
-  const rows = Object.entries(record || {}).map(([key, value]) => `${csvEscape(key)},${csvEscape(value)}`);
-  downloadBlob(`kachat-message-${message.id}.csv`, "text/csv;charset=utf-8", `field,value\n${rows.join("\n")}\n`);
-  setStatus("Message raw data exported as CSV");
-}
-
-function exportMessagePdf(message) {
-  const record = rawMessageRecord(message);
-  const popup = window.open("", "_blank");
-  if (!popup) throw new Error("Allow pop-ups to export a PDF.");
-  const rows = Object.entries(record || {}).map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(value == null ? "" : typeof value === "object" ? JSON.stringify(value) : String(value))}</td></tr>`).join("");
-  popup.document.write(`<!doctype html><html><head><title>K Message Raw Data</title><style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;padding:32px;color:#111}h1{font-size:24px;margin:0 0 8px}p{color:#555;margin:0 0 24px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ccc;padding:8px;text-align:left;vertical-align:top;overflow-wrap:anywhere}th{width:180px;background:#f4f4f4}@media print{body{padding:0}}</style></head><body><h1>KaChat Message Raw Data</h1><p>Use the browser print dialog and choose “Save as PDF”.</p><table>${rows}</table></body></html>`);
-  popup.document.close();
-  // The print dialog is opened from here: the blank pop-up inherits this page's CSP (no inline
-  // script), so a <script> written into it never ran and the dialog never came up.
-  const print = () => { try { popup.focus(); popup.print(); } catch { /* closed meanwhile: the page says how to print */ } };
-  if (popup.document.readyState === "complete") setTimeout(print, 150);
-  else popup.addEventListener("load", () => setTimeout(print, 150), { once: true });
-  setStatus("PDF export opened");
-}
-
-function openExportChoice() {
-  if (!exportChoiceModal) return;
-  exportChoiceModal.hidden = false;
-}
-
-function closeExportChoice() {
-  if (exportChoiceModal) exportChoiceModal.hidden = true;
-}
-
 function updateSelectionUi() {
   if (selectionToolbar) selectionToolbar.hidden = !messageSelectionMode;
-  if (selectionCount) selectionCount.textContent = `${selectedMessageIds.size} selected`;
   const deleteSelectedButton = document.querySelector("[data-delete-selected]");
   if (deleteSelectedButton) deleteSelectedButton.disabled = selectedMessageIds.size === 0;
-  const selectAllButton = document.querySelector("[data-select-all-messages]");
-  if (selectAllButton) {
-    const total = messageArea?.querySelectorAll("[data-message-id]").length || 0;
-    selectAllButton.textContent = total > 0 && selectedMessageIds.size >= total ? "Deselect All" : "Select All";
-  }
   messageArea?.classList.toggle("selection-mode", messageSelectionMode);
 }
 
@@ -6550,7 +6416,6 @@ function enterMessageSelection(initialMessageId = null) {
   messageSelectionMode = true;
   selectedMessageIds.clear();
   if (initialMessageId) selectedMessageIds.add(initialMessageId);
-  closeMessageDetails();
   updateSelectionUi();
   const conversationEntry = state.conversations.find((entry) => entry.id === activeConversationId);
   if (conversationEntry) renderMessages(conversationEntry);
@@ -6607,37 +6472,6 @@ function onchainAmountKas() {
   return "0.2";
 }
 
-function closeOnchainConfirm() {
-  pendingOnchainDraft = null;
-  if (onchainConfirmModal) onchainConfirmModal.hidden = true;
-}
-
-function openOnchainConfirm({ conversationId, text }) {
-  const conversationEntry = state.conversations.find((entry) => entry.id === conversationId);
-  const contact = contactForConversation(conversationEntry);
-  if (!conversationEntry || !contact || !onchainConfirmModal || !onchainSummary) return false;
-  const envelope = engine.createMessageEnvelope({
-    conversationId,
-    contactId: contact.id,
-    toAddress: contact.address,
-    fromAddress: engine.address || null,
-    text,
-    alias: "KaChat",
-    localNonce: nowId(),
-    createdAt: Date.now(),
-  });
-  pendingOnchainDraft = { conversationId, text };
-  onchainSummary.innerHTML = `
-    <div class="confirm-row"><span>Contact</span><strong>${escapeHtml(contact.name)}</strong></div>
-    <div class="confirm-row"><span>To</span><code>${escapeHtml(shortAddress(contact.address, 18))}</code></div>
-    <div class="confirm-row"><span>Amount</span><strong>${escapeHtml(onchainAmountKas())} ${KAS_UNIT}</strong></div>
-    <div class="confirm-row"><span>Payload</span><strong>${envelope.payloadBytes} bytes</strong></div>
-    <div class="confirm-preview">${escapeHtml(text)}</div>
-  `;
-  onchainConfirmModal.hidden = false;
-  return true;
-}
-
 // Full, unwrapped display text for a message — reply envelopes show just
 // their own typed text, photo/audio envelopes show a friendly label. Used
 // anywhere the raw wire content (JSON envelope) shouldn't leak into the UI.
@@ -6682,17 +6516,6 @@ function displayTextForMessage(message) {
     return "📎 File";
   }
   return message.text || "";
-}
-
-function openMessageDetails(messageId) {
-  const conversationEntry = state.conversations.find((entry) => entry.id === activeConversationId);
-  const message = conversationEntry?.messages.find((entry) => entry.id === messageId);
-  if (!message || !messageDetailsModal) return;
-  activeMessageActionId = messageId;
-  if (messageDetailsBody) messageDetailsBody.textContent = displayTextForMessage(message) || "Message";
-  const explorerRow = document.querySelector("[data-message-explorer-row]");
-  if (explorerRow) explorerRow.hidden = !message.txid;
-  messageDetailsModal.hidden = false;
 }
 
 // The delivery glyph that leads an outgoing message's preview (iOS ConversationRow): check for
@@ -6811,21 +6634,18 @@ function isSelfConversation(conversationEntry) {
 function sortedConversations() {
   // By newest message, your own chat too (iOS d1844582). An old `pinned` flag no longer outranks a
   // newer message. Chats with no messages yet go last, newest-created first.
-  return [...state.conversations]
+  // Each chat's newest message is found once, not on every comparison (each one scanned the whole
+  // chat: chats x log(chats) x messages per list redraw, audit 2026-11-21).
+  return state.conversations
     .filter((conversationEntry) => !conversationEntry.archived)
-    .sort((a, b) => conversationRecency(b) - conversationRecency(a)
-      || Number(b.createdAt || 0) - Number(a.createdAt || 0));
+    .map((entry) => ({ entry, at: conversationRecency(entry), created: Number(entry.createdAt || 0) }))
+    .sort((a, b) => b.at - a.at || b.created - a.created)
+    .map(({ entry }) => entry);
 }
 
-// While Node Connection is scanning, the latest log line is mirrored under its button.
-let nodeScanTraceActive = false;
 function appendEngineLog(message) {
   // Every address cut to its last 8 characters, whoever logged it (iOS d23e6f7a, KaPay 1652437).
   const line = shortenLogTxIds(shortenLogAddresses(typeof message === "string" ? message : JSON.stringify(message, null, 2)));
-  if (nodeScanTraceActive) {
-    const trace = document.querySelector("[data-node-scan-trace]");
-    if (trace) { trace.textContent = line; trace.hidden = false; }
-  }
   if (!engineLog) return;
   // Capped to the newest 400 lines (what the diagnostics export keeps): unbounded, every append
   // copied the whole log and a long-running session grew without limit.
@@ -7293,7 +7113,7 @@ async function syncOneConversationWork(conversationEntry, { quiet, catchUp, cont
   // while signed in) writes nothing: no bubbles, banners or cursors for the wrong account (iOS
   // dfaba68 isActiveWallet).
   const account = accountGuard(() => engine.address);
-  const indexerUrl = indexerUrlInput?.value?.trim() || getEndpoint("kasiaIndexer");
+  const indexerUrl = getEndpoint("kasiaIndexer");
   // Message retention also raises the IMPORT floor (mirrors iOS ChatService's retention-aware
   // fetch cursor): without it the payment scan below, which re-reads the last 100 transactions
   // from scratch every sweep, would re-add the very payments the last retention pass deleted,
@@ -8497,7 +8317,6 @@ const connectionOverlay = document.querySelector("[data-connection-overlay]");
 
 function openConnectionOverlay() {
   connectionOverlay.hidden = false;
-  selectedNodeMode = null; // re-sync the node-mode cards to the saved setting
   renderNodeChoice();
   renderConnectionStatus();
 }
@@ -8519,9 +8338,6 @@ connectionOverlay.addEventListener("click", (event) => {
 const NOTIF_CENTER_KEY = "kachat-notif-center-v1";
 const NOTIF_CENTER_SEEN_KEY = "kachat-notif-center-seen-v1";
 const NOTIF_CENTER_MAX = 100;
-// Broadcast messages older than this (the app-load moment) are treated as history, not live
-// arrivals, so the backfill on startup doesn't flood the center.
-const NOTIF_SESSION_START = Date.now();
 const notifOverlay = document.querySelector("[data-notif-overlay]");
 let globalNotifications = [];
 let notifCenterLastSeenAt = 0;
@@ -8571,9 +8387,6 @@ function updateNotifBadge() {
   try { refreshTabBadges(); } catch {}
   // Profile's bell lists these with KaPost's (KaChat iOS 148a5331).
   try { syncKaPostsBell(); } catch { /* KaPost not started */ }
-  // Profile's Notifications row (iOS bfe9f022 notificationsSection): its unread count, 0 included.
-  const count = document.querySelector("[data-notif-count]");
-  if (count) count.textContent = String(unreadNotifCount());
 }
 function renderNotifCenter() {
   const list = document.querySelector("[data-notif-list]");
@@ -8589,19 +8402,10 @@ function renderNotifCenter() {
       <span class="notif-center-time">${escapeHtml(formatRelativeTime(n.timestamp))}</span>
     </button>`).join("");
 }
-function openNotifCenter() {
-  if (!notifOverlay) return;
-  renderNotifCenter(); // render with current unread styling first
-  notifOverlay.hidden = false;
-  notifCenterLastSeenAt = Date.now();
-  try { localStorage.setItem(accountScopedKey(NOTIF_CENTER_SEEN_KEY), String(notifCenterLastSeenAt)); } catch {}
-  updateNotifBadge();
-}
 function closeNotifCenter() {
   if (notifOverlay) notifOverlay.hidden = true;
   renderNotifCenter(); // clears unread highlight for next open
 }
-document.querySelector("[data-open-notif-center]")?.addEventListener("click", openNotifCenter);
 document.querySelector("[data-close-notif-center]")?.addEventListener("click", closeNotifCenter);
 notifOverlay?.addEventListener("click", (event) => { if (event.target === notifOverlay) closeNotifCenter(); });
 document.querySelector("[data-notif-clear]")?.addEventListener("click", () => {
@@ -8710,118 +8514,13 @@ function connectFailureText(error) {
 }
 document.querySelector("[data-connection-reconnect]")?.addEventListener("click", (event) => { reconnectWithFeedback(event.currentTarget); });
 
-// Node-selection cards: the automatic public-node scan vs a specific wRPC URL of the user's. Those are the only two; the selection is staged
-// in the UI and only committed to the trustedNode endpoint on Apply. An empty trustedNode has
-// always meant the hosted mode, so nothing stored needs renaming.
-let selectedNodeMode = null;
-// A plain ws:// node from an https page: the browser allows it for a private address but
-// demotes the page to "Not secure" while it is connected (and calls the allowance deprecated).
-// Said next to the field, so the padlock's change has an explanation and a way out.
-function renderInsecureNodeWarning(url) {
-  const el = document.querySelector("[data-node-insecure-warning]");
-  if (!el) return;
-  const insecure = typeof location !== "undefined" && location.protocol === "https:" && /^ws:\/\//i.test(String(url || "").trim());
-  el.hidden = !insecure;
-  if (insecure) el.textContent = "This node uses plain ws://. Because K is loaded over https, the browser will mark the site “Not secure” while connected to it and may block the connection in a future release. Put the node behind a TLS reverse proxy and use wss://, or open KaChat over http on your LAN.";
-}
-document.querySelector("[data-custom-node-url]")?.addEventListener("input", (event) => renderInsecureNodeWarning(event.target.value));
+// The saved node mode: the automatic public-node scan, the official node, or a specific wRPC URL of
+// the user's. An empty trustedNode has always meant the hosted mode, so nothing stored needs renaming.
 function currentSavedNodeMode() {
   const trusted = getEndpointOverride("trustedNode").trim();
   if (!trusted) return "scan";
   return DEFAULT_TRUSTED_NODE && trusted.toLowerCase() === DEFAULT_TRUSTED_NODE.toLowerCase() ? "official" : "custom";
 }
-function renderNodeModeCards() {
-  if (selectedNodeMode == null) selectedNodeMode = currentSavedNodeMode();
-  document.querySelectorAll("[data-node-mode]").forEach((card) => {
-    card.classList.toggle("selected", card.dataset.nodeMode === selectedNodeMode);
-  });
-  const input = document.querySelector("[data-custom-node-url]");
-  if (input) {
-    input.disabled = selectedNodeMode !== "custom";
-    if (document.activeElement !== input) input.value = getEndpointOverride("trustedNode") || "";
-  }
-}
-
-function selectNodeModeCard(card) {
-  if (!card) return;
-  selectedNodeMode = card.dataset.nodeMode;
-  renderNodeModeCards();
-  if (selectedNodeMode === "custom") document.querySelector("[data-custom-node-url]")?.focus();
-}
-document.querySelector("[data-node-mode-cards]")?.addEventListener("click", (event) => {
-  if (event.target.closest("[data-custom-node-url]")) return; // let the input handle its own clicks
-  selectNodeModeCard(event.target.closest("[data-node-mode]"));
-});
-document.querySelector("[data-node-mode-cards]")?.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" && event.key !== " ") return;
-  const card = event.target.closest("[data-node-mode]");
-  if (!card || event.target.closest("[data-custom-node-url]")) return;
-  event.preventDefault();
-  selectNodeModeCard(card);
-});
-
-document.querySelector("[data-node-apply]")?.addEventListener("click", async (event) => {
-  const button = event.currentTarget;
-  const errorEl = document.querySelector("[data-node-mode-error]");
-  const input = document.querySelector("[data-custom-node-url]");
-  const mode = selectedNodeMode || currentSavedNodeMode();
-  let url = "";
-  if (mode === "custom") {
-    url = String(input?.value || "").trim();
-    if (!/^wss?:\/\/.+/i.test(url)) {
-      if (errorEl) { errorEl.textContent = "Enter a valid wRPC URL that starts with wss:// or ws://"; errorEl.hidden = false; }
-      return;
-    }
-    renderInsecureNodeWarning(url);
-  } else if (mode === "official") {
-    // Kasia's public node: connected to strictly, like a custom node, never scanned around.
-    url = DEFAULT_TRUSTED_NODE;
-  }
-  if (errorEl) errorEl.hidden = true;
-  const label = button.textContent;
-  button.disabled = true;
-  const checking = mode === "custom" ? "Checking your node…" : mode === "official" ? "Checking Kasia's node…" : "Scanning…";
-  button.textContent = checking;
-  const trace = document.querySelector("[data-node-scan-trace]");
-  if (trace) { trace.textContent = mode === "scan" ? "Asking the public node resolver…" : checking; trace.hidden = false; }
-  nodeScanTraceActive = true;
-  try {
-    if (!engine.kaspa) await engine.loadWasm();
-    if (mode === "custom" || mode === "official") {
-      // Strict: confirm the node is reachable, synced, and on mainnet BEFORE we
-      // switch to it. If it fails we surface the error and leave the current node as-is,
-      // never silently falling back to a public one.
-      setStatus(checking);
-      await engine.verifyNode(url);
-    }
-    // Leaving a custom node: forget it entirely. It no longer has a way back in - there is no
-    // last-good chain or standby pool any more - but a stale entry in the registry is still worth
-    // clearing, since the user asked for that node to be gone.
-    if (mode === "scan") {
-      const previousCustom = getEndpointOverride("trustedNode").trim();
-      // Purge both the URL the user typed AND the URL we're actually connected on — the WASM
-      // client can normalize the endpoint, so the registry key may differ from the typed value.
-      const liveEndpoint = engine.rpc?.url || engine.connectionSnapshot?.().primaryEndpoint || "";
-      if (previousCustom) engine.forgetNode?.(previousCustom);
-      if (liveEndpoint) engine.forgetNode?.(liveEndpoint);
-    }
-    setEndpoint("trustedNode", url); // "" clears the override, returning to K's node
-    setEndpoint("nodeScan", "");
-    setStatus(mode === "custom" ? "Connecting to your node…" : mode === "official" ? "Connecting to Kasia's node…" : "Scanning public nodes…");
-    await engine.connect({ force: true });
-    await connectAndRefresh({ quiet: true });
-    showCopyToast(mode === "custom" ? "Connected to your node" : mode === "official" ? "Connected to Kasia's node" : "Connected automatically");
-  } catch (error) {
-    if (errorEl) { errorEl.textContent = `Could not connect: ${describeConnectError(error)}`; errorEl.hidden = false; }
-    setStatus("Connection failed");
-  } finally {
-    nodeScanTraceActive = false;
-    if (trace) trace.hidden = true;
-    button.disabled = false;
-    button.textContent = label;
-    renderConnectionStatus();
-  }
-});
 
 // Step 102/104 — 5-tab bottom-center navigation. Cold Storage/Portfolio
 // are placeholder screens for now; Chats is the existing sidebar+detail view;
@@ -8886,19 +8585,13 @@ function refreshKachatIdentity() {
     .then((identity) => {
       if (engine.address !== address) return;
       const label = identity?.label ? String(identity.label) : "";
-      const changed = refreshKachatIdentity.address !== address || refreshKachatIdentity.label !== label;
       refreshKachatIdentity.address = address;
       refreshKachatIdentity.label = label;
-      if (changed) {
-        const nameEl = document.querySelector("[data-profile-hero-name]");
-        if (nameEl) nameEl.textContent = label ? kachatNameDisplay(label) : defaultAliasFor(address);
-      }
       return kachatHeroProfile(address);
     })
     .then((hero) => {
       if (engine.address !== address || hero === undefined) return;
       refreshKachatIdentity.hero = hero ? { ...hero, address } : null;
-      applyKachatHeroProfile(refreshKachatIdentity.hero);
     })
     .catch(() => { /* registry unreadable: the short address stays */ });
 }
@@ -8925,46 +8618,6 @@ function syncOwnKachatProfile({ maxAgeMs = 0, repaint = true } = {}) {
     .catch(() => false);
 }
 
-/** Paints the .kachat profile over the hero (testnet). `hero` = { avatarUrl, bannerUrl, bio,
- *  linktreeUrl, address } | null; null hides only the Linktree link and leaves the KNS paint. */
-function applyKachatHeroProfile(hero) {
-  const linkEl = document.querySelector("[data-profile-hero-linktree]");
-  const current = hero && hero.address === engine.address ? hero : null;
-  if (linkEl) {
-    const url = current?.linktreeUrl || "";
-    linkEl.hidden = !url;
-    if (url) {
-      linkEl.href = url;
-      const text = linkEl.querySelector("[data-profile-hero-linktree-text]");
-      if (text) text.textContent = url.replace(/^https:\/\//, "");
-    }
-  }
-  if (!current) return;
-  const bannerEl = document.querySelector("[data-profile-hero-banner]");
-  const avatarEl = document.querySelector("[data-profile-hero-avatar]");
-  const bioEl = document.querySelector("[data-profile-hero-bio]");
-  // DSK-016: .kachat banners may be relayed blob: URLs, so local schemes are allowed here.
-  const heroBannerSafe = safeCssUrl(current.bannerUrl, { allowLocal: true });
-  if (bannerEl && heroBannerSafe) {
-    bannerEl.style.backgroundImage = `url("${heroBannerSafe}")`;
-    fitBackgroundBanner(bannerEl, heroBannerSafe);
-  }
-  if (avatarEl && current.avatarUrl && avatarEl.dataset.avatarUrl !== current.avatarUrl) {
-    avatarEl.dataset.avatarUrl = current.avatarUrl;
-    const img = document.createElement("img");
-    img.alt = "";
-    img.referrerPolicy = "no-referrer";
-    img.src = current.avatarUrl;
-    // A host that refuses hotlinking gets one retry through the relay (kachatImageSrc).
-    img.addEventListener("error", async () => {
-      if (img.dataset.relayed) { img.remove(); return; }
-      img.dataset.relayed = "1";
-      try { const relayed = await kachatImageSrc(current.avatarUrl, { viaRelay: true }); if (relayed) img.src = relayed; else img.remove(); } catch { img.remove(); }
-    }, { once: false });
-    avatarEl.replaceChildren(img);
-  }
-  if (bioEl && current.bio) { bioEl.hidden = false; bioEl.textContent = current.bio; }
-}
 /// Testnet (iOS e52357d): when a cached .kachat answer lands (a name, a face, a bio), repaint what
 /// is on screen - the chat list, the open chat's header (and its messages when a face in them
 /// changed), the open group's messages, the open User Info and the public rooms. At most once a
@@ -9027,55 +8680,9 @@ function repaintKachatIdentities() {
 // A background refresh of a social profile repaints the hero.
 try { onKachatSocialChange(() => { refreshKachatIdentity.at = 0; if (engine.address) refreshKachatIdentity(); }); } catch { /* mainnet / not ready */ }
 
-function updateProfileHero(info, profileInfo) {
-  const bannerEl = document.querySelector("[data-profile-hero-banner]");
-  const avatarEl = document.querySelector("[data-profile-hero-avatar]");
-  const nameEl = document.querySelector("[data-profile-hero-name]");
-  const bioEl = document.querySelector("[data-profile-hero-bio]");
-  // Your domain name (a .kachat name, once they exist) or your short address - never the account
-  // name, which is your own label, and never a .kas name (iOS 3041164, 509c0fe).
-  const domain = engine.knsNamesAsIdentity ? (info?.explicitPrimaryDomain || info?.primaryDomain || "") : "";
-  // Testnet: your .kachat label (your primary name while you hold it - active or in grace - else
-  // your oldest held name; KACHAT_NAMES.md section 7, iOS f7c371a) is your name on the hero (iOS 5df42b4).
-  const kachatLabel = refreshKachatIdentity.address === engine.address ? refreshKachatIdentity.label : "";
-  const displayName = kachatLabel
-    ? kachatNameDisplay(kachatLabel)
-    : domain
-      ? (domain.toLowerCase().endsWith(".kas") ? domain.slice(0, -4) : domain)
-      : defaultAliasFor(engine.address || ""); // iOS Contact.generateDefaultAlias
-  if (nameEl) nameEl.textContent = displayName;
+function updateProfileHero() {
   if (kachatProfiles() && (refreshKachatIdentity.address !== engine.address || Date.now() - (refreshKachatIdentity.at || 0) > 60_000)) {
     refreshKachatIdentity();
-  }
-  // Testnet: the .kachat profile (pictures and bio looked up from its social links, and its
-  // Linktree link) comes first; the KNS one otherwise (iOS ad32798, 1322216). Applied after the
-  // KNS paint so a KNS refresh never overwrites it.
-  window.setTimeout(() => applyKachatHeroProfile(refreshKachatIdentity.hero), 0);
-  // Testnet (iOS e52357d): no KNS fallback at all - no KNS banner, avatar or bio. What the .kachat
-  // profile paints (applyKachatHeroProfile) is left alone here, so a refresh never flashes it.
-  // Every network since iOS 7227d69: mainnet shows no KNS banner, avatar or bio either.
-  if (kachatNamesUiEnabled()) {
-    const hero = refreshKachatIdentity.hero?.address === engine.address ? refreshKachatIdentity.hero : null;
-    if (bioEl && !hero?.bio) { bioEl.hidden = true; bioEl.textContent = ""; }
-    if (bannerEl && !hero?.bannerUrl) { bannerEl.style.backgroundImage = ""; fitBackgroundBanner(bannerEl, ""); }
-    if (avatarEl && !hero?.avatarUrl && avatarEl.dataset.avatarUrl !== "") {
-      avatarEl.dataset.avatarUrl = "";
-      avatarEl.innerHTML = `<svg viewBox="0 0 24 24"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.118a7.5 7.5 0 0 1 15 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.5-1.632Z"/></svg>`;
-    }
-    return;
-  }
-  const bio = profileInfo?.profile?.bio || "";
-  if (bioEl) { bioEl.hidden = !bio; bioEl.textContent = bio; }
-  const bannerUrl = safeCssUrl(profileInfo?.profile?.bannerUrl); // DSK-016: remote KNS URL, http(s) only
-  if (bannerEl) { bannerEl.style.backgroundImage = bannerUrl ? `url("${bannerUrl}")` : ""; fitBackgroundBanner(bannerEl, bannerUrl); }
-  const avatarUrl = profileInfo?.profile?.avatarUrl || "";
-  // Same image as last paint: leave the element alone rather than reloading it (a cache-first
-  // paint followed by a refresh would otherwise flash the avatar twice).
-  if (avatarEl && avatarEl.dataset.avatarUrl === avatarUrl) { /* unchanged */ } else if (avatarEl) {
-    avatarEl.dataset.avatarUrl = avatarUrl;
-    avatarEl.innerHTML = avatarUrl
-      ? `<img src="${escapeHtml(avatarUrl)}" alt="" />`
-      : `<svg viewBox="0 0 24 24"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.118a7.5 7.5 0 0 1 15 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.5-1.632Z"/></svg>`;
   }
 }
 
@@ -9107,22 +8714,18 @@ async function refreshOwnKnsProfile({ force = false } = {}) {
 }
 
 function applyOwnKnsProfile(info, profileInfo) {
-  updateProfileHero(info, profileInfo);
+  updateProfileHero();
   try { refreshDockProfileAvatar(); } catch { /* not started */ }
   // Before the primary-domain branch below: Your Domains lists everything this account owns, and
   // an account with domains but no primary set still owns them (iOS yourDomainsSection).
   setProfileDomains(info);
 
   if (!info?.primaryDomain) {
-    if (profileKnsEmptyCta) profileKnsEmptyCta.hidden = false;
-    if (profileKnsOwned) profileKnsOwned.hidden = true;
     ownKnsAssetId = null;
     ownKnsProfileFields = null;
     return;
   }
 
-  if (profileKnsEmptyCta) profileKnsEmptyCta.hidden = true;
-  if (profileKnsOwned) profileKnsOwned.hidden = false;
   ownKnsAssetId = info.primaryInscriptionId || null;
   ownKnsProfileFields = profileInfo?.profile || null;
 }
@@ -9176,7 +8779,6 @@ const spendingVisBackBtn = document.querySelector("[data-spending-vis-back]");
 const spendingVisTitleEl = document.querySelector("[data-spending-vis-title]");
 const spendingVisHideAllBtn = document.querySelector("[data-spending-hide-all]");
 let spendingListToken = 0;
-const SPENDING_GAP_LIMIT = 20;
 
 function activeAccountMnemonic() {
   return activeSavedAccountRecord()?.mnemonic || "";
@@ -9239,10 +8841,6 @@ const spendingStateIo = {
   readState: (owner) => getSpendingState(owner),
   writeState: (patch, owner) => saveSpendingState(patch, owner),
 };
-
-function getActiveSpendingIndex() {
-  return getSpendingState().activeIndex;
-}
 
 /** Every revealed spending index of the state, the legacy chain then the quantum-safe one (iOS
  *  allSpendingAddresses covers both). */
@@ -9380,14 +8978,6 @@ function receiveIndexOf(owner) {
 }
 async function verifiedFreshQuantumIndexFor(account) {
   return (await freshQuantumSlotFor(account)).index;
-}
-
-/// iOS verifiedFreshQuantumIndex(): the probe for the account active now, captured at the call. Null
-/// without a readable seed - no slot could be derived or checked, so none is offered unchecked.
-async function verifiedFreshQuantumIndexActive() {
-  const account = captureActiveSpendingAccount();
-  if (!account) return null;
-  return verifiedFreshQuantumIndexFor(account);
 }
 
 /// A fresh quantum slot AND its address, both from the account active when this was called (iOS
@@ -12404,40 +11994,6 @@ async function loadSpendingDetailUtxos(address) {
   }
 }
 
-// Compound/consolidate every UTXO at the spending-detail address into one, by sending the balance
-// back to itself (matches iOS's WithdrawKaspaView isCompoundMode). Confirm first, then broadcast.
-let spendingConsolidateInFlight = false;
-async function consolidateSpendingDetailUtxos() {
-  const address = spendingDetailAddress;
-  const index = spendingDetailIndex;
-  if (!address || spendingConsolidateInFlight) return;
-  // The account whose address this is, taken now (iOS ca09dd0, IOS-109): it signs, and the quantum
-  // spent mark is its, even if another account is active once the node answers.
-  const account = captureActiveSpendingAccount();
-  if (!account) { showCopyToast("This account has no 12 or 24 words, so consolidation isn't available."); return; }
-  let balance;
-  try { balance = await engine.balanceForAddress(address); } catch (error) { showCopyToast(`Could not load balance: ${userFacingError(error)}`); return; }
-  const entries = balance.entries || [];
-  if (entries.length < 2) { showCopyToast("Nothing to consolidate: this address has a single UTXO."); return; }
-  if (!(BigInt(balance.totalSompi ?? 0) > 0n)) { showCopyToast("Balance too low to consolidate."); return; }
-  if (!await confirmText(`Combine ${entries.length} UTXOs at this address into one? This sends the balance back to this same address and pays a small network fee.`)) return;
-  spendingConsolidateInFlight = true;
-  showCopyToast("Consolidating UTXOs…");
-  try {
-    // Exact single-output sweep (total - fee, no change), audit DSK-019: a self-send of
-    // "balance minus a fixed headroom" left the unspent headroom as a tiny change output that
-    // KIP-9 storage mass rejects.
-    await engine.compoundSpending({ ...spendingSignerArgs(account), index });
-    showCopyToast("UTXOs consolidated.");
-    if (spendingDetailAddress === address) loadSpendingDetailUtxos(address);
-    refreshSpendingSummary?.();
-  } catch (error) {
-    showCopyToast(`Consolidation failed: ${userFacingError(error)}`);
-  } finally {
-    spendingConsolidateInFlight = false;
-  }
-}
-
 function setSpendingDetailTab(tab) {
   document.querySelectorAll("[data-spending-detail-tab]").forEach((b) => b.classList.toggle("active", b.dataset.spendingDetailTab === tab));
   document.querySelectorAll("[data-spending-detail-panel]").forEach((p) => { p.hidden = p.dataset.spendingDetailPanel !== tab; });
@@ -13318,33 +12874,6 @@ async function lowestUnusedRegularIndex() {
   return state.maxIndex + 1;
 }
 
-/// The lowest hidden quantum-safe slot that is confirmed unused - not the primary, no balance, no
-/// history (recycling un-hides it) - else one past the quantum chain's end, which is always safe
-/// (iOS bba1b1e lowestUnusedQuantumAddress). An unknown balance or history never recycles.
-async function lowestUnusedQuantumIndex() {
-  const state = getSpendingState();
-  const hidden = new Set(state.hidden.map(Number));
-  const candidates = [];
-  for (const i of spendingRevealedIndices(state)) {
-    if (!isQuantumIndex(i) || !hidden.has(i) || i === state.activeIndex) continue;
-    const address = deriveSpendingAddressAt(i);
-    if (address) candidates.push([i, address]);
-  }
-  if (candidates.length) {
-    let balances = null;
-    try { balances = await spendingBalancesBatchSompi(candidates.map(([, address]) => address)); } catch { balances = null; }
-    if (balances) {
-      for (const [i, address] of candidates) {
-        if (Number(balances.get(address) || 0) > 0) continue;
-        if ((await spendingAddressHasHistory(address)) === false) return i;
-      }
-    }
-  }
-  // past the chain's end, checked on chain first (iOS da2c8e2, IOS-101), for the account active now
-  // (iOS 6891935 verifiedFreshQuantumIndex(), IOS-109)
-  return verifiedFreshQuantumIndexActive();
-}
-
 // Profile decides the Receive address on its way in (iOS warmReceiveAddress /
 // ReceiveAddressWarmCache), so opening Receive Kaspa is a read rather than a round trip. At most
 // every 30 s per account, like Profile's other on-show refreshes; a keychain still unlocking is
@@ -13486,8 +13015,6 @@ function closeChattingAddressScreen() {
 document.querySelector("[data-open-chatting-address]")?.addEventListener("click", openChattingAddressScreen);
 document.querySelector("[data-close-chatting-address]")?.addEventListener("click", closeChattingAddressScreen);
 document.querySelector("[data-chatting-address-done]")?.addEventListener("click", closeChattingAddressScreen);
-// Profile's row: the QR code and only that; the balance is Wallet's (iOS bfe9f022).
-document.querySelector("[data-profile-chatting-address]")?.addEventListener("click", () => { openChattingAddressScreen({ showsBalance: false }); });
 
 // Tap anywhere on the chatting-address card to copy it (iOS ChattingAddressQRView, which has no
 // Copy button: "Tap anywhere to copy" is the whole affordance). The back button keeps its own
@@ -13511,9 +13038,6 @@ document.addEventListener("keydown", (event) => {
 // over Help (their modal band, z 2000, is above these overlays' 1500).
 const helpScreenEl = document.querySelector("[data-help-screen]");
 
-document.querySelector("[data-open-help-screen]")?.addEventListener("click", () => {
-  if (helpScreenEl) helpScreenEl.hidden = false;
-});
 document.querySelector("[data-close-help-screen]")?.addEventListener("click", () => {
   if (helpScreenEl) helpScreenEl.hidden = true;
 });
@@ -13968,13 +13492,11 @@ document.querySelector("[data-help-kns]")?.addEventListener("click", () => {
 });
 // ...and the kUSDT Guide after it (KaPay 3d126db TokenGuideView), over Help like the others.
 document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { openKusdtGuide(); });
-// The Profile hero's button edits your .kachat profile (iOS 09e0403).
-document.querySelector("[data-open-kachat-profile]")?.addEventListener("click", () => openKachatProfileEditor());
 
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 317;
+const APP_BUILD = 318;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -14012,10 +13534,6 @@ const OPEN_SOURCE_NOTICES = [
   { name: "node-qrcode", license: "MIT", holder: "Copyright (c) 2012 Ryan Day" },
   { name: "Vite", license: "MIT", holder: "Copyright (c) 2019-present VoidZero Inc. and Vite contributors" },
 ];
-// Profile's Share Profile row (iOS 863b0e9, bfe9f022): a kachat.app link to you. Pasted anywhere it previews
-// with your KNS name and avatar; opened with KaChat it starts a chat with you; without it, the
-// page offers the download. The browser's share sheet when there is one, else the clipboard.
-document.querySelector("[data-profile-share]")?.addEventListener("click", () => shareOwnProfile());
 async function shareOwnProfile() {
   if (!engine.address) { showCopyToast("Sign in to share your profile."); return; }
   // The link and nothing else (iOS 7ce35ef): it previews with your name and avatar on its own.
@@ -14382,7 +13900,6 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
 // Control (UTXO selection).
 const sendKaspaModal = document.querySelector("[data-send-kaspa-modal]");
 function closeSendKaspaModal() {
-  closeOwnAddressPicker();
   closeCoinControlPicker();
   const wasOpen = sendKaspaModal && !sendKaspaModal.hidden;
   if (sendKaspaModal) sendKaspaModal.hidden = true;
@@ -14463,7 +13980,6 @@ const sendKaspaFiatHint = document.querySelector("[data-send-kaspa-fiat]");
 const sendKaspaPasteButton = document.querySelector("[data-send-kaspa-paste]");
 const sendKaspaFeeButtons = document.querySelectorAll("[data-send-kaspa-fee]");
 const sendKaspaFeeCustom = document.querySelector("[data-send-kaspa-fee-custom]");
-const sendKaspaFeeSummary = document.querySelector("[data-send-kaspa-fee-summary]");
 const sendKaspaCoinToggle = document.querySelector("[data-send-kaspa-coin-toggle]");
 
 let sendKaspaUnit = "kas";        // "kas" | "fiat"
@@ -14522,7 +14038,6 @@ function sendKaspaBackFrom(step) {
   return null;
 }
 function goSendKaspaStep(step, options = {}) {
-  closeOwnAddressPicker();
   // Back from a pasted request: the recipient starts over (iOS go(to: .recipient)).
   if (step === "to" && sendKaspaPaymentRequest && !sendKaspaRequestFromLink) clearPastedSendKaspaRequest();
   const back = sendKaspaBackFrom("review");
@@ -15580,7 +15095,6 @@ function openSendKaspaModal(options = {}) {
   sendKaspaRequestFromLink = Boolean(options?.paymentRequest) && !sendKaspaCompound;
   sendKaspaChoosingFrom = false;
   renderSendKaspaPaymentRequest();
-  closeOwnAddressPicker();
   sendKaspaSwipe.reset();
   sendKaspaSwipe.setKasUnit(KAS_UNIT);
   sendKaspaSlider.busy = false;
@@ -15689,18 +15203,6 @@ function mountOwnAddressListFor(list, { selectedAddress, onPick, excludeQuantum 
     onPick,
   });
 }
-function openOwnAddressPickerFor({ title, selectedAddress, onPick, excludeQuantum = false }) {
-  openOwnAddressPicker({
-    title,
-    selectedAddress,
-    excludeQuantum,
-    loadEntries: async () => { await ensureRuntimes({ quiet: true }); return loadOwnAddressEntries(); },
-    cachedUsed: ownAddressCachedUsed,
-    probeUsed: ownAddressProbeUsed,
-    kasUnit: KAS_UNIT,
-    onPick,
-  });
-}
 
 // From on Send Kaspa (iOS 6333dd3): the chatting address (null) or a spending address. The fee
 // estimate, Max and the send itself follow it; coin control and a custom fee reset (they belong to
@@ -15734,7 +15236,6 @@ function switchSendKaspaSource(pickedIndex, label = null) {
 }
 
 document.querySelectorAll("[data-close-send-kaspa]").forEach((button) => button.addEventListener("click", closeSendKaspaModal));
-document.querySelector("[data-open-send-kaspa]")?.addEventListener("click", openSendKaspaModal);
 
 // --- Manage Address screen (matches iOS's ChattingAddressManageView for this
 // pass: real transaction history + real UTXOs + Receive/Send/Explorer/Private
@@ -15942,34 +15443,6 @@ function utxoOutpointKey(outpoint) {
 // re-hitting the node for balance.
 let lastManageAddressUtxos = [];
 
-// Compound/consolidate every UTXO at the chatting (identity) address into one, by sending the
-// balance back to itself (matches iOS's Compound UTXOs). Confirm first, then broadcast.
-let manageConsolidateInFlight = false;
-async function consolidateManageAddressUtxos() {
-  if (manageConsolidateInFlight) return;
-  const address = engine.address;
-  if (!address) return;
-  let balance;
-  try { balance = await engine.balance(); } catch (error) { showCopyToast(`Could not load balance: ${userFacingError(error)}`); return; }
-  const entries = balance.entries || [];
-  if (entries.length < 2) { showCopyToast("Nothing to consolidate: this address has a single UTXO."); return; }
-  if (!(BigInt(balance.totalSompi ?? 0) > 0n)) { showCopyToast("Balance too low to consolidate."); return; }
-  if (!await confirmText(`Combine ${entries.length} UTXOs at this address into one? This sends the balance back to this same address and pays a small network fee.`)) return;
-  manageConsolidateInFlight = true;
-  showCopyToast("Consolidating UTXOs…");
-  try {
-    // Exact single-output sweep (sweepAllToSelf: total - fee, no change), audit DSK-019.
-    await engine.compoundUtxos();
-    showCopyToast("UTXOs consolidated.");
-    loadManageAddressUtxos();
-    refreshBalanceOnly?.({ quiet: true });
-  } catch (error) {
-    showCopyToast(`Consolidation failed: ${userFacingError(error)}`);
-  } finally {
-    manageConsolidateInFlight = false;
-  }
-}
-
 function renderManageAddressUtxos() {
   if (!manageAddressUtxosList) return;
   const address = engine.address;
@@ -16063,7 +15536,6 @@ async function openManageAddressScreen() {
   ]);
 }
 
-document.querySelector("[data-open-manage-address]")?.addEventListener("click", openManageAddressScreen);
 document.querySelector("[data-close-manage-address]")?.addEventListener("click", closeManageAddressScreen);
 document.querySelector("[data-manage-address-receive]")?.addEventListener("click", () => {
   closeManageAddressScreen();
@@ -16082,69 +15554,10 @@ function showManageView(view) {
 // UTXOs fund the send. No selection = automatic coin selection (spend all/auto).
 const manageSendCoinToggle = document.querySelector("[data-manage-send-coin-toggle]");
 const manageSendCoinList = document.querySelector("[data-manage-send-coin-list]");
-const manageSendCoinSummary = document.querySelector("[data-manage-send-coin-summary]");
 const selectedSendOutpoints = new Set();
 
 function getSelectedSendOutpoints() {
   return [...selectedSendOutpoints];
-}
-
-function updateSendCoinSummary() {
-  if (!manageSendCoinSummary) return;
-  if (!selectedSendOutpoints.size) { manageSendCoinSummary.textContent = "Automatic"; return; }
-  let totalSompi = 0n;
-  for (const entry of lastManageAddressUtxos) {
-    if (selectedSendOutpoints.has(utxoOutpointKey(entry.outpoint || {}))) totalSompi += BigInt(entry.amount || 0);
-  }
-  manageSendCoinSummary.textContent = `${selectedSendOutpoints.size} · ${sompiToKasDisplay(totalSompi)} ${KAS_UNIT}`;
-}
-
-function renderSendCoinControl() {
-  selectedSendOutpoints.clear();
-  updateSendCoinSummary();
-  if (manageSendCoinList) manageSendCoinList.hidden = true;
-  if (manageSendCoinToggle) manageSendCoinToggle.setAttribute("aria-expanded", "false");
-  if (!manageSendCoinList) return;
-  manageSendCoinList.replaceChildren();
-  if (!lastManageAddressUtxos.length) {
-    manageSendCoinList.innerHTML = '<div class="manage-address-empty">No UTXOs to select.</div>';
-    return;
-  }
-  const labels = getUtxoLabels(engine.address);
-  for (const entry of lastManageAddressUtxos) {
-    const outpointKey = utxoOutpointKey(entry.outpoint || {});
-    const row = document.createElement("label");
-    row.className = "manage-send-coin-row";
-
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.className = "manage-send-coin-check";
-    checkbox.addEventListener("change", () => {
-      if (checkbox.checked) selectedSendOutpoints.add(outpointKey);
-      else selectedSendOutpoints.delete(outpointKey);
-      updateSendCoinSummary();
-    });
-
-    const meta = document.createElement("span");
-    meta.className = "manage-send-coin-meta";
-    if (labels[outpointKey]) {
-      const labelEl = document.createElement("span");
-      labelEl.className = "manage-send-coin-label";
-      labelEl.textContent = labels[outpointKey];
-      meta.appendChild(labelEl);
-    }
-    const outpointEl = document.createElement("span");
-    outpointEl.className = "manage-send-coin-outpoint";
-    outpointEl.textContent = outpointKey;
-    meta.appendChild(outpointEl);
-
-    const amountEl = document.createElement("span");
-    amountEl.className = "manage-send-coin-amount";
-    amountEl.textContent = `${sompiToKasDisplay(BigInt(entry.amount || 0))} ${KAS_UNIT}`;
-
-    row.append(checkbox, meta, amountEl);
-    manageSendCoinList.appendChild(row);
-  }
 }
 
 manageSendCoinToggle?.addEventListener("click", () => {
@@ -16297,17 +15710,6 @@ manageSendMaxButton?.addEventListener("click", () => {
   manageSendAmountInput.dispatchEvent(new Event("input")); // re-run send validity
 });
 
-function resetManageSendExtras() {
-  manageSendUnit = "kas";
-  applyManageSendUnit();
-  selectManageSendFeeTier("0");
-  if (manageSendFiatHint) manageSendFiatHint.hidden = true;
-  manageSendPrice = null;
-  manageSendAvailableKas = null;
-  fetchKasPrice(selectedCurrency).then((price) => { manageSendPrice = price; updateManageSendFiatHint(); });
-  engine.balance().then((b) => { manageSendAvailableKas = Number(b.totalKas); }).catch(() => {});
-}
-
 const manageSendController = makeSendController({
   recipient: document.querySelector("[data-manage-send-recipient]"),
   resolvedHint: document.querySelector("[data-manage-send-resolved]"),
@@ -16404,7 +15806,6 @@ const revealPrivatekeyButton = document.querySelector("[data-reveal-privatekey]"
 const privatekeyProgressFill = document.querySelector("[data-privatekey-progress]");
 const privatekeyValueBox = document.querySelector("[data-privatekey-value]");
 const copyPrivatekeyButton = document.querySelector("[data-copy-privatekey]");
-const PRIVATEKEY_HOLD_MS = 5000;
 let privatekeyHoldStartedAt = 0;
 let privatekeyHoldFrame = 0;
 let privatekeyHoldPointerId = null;
@@ -16427,31 +15828,6 @@ function revealPrivatekeyAfterHold() {
   privatekeyValueBox.hidden = false;
   if (revealPrivatekeyButton) revealPrivatekeyButton.hidden = true;
   if (copyPrivatekeyButton) copyPrivatekeyButton.hidden = false;
-  resetPrivatekeyHold();
-}
-
-function updatePrivatekeyHold(now) {
-  if (!privatekeyHoldStartedAt) return;
-  const elapsed = Math.max(0, now - privatekeyHoldStartedAt);
-  const progress = Math.min(1, elapsed / PRIVATEKEY_HOLD_MS);
-  if (privatekeyProgressFill) privatekeyProgressFill.style.width = `${progress * 100}%`;
-  if (progress >= 1) { revealPrivatekeyAfterHold(); return; }
-  privatekeyHoldFrame = requestAnimationFrame(updatePrivatekeyHold);
-}
-
-function beginPrivatekeyHold(event) {
-  if (!revealPrivatekeyButton || revealPrivatekeyButton.hidden || privatekeyHoldStartedAt) return;
-  if (event.pointerType === "mouse" && event.button !== 0) return;
-  event.preventDefault();
-  privatekeyHoldPointerId = event.pointerId;
-  try { revealPrivatekeyButton.setPointerCapture(event.pointerId); } catch {}
-  revealPrivatekeyButton.classList.add("is-holding");
-  privatekeyHoldStartedAt = performance.now();
-  privatekeyHoldFrame = requestAnimationFrame(updatePrivatekeyHold);
-}
-
-function cancelPrivatekeyHold(event) {
-  if (event && privatekeyHoldPointerId !== null && event.pointerId !== privatekeyHoldPointerId) return;
   resetPrivatekeyHold();
 }
 
@@ -16587,16 +15963,6 @@ copyPrivatekeyButton?.addEventListener("click", async () => {
   privateKeyClipboardTimer = window.setTimeout(() => { copyTextToClipboard(" ").catch(() => {}); }, 30_000);
 });
 
-document.querySelectorAll("[data-profile-dropdown], [data-settings-dropdown]").forEach((dropdown) => {
-  const toggle = dropdown.querySelector("[data-dropdown-toggle]");
-  const body = dropdown.querySelector(".profile-dropdown-body, .settings-dropdown-body");
-  toggle?.addEventListener("click", () => {
-    const expanded = toggle.getAttribute("aria-expanded") === "true";
-    toggle.setAttribute("aria-expanded", String(!expanded));
-    if (body) body.hidden = expanded;
-  });
-});
-
 
 // Kaspa Explorer selector (Settings > Connectivity). Persists the chosen
 // explorer, reflects it in the dropdown's current-value label + checkmark, and
@@ -16618,10 +15984,6 @@ explorerOptionButtons.forEach((button) => {
     persistAccountShellPreferences();
     refreshExplorerSelectionUi();
     if (manageAddressExplorerLink && engine.address) manageAddressExplorerLink.href = explorerAddressUrl(engine.address);
-    const dropdownBody = button.closest(".settings-dropdown-body");
-    const dropdownToggle = button.closest(".settings-dropdown")?.querySelector("[data-dropdown-toggle]");
-    if (dropdownBody) dropdownBody.hidden = true;
-    if (dropdownToggle) dropdownToggle.setAttribute("aria-expanded", "false");
   });
 });
 refreshExplorerSelectionUi();
@@ -16679,16 +16041,6 @@ function isMessageRetentionExpired(message, cutoff) {
   const createdAt = Number(message.createdAt || 0);
   if (!Number.isFinite(createdAt) || createdAt <= 0) return false;
   return createdAt < cutoff;
-}
-
-/** Counts what the current window would delete right now, without touching anything. */
-function countMessagesOutsideRetention(cutoff) {
-  if (!cutoff) return 0;
-  let total = 0;
-  for (const entry of state.conversations || []) {
-    for (const message of entry.messages || []) if (isMessageRetentionExpired(message, cutoff)) total += 1;
-  }
-  return total;
 }
 
 /** Deletes everything outside the window from this browser and returns how many went. */
@@ -17422,37 +16774,6 @@ function renderConnectionStatus() {
   // No Backup Node row and no Recent Auto-Reconnects list: iOS shows neither.
 }
 
-const photoQualityModal = document.querySelector("[data-photo-quality-modal]");
-const photoQualitySlider = document.querySelector("[data-photo-quality-slider]");
-const photoQualitySummaryEl = document.querySelector("[data-photo-quality-summary]");
-// Draft index while the sheet is open; only committed to storage on Save (matches iOS).
-function renderPhotoQualityDraft(index) {
-  const clamped = Math.min(Math.max(index, 0), PHOTO_QUALITY_PRESETS.length - 1);
-  const preset = PHOTO_QUALITY_PRESETS[clamped];
-  if (photoQualitySlider) photoQualitySlider.value = String(clamped);
-  if (photoQualitySummaryEl) photoQualitySummaryEl.textContent = photoQualitySummary(preset);
-}
-document.querySelector("[data-open-photo-quality]")?.addEventListener("click", () => {
-  const currentIndex = PHOTO_QUALITY_PRESETS.findIndex((p) => p.id === getPhotoQualityPresetId());
-  renderPhotoQualityDraft(currentIndex < 0 ? 1 : currentIndex);
-  if (photoQualityModal) photoQualityModal.hidden = false;
-});
-photoQualitySlider?.addEventListener("input", () => {
-  renderPhotoQualityDraft(Number(photoQualitySlider.value));
-});
-document.querySelectorAll("[data-close-photo-quality]").forEach((button) => {
-  button.addEventListener("click", () => {
-    if (photoQualityModal) photoQualityModal.hidden = true;
-  });
-});
-document.querySelector("[data-save-photo-quality]")?.addEventListener("click", () => {
-  const index = photoQualitySlider ? Number(photoQualitySlider.value) : 1;
-  const preset = PHOTO_QUALITY_PRESETS[Math.min(Math.max(index, 0), PHOTO_QUALITY_PRESETS.length - 1)];
-  setPhotoQualityPresetId(preset.id);
-  if (photoQualityModal) photoQualityModal.hidden = true;
-  showCopyToast(`Photo quality set to ${preset.name}`);
-});
-
 // --- KNS registration wizard --------------------------------------------------
 // Real, on-chain domain registration (commit+reveal) followed by an optional
 // profile-details save. Every step here spends real KAS once "Register
@@ -17960,7 +17281,6 @@ knsWizardBodyEl?.addEventListener("click", async (event) => {
   }
 });
 
-document.querySelector("[data-open-kns-register]")?.addEventListener("click", () => openKnsProfileWizard());
 document.querySelectorAll("[data-close-kns-register]").forEach((button) => button.addEventListener("click", closeKnsRegisterModal));
 
 // --- KNS profile editor (for an already-registered domain) -------------------
@@ -18019,7 +17339,6 @@ function renderKnsEditorImages() {
   updateKnsEditorSaveState();
 }
 
-document.querySelector("[data-open-kns-editor]")?.addEventListener("click", () => openKnsEditor());
 // target: { assetId, name, fields } for one domain's own profile; none edits the primary.
 function openKnsEditor(target = null) {
   knsEditorTarget = target;
@@ -18406,7 +17725,7 @@ function updateChatFundingGate() {
 }
 
 document.querySelector("[data-funding-gate]")?.addEventListener("click", async (event) => {
-  if (event.target.closest("[data-funding-gate-address]") || event.target.closest("[data-funding-gate-copy]")) {
+  if (event.target.closest("[data-funding-gate-address]")) {
     if (!engine.address) return;
     try { await copyTextToClipboard(engine.address); showCopyToast(addressCopiedToastText(engine.address)); }
     catch (error) { appendEngineLog(error.message); }
@@ -18465,33 +17784,12 @@ function updateWalletUi() {
   if (chattingAddressBalance && chattingAddressScreenAddress === address) {
     chattingAddressBalance.textContent = kasExact8Label(currentBalanceKas);
   }
-  if (profileAddress) profileAddress.textContent = address || "No wallet loaded";
-  if (profileInitial) profileInitial.textContent = address ? accountName.trim().charAt(0).toUpperCase() || "K" : "◎";
   if (profileAccountName && document.activeElement !== profileAccountName) profileAccountName.value = accountName;
-  if (profileSessionState) profileSessionState.textContent = "";
   // iOS SharedFormatting.mediumDateShortTime: medium date, short time.
   if (profileCreated) profileCreated.textContent = meta?.createdAt ? new Date(meta.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "--";
-  if (settingsAccountName) settingsAccountName.textContent = accountName;
-  if (settingsAccountAddress) settingsAccountAddress.textContent = address ? shortAddress(address) : "No wallet loaded";
   if (accountModalName) accountModalName.textContent = accountName;
   if (accountModalAddress) accountModalAddress.textContent = address ? shortAddress(address) : "No wallet loaded";
   if (accountModalInitial) accountModalInitial.textContent = address ? accountName.trim().charAt(0).toUpperCase() || "K" : "◎";
-  if (profileQrCard && !address) profileQrCard.hidden = true;
-  drawProfileQr();
-}
-
-async function drawProfileQr() {
-  if (!profileQr) return; // inline profile QR card removed — Receive Kaspa uses the full-screen view
-  const ctx = profileQr.getContext("2d");
-  ctx.clearRect(0, 0, profileQr.width, profileQr.height);
-
-  if (!engine.address) return;
-
-  try {
-    await engine.drawQr(profileQr);
-  } catch (error) {
-    appendEngineLog(`QR failed: ${error.message}`);
-  }
 }
 
 function setCreateChatError(message = "") {
@@ -18523,7 +17821,6 @@ document.querySelector("[data-create-chat-status]")?.addEventListener("click", (
   renderCreateChatStatus(createChatResolvedStatusHtml(entry));
   if (createChatAddButton) createChatAddButton.disabled = false;
   renderCreateChatPreview();
-  renderCreateChatPicker();
 });
 function renderCreateChatStatus(html) {
   const statusEl = document.querySelector("[data-create-chat-status]");
@@ -18545,7 +17842,6 @@ function updateCreateChatAddState() {
     createChatAddButton.disabled = true;
     createChatResolvedAddress = "";
     renderCreateChatPreview();
-    renderCreateChatPicker();
     return;
   }
 
@@ -18562,7 +17858,6 @@ function updateCreateChatAddState() {
     createChatAddButton.disabled = !valid;
     createChatResolvedAddress = valid ? raw : "";
     renderCreateChatPreview();
-    renderCreateChatPicker();
     return;
   }
 
@@ -18573,7 +17868,6 @@ function updateCreateChatAddState() {
     createChatAddButton.disabled = true;
     createChatResolvedAddress = "";
     renderCreateChatPreview();
-    renderCreateChatPicker();
     window.setTimeout(async () => {
       if (token !== createChatResolveToken) return;
       try {
@@ -18587,7 +17881,6 @@ function updateCreateChatAddState() {
           createChatAddButton.disabled = false;
           createChatResolvedAddress = resolution.ownerAddress;
           renderCreateChatPreview();
-          renderCreateChatPicker();
         } else {
           // Nothing for the ending typed, but another service may have it (Other domains opens).
           renderCreateChatStatus(`<span class="create-chat-status-bad">✕ ${escapeHtml(nameNotFoundText(raw, createChatNameResults))}</span>`
@@ -18605,7 +17898,6 @@ function updateCreateChatAddState() {
   createChatAddButton.disabled = true;
   createChatResolvedAddress = "";
   renderCreateChatPreview();
-  renderCreateChatPicker();
 }
 
 // ---------------------------------------------------------------------------
@@ -18616,11 +17908,6 @@ function updateCreateChatAddState() {
 // once it validates. Empty until one of those is true, so nothing downstream ever renders a
 // half-typed address as though it were a person.
 let createChatResolvedAddress = "";
-let createChatPickerRows = [];
-let createChatPickerLoaded = false;
-let createChatPickerLoading = false;
-let createChatPickerSearching = false;
-let createChatPickerQuery = "";
 let createChatPreviewToken = 0;
 
 function createChatEffectiveAddress() {
@@ -18803,153 +18090,6 @@ function renderCreateChatPreview() {
   }
 }
 
-/// The rows actually shown: everything, or what the search box matches by name or address.
-function filteredCreateChatPickerRows() {
-  const query = createChatPickerQuery.trim().toLowerCase();
-  if (!createChatPickerSearching || !query) return createChatPickerRows;
-  return createChatPickerRows.filter((row) =>
-    row.name.toLowerCase().includes(query) || row.address.toLowerCase().includes(query));
-}
-
-/// Second line of a row: the follow relationship when there is one, since that is the thing you
-/// would not otherwise know; the short address for someone you simply have a chat with, where the
-/// name above it is already the useful part.
-function createChatPickerSubtitle(row) {
-  if (row.youFollow && row.followsYou) return "You follow each other";
-  if (row.youFollow) return "You follow them";
-  if (row.followsYou) return "Follows you";
-  return shortAddress(row.address);
-}
-
-function renderCreateChatPicker() {
-  const section = document.querySelector("[data-create-chat-picker-section]");
-  const list = document.querySelector("[data-create-chat-picker-list]");
-  const toggle = document.querySelector("[data-create-chat-picker-search-toggle]");
-  const search = document.querySelector("[data-create-chat-picker-search]");
-  if (!section || !list) return;
-
-  // Nothing to offer and nothing on the way: the section stays out of the way entirely rather
-  // than sitting there as an empty heading.
-  if (!createChatPickerLoading && createChatPickerRows.length === 0) {
-    section.hidden = true;
-    return;
-  }
-  section.hidden = false;
-  if (toggle) toggle.hidden = createChatPickerRows.length === 0;
-  if (search) search.hidden = !createChatPickerSearching;
-
-  if (createChatPickerLoading && createChatPickerRows.length === 0) {
-    list.innerHTML = `<p class="create-chat-picker-empty">Loading contacts…</p>`;
-    return;
-  }
-
-  const rows = filteredCreateChatPickerRows();
-  if (rows.length === 0) {
-    list.innerHTML = `<p class="create-chat-picker-empty">No matches</p>`;
-    return;
-  }
-
-  const chosen = createChatEffectiveAddress();
-  list.innerHTML = rows.map((row) => {
-    const avatarUrl = kachatNamesUiEnabled() ? "" : (engine.peekKnsAddressProfile?.(row.address)?.profile?.avatarUrl || "");
-    const kachatImg = kachatNamesUiEnabled() ? kachatAvatarImgHtml(row.address) : "";
-    return `
-      <button type="button" class="create-chat-picker-row${row.address === chosen ? " picked" : ""}" data-create-chat-pick="${escapeHtml(row.address)}">
-        <span class="create-chat-picker-avatar">${kachatImg || (avatarUrl
-          ? `<img src="${escapeHtml(avatarUrl)}" alt="" />`
-          : personGlyphSvg())}</span>
-        <span class="create-chat-picker-copy">
-          <span class="create-chat-picker-name">${escapeHtml(row.name)}</span>
-          <span class="create-chat-picker-sub">${escapeHtml(createChatPickerSubtitle(row))}</span>
-        </span>
-        ${row.address === chosen ? `<span class="create-chat-picker-check" aria-hidden="true">✓</span>` : ""}
-      </button>`;
-  }).join("");
-}
-
-function buildCreateChatPickerRows(addresses, { known, youFollow, followsYou }) {
-  const mine = engine.address || "";
-  return [...addresses]
-    .filter((address) => address && address !== mine)
-    .map((address) => {
-      const contact = (state.contacts || []).find((entry) => entry.address === address);
-      return {
-        address,
-        name: contact ? displayNameForAddress(contact)
-          : identityNameForAddress(address),
-        isContact: known.has(address),
-        youFollow: youFollow.has(address),
-        followsYou: followsYou.has(address),
-      };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-}
-
-/// Everyone you could plausibly want to message: your existing chats plus both directions of your
-/// KaPosts follow graph. A chat you had months ago is buried far down the chat list, so it belongs
-/// here next to the people you follow.
-///
-/// The address book renders first so the list is useful immediately, then the follow lists merge
-/// in when the indexer answers - the network is never on the critical path to a usable picker.
-async function loadCreateChatPicker() {
-  if (createChatPickerLoaded) { renderCreateChatPicker(); return; }
-  createChatPickerLoaded = true;
-  createChatPickerLoading = true;
-
-  const mine = engine.address || "";
-  const known = new Set((state.contacts || []).map((contact) => contact.address).filter((a) => a && a !== mine));
-  const youFollow = new Set(kaPostsFollowingAddresses().filter((a) => a && a !== mine));
-  const followsYou = new Set();
-
-  createChatPickerRows = buildCreateChatPickerRows(new Set([...known, ...youFollow]), { known, youFollow, followsYou });
-  renderCreateChatPicker();
-
-  try {
-    const pubkey = requesterPubkeyFor(engine);
-    if (pubkey) {
-      for (const wantFollowers of [false, true]) {
-        const raw = await fetchFollowListAll({ engine, pubkey, followers: wantFollowers });
-        for (const item of raw || []) {
-          const rowPubkey = item?.userPublicKey || item?.publicKey || item?.pubkey
-            || item?.followedPubkey || item?.followerPubkey || item?.user || "";
-          const address = item?.address || kaspaAddressFromPubkey(engine, rowPubkey) || "";
-          if (!address || address === mine) continue;
-          (wantFollowers ? followsYou : youFollow).add(address);
-        }
-      }
-    }
-  } catch {
-    // An unreachable indexer costs the follow rows, not the picker: the address book already
-    // rendered, and there is nothing useful to say about a list nobody asked for out loud.
-  }
-
-  const all = new Set([...known, ...youFollow, ...followsYou]);
-  createChatPickerRows = buildCreateChatPickerRows(all, { known, youFollow, followsYou });
-  createChatPickerLoading = false;
-  renderCreateChatPicker();
-
-  if (all.size === 0) return;
-  // Names and avatars land after the rows do; repaint once they have, so the list ends up sorted
-  // and labelled by domain rather than by truncated address.
-  try {
-    await engine.refreshKnsIfNeeded?.([...all]);
-    if (!contactModal || contactModal.hidden) return;
-    createChatPickerRows = buildCreateChatPickerRows(all, { known, youFollow, followsYou });
-    renderCreateChatPicker();
-  } catch { /* cached names are fine */ }
-}
-
-function resetCreateChatPicker() {
-  createChatPickerLoaded = false;
-  createChatPickerLoading = false;
-  createChatPickerRows = [];
-  createChatPickerSearching = false;
-  createChatPickerQuery = "";
-  createChatResolvedAddress = "";
-  const query = document.querySelector("[data-create-chat-picker-query]");
-  if (query) query.value = "";
-}
-
 function setContactAddressValue(value) {
   if (!contactAddressInput) return;
   contactAddressInput.value = String(value || "").trim();
@@ -18963,7 +18103,7 @@ function showContactModal() {
   delete contactModal.dataset.fromNewSheet;
   contactModal.hidden = false;
   setCreateChatError("");
-  resetCreateChatPicker();
+  createChatResolvedAddress = "";
   updateCreateChatAddState();
   // No Contacts list to load any more: the Address Book button picks someone (iOS 1be4f6e).
   window.setTimeout(() => contactAddressInput?.focus(), 0);
@@ -19007,7 +18147,7 @@ function closeContactModal(options = {}) {
   contactForm.reset();
   updateCreateChatPrivateFooter();
   setCreateChatError("");
-  resetCreateChatPicker();
+  createChatResolvedAddress = "";
   updateCreateChatAddState();
   // From the Chats New sheet: Cancel goes back to its menu; a chat started lands on Chats.
   const fromNewSheet = contactModal.dataset.fromNewSheet === "1";
@@ -19280,6 +18420,7 @@ function renderChats() {
   emptyState.hidden = !(noRows && !anyPinnedGroup && !searching);
   chatList.hidden = !requestsRowHtml && noRows;
   if (noRows) {
+    lastChatListHtml = null;
     chatList.innerHTML = requestsRowHtml;
     chatRowSwipes?.refresh();
     return;
@@ -19309,8 +18450,12 @@ function renderChats() {
   ].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.at - a.at || a.order - b.order);
   // iOS: "{n} chat(s)" under the list.
   const countLineHtml = `<p class="chat-list-count">${rows.length} chat${rows.length === 1 ? "" : "s"}</p>`;
-  chatList.innerHTML = requestsRowHtml + rows.map((row) => row.html()).join("") + countLineHtml;
-  chatRowSwipes?.refresh();
+  const listHtml = requestsRowHtml + rows.map((row) => row.html()).join("") + countLineHtml;
+  if (listHtml !== lastChatListHtml) {
+    chatList.innerHTML = listHtml;
+    lastChatListHtml = listHtml;
+    chatRowSwipes?.refresh();
+  }
 
   refreshVisibleKnsNames(visibleConversations);
 }
@@ -19664,7 +18809,7 @@ function renderMessages(conversationEntry) {
     // at ingest, never shown as bubbles. Filter them at render too, so any that slipped into storage
     // before interception existed — or via a history restore that didn't intercept — don't leak as
     // raw JSON.
-    .filter((m) => !parseReactionEnvelope(m?.text) && !isPaymentPoolEnvelope(m?.text) && !parseEditEnvelope(m?.text));
+    .filter((m) => !isControlEnvelopeText(m?.text));
   // A long voice note's or multi-part photo's later parts: drawn as one bubble at the first.
   const partsInfo = oneToOnePartsFor(conversationEntry, visibleMessages);
   const messages = partsInfo.hidden.size ? visibleMessages.filter((m) => !partsInfo.hidden.has(m.id)) : visibleMessages;
@@ -19704,7 +18849,7 @@ function renderMessages(conversationEntry) {
   // re-scanned and re-parsed the whole conversation for every chess bubble (O(n²)).
   const latestChessByGame = new Map();
   for (const m of messages) {
-    const env = Chess.parseChessEnvelope(Chess.unwrapReplyText(m.text));
+    const env = chessEnvelopeOf(m.text);
     if (env) {
       const at = m.createdAt || 0;
       if (at > (latestChessByGame.get(env.gameId) ?? -1)) latestChessByGame.set(env.gameId, at);
@@ -19771,7 +18916,7 @@ function renderMessages(conversationEntry) {
       row.classList.add("selected");
     }
 
-    const chessEnv = Chess.parseChessEnvelope(Chess.unwrapReplyText(message.text));
+    const chessEnv = chessEnvelopeOf(message.text);
     const isPendingHandshakeRequest = false;
     if (isPendingHandshakeRequest) {
       bubble.classList.add("handshake-request-bubble");
@@ -20093,6 +19238,7 @@ function markChatRowOpened(conversationId) {
   if (chatSelectionModeActive) return false;
   const row = chatList?.querySelector(`[data-conversation-id="${CSS.escape(conversationId)}"]`);
   if (!row) return false;
+  lastChatListHtml = null;
   chatList.querySelectorAll(".chat-row.active").forEach((el) => { if (el !== row) el.classList.remove("active"); });
   row.classList.add("active");
   row.classList.remove("unread");
@@ -20145,7 +19291,6 @@ function openConversation(conversationId) {
   conversationName.textContent = displayNameForAddress(contact);
   updateAvatarElement(conversationAvatarInitials, conversationAvatarImage, contact);
   updateConversationBio(contact);
-  if (conversationAddress) conversationAddress.textContent = contact.address;
   if (syncStatus) syncStatus.textContent = syncLabel(conversationEntry);
   renderMessages(conversationEntry);
   // A Send KAS sheet belongs to the chat it was opened in.
@@ -21088,7 +20233,6 @@ tipSteps.setOrder(["from", "amount", "review", "fee"]);
 let tipChoosingFrom = false;
 
 function goTipStep(step, options = {}) {
-  closeOwnAddressPicker();
   tipSwipe.setBack(() => goTipStep("amount"));
   tipSteps.go(step, options);
   if (step === "review") renderTipReview();
@@ -22121,7 +21265,6 @@ async function openTipModal({ address, name, tip = null, onTipped = null, error 
     : null;
 
   closeCoinControlPicker();
-  closeOwnAddressPicker();
   if (tipFeeTimer) window.clearTimeout(tipFeeTimer);
   tipFeeTimer = null;
   tipFeeEstimateToken += 1;
@@ -22182,7 +21325,6 @@ async function openTipModal({ address, name, tip = null, onTipped = null, error 
 function closeTipModal({ force = false } = {}) {
   if (tipState?.sending && !force) return;
   closeCoinControlPicker();
-  closeOwnAddressPicker();
   tipSlider.reset();
   if (tipFeeTimer) window.clearTimeout(tipFeeTimer);
   tipFeeTimer = null;
@@ -22801,14 +21943,6 @@ document.querySelectorAll("[data-close-contact]").forEach((button) => {
   button.addEventListener("click", () => closeContactModal({ cancelled: true }));
 });
 
-document.querySelectorAll("[data-open-account-view]").forEach((button) => {
-  button.addEventListener("click", () => {
-    setSettingsAppOnlyMode(false);
-    openAccountOverlay();
-    showSettingsCategory(null); // always land on the hub, matching iOS
-  });
-});
-
 // ---------------------------------------------------------------------------
 // 4.0 settings HUB (matches iOS/Android): the settings screen opens as a flat
 // list of category rows; picking one shows just that category's group with a
@@ -22945,12 +22079,6 @@ document.querySelector("[data-settings-nav-back]")?.addEventListener("click", ()
 function refreshSettingsCaptions() {
   const child = document.querySelector("[data-child-mode-caption]");
   if (child) child.textContent = isChildModeEnabled() ? "On" : "Off";
-  const photo = document.querySelector("[data-photo-quality-current]");
-  // The presets are declared further down the module; the hub renders once at load, before
-  // they exist, and fills this in on the next visit.
-  try { if (photo) photo.textContent = PHOTO_QUALITY_PRESETS.find((p) => p.id === getPhotoQualityPresetId())?.name || ""; } catch {}
-  const cacheCaption = document.querySelector("[data-cache-total-caption]");
-  try { if (cacheCaption) cacheCaption.textContent = formatCacheBytes(cacheCategories().reduce((sum, c) => sum + c.bytes, 0)); } catch {}
   // Storage > Address Book Photos: the space they take on this device (iOS cda0d99).
   try { refreshAddressBookStorageRow(); } catch {}
   // Storage > Message retention is per account, so its picker is re-read on every visit.
@@ -23014,7 +22142,6 @@ if (IS_TESTNET) {
   const readonly = document.querySelectorAll(".connection-readonly code:not([data-kns-url])");
   if (readonly[0]) readonly[0].textContent = "https://api-tn10.dotk.name/v1";
   if (readonly[1]) { const em = document.createElement("em"); em.textContent = "Not available on this network"; readonly[1].replaceWith(em); }
-  document.querySelectorAll('[data-node-mode="official"]').forEach((card) => { card.hidden = true; });
 }
 
 // Connection Settings: one tab per kind of connection (iOS ee01f81). Every field saves as it
@@ -23249,28 +22376,7 @@ document.querySelector("[data-logged-out-settings]")?.addEventListener("click", 
 });
 
 contactModal.addEventListener("click", (event) => {
-  if (event.target === contactModal) { closeContactModal({ cancelled: true }); return; }
-
-  const pick = event.target.closest("[data-create-chat-pick]");
-  if (pick) {
-    // Same as typing it: the row is a shortcut into the field, not a second way to add, so the
-    // preview, the status line and the Add button all come from the one code path.
-    setContactAddressValue(pick.dataset.createChatPick);
-    return;
-  }
-  if (event.target.closest("[data-create-chat-picker-search-toggle]")) {
-    createChatPickerSearching = !createChatPickerSearching;
-    if (!createChatPickerSearching) createChatPickerQuery = "";
-    renderCreateChatPicker();
-    if (createChatPickerSearching) {
-      window.setTimeout(() => document.querySelector("[data-create-chat-picker-query]")?.focus(), 0);
-    }
-  }
-});
-
-document.querySelector("[data-create-chat-picker-query]")?.addEventListener("input", (event) => {
-  createChatPickerQuery = String(event.target.value || "");
-  renderCreateChatPicker();
+  if (event.target === contactModal) closeContactModal({ cancelled: true });
 });
 
 contactAddressInput?.addEventListener("input", () => {
@@ -23496,7 +22602,6 @@ function closeChatsForAccountSwitch() {
   const step = (fn) => { try { fn(); } catch { /* that part not initialized yet */ } };
   step(() => { if (messageSelectionMode) { messageSelectionMode = false; selectedMessageIds.clear(); updateSelectionUi(); } });
   step(() => cancelReply());
-  step(() => closeMessageDetails());
   step(() => closeChatInfoSheet());
   step(() => closeChatInfo());
   step(() => { if (paySheetConversationId) closePaymentSheet(); });
@@ -24347,6 +23452,9 @@ clearChatButton.addEventListener("click", () => {
   conversationEntry.messages = [];
   conversationEntry.updatedAt = Date.now();
   conversationEntry.lastActivityAt = conversationEntry.updatedAt;
+  // Nothing marks these hidden, so the recovery copies (unioned in on load) are written now, not
+  // up to a minute later: a reload straight after must not bring the chat back.
+  lastStateBackupWriteAt = 0;
   persistState();
   renderMessages(conversationEntry);
   setStatus("Local chat cleared");
@@ -24412,7 +23520,7 @@ async function runSyncPreview(conversationId) {
     syncPreviewButton.disabled = true;
     setStatus("Querying Kasia indexer and decrypting messages…");
     const knownTxids = conversationEntry.messages.map((message) => message.txid).filter(Boolean);
-    const indexerUrl = indexerUrlInput?.value?.trim() || getEndpoint("kasiaIndexer");
+    const indexerUrl = getEndpoint("kasiaIndexer");
     const result = await engine.syncConversationFromIndexer({
       conversationId,
       contact,
@@ -24517,70 +23625,7 @@ messageArea.addEventListener("keydown", (event) => {
   }
 });
 
-document.querySelectorAll("[data-close-message-details]").forEach((button) => {
-  button.addEventListener("click", closeMessageDetails);
-});
-
-messageDetailsModal?.addEventListener("click", async (event) => {
-  if (event.target === messageDetailsModal) {
-    closeMessageDetails();
-    return;
-  }
-  const action = event.target.closest("[data-message-action]")?.dataset.messageAction;
-  if (!action) return;
-  const { message } = activeMessageRecord();
-  if (!message) return;
-  try {
-    if (action === "copy-message") {
-      await copyTextToClipboard(displayTextForMessage(message));
-      closeMessageDetails();
-      showCopyToast("Message copied");
-    } else if (action === "reply") {
-      closeMessageDetails();
-      startReplyTo(message.id);
-    } else if (action === "view-explorer") {
-      if (message.txid) window.open(explorerTxUrl(message.txid), "_blank", "noopener,noreferrer");
-      closeMessageDetails();
-    } else if (action === "select") {
-      enterMessageSelection(message.id);
-    }
-  } catch (error) {
-    setStatus(`Message action failed: ${error.message}`);
-  }
-});
-
-document.querySelectorAll("[data-close-export-choice]").forEach((button) => button.addEventListener("click", closeExportChoice));
-exportChoiceModal?.addEventListener("click", (event) => {
-  if (event.target === exportChoiceModal) closeExportChoice();
-});
-document.querySelectorAll("[data-export-format]").forEach((button) => {
-  button.addEventListener("click", () => {
-    const { message } = activeMessageRecord();
-    if (!message) return;
-    try {
-      if (button.dataset.exportFormat === "csv") exportMessageCsv(message);
-      else exportMessagePdf(message);
-      closeExportChoice();
-    } catch (error) {
-      setStatus(`Export failed: ${error.message}`);
-    }
-  });
-});
-
 document.querySelector("[data-cancel-selection]")?.addEventListener("click", exitMessageSelection);
-document.querySelector("[data-select-all-messages]")?.addEventListener("click", () => {
-  if (!messageSelectionMode) return;
-  // Toggle: everything already selected -> deselect all (matches iOS's Select All/Deselect All).
-  const allIds = Array.from(messageArea?.querySelectorAll("[data-message-id]") || [])
-    .map((el) => String(el.dataset.messageId))
-    .filter(Boolean);
-  const allSelected = allIds.length > 0 && allIds.every((id) => selectedMessageIds.has(id));
-  selectedMessageIds.clear();
-  if (!allSelected) for (const id of allIds) selectedMessageIds.add(id);
-  updateSelectionUi();
-  const conversationEntry = state.conversations.find((entry) => entry.id === activeConversationId);
-  if (conversationEntry) renderMessages(conversationEntry);
-});
 document.querySelector("[data-delete-selected]")?.addEventListener("click", openDeleteSelectedConfirmation);
 document.querySelector("[data-cancel-delete-selected]")?.addEventListener("click", closeDeleteSelectedConfirmation);
 document.querySelector("[data-confirm-delete-selected]")?.addEventListener("click", deleteSelectedMessages);
@@ -24590,10 +23635,7 @@ deleteConfirmModal?.addEventListener("click", (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !contactModal.hidden) closeContactModal({ cancelled: true });
-  if (event.key === "Escape" && messageDetailsModal && !messageDetailsModal.hidden) closeMessageDetails();
-  if (event.key === "Escape" && exportChoiceModal && !exportChoiceModal.hidden) closeExportChoice();
   if (event.key === "Escape" && messageSelectionMode) exitMessageSelection();
-  if (event.key === "Escape" && onchainConfirmModal && !onchainConfirmModal.hidden) closeOnchainConfirm();
   if (event.key === "Escape" && importPayloadModal && !importPayloadModal.hidden) closeImportPayloadModal();
 });
 
@@ -24988,7 +24030,6 @@ let payChoosingFrom = false;
 let paymentSourceBalanceSompi = null;
 
 function goPayStep(step, options = {}) {
-  closeOwnAddressPicker();
   paySwipe.setBack(() => goPayStep("amount"));
   paySteps.go(step, options);
   if (step === "review") renderPayReview();
@@ -25578,7 +24619,6 @@ function closePaymentSheet({ force = false } = {}) {
   // A payment on its way can't be walked away from mid-send (iOS interactiveDismissDisabled).
   if ((paymentSendInFlight || paySwipe.sending) && !force) return;
   cancelPaymentHold();
-  closeOwnAddressPicker();
   closeCoinControlPicker();
   paySheet.hidden = true;
   paySheetConversationId = null;
@@ -27103,31 +26143,6 @@ const PHOTO_DEFAULT_TARGET_BYTES = 15000;
 const PHOTO_MAX_SHRINK_ATTEMPTS = 4;
 const PHOTO_SHRINK_FACTOR = 0.7;
 
-// Chats > Photo Quality: user-selectable send compression budget, mirroring iOS's
-// ChatPhotoQualityPreset (Data Saver / Balanced / High / Best with the same target
-// byte budgets). Only affects photos you SEND; received photos are untouched.
-const PHOTO_QUALITY_KEY = "kachat-photo-quality-preset";
-const PHOTO_QUALITY_PRESETS = [
-  { id: "dataSaver", name: "Data Saver", bytes: 10000 },
-  { id: "balanced", name: "Balanced", bytes: 15000 },
-  { id: "high", name: "High", bytes: 31000 },
-  { id: "best", name: "Best", bytes: 50000 },
-];
-const PHOTO_QUALITY_DEFAULT_ID = "balanced";
-function photoQualityPresetById(id) {
-  return PHOTO_QUALITY_PRESETS.find((p) => p.id === id) || PHOTO_QUALITY_PRESETS[1];
-}
-function getPhotoQualityPresetId() {
-  try {
-    const stored = localStorage.getItem(PHOTO_QUALITY_KEY);
-    if (stored && PHOTO_QUALITY_PRESETS.some((p) => p.id === stored)) return stored;
-  } catch {}
-  return PHOTO_QUALITY_DEFAULT_ID;
-}
-function setPhotoQualityPresetId(id) {
-  if (!PHOTO_QUALITY_PRESETS.some((p) => p.id === id)) return;
-  try { localStorage.setItem(PHOTO_QUALITY_KEY, id); } catch {}
-}
 // The on-chain photo budget of a GROUP photo: 15 KB. The Photo Quality setting and its presets
 // are gone (iOS d36a82f); a stored preset is ignored.
 function photoQualityTargetBytes() {
@@ -27137,9 +26152,6 @@ function photoQualityTargetBytes() {
 // media frame (engine/media-frame.js), one base64 layer instead of two, so a 20 KB photo costs
 // what a 15 KB one did (~27 KB of payload). iOS's "Higher quality photos" (32 KB) is not on Desktop.
 const CHAT_PHOTO_TARGET_BYTES = 20000;
-function photoQualitySummary(preset) {
-  return `${preset.name} · ~${Math.round(preset.bytes / 1000)} KB`;
-}
 
 function loadImageFromBlob(blob) {
   return new Promise((resolve, reject) => {
@@ -27634,7 +26646,6 @@ function oneToOnePartPayloadSizes(partSizes) {
 const VOICE_AUDIO_BITS_PER_SECOND = 6000;
 
 const voiceRecordingPanel = document.querySelector("[data-voice-recording-panel]");
-const voiceRecordingTimeEl = document.querySelector("[data-voice-recording-time]");
 
 function formatRecordingTime(seconds) {
   const m = Math.floor(seconds / 60);
@@ -28085,6 +27096,27 @@ function memoizedEnvelopeParse(kind, text, parser) {
   return result;
 }
 function parseImageEnvelope(text) { return memoizedEnvelopeParse("image", text, parseImageEnvelopeUncached); }
+function renderMemo(kind, text, compute) {
+  if (typeof text !== "string") return compute(text);
+  const memo = renderEnvelopeMemos[kind];
+  if (memo.has(text)) return memo.get(text);
+  const result = compute(text);
+  if (memo.size > 4000) memo.clear();
+  memo.set(text, result);
+  return result;
+}
+/** A reaction, payment-pool or edit envelope: applied at ingest, never drawn as a bubble. */
+function isControlEnvelopeText(text) {
+  return renderMemo("control", text, (t) => Boolean(parseReactionEnvelope(t) || isPaymentPoolEnvelope(t) || parseEditEnvelope(t)));
+}
+/** A group thread hides reactions and edits only (a pool envelope there is drawn as today). */
+function isGroupControlEnvelopeText(text) {
+  return renderMemo("groupControl", text, (t) => Boolean(parseReactionEnvelope(t) || parseEditEnvelope(t)));
+}
+/** The chess envelope in a message, reply-wrapped or not; the same object for the same text. */
+function chessEnvelopeOf(text) {
+  return renderMemo("chess", text, (t) => Chess.parseChessEnvelope(Chess.unwrapReplyText(t)));
+}
 function parseAudioEnvelope(text) { return memoizedEnvelopeParse("audio", text, parseAudioEnvelopeUncached); }
 function parseReplyEnvelope(text) { return memoizedEnvelopeParse("reply", text, parseReplyEnvelopeUncached); }
 
@@ -28863,10 +27895,6 @@ const ARCHIVE_STATUS_BY_DESKTOP_STATUS = {
   [MESSAGE_STATUSES.CONFIRMED]: "sent",
   [MESSAGE_STATUSES.FAILED]: "failed",
 };
-
-// iOS's DeliveryStatus.priority — used when the same txId turns up on both
-// sides of a merge with different statuses.
-const ARCHIVE_STATUS_PRIORITY = { pending: 0, warning: 1, failed: 2, sent: 3 };
 
 const ARCHIVE_MESSAGE_TYPES = new Set(["handshake", "contextual", "payment", "audio"]);
 const UUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -29729,19 +28757,11 @@ function schedulePersistState() {
 }
 
 
-if (indexerUrlInput) {
-  indexerUrlInput.value = localStorage.getItem(INDEXER_URL_KEY) || indexerUrlInput.value || getEndpoint("kasiaIndexer");
-  indexerUrlInput.addEventListener("change", () => {
-    localStorage.setItem(INDEXER_URL_KEY, indexerUrlInput.value.trim());
-    renderTransportReadiness();
-  });
-}
-
 testIndexerButton?.addEventListener("click", async () => {
   try {
     testIndexerButton.disabled = true;
     setStatus("Testing Kasia indexer…");
-    const result = await engine.testKasiaIndexer(indexerUrlInput?.value?.trim());
+    const result = await engine.testKasiaIndexer();
     setStatus("Kasia indexer connected");
     appendEngineLog(`Kasia indexer online: ${result.baseUrl}`);
   } catch (error) {
@@ -29752,23 +28772,6 @@ testIndexerButton?.addEventListener("click", async () => {
   }
 });
 
-document.querySelectorAll("[data-cancel-onchain-send]").forEach((button) => {
-  button.addEventListener("click", closeOnchainConfirm);
-});
-
-document.querySelector("[data-confirm-onchain-send]")?.addEventListener("click", () => {
-  const draft = pendingOnchainDraft;
-  if (!draft) return closeOnchainConfirm();
-  if (composer?.elements?.message) composer.elements.message.value = "";
-  syncComposerSlots();
-  closeOnchainConfirm();
-  queueConversationMessage(draft.conversationId, draft.text);
-});
-
-onchainConfirmModal?.addEventListener("click", (event) => {
-  if (event.target === onchainConfirmModal) closeOnchainConfirm();
-});
-
 document.querySelector("[data-load-wasm]").addEventListener("click", async () => {
   await ensureRuntimes();
 });
@@ -29776,25 +28779,6 @@ document.querySelector("[data-load-wasm]").addEventListener("click", async () =>
 
 document.querySelector("[data-load-kasia-cipher]")?.addEventListener("click", async () => {
   await ensureRuntimes();
-});
-
-function openSavedAccounts() {
-  localStorage.setItem(SESSION_LOGGED_OUT_KEY, "true");
-  clearSessionActive();
-  showLoggedOutScreen();
-}
-
-document.querySelectorAll("[data-open-account-manager]").forEach((button) => {
-  const label = button.textContent?.trim().toLowerCase() || "";
-  button.addEventListener("click", () => {
-    if (label.includes("add") || button.classList.contains("profile-account-add")) createNewAccount();
-    else openSavedAccounts();
-  });
-});
-
-document.querySelector("[data-open-profile-account]")?.addEventListener("click", () => {
-  closeAccountOverlay();
-  setActiveAppTab("profile");
 });
 
 const createAccountModal = document.querySelector("[data-create-account-modal]");
@@ -30747,7 +29731,6 @@ setupBackBtn?.addEventListener("click", () => {
 });
 setupSkipBtn?.addEventListener("click", () => closeSetupGuide());
 setupGuideModal?.addEventListener("click", (event) => { if (event.target === setupGuideModal) closeSetupGuide(); });
-document.querySelectorAll("[data-open-setup-guide]").forEach((b) => b.addEventListener("click", () => openSetupGuide()));
 
 // --- "Change Chatting Address" picker (iOS ChattingAddressPickerView) --------
 //
@@ -31114,7 +30097,6 @@ document.querySelector("[data-chatting-picker-confirm-switch]")?.addEventListene
 
 const importAccountModal = document.querySelector("[data-import-account-modal]");
 const importNameInput = document.querySelector("[data-import-name]");
-const importPhraseInput = null; // the textarea gave way to the numbered slot grid below
 const importSeedGrid = document.querySelector("[data-import-seed-grid]");
 const importSeedSuggestions = document.querySelector("[data-import-seed-suggestions]");
 const importSeedCount = document.querySelector("[data-import-seed-count]");
@@ -31709,7 +30691,6 @@ function activeSavedAccountRecord() {
 let recoveryHoldStartedAt = 0;
 let recoveryHoldFrame = 0;
 let recoveryHoldPointerId = null;
-const RECOVERY_HOLD_MS = 5000;
 
 function resetRecoveryHold() {
   if (recoveryHoldFrame) cancelAnimationFrame(recoveryHoldFrame);
@@ -31807,37 +30788,6 @@ function revealRecoveryPhraseAfterHold() {
     if (recoveryViewCountdown <= 0) { hideRevealedRecoveryPhrase(); return; }
     renderRecoveryCountdown();
   }, 1000);
-}
-
-function updateRecoveryHold(now) {
-  if (!recoveryHoldStartedAt) return;
-  const elapsed = Math.max(0, now - recoveryHoldStartedAt);
-  const progress = Math.min(1, elapsed / RECOVERY_HOLD_MS);
-  if (recoveryProgressFill) recoveryProgressFill.style.width = `${progress * 100}%`;
-
-  if (progress >= 1) {
-    revealRecoveryPhraseAfterHold();
-    return;
-  }
-
-  recoveryHoldFrame = requestAnimationFrame(updateRecoveryHold);
-}
-
-function beginRecoveryHold(event) {
-  if (!revealRecoveryButton || revealRecoveryButton.hidden || recoveryHoldStartedAt) return;
-  if (event.pointerType === "mouse" && event.button !== 0) return;
-
-  event.preventDefault();
-  recoveryHoldPointerId = event.pointerId;
-  try { revealRecoveryButton.setPointerCapture(event.pointerId); } catch {}
-  revealRecoveryButton.classList.add("is-holding");
-  recoveryHoldStartedAt = performance.now();
-  recoveryHoldFrame = requestAnimationFrame(updateRecoveryHold);
-}
-
-function cancelRecoveryHold(event) {
-  if (event && recoveryHoldPointerId !== null && event.pointerId !== recoveryHoldPointerId) return;
-  resetRecoveryHold();
 }
 
 function closeRecoveryModal() {
@@ -32385,8 +31335,6 @@ function feeEstimateEnabled() {
 
 const prefBindings = [
   ["[data-pref-estimate-fees]", "estimateFees", true],
-  ["[data-pref-hide-payment-chats]", "hidePaymentChats", false],
-  ["[data-pref-show-contact-balance]", "showContactBalance", true],
   // Settings > Notifications (iOS NotificationsHubPage port): Chats / Wallet /
   // KaPosts pages, all default ON.
   ["[data-pref-chat-notifications]", "chatNotifications", true],
@@ -32660,20 +31608,6 @@ initWebPush({
 });
 routePendingNotificationClick();
 
-document.querySelector("[data-generate-wallet]")?.addEventListener("click", createNewAccount);
-
-document.querySelector("[data-import-wallet]")?.addEventListener("click", openImportAccountModal);
-
-document.querySelector("[data-clear-wallet]")?.addEventListener("click", () => {
-  engine.clearSession();
-  clearPersistedTestingWallet();
-  privateKeyInput.value = "";
-  currentBalanceKas = "--";
-  updateWalletUi();
-  updateServiceSummary();
-  appendEngineLog("Session cleared.");
-});
-
 document.querySelector("[data-connect-rpc]").addEventListener("click", async () => {
   await connectAndRefresh();
 });
@@ -32701,31 +31635,6 @@ document.querySelector("[data-clear-local-state]")?.addEventListener("click", as
   renderChats();
   appendEngineLog("Local contacts/conversations cleared.");
   setStatus("Local data cleared");
-});
-
-profileQrCard?.addEventListener("click", () => {
-  if (!engine.address || !profileQrOverlay || !profileQrOverlayCanvas) return;
-  const overlayContext = profileQrOverlayCanvas.getContext("2d");
-  overlayContext.clearRect(0, 0, profileQrOverlayCanvas.width, profileQrOverlayCanvas.height);
-  overlayContext.drawImage(profileQr, 0, 0, profileQrOverlayCanvas.width, profileQrOverlayCanvas.height);
-  profileQrOverlay.hidden = false;
-});
-
-profileQrOverlay?.addEventListener("click", async () => {
-  const target = chattingAddressScreenAddress || engine.address;
-  if (target) {
-    try {
-      await copyTextToClipboard(target);
-      showCopyToast(addressCopiedToastText(target));
-    } catch (error) { appendEngineLog(`Copy failed: ${error.message}`); }
-  }
-  profileQrOverlay.hidden = true;
-});
-
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && profileQrOverlay && !profileQrOverlay.hidden) {
-    profileQrOverlay.hidden = true;
-  }
 });
 
 // Claim Testnet Kaspa (iOS 182ae68, 2a81767): Profile, testnet only. The official TN10 faucet sits
@@ -34412,8 +33321,6 @@ function totalGroupUnread() {
   return mgr.listGroups().reduce((sum, g) => sum + groupDisplayUnread(g, opened), 0);
 }
 
-// --- element refs ---
-const chatSelectRow = document.querySelector("[data-topbar-select-cluster]");
 const groupCreateModal = document.querySelector("[data-group-create-modal]");
 const groupCreateTitle = document.querySelector("[data-group-create-title]");
 const groupNameInput = document.querySelector("[data-group-name-input]");
@@ -34476,6 +33383,11 @@ const GROUP_AVATAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M
 // to/from a browser data URL for rendering / from the compressor's output.
 function groupPhotoDataUrl(hex) {
   if (!hex) return "";
+  // Group rows asked for this on every chat-list redraw: a character-at-a-time hex decode, a base64
+  // encode and a picture check per group, each time (audit 2026-11-21). Same hex, same answer.
+  return renderMemo("groupPhoto", String(hex), groupPhotoDataUrlUncached);
+}
+function groupPhotoDataUrlUncached(hex) {
   try {
     let bin = "";
     for (let i = 0; i < hex.length; i += 2) bin += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
@@ -34572,7 +33484,7 @@ function syncGroupFundingGate() {
   }
 }
 document.querySelector("[data-group-funding-gate]")?.addEventListener("click", async (event) => {
-  if (!event.target.closest("[data-group-funding-gate-address], [data-group-funding-gate-copy]") || !engine.address) return;
+  if (!event.target.closest("[data-group-funding-gate-address]") || !engine.address) return;
   try { await copyTextToClipboard(engine.address); showCopyToast(addressCopiedToastText(engine.address)); } catch {}
 });
 
@@ -35319,10 +34231,8 @@ let groupSelectionMode = false;
 const selectedGroupMessageKeys = new Set();
 function updateGroupSelectionUi() {
   const toolbar = document.querySelector("[data-group-selection-toolbar]");
-  const count = document.querySelector("[data-group-selection-count]");
   const del = document.querySelector("[data-group-delete-selected]");
   if (toolbar) toolbar.hidden = !groupSelectionMode;
-  if (count) count.textContent = `${selectedGroupMessageKeys.size} selected`;
   if (del) del.disabled = selectedGroupMessageKeys.size === 0;
   groupMessageArea?.classList.toggle("selection-mode", groupSelectionMode);
 }
@@ -35387,7 +34297,9 @@ function syncChatHeaderInsets() {
   for (const [header, area] of pairs) {
     if (!header || !area) continue;
     const height = Math.round(header.getBoundingClientRect().height);
-    if (height > 0) area.style.paddingTop = `${height + 12}px`;
+    // Written only when it moved: an unchanged write still dirtied layout on every thread redraw.
+    const padding = `${height + 12}px`;
+    if (height > 0 && area.style.paddingTop !== padding) area.style.paddingTop = padding;
   }
 }
 
@@ -35410,7 +34322,7 @@ function renderGroupMessages() {
   // storage (e.g. via a group-history restore that didn't intercept) so they don't leak as raw JSON.
   const visibleGroupMsgs = groupMessages(activeGroupId).filter(
     (m) => !(m.direction === "incoming" && isGroupMemberHidden(activeGroupId, m.senderAddress))
-      && !parseReactionEnvelope(m?.text) && !parseEditEnvelope(m?.text),
+      && !isGroupControlEnvelopeText(m?.text),
   );
   // A long voice note's or multi-part photo's parts: one bubble at the first (iOS).
   const groupParts = groupPartsFor(activeGroupId, visibleGroupMsgs);
@@ -35718,9 +34630,6 @@ function eligibleGroupContacts(excludeAddresses = []) {
   const addresses = new Set();
   for (const contact of state.contacts || []) {
     if (contact.address && !exclude.has(contact.address)) addresses.add(contact.address);
-  }
-  for (const row of createChatPickerRows) {
-    if (row.address && !exclude.has(row.address)) addresses.add(row.address);
   }
   return [...addresses]
     .map((address) => {
@@ -36609,8 +35518,6 @@ function applyGroupSyncResult(result, { catchUp = false } = {}) {
   return changed;
 }
 
-// --- events ---
-document.querySelectorAll("[data-new-group]").forEach((btn) => btn.addEventListener("click", openGroupCreate));
 document.querySelectorAll("[data-close-group-create]").forEach((button) => {
   button.addEventListener("click", () => closeGroupCreate({ cancelled: true }));
 });
@@ -36730,20 +35637,6 @@ function newChatSheetMenuHtml() {
     ]),
   ];
   return actionRowsSheetHtml("New", rows);
-}
-
-/** A sheet of square tiles under a title (the Chats New sheet). */
-function actionTilesSheetHtml(title, rows) {
-  return `
-    <button class="modal-close" type="button" data-new-chat-sheet-close aria-label="Close">×</button>
-    <h2 class="new-chat-sheet-title">${escapeHtml(title)}</h2>
-    <div class="action-tiles new-chat-sheet-tiles">
-      ${rows.map((row) => `
-        <button type="button" class="action-tile" data-new-chat-choice="${escapeHtml(row.id)}" title="${escapeHtml(row.subtitle)}" aria-description="${escapeHtml(row.subtitle)}">
-          <span class="action-tile-icon" aria-hidden="true">${newChatSheetIcon(row.id)}</span>
-          <span class="action-tile-title">${escapeHtml(row.title)}</span>
-        </button>`).join("")}
-    </div>`;
 }
 
 
@@ -37059,9 +35952,6 @@ const groupPlusButton = document.querySelector("[data-group-plus]");
 const groupPlusMenu = document.querySelector("[data-group-plus-menu]");
 const groupPhotoInput = document.querySelector("[data-group-photo-input]");
 const groupVoicePanel = document.querySelector("[data-group-voice-panel]");
-const groupVoiceTimeEl = document.querySelector("[data-group-voice-time]");
-const groupVoiceCancelBtn = document.querySelector("[data-group-voice-cancel]");
-const groupVoiceStopBtn = document.querySelector("[data-group-voice-stop]");
 const groupReplyBanner = document.querySelector("[data-group-reply-banner]");
 const groupReplyPreview = document.querySelector("[data-group-reply-preview]");
 const groupCancelReplyBtn = document.querySelector("[data-group-cancel-reply]");
@@ -38057,13 +36947,28 @@ keepChatPinnedWhileGrowing(groupMessageArea);
     if (nearBottom()) { bottomSeenAt = Date.now(); btn.hidden = true; return; }
     btn.hidden = false;
     const conversationEntry = state.conversations.find((entry) => entry.id === activeConversationId);
-    const unseen = (conversationEntry?.messages || []).filter((m) => m.direction === "incoming" && (m.createdAt || 0) > bottomSeenAt).length;
+    // Counted from the newest back, stopping at 99 (iOS caps the badge there) or at the first
+    // message older than the last look at the bottom: the whole chat was filtered on every scroll.
+    const all = conversationEntry?.messages || [];
+    let unseen = 0;
+    for (let i = all.length - 1; i >= 0 && unseen < 99; i -= 1) {
+      const m = all[i];
+      if ((m.createdAt || 0) <= bottomSeenAt) break;
+      if (m.direction === "incoming") unseen += 1;
+    }
     countEl.hidden = unseen === 0;
-    countEl.textContent = String(Math.min(unseen, 99)); // iOS caps the badge at 99
+    countEl.textContent = String(unseen);
   }
+  // At most once a frame: scroll events come faster than frames.
+  let queued = false;
+  const queueUpdate = () => {
+    if (queued) return;
+    queued = true;
+    window.requestAnimationFrame(() => { queued = false; update(); });
+  };
   btn.addEventListener("click", () => messageArea.scrollTo({ top: messageArea.scrollHeight, behavior: "smooth" }));
-  messageArea.addEventListener("scroll", update, { passive: true });
-  new MutationObserver(() => window.requestAnimationFrame(update)).observe(messageArea, { childList: true });
+  messageArea.addEventListener("scroll", queueUpdate, { passive: true });
+  new MutationObserver(queueUpdate).observe(messageArea, { childList: true });
 })();
 
 // Scroll-to-latest button for the group thread — appears when scrolled up.

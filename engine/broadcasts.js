@@ -93,14 +93,6 @@ export function isValidBroadcastChannel(name) {
   return name.length > 0 && name.length <= 36 && !/[\s:]/.test(name);
 }
 
-export function isFeaturedBroadcastChannel(name) {
-  return FEATURED_BROADCAST_CHANNELS.includes(normalizeBroadcastChannel(name));
-}
-
-export function isLanguageBroadcastChannel(name) {
-  return LANGUAGE_BROADCAST_CHANNELS.includes(normalizeBroadcastChannel(name));
-}
-
 /** True for the rooms the app ships (featured + curated language rooms). */
 export function isCuratedBroadcastChannel(name) {
   return CURATED_BROADCAST_CHANNELS.includes(normalizeBroadcastChannel(name));

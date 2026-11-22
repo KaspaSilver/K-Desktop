@@ -104,5 +104,3 @@ export async function restoreRememberedVaults({ keepSignedIn = () => true } = {}
   return opened;
 }
 
-/** Erases the remembered copy at once (e.g. "Keep me signed in" switched off). */
-export function forgetRememberedVaults() { return saveNow(); }

@@ -20,6 +20,12 @@
 //   worker-src  'self': the service worker (public/sw.js) and Chess Online's bot search (engine/chess-bot-worker.js).
 //   frame-src   'none': the app embeds no frames.
 //   frame-ancestors 'none' + X-Frame-Options: DENY: nobody may frame the wallet (clickjacking).
+//   Permissions-Policy: the camera (QR scan) and microphone (voice notes) for this origin only; the
+//               powerful features the app never uses (location, payments, USB, serial, Bluetooth)
+//               for nobody, so an injected script can't ask for them either (audit 2026-11-21).
+//   Strict-Transport-Security (https only): a year, so a later visit to any host serving this build
+//               can't be dropped to plain http and handed a key-stealing page. No `preload`: that
+//               one is a commitment for the whole domain, the owner's to make.
 //
 // A plain-http LAN deployment (`vite preview` on 192.168.x.x talking ws:// to a local node) must keep
 // http:/ws: working, so the preview policy adds them and leaves out upgrade-insecure-requests; the
@@ -56,5 +62,7 @@ export function securityHeaders({ https = true } = {}) {
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(self), microphone=(self), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()",
+    ...(https ? { "Strict-Transport-Security": "max-age=31536000; includeSubDomains" } : {}),
   };
 }

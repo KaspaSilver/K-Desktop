@@ -160,11 +160,6 @@ export async function initChatStorage({ shouldMigrateKey = () => false, log = ()
   return { durable };
 }
 
-/** True when IndexedDB is the active store; false means localStorage passthrough. */
-export function isChatStorageDurable() {
-  return durable;
-}
-
 /** Called (with the Error) whenever a debounced IndexedDB flush fails. */
 export function setChatStorageFlushErrorHandler(handler) {
   flushErrorHandler = typeof handler === "function" ? handler : null;
@@ -245,31 +240,3 @@ function flushPendingWrites() {
 // that can await (and they keep the cache coherent when IndexedDB is active).
 // ---------------------------------------------------------------------------
 
-export async function storageGet(key) {
-  if (!durable) {
-    try { return localStorage.getItem(key); } catch { return null; }
-  }
-  return new Promise((resolve, reject) => {
-    const request = db.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).get(key);
-    request.onsuccess = () => resolve(request.result === undefined ? null : request.result);
-    request.onerror = () => reject(request.error || new Error("IndexedDB get failed"));
-  });
-}
-
-export async function storageSet(key, value) {
-  if (!durable) {
-    localStorage.setItem(key, value);
-    return;
-  }
-  cache.set(key, value);
-  await writeEntries(db, new Map([[key, value]]));
-}
-
-export async function storageDelete(key) {
-  if (!durable) {
-    try { localStorage.removeItem(key); } catch { /* ignore */ }
-    return;
-  }
-  cache.delete(key);
-  await writeEntries(db, new Map([[key, DELETE_SENTINEL]]));
-}

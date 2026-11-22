@@ -13,7 +13,7 @@
   <!-- Too-old browsers (no WebAssembly / modern JS, e.g. iOS 10) get a clear message, not a blank layout. -->
   <script src="/browser-check.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=421" />
+  <link rel="stylesheet" href="./ui/styles.css?v=422" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (KaChat iOS 148a5331's new globe) is the tab icon too. -->
@@ -1930,27 +1930,6 @@
     </form>
   </div>
 
-  <div class="modal-backdrop message-action-backdrop" data-message-details-modal hidden>
-    <section class="message-action-sheet" role="dialog" aria-modal="true" aria-label="Message options">
-      <div class="message-action-preview" data-message-details-body>Message</div>
-      <button type="button" data-message-action="copy-message">Copy Message</button>
-      <button type="button" data-message-action="reply">Reply</button>
-      <button type="button" data-message-action="view-explorer" data-message-explorer-row hidden>View in Explorer</button>
-      <button type="button" data-message-action="select">Select Messages</button>
-      <button class="message-action-cancel" type="button" data-close-message-details>Cancel</button>
-    </section>
-  </div>
-
-  <div class="modal-backdrop" data-export-choice-modal hidden>
-    <section class="message-action-sheet export-choice-sheet" role="dialog" aria-modal="true" aria-label="Export raw message data">
-      <div class="message-action-title">Export Raw Data</div>
-      <p class="message-action-note">CSV downloads immediately. PDF opens the browser print dialog so you can save it as a PDF.</p>
-      <button type="button" data-export-format="pdf">Export PDF</button>
-      <button type="button" data-export-format="csv">Export CSV</button>
-      <button class="message-action-cancel" type="button" data-close-export-choice>Cancel</button>
-    </section>
-  </div>
-
 
   <div class="modal-backdrop" data-delete-confirm-modal hidden>
     <section class="contact-modal delete-confirm-modal" role="dialog" aria-modal="true" aria-label="Confirm message deletion">
@@ -2186,37 +2165,6 @@
     </section>
   </div>
 
-  <div class="modal-backdrop" data-onchain-confirm-modal hidden>
-    <section class="contact-modal onchain-confirm-modal" role="dialog" aria-modal="true" aria-label="Confirm on-chain message">
-      <div class="modal-header">
-        <div>
-          <p class="modal-kicker">Real Kaspa transaction</p>
-          <h2>Confirm Message Send</h2>
-        </div>
-        <button class="modal-close" type="button" data-cancel-onchain-send aria-label="Close">×</button>
-      </div>
-      <div class="onchain-summary" data-onchain-summary></div>
-      <p class="field-hint">This will submit a real Kaspa transaction carrying the Kasia COMM payload. Preview mode stays available in Settings.</p>
-      <div class="modal-actions">
-        <button class="secondary-button" type="button" data-cancel-onchain-send>Cancel</button>
-        <button class="primary-button" type="button" data-confirm-onchain-send>Send On-chain</button>
-      </div>
-    </section>
-  </div>
-
-
-
-  <div class="modal-backdrop kas-payment-alert-backdrop" data-kas-payment-alert hidden>
-    <section class="kas-payment-alert" role="dialog" aria-modal="true" aria-labelledby="kas-payment-alert-title">
-      <h2 id="kas-payment-alert-title" data-kas-payment-alert-title>Payment Alert</h2>
-      <p data-kas-payment-alert-message></p>
-      <div class="kas-payment-alert-actions">
-        <button type="button" data-kas-payment-alert-primary>OK</button>
-        <button type="button" data-kas-payment-alert-cancel hidden>Cancel</button>
-      </div>
-    </section>
-  </div>
-
   <div class="modal-backdrop" data-account-rename-modal hidden>
     <form class="contact-modal create-account-modal" data-account-rename-form>
       <div class="modal-header">
@@ -2252,13 +2200,6 @@
         <button class="primary-button" type="submit" data-submit-utxo-rename>Save</button>
       </div>
     </form>
-  </div>
-
-  <div class="profile-qr-overlay" data-profile-qr-overlay hidden role="dialog" aria-modal="true" aria-label="Enlarged Kaspa address QR code">
-    <div class="profile-qr-overlay-card">
-      <canvas width="512" height="512" data-profile-qr-overlay-canvas aria-hidden="true"></canvas>
-      <p class="qr-tap-hint">Tap anywhere to copy</p>
-    </div>
   </div>
 
   <!-- iOS ImagePreviewView: Close, the file name, Share; the photo zooms (click, or the wheel). -->

@@ -50,12 +50,6 @@
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; line-height: 16px;
   color: var(--muted); overflow-wrap: anywhere; user-select: text; -webkit-user-select: text;
 }
-.kl-link {
-  display: inline-flex; align-items: center; gap: 5px;
-  color: var(--kaspa-ink); font-size: 14px; font-weight: 600; text-decoration: none;
-}
-.kl-link:hover { text-decoration: underline; }
-.kl-link .kmkt-ico { width: 15px; height: 15px; }
 
 /* The refresh control (iOS pull to refresh): spins while the registry refreshes. */
 .kl-refresh .kmkt-ico { width: 20px; height: 20px; }
@@ -80,42 +74,15 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .kl-row-text small.kl-orange { color: var(--ios-orange); font-size: 11px; }
-.kl-row-price { flex: 0 0 auto; font-size: 15px; font-weight: 600; color: var(--text); white-space: nowrap; }
 .kl-row-value { flex: 0 0 auto; font-size: 15px; color: var(--text); white-space: nowrap; }
-/* My Names: an active name whose renewal window is open. */
-.kl-renewal-pill {
-  flex: 0 0 auto; padding: 3px 8px; border-radius: 999px; white-space: nowrap;
-  font-size: 11px; font-weight: 700; line-height: 14px;
-  color: var(--ios-orange); background: color-mix(in srgb, var(--ios-orange) 15%, transparent);
-}
-.kl-row-buttons { display: inline-flex; gap: 6px; flex: 0 0 auto; }
-.kl-at-badge {
-  width: 36px; height: 36px; flex: 0 0 auto; border-radius: 50%;
-  display: grid; place-items: center;
-  background: color-mix(in srgb, var(--kaspa) 15%, transparent); color: var(--kaspa-ink);
-}
-.kl-at-badge .kmkt-ico { width: 19px; height: 19px; stroke-width: 2; }
-
-/* A name row with a button beside it (Reclaim). */
-.kl-split {
-  display: flex; align-items: center; gap: 8px; padding-right: 12px;
-  background-image: linear-gradient(var(--line), var(--line));
-  background-size: calc(100% - var(--kmkt-inset)) .5px;
-  background-position: right bottom; background-repeat: no-repeat;
-}
-.kmkt-list > .kl-split:last-child { background-image: none; }
-.kl-split > .kmkt-row { flex: 1; min-width: 0; background-image: none; }
 
 .kl-search-link { width: 100%; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
 .kl-search-link:hover { background: color-mix(in srgb, var(--grouped-row) 92%, var(--text)); }
 
-.kl-empty { padding: 6px 0; }
 .kmkt-empty-card .kl-spinner { margin: 2px auto; }
 
 /* ---- Registrations in flight ------------------------------------------------------------ */
 
-.kmkt-live-pending { display: flex; flex-direction: column; gap: 12px; }
-.kmkt-live-pending:empty { display: none; }
 .kl-reg-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
 .kl-reg-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .kl-reg-head strong { font-size: 17px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -174,8 +141,6 @@
 .kl-nav { flex: 0 0 auto; }
 .kl-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .kl-fieldset > .kmkt-form-section:first-child { margin-top: 8px; }
-.kl-fieldset + .kl-summary > .kmkt-form-section:first-child { margin-top: 20px; }
-.kl-summary > .kmkt-form-section:first-child { margin-top: 8px; }
 .kl-form-row > span:first-child { flex: 0 1 auto; min-width: 0; }
 .kl-form-value { flex: 1 1 auto; min-width: 0; text-align: right; overflow-wrap: anywhere; }
 .kl-form-row.bold .kl-form-value { font-weight: 600; }
@@ -192,21 +157,7 @@
 .kmkt-form-button:disabled.kl-destructive { color: var(--label-tertiary); }
 .kmkt-form-button .kl-spinner { margin: 0 auto; }
 
-.kl-warning { justify-content: flex-start; align-items: flex-start; gap: 10px; color: var(--ios-red); font-size: 15px; line-height: 20px; }
-.kl-warning .kmkt-ico { width: 20px; height: 20px; margin-top: 1px; }
-.kl-sent { flex-direction: column; align-items: flex-start; gap: 6px; }
-.kl-sent-title { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
-.kl-sent small { font-size: 12px; line-height: 16px; }
 .kl-status-row { min-height: 0; padding-top: 8px; padding-bottom: 10px; }
-
-.kl-step-row { justify-content: flex-start; align-items: flex-start; gap: 12px; }
-.kl-step-num {
-  width: 22px; height: 22px; flex: 0 0 auto; border-radius: 50%;
-  display: grid; place-items: center;
-  background: color-mix(in srgb, var(--kaspa) 15%, transparent); color: var(--kaspa-ink);
-  font-size: 12px; font-weight: 700;
-}
-.kl-label-text { font-size: 15px; line-height: 20px; }
 
 /* Text fields in a form row. */
 .kl-input, .kl-textarea, .kl-select {
@@ -214,9 +165,6 @@
   color: var(--text); font: inherit; font-size: 17px; line-height: 22px;
 }
 .kl-input::placeholder, .kl-textarea::placeholder { color: var(--placeholder); }
-.kl-input-trailing { text-align: right; }
-.kl-textarea { resize: vertical; min-height: 88px; }
-.kl-textarea-row { align-items: stretch; }
 .kl-select { flex: 0 1 auto; text-align: right; cursor: pointer; color: var(--kaspa-ink); }
 .kl-link-field { cursor: text; }
 .kl-link-field > span { flex: 0 0 auto; }
@@ -285,14 +233,6 @@
 .kl-domains-upgrading p { max-width: 420px; }
 
 /* The finished-transaction half sheet (iOS KachatTxDoneSheet). */
-.kl-done { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 24px 24px 20px; text-align: center; }
-.kl-done-check svg { width: 44px; height: 44px; }
-.kl-done-title { font-size: 20px; font-weight: 700; color: var(--text); }
-.kl-done-note { margin: 0; font-size: 15px; line-height: 1.35; }
-.kl-done-txid { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 8px 12px; border: 0; border-radius: 999px; background: var(--fill-tertiary); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
-.kl-done-txid .kl-mono { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kl-done-explorer { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; text-decoration: none; }
-.kl-done-explorer svg { width: 16px; height: 16px; }
 .kl-done-close { border: 0; background: transparent; color: var(--kaspa-ink); font: inherit; font-size: 17px; font-weight: 600; cursor: pointer; padding: 6px 12px; }
 
 /* ---- Expired tab + grace countdowns (iOS cb3c27d, fde757f) ------------------------------ */
@@ -321,7 +261,6 @@
 .kl-card .kl-form-row.bold .kl-form-value, .kl-card .kl-form-row.bold > span:first-child { color: var(--text); }
 .kl-card .settings-segmented { margin: 0; }
 .kl-card .sk-divider { margin: 0; }
-.kl-card .kl-card-step { display: flex; }
 .kl-pills { justify-content: flex-start; }
 .kl-tx-note { margin: 0; font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
 .kl-fieldset:disabled .settings-segmented { opacity: .6; }

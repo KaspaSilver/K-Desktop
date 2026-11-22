@@ -47,7 +47,6 @@ test("Your Domains' count is read on Wallet, without the old Profile screen's ro
   assert.match(body, /if \(!engine\.address\) return;/);
   assert.doesNotMatch(body, /!profileKnsOwned|!profileKnsEmptyCta/);
   assert.match(app, /if \(screenTab === "profile" \|\| screenTab === "wallet"\) refreshOwnKnsProfile\(\);/);
-  assert.match(app, /if \(profileKnsEmptyCta\) profileKnsEmptyCta\.hidden = false;/);
 });
 
 console.log(`${passed}/3 passed`);

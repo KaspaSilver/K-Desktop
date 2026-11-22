@@ -144,14 +144,3 @@ export function statusLabel(status) {
   return labels[status] || status || "Draft";
 }
 
-export function conversationSummary(conversation) {
-  const last = lastMessage(conversation);
-  return {
-    id: conversation.id,
-    contactId: conversation.contactId,
-    unreadCount: Number(conversation.unreadCount || 0),
-    lastActivityAt: Number(conversation.lastActivityAt || conversation.updatedAt || conversation.createdAt || 0),
-    lastMessage: last,
-    messageCount: conversation.messages?.length || 0,
-  };
-}

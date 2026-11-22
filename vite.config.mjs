@@ -87,7 +87,7 @@ function nextcloudProxy() {
   };
 }
 
-// The launch screen (index.html .boot-splash) shows "KaChat 5.2.2 (231)" under the Kaspa logo
+// The launch screen (index.html .boot-splash) shows "K 5.3 (318)" under the Kaspa logo
 // before any script has run, so the label is written into the HTML here - read from ui/app.js's
 // APP_VERSION / APP_BUILD each time, so it can never disagree with the one Settings shows.
 function readAppVersion() {
@@ -103,7 +103,7 @@ function appVersionLabel() {
     name: "kachat-app-version-label",
     transformIndexHtml(html) {
       const v = readAppVersion();
-      return html.replace("%KACHAT_VERSION_LABEL%", v ? `KaChat ${v.version} (${v.build})` : "");
+      return html.replace("%KACHAT_VERSION_LABEL%", v ? `K ${v.version} (${v.build})` : "");
     },
     // version.json: what the open app compares itself with to update in place (ui/app-update.js).
     // Written next to index.html on build; the dev server answers it from the source.

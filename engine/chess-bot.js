@@ -661,7 +661,6 @@ const TABLES = [[], PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING_MIDDLEGAME];
 
 const MATE = 100_000;
 const INFINITY = 1_000_000;
-export const BOT_MATE_SCORE = MATE;
 
 const defaultNow = () => (globalThis.performance?.now ? globalThis.performance.now() : Date.now());
 

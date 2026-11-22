@@ -329,6 +329,3 @@ export function closeComposerEmojiPopover() {
   composerPopover = null;
 }
 
-export function isComposerEmojiPopoverOpen() {
-  return Boolean(composerPopover);
-}

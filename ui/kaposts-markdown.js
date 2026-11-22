@@ -33,11 +33,6 @@ function sameStyle(a, b) {
     && a.strikethrough === b.strikethrough && a.subtext === b.subtext && a.link === b.link;
 }
 
-/** True if `source` contains anything this parser would style. */
-export function containsKaPostsFormatting(source) {
-  return renderKaPostsMarkdown(source).hasFormatting;
-}
-
 /** `text` without the bidi embedding, override and isolate controls (iOS ee5ec98): anyone can post
  *  them, and one reverses the order the rest of the text is read in. The plain direction marks
  *  (U+200E, U+200F) stay: they can't reorder anything, and right-to-left writing uses them. */
@@ -237,8 +232,6 @@ function mergeAdjacent(spans) {
 // because these are the rules that decide what gets WRITTEN. Every action toggles: applying it
 // to text that already has that formatting removes it, which is what a person expects from a
 // Bold button and what stops a double tap producing `****text****`.
-
-export const KAPOSTS_TOOLBAR_ACTIONS = ["bold", "italic", "underline", "strikethrough", "bulletList", "numberedList", "subtext", "link"];
 
 /** Placeholder inserted when a link is added with nothing selected, and the target that is
  *  pre-selected so typing replaces it. */

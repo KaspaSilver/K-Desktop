@@ -192,12 +192,6 @@ export function remainingMs(game, color, now) {
   if (!game.winner && color === game.board.sideToMove) used += chargedMs(game, now - game.lastEventAt);
   return Math.max(0, CLOCK_MS - used);
 }
-/** The allowance still unspent on the current move ("clock starts in 0:12"); zero once the
- *  clock is running. */
-export function allowanceLeftMs(game, now) {
-  if (game.winner) return 0;
-  return Math.max(0, allowanceMs(game.moves.length + 1, game.startedAt) - Math.max(0, now - game.lastEventAt));
-}
 /** The players whose seats are still good at `now`: while a room waits, a seat older than
  *  SEAT_TTL_MS has expired. Once the room has started every player stays. */
 export function seatedPlayers(t, now) {

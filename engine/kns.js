@@ -13,7 +13,6 @@ import { IS_TESTNET } from "./network.js";
 export const KNS_DEFAULT_MAINNET_URL = "https://api.knsdomains.org/mainnet/api/v1";
 /** The running network's KNS registry: testnet-10 on testnet (iOS defaultKNSTestnetURL). */
 export const KNS_DEFAULT_URL = IS_TESTNET ? "https://api.knsdomains.org/tn10/api/v1" : KNS_DEFAULT_MAINNET_URL;
-export const KNS_DEFAULT_TESTNET_URL = "https://api.knsdomains.org/tn10/api/v1";
 
 const DOMAIN_CACHE_KEY = "kachat-kns-domain-cache-v1";
 const PROFILE_CACHE_KEY = "kachat-kns-profile-cache-v1";
@@ -24,19 +23,6 @@ const FETCH_TIMEOUT_MS = 10000;
 export const KNS_PROFILE_FIELD_KEYS = Object.freeze([
   "avatarUrl", "bannerUrl", "bio", "x", "website", "telegram", "discord", "contactEmail", "github", "redirectUrl",
 ]);
-
-export const KNS_PROFILE_FIELD_LABELS = Object.freeze({
-  redirectUrl: "Redirect",
-  avatarUrl: "Avatar",
-  bannerUrl: "Banner",
-  bio: "Bio",
-  x: "X",
-  website: "Website",
-  telegram: "Telegram",
-  discord: "Discord",
-  contactEmail: "Email",
-  github: "GitHub",
-});
 
 // --- domain name / input normalization ------------------------------------
 
@@ -268,14 +254,6 @@ function sanitizeProfile(rawProfile) {
 export function profileHasAnyField(profile) {
   if (!profile) return false;
   return KNS_PROFILE_FIELD_KEYS.some((key) => Boolean(profile[key]));
-}
-
-// profile fields relevant to the "More Info" disclosure — excludes the two
-// image URLs, which are shown separately as the avatar/banner themselves.
-export function profileHasDetailFields(profile) {
-  if (!profile) return false;
-  return ["bio", "x", "website", "telegram", "discord", "contactEmail", "github", "redirectUrl"]
-    .some((key) => Boolean(profile[key]));
 }
 
 function domainProfileFullName(profileData) {

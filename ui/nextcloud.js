@@ -1986,12 +1986,6 @@ export function isNextcloudConnected() {
   return Boolean(nc);
 }
 
-/** The connected account: server origin, login and app password. */
-export function nextcloudAccount() {
-  if (!nc?.server || !nc?.username || !nc?.appPassword) return null;
-  return { server: String(nc.server).replace(/\/+$/, ""), username: nc.username, appPassword: nc.appPassword };
-}
-
 export function resetNextcloudForAccount() {
   closePicker();
   // A wallet switch retires everything in flight before the new account's state loads: the

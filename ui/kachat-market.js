@@ -173,8 +173,7 @@ function bindEscape() {
   window.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" || !layers.length) return;
     // An app dialog or the password prompt over a sheet takes its own Escape first.
-    // So does Choose an Address (send-kaspa-components openOwnAddressPicker).
-    if (document.querySelector(".app-dialog-backdrop:not([hidden]), [data-password-modal]:not([hidden]), [data-sk-source-picker]")) return;
+    if (document.querySelector(".app-dialog-backdrop:not([hidden]), [data-password-modal]:not([hidden])")) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     const top = layers[layers.length - 1];

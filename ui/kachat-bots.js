@@ -6,8 +6,6 @@
 // is a circle in the row above it (app.js visibleChatCircles), and each card here carries the
 // chat's unread count.
 
-import { isNetworkAddress, isValidKaspaAddress } from "../engine/network.js";
-
 const svg = (body) => `<svg viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
 
 /** SF Symbol stand-ins (stroke glyphs, currentColor). Trusted markup. */
@@ -73,13 +71,6 @@ export function kachatBotFor(address) {
  *  above it (with groups and rooms), once the chat holds a message (iOS d576941 / 5fcf755). */
 export function isKachatBot(address) {
   return BOT_ADDRESSES.has(String(address || "").toLowerCase());
-}
-
-/** Why the bot can't be messaged from here, or null when it can (iOS unavailableReason). */
-export function kachatBotUnavailableReason(bot) {
-  if (!bot?.address) return "Coming soon.";
-  if (!isValidKaspaAddress(bot.address) || !isNetworkAddress(bot.address)) return "Bots run on mainnet only.";
-  return null;
 }
 
 /** The bot's glyph (trusted markup). */

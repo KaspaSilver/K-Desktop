@@ -834,55 +834,6 @@ function pickerCard(portfolio) {
     </div>`;
 }
 
-function summaryCardHtml(summary) {
-  const change = price?.change24h ?? null;
-  const positive = (change ?? 0) >= 0;
-  return `
-    <div class="profile-card portfolio-summary">
-      <div class="portfolio-summary-head">
-        <div>
-          <p class="profile-card-label" data-portfolio-price-label>KAS Price</p>
-          <div class="portfolio-summary-price" data-portfolio-price-value>${price ? fmtPrice(price.price) : "--"}</div>
-        </div>
-        ${change !== null ? `
-          <div class="portfolio-summary-24h ${positive ? "gain" : "loss"}" data-portfolio-price-24h>
-            ${positive ? "↑" : "↓"} ${Math.abs(change).toFixed(2)}%<span class="muted"> 24h</span>
-          </div>` : ""}
-      </div>
-      <div class="portfolio-summary-grid">
-        <div class="portfolio-stat">
-          <span class="portfolio-stat-label">Holdings</span>
-          <span class="portfolio-stat-value">${fmtKas(summary.holdingsKas)}</span>
-        </div>
-        <div class="portfolio-stat right">
-          <span class="portfolio-stat-label">Current Value</span>
-          <span class="portfolio-stat-value">${fmtFiat(summary.currentValue)}</span>
-        </div>
-      </div>
-      <div class="portfolio-summary-divider"></div>
-      <div class="portfolio-summary-grid">
-        <div class="portfolio-stat">
-          <span class="portfolio-stat-label">Total Invested</span>
-          <span class="portfolio-stat-value">${fmtFiat(summary.totalInvested)}</span>
-        </div>
-        <div class="portfolio-stat right">
-          <span class="portfolio-stat-label">Total P&amp;L</span>
-          <span class="portfolio-stat-value ${summary.totalPL >= 0 ? "gain" : "loss"}">
-            ${summary.totalPL >= 0 ? "↗" : "↘"} ${fmtFiat(summary.totalPL)} (${summary.totalPLPercent.toFixed(1)}%)
-          </span>
-        </div>
-      </div>
-      ${summary.averageBuyPriceUsd !== null ? `
-        <div class="portfolio-summary-divider"></div>
-        <div class="portfolio-summary-grid">
-          <div class="portfolio-stat">
-            <span class="portfolio-stat-label">Avg. Buy Price</span>
-            <span class="portfolio-stat-value">${fmtPrice(summary.averageBuyPriceUsd)}</span>
-          </div>
-        </div>` : ""}
-    </div>`;
-}
-
 /** "buy" | "sell" | "transfer" - anything unrecognised reads as a buy, as it always has. */
 function txKind(tx) {
   return tx?.type === "sell" || tx?.type === "transfer" ? tx.type : "buy";
@@ -3322,8 +3273,6 @@ function closeCardMenus(except = null) {
   rootEl.querySelectorAll("[data-portfolio-card-actions]").forEach((el) => {
     if (el.dataset.portfolioCardActions !== except) el.hidden = true;
   });
-  const io = rootEl.querySelector("[data-portfolio-io-dropdown]");
-  if (io && except !== "io") io.hidden = true;
 }
 
 export function initPortfolio(dependencies) {
@@ -3333,8 +3282,6 @@ export function initPortfolio(dependencies) {
   ensureDefaultPortfolio();
   buildModals();
   historyCurrency = currencyCode();
-  const initialFiatLabel = modalsEl?.querySelector("[data-portfolio-editor-fiat-label]");
-  if (initialFiatLabel) initialFiatLabel.textContent = `Total Value (${historyCurrency.toUpperCase()})`;
 
   // The converter's numbers sit at the right of wide fields, so a click usually lands left of the
   // text and the caret started before the number ("|1"). Editing starts at the end instead (iOS
@@ -3406,8 +3353,6 @@ export function initPortfolio(dependencies) {
     // pair's series has to follow the currency too.
     pairSeries = null;
     if (pairActive && pairUnit()) loadPairSeries().then(() => render()).catch(() => {});
-    const fiatLabel = modalsEl?.querySelector("[data-portfolio-editor-fiat-label]");
-    if (fiatLabel) fiatLabel.textContent = `Total Value (${currencyCode().toUpperCase()})`;
     render();
     refreshData({ force: true });
   });
@@ -3422,13 +3367,6 @@ export function initPortfolio(dependencies) {
       return;
     }
 
-    if (event.target.closest("[data-portfolio-reorder]")) {
-      closeCardMenus();
-      reorderDraft = state.portfolios.map((p) => ({ id: p.id, name: p.name }));
-      renderReorderModal();
-      modalsEl.querySelector("[data-portfolio-reorder-modal]").hidden = false;
-      return;
-    }
     if (event.target.closest("[data-portfolio-add]")) {
       if (state.portfolios.length >= MAX_PORTFOLIOS) return;
       const name = await namePromptOverlay({ title: "New Portfolio", confirmLabel: "Create" });

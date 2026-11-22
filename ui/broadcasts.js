@@ -31,7 +31,7 @@ import {
 } from "../engine/broadcasts.js";
 import { isIndexerDown, onIndexerAvailabilityChange, indexerKey, INDEXER_RECOVERY_MARGIN_MS } from "../engine/indexer-health.js";
 import { getEndpoint } from "../engine/endpoints.js";
-import { confirmDialog, promptDialog, PROMPT_EXTRA, alertDialog, chooseDialog, userFacingError, ACTION_TILE_ICONS } from "./dialogs.js";
+import { confirmDialog, promptDialog, PROMPT_EXTRA, alertDialog, chooseDialog, userFacingError } from "./dialogs.js";
 import { onContextGesture, attachDoubleTap, onMessageClick, isTouchDevice, releaseTypingFocus } from "./touch.js";
 import { roomHiddenSenders, roomMessageReportBody, sendContentReport } from "./kapost-moderation.js";
 import { SEND_OUTCOME_UNKNOWN, SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/transactions.js";
@@ -54,9 +54,6 @@ const JOINED_AT_KEY = "kachat-broadcast-joined-at-v1";      // account-scoped: {
 // days on this device, and a new room starts at three hours.
 const MAX_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 const DEFAULT_RETENTION_MS = 3 * 60 * 60 * 1000;
-const RETENTION_UNITS = [
-  ["seconds", 1000], ["minutes", 60_000], ["hours", 3_600_000], ["days", 86_400_000],
-];
 // A voice note that goes on-chain is capped hard (iOS BroadcastAudioRecording.maxDuration);
 // "Record via Nextcloud" runs to the app-wide Nextcloud cap instead.
 // On chain a room note runs as long as 1 KAS of fees allows, 2:50, as tagged parts (KaPost
@@ -96,7 +93,7 @@ let voiceViaNextcloud = false;
 
 let deps = null;
 
-let listEl, roomEl, roomTitleEl, roomDotEl, roomBodyEl, composerInput, sendBtn, joinInput;
+let roomEl, roomTitleEl, roomBodyEl, composerInput, sendBtn;
 let voicePanelEl, voiceBtn;
 let joinedChannels = [];
 let hiddenByRoom = {};
@@ -179,23 +176,7 @@ function markChannelRead(channel) {
   saveRead();
   if (before > 0) deps.onUnreadChanged?.();
 }
-/** Reveal the join/create card. The Public Chats tab's floating button used to call this; the
- *  Chats New sheet now joins in place (broadcastJoinError + joinBroadcastChannelFromSheet). */
-export function openBroadcastJoin() {
-  const card = document.querySelector("[data-broadcast-join-card]");
-  if (!card) return;
-  card.hidden = false;
-  card.scrollIntoView({ block: "nearest" });
-  joinInput?.focus();
-}
 
-/** Total unread across the rooms in the list - the Public Chats tab's badge. */
-export function broadcastUnreadTotal() {
-  if (!deps) return 0;
-  let total = 0;
-  for (const name of listedChannels()) total += unreadFor(name);
-  return total;
-}
 /** The rooms' share of the Chats badge (KaChat 148a5331 AppTabBadge .chats): unread in the listed
  *  rooms whose bell is on. */
 export function broadcastNotifyingUnreadTotal() {
@@ -205,44 +186,11 @@ export function broadcastNotifyingUnreadTotal() {
   return total;
 }
 // --- Select mode (iOS e08c4cc): rooms picked in bulk for Mark as Read / Unread / Delete --------
-let roomSelectionActive = false;
-const selectedRooms = new Set();
-export function setRoomSelectionMode(active) {
-  roomSelectionActive = Boolean(active);
-  if (!roomSelectionActive) selectedRooms.clear();
-  if (deps) renderChannelList();
-}
-/** { count, total, allSelected } over the rooms in the list. */
-export function roomSelectionState() {
-  const all = listedChannels();
-  return { count: selectedRooms.size, total: all.length, allSelected: all.length > 0 && all.every((n) => selectedRooms.has(n)) };
-}
-export function toggleSelectAllRooms() {
-  const { allSelected } = roomSelectionState();
-  selectedRooms.clear();
-  if (!allSelected) for (const name of listedChannels()) selectedRooms.add(name);
-  renderChannelList();
-}
-export function markSelectedRooms(read) {
-  for (const name of selectedRooms) {
-    if (read) markChannelRead(name);
-    else { markedUnread[name] = true; }
-  }
-  if (!read) saveRead();
-  deps.onUnreadChanged?.();
-}
 /** "Delete" from the room list: a room you added is left for good with its messages; a default
  *  room is only switched off, exactly like its toggle in Public Chats settings (iOS removeFromList). */
 function removeFromList(name) {
   if (isCuratedBroadcastChannel(name)) setCuratedChannel(name, false);
   else leaveChannel(name);
-}
-export function deleteSelectedRooms() {
-  const names = [...selectedRooms];
-  for (const name of names) removeFromList(name);
-  selectedRooms.clear();
-  renderChannelList();
-  return names.length;
 }
 function listedChannels() {
   return [...new Set([...FEATURED_BROADCAST_CHANNELS, ...joinedChannels])].filter((name) => curatedShown(name) && !isServiceBroadcastChannel(name));
@@ -634,10 +582,6 @@ export function broadcastPushWatch() {
 /** The room on screen, if any (the push worker keeps quiet for it while the app is in front). */
 export function activeBroadcastChannelName() { return activeChannel || null; }
 
-function saveRetention() {
-  localStorage.setItem(deps.accountScopedKey(RETENTION_KEY), JSON.stringify(retentionByChannel));
-}
-
 function saveListen() {
   localStorage.setItem(deps.accountScopedKey(LISTEN_KEY), JSON.stringify(listenByChannel));
 }
@@ -661,16 +605,6 @@ function roomIndexerBase(channel) {
 function retentionMillisFor(channel) {
   const stored = Number(retentionByChannel[channel] || 0);
   return stored > 0 ? Math.min(MAX_RETENTION_MS, stored) : DEFAULT_RETENTION_MS;
-}
-
-// Splits a stored millis value into the largest unit that divides it evenly (iOS
-// BroadcastRetentionUnit.fromMillis), so the sheet pre-fills "3 hours" rather than "10800 seconds".
-function retentionParts(millis) {
-  for (const [unit, per] of [...RETENTION_UNITS].reverse()) {
-    const amount = Math.floor(millis / per);
-    if (millis % per === 0 && amount >= 1 && amount <= Math.floor(MAX_RETENTION_MS / per)) return { amount, unit };
-  }
-  return { amount: Math.max(1, Math.floor(millis / 1000)), unit: "seconds" };
 }
 
 // The share text and links for a room (iOS KaChatInternalLink.broadcastRoomShareText): one human
@@ -1400,21 +1334,6 @@ function senderName(address) {
   return deps.defaultAlias ? deps.defaultAlias(address) : deps.shortAddress(address);
 }
 
-/** Last-activity preview for the channel list. Reaction payloads are humanized as
- *  "Reacted <emoji>" instead of showing raw JSON. */
-function channelPreviewText(channel) {
-  const last = (messageCache[channel] || []).at(-1) || null;
-  const lastReaction = reactionsCache[channel]?.lastEvent || null;
-  if (!last && !lastReaction) return "";
-  if (Number(lastReaction?.blockTime || 0) > Number(last?.blockTime || 0)) {
-    return `Reacted ${lastReaction.emoji}`;
-  }
-  if (!last) return "";
-  const reaction = deps.parseReactionEnvelope?.(last.content); // defensive: shouldn't survive migration
-  if (reaction) return `Reacted ${reaction.emoji}`;
-  return humanizeBroadcastContent(last.content).replace(/\s+/g, " ").slice(0, 64);
-}
-
 // The bell icon pair, iOS-style: filled accent when notifications are on, slashed when off.
 const BELL_ON_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a5.5 5.5 0 0 1 5.5 5.5c0 3.2.8 5 1.8 6.2.4.5.05 1.3-.6 1.3H5.3c-.65 0-1-.8-.6-1.3 1-1.2 1.8-3 1.8-6.2A5.5 5.5 0 0 1 12 4Z" fill="currentColor" stroke="none"/><path d="M10 19.5a2 2 0 0 0 4 0"/></svg>`;
 const BELL_OFF_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a5.5 5.5 0 0 1 5.5 5.5c0 3.2.8 5 1.8 6.2.4.5.05 1.3-.6 1.3H5.3c-.65 0-1-.8-.6-1.3 1-1.2 1.8-3 1.8-6.2A5.5 5.5 0 0 1 12 4Z"/><path d="M10 19.5a2 2 0 0 0 4 0"/><path d="M4 4l16 16"/></svg>`;
@@ -1432,26 +1351,6 @@ function syncRoomBell() {
   bell.title = label;
 }
 
-function bellButtonHtml(name) {
-  const on = Boolean(notifyByChannel[name]);
-  return `<button class="broadcast-card-icon${on ? " active" : ""}" type="button" data-broadcast-notify="${deps.escapeHtml(name)}" title="${on ? "Notifications on" : "Notifications off"}" aria-label="Toggle notifications">${on ? BELL_ON_SVG : BELL_OFF_SVG}</button>`;
-}
-
-// The rooms tab is a plain list of chat-style rows (iOS 83286b3): a # avatar, the room name,
-// the newest message with its sender and time, a bell-off mark, and an unread badge - #kaspa
-// and #kachat-bugs pinned on top, every other room below by latest activity (roomActivityAt).
-// Every default room is listed, so there is no "Other Languages" row any more (iOS 865c9ab).
-// Joining or creating a room is the floating button's job on this tab (iOS 6639a0b).
-function roomRowTime(ts) {
-  if (!ts) return "";
-  const date = new Date(ts);
-  const now = new Date();
-  const midnight = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const days = Math.round((midnight(now) - midnight(date)) / 86400000);
-  if (days === 0) return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  if (days === 1) return "Yesterday";
-  return date.toLocaleDateString([], { month: "short", day: "numeric" });
-}
 function lastVisibleMessage(name) {
   const hidden = hiddenIn(name);
   const rows = messageCache[name] || [];
@@ -1473,43 +1372,11 @@ function roomPreviewLine(name) {
   const previewText = /https?:\/\/\S+/i.test(rawPreview) ? "📎 Sent a link" : rawPreview;
   return `${last.senderAddress === me ? "You" : senderName(last.senderAddress)}: ${previewText}`.replace(/\s+/g, " ").slice(0, 120);
 }
-function roomRowHtml(name, { title = null, subtitle = null } = {}) {
-  const last = lastVisibleMessage(name);
-  const unread = unreadFor(name);
-  const preview = roomPreviewLine(name) || subtitle || "No messages yet";
-  const bellOff = !notifyByChannel[name];
-  return `
-    <button class="broadcast-room-row${name === activeChannel && !roomSelectionActive ? " active" : ""}${roomSelectionActive ? " selecting" : ""}${selectedRooms.has(name) ? " selected" : ""}" type="button" data-broadcast-open="${deps.escapeHtml(name)}"${roomSelectionActive ? ` aria-pressed="${selectedRooms.has(name) ? "true" : "false"}"` : ""}>
-      ${roomSelectionActive ? `<span class="broadcast-room-select" aria-hidden="true">${selectedRooms.has(name) ? `<svg viewBox="0 0 20 20"><path d="m5.1 10.1 3.1 3.1 6.7-7"/></svg>` : ""}</span>` : ""}
-      <span class="broadcast-room-row-avatar" aria-hidden="true">#</span>
-      <span class="broadcast-room-row-main">
-        <span class="broadcast-room-row-top">
-          <strong>${deps.escapeHtml(title || `#${name}`)}</strong>
-          ${bellOff ? `<svg class="broadcast-room-row-muted" viewBox="0 0 24 24" aria-label="Notifications off" role="img"><path d="M18 15v-4a6 6 0 0 0-9.3-5M6 9.5V15l-2 3h13M10 21h4M3 3l18 18"/></svg>` : ""}
-          <span class="broadcast-room-row-time">${deps.escapeHtml(roomRowTime(last?.blockTime))}</span>
-        </span>
-        <span class="broadcast-room-row-bottom">
-          <span class="broadcast-room-row-preview">${deps.escapeHtml(preview)}</span>
-          ${unread > 0 ? `<b class="unread-badge">${unread > 99 ? "99+" : unread}</b>` : ""}
-        </span>
-      </span>
-    </button>`;
-}
 
 function renderChannelList() {
-  // The rooms are rows in the Chats list, drawn by the app: with no list mounted, this only tells
-  // the app that a room's state changed, so their rows redraw.
-  if (!listEl) { deps?.onUnreadChanged?.(); return; }
-  const others = joinedChannels
-    .filter((name) => !FEATURED_BROADCAST_CHANNELS.includes(name) && curatedShown(name) && !isServiceBroadcastChannel(name))
-    .sort((a, b) => roomActivityAt(b) - roomActivityAt(a));
-  listEl.innerHTML = `
-    ${FEATURED_BROADCAST_CHANNELS.filter(curatedShown).map((name) => roomRowHtml(name)).join("")}
-    ${others.map((name) => roomRowHtml(name, isCuratedBroadcastChannel(name)
-      ? { title: broadcastLanguageDisplayName(name) || `#${name}`, subtitle: `#${name}` }
-      : {})).join("")}
-  `;
-  deps.onUnreadChanged?.();
+  // The rooms are rows in the Chats list, drawn by the app: this only tells the app that a room's
+  // state changed, so their rows redraw.
+  deps?.onUnreadChanged?.();
 }
 
 /** Site links whose preview has been asked for: each repaints the room once, when it lands. */
@@ -2352,12 +2219,6 @@ async function editBroadcastFee() {
   renderFeePill(feeOverrideKas);
 }
 
-function updateConnectionDot() {
-  if (!roomDotEl) return;
-  const status = deps.engine.connectionState?.status || deps.engine.connectionState?.state || "";
-  const healthy = String(status).toLowerCase().includes("connect") || deps.engine.rpc != null;
-  roomDotEl.classList.toggle("ok", healthy);
-}
 
 // ---------------------------------------------------------------------------
 // Voice notes: on chain (10 s), or via Nextcloud when chosen at the mic
@@ -2607,7 +2468,6 @@ function openRoom(channel) {
   // What was typed here last time comes back (iOS 360e5d2).
   if (composerInput) composerInput.value = deps.readDraft?.(`room:${activeChannel}`) || "";
   syncComposerButtons();
-  updateConnectionDot();
   // Only the rooms the indexer tracks have history behind them, so only they backfill and poll.
   // Any other room is asked once, quietly: rows back mean the indexer tracks it after all (one
   // the operator added), and it turns into a tracked room at once (iOS 21c480d).
@@ -2704,9 +2564,6 @@ function joinChannel(rawName) {
     return;
   }
   addJoinedChannel(name);
-  const joinCard = document.querySelector("[data-broadcast-join-card]");
-  if (joinCard) joinCard.hidden = true;
-  if (joinInput) joinInput.value = "";
   renderChannelList();
   openRoom(name);
 }
@@ -2898,7 +2755,7 @@ function hideSender(address) {
 }
 
 function infoPanelEl() {
-  return document.querySelector("[data-broadcast-info-panel]") || document.querySelector("[data-broadcast-hidden-panel]");
+  return document.querySelector("[data-broadcast-info-panel]");
 }
 
 function closeRoomInfo() {
@@ -3074,62 +2931,6 @@ async function copyRoomLink(channel, { text = false } = {}) {
   try { await deps.copyText?.(value); deps.showToast?.("Room link copied"); } catch { deps.showToast?.("Could not copy the link."); }
 }
 
-// The retention sheet (iOS RetentionSettingsView): an amount and a unit, capped at three days.
-function openRetentionSheet(channel) {
-  const name = normalizeBroadcastChannel(channel);
-  const { amount, unit } = retentionParts(retentionMillisFor(name));
-  const host = document.createElement("div");
-  host.className = "modal-backdrop broadcast-retention-backdrop";
-  host.innerHTML = `
-    <section class="contact-modal broadcast-retention-sheet" role="dialog" aria-modal="true" aria-label="Message Retention">
-      <div class="modal-header"><div><h2>Message Retention</h2></div><button class="modal-close" type="button" data-retention-cancel aria-label="Cancel">×</button></div>
-      <p class="screen-kicker">Message Retention for #${deps.escapeHtml(name)}</p>
-      <div class="broadcast-retention-row">
-        <input type="number" min="1" step="1" inputmode="numeric" data-retention-amount value="${amount}" placeholder="Amount" />
-        <select data-retention-unit>${RETENTION_UNITS.map(([u]) => `<option value="${u}" ${u === unit ? "selected" : ""}>${u}</option>`).join("")}</select>
-      </div>
-      <p class="field-hint" data-retention-footer></p>
-      <p class="field-hint broadcast-retention-warning">Longer retention means more messages stay cached on your device - this can slow the app down over time, especially for busy rooms.</p>
-      <div class="modal-actions">
-        <button class="secondary-button" type="button" data-retention-cancel>Cancel</button>
-        <button class="primary-button" type="button" data-retention-save>Save</button>
-      </div>
-    </section>`;
-  document.body.appendChild(host);
-  const amountEl = host.querySelector("[data-retention-amount]");
-  const unitEl = host.querySelector("[data-retention-unit]");
-  const footer = host.querySelector("[data-retention-footer]");
-  const save = host.querySelector("[data-retention-save]");
-  const perUnit = () => RETENTION_UNITS.find(([u]) => u === unitEl.value)?.[1] || 1000;
-  const maxAmount = () => Math.floor(MAX_RETENTION_MS / perUnit());
-  const validate = () => {
-    const value = Number(amountEl.value);
-    const valid = Number.isInteger(value) && value >= 1 && value <= maxAmount();
-    save.disabled = !valid;
-    footer.textContent = `How long messages in this broadcast stay cached on this device, up to a maximum of 3 days. Max: ${maxAmount()} ${unitEl.value}.`;
-  };
-  validate();
-  amountEl.addEventListener("input", validate);
-  unitEl.addEventListener("change", validate);
-  const close = () => host.remove();
-  host.addEventListener("click", (event) => {
-    if (event.target === host || event.target.closest("[data-retention-cancel]")) { close(); return; }
-    if (event.target.closest("[data-retention-save]") && !save.disabled) {
-      retentionByChannel[name] = Math.min(MAX_RETENTION_MS, Number(amountEl.value) * perUnit());
-      saveRetention();
-      pruneCache();
-      saveCache();
-      saveReactions();
-      renderChannelList();
-      if (activeChannel === name) renderRoom();
-      close();
-    }
-  });
-  host.addEventListener("keydown", (event) => { if (event.key === "Escape") close(); });
-  amountEl.focus();
-  amountEl.select();
-}
-
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
@@ -3256,10 +3057,8 @@ export function initBroadcasts(dependencies) {
   onIndexerAvailabilityChange(handleIndexerAvailability);
   // A translation landing, or the reader flipping original/translation, repaints the open room.
   deps.translation?.onChange?.(() => { if (activeChannel) renderRoom(); });
-  listEl = document.querySelector("[data-broadcast-list]");
   roomEl = document.querySelector("[data-broadcast-room]");
   roomTitleEl = document.querySelector("[data-broadcast-room-title]");
-  roomDotEl = document.querySelector("[data-broadcast-room-dot]");
   roomBodyEl = document.querySelector("[data-broadcast-room-body]");
   // The in-room retention banner was removed for iOS parity (the room reads clean; the 30-day
   // rule is stated beside the Popular header instead). Its markup still lives in index.html —
@@ -3269,7 +3068,6 @@ export function initBroadcasts(dependencies) {
   document.querySelector("[data-broadcast-room-banner]")?.remove();
   composerInput = document.querySelector("[data-broadcast-input]");
   sendBtn = document.querySelector("[data-broadcast-send]");
-  joinInput = document.querySelector("[data-broadcast-join-input]");
   voicePanelEl = document.querySelector("[data-broadcast-voice-panel]");
   voiceBtn = document.querySelector("[data-broadcast-voice]");
   document.querySelector("[data-broadcast-reply-cancel]")?.addEventListener("click", cancelBroadcastComposeBanner);
@@ -3278,7 +3076,6 @@ export function initBroadcasts(dependencies) {
   renderChannelList();
   updateVoiceButtonVisibility();
 
-  deps.engine.onConnectionState?.(() => updateConnectionDot());
   // Live block scanning: rows arrive in the indexer's row shape and go through the same
   // mergeMessages dedupe/retention/render path, so a message seen by both paths is stored once.
   deps.engine.onBroadcastBlockHits?.(handleBroadcastBlockHits);
@@ -3293,82 +3090,6 @@ export function initBroadcasts(dependencies) {
     if (!document.hidden) refreshIndexerTrackedRooms().catch(() => {});
   });
 
-  const joinButton = document.querySelector("[data-broadcast-join]");
-  const joinCard = document.querySelector("[data-broadcast-join-card]");
-  const syncJoinButton = () => { if (joinButton) joinButton.disabled = !String(joinInput?.value || "").trim(); };
-  syncJoinButton();
-  joinInput?.addEventListener("input", syncJoinButton);
-  joinButton?.addEventListener("click", () => {
-    if (!String(joinInput?.value || "").trim()) return;
-    joinChannel(joinInput?.value || "");
-    if (joinInput) joinInput.value = "";
-    syncJoinButton();
-  });
-  document.querySelector("[data-broadcast-join-cancel]")?.addEventListener("click", () => {
-    if (joinCard) joinCard.hidden = true;
-    if (joinInput) joinInput.value = "";
-    syncJoinButton();
-  });
-  joinInput?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && String(joinInput.value || "").trim()) {
-      joinChannel(joinInput.value);
-      joinInput.value = "";
-      syncJoinButton();
-    }
-  });
-  // Right-click / long-press on a room row: the same half sheet groups have (iOS 83286b3) -
-  // Mark as Read / Unread, notifications, Copy Room Link, plus Delete for rooms you added. Curated rooms cannot be deleted.
-  onContextGesture(listEl, async (event) => {
-    const card = event.target.closest("[data-broadcast-open]");
-    if (!card || roomSelectionActive) return;
-    event.preventDefault();
-    const name = card.dataset.broadcastOpen;
-    const indexed = isCuratedBroadcastChannel(name);
-    const tracked = isIndexerTrackedBroadcastChannel(name);
-    const unread = unreadFor(name) > 0;
-    const notifying = Boolean(notifyByChannel[name]);
-    const options = [
-      unread
-        ? { id: "read", title: "Mark as Read", subtitle: "Clears this room's unread count.", icon: ACTION_TILE_ICONS.envelopeOpen }
-        : { id: "unread", title: "Mark as Unread", subtitle: "Keeps a badge on this room until you open it.", icon: ACTION_TILE_ICONS.envelopeBadge },
-      notifying
-        ? { id: "notify", title: "Turn Off Notifications", subtitle: "No notification for new messages in this room.", icon: ACTION_TILE_ICONS.bellSlash }
-        : { id: "notify", title: "Turn On Notifications", subtitle: tracked ? "Notifies you of new messages, even when the app is closed." : "Notifies you of new messages while the app is open.", icon: ACTION_TILE_ICONS.bell },
-      { id: "copy", title: "Copy Room Link", subtitle: "A kachat.app link that opens this room.", icon: ACTION_TILE_ICONS.link },
-    ];
-    if (!indexed && joinedChannels.includes(name)) {
-      options.push({ id: "delete", title: "Delete", subtitle: "Removes the room and its cached messages from this device.", destructive: true, icon: ACTION_TILE_ICONS.trash });
-    } else if (indexed) {
-      // A default room is never really deleted - it is switched off, exactly like its toggle in
-      // Public Chats settings, and nothing is lost, so it needs no confirmation (iOS e08c4cc).
-      options.push({ id: "switch-off", title: "Delete", subtitle: "Switches this default room off. Turn it back on in Public Chats settings.", destructive: true, icon: ACTION_TILE_ICONS.trash });
-    }
-    // Square tiles, three to a row, like every long-press menu (iOS cdac6d0).
-    const choice = await chooseDialog({ title: `#${name}`, layout: "tiles", options });
-    if (choice === "read") { markChannelRead(name); renderChannelList(); }
-    else if (choice === "unread") { markedUnread[name] = true; saveRead(); renderChannelList(); }
-    else if (choice === "notify") {
-      if (indexed && !joinedChannels.includes(name)) { joinedChannels.push(name); saveChannels(); }
-      if (notifying) delete notifyByChannel[name];
-      else { notifyByChannel[name] = true; deps.ensureNotificationPermission?.(); }
-      saveNotify();
-      syncScanWanted();
-      renderChannelList();
-      deps.showToast?.(notifying
-        ? "Notifications are off for this public chat"
-        : (tracked
-          ? "You'll get notifications for new messages in this public chat, even when the app is closed"
-          : "You'll get a notification for new messages in this public chat as long as your app remains open"));
-    } else if (choice === "copy") copyRoomLink(name);
-    else if (choice === "switch-off") { setCuratedChannel(name, false); }
-    else if (choice === "delete") {
-      const ok = await confirmDialog({ title: `Delete #${name}?`, message: "Every message cached for this room on this device is deleted. This cannot be undone - rejoining later starts with no history.", confirmLabel: "Delete", destructive: true });
-      if (!ok) return;
-      if (activeChannel === name) closeRoom();
-      leaveChannel(name);
-      renderChannelList();
-    }
-  });
   composerInput?.addEventListener("input", () => { syncComposerButtons(); scheduleBroadcastFeeEstimate({ typing: true }); });
   document.querySelector("[data-broadcast-fee]")?.addEventListener("click", editBroadcastFee);
   document.querySelector("[data-broadcast-funding-gate]")?.addEventListener("click", async (event) => {
@@ -3453,70 +3174,6 @@ export function initBroadcasts(dependencies) {
 
   // The list lives in the chats sidebar and the room in the detail pane now; one handler on both.
   const screenClick = async (event) => {
-    const leave = event.target.closest("[data-broadcast-leave]");
-    if (leave) {
-      event.stopPropagation();
-      const confirmed = await confirmDialog({
-        title: `Leave #${leave.dataset.broadcastLeave}`,
-        message: "Leaving this broadcast permanently deletes every message cached for it on this device. This cannot be undone - rejoining later starts with no history.",
-        confirmLabel: "Leave & Delete",
-        destructive: true,
-      });
-      if (confirmed) leaveChannel(leave.dataset.broadcastLeave);
-      return;
-    }
-
-    // The bell: OS notifications for new messages in this channel.
-    const notify = event.target.closest("[data-broadcast-notify]");
-    if (notify) {
-      event.stopPropagation();
-      const name = notify.dataset.broadcastNotify;
-      // A default room that is not joined (switched off, or loaded before its wallet) gets its
-      // row from the bell, so the very first tap turns notifications ON rather than silently
-      // creating an off row.
-      if (isCuratedBroadcastChannel(name) && !joinedChannels.includes(name)) {
-        joinedChannels.push(name);
-        saveChannels();
-      }
-      if (notifyByChannel[name]) {
-        delete notifyByChannel[name];
-        deps.showToast?.("Notifications are off for this public chat");
-      } else {
-        notifyByChannel[name] = true;
-        // Make sure the OS-level permission is actually granted so the pings can fire.
-        deps.ensureNotificationPermission?.();
-        deps.showToast?.(isIndexerTrackedBroadcastChannel(name)
-          ? "You'll get notifications for new messages in this public chat, even when the app is closed"
-          : "You'll get a notification for new messages in this public chat as long as your app remains open");
-      }
-      saveNotify();
-      syncScanWanted();
-      renderChannelList();
-      return;
-    }
-
-    // + in the "Your Channels" header: reveal the join/create card (iOS's join alert).
-    const joinToggle = event.target.closest("[data-broadcast-join-toggle]");
-    if (joinToggle) {
-      event.stopPropagation();
-      const card = document.querySelector("[data-broadcast-join-card]");
-      if (card) {
-        card.hidden = !card.hidden;
-        if (!card.hidden) joinInput?.focus();
-      }
-      return;
-    }
-
-    const open = event.target.closest("[data-broadcast-open]");
-    if (open && roomSelectionActive) {
-      const name = open.dataset.broadcastOpen;
-      if (selectedRooms.has(name)) selectedRooms.delete(name); else selectedRooms.add(name);
-      renderChannelList();
-      deps.onRoomSelectionChanged?.();
-      return;
-    }
-    if (open) { openRoom(open.dataset.broadcastOpen); return; }
-
     const unhide = event.target.closest("[data-broadcast-unhide]");
     if (unhide) {
       hiddenByRoom[activeChannel] = (hiddenByRoom[activeChannel] || []).filter((a) => a !== unhide.dataset.broadcastUnhide);
@@ -3544,7 +3201,6 @@ export function initBroadcasts(dependencies) {
     const hiddenClose = event.target.closest("[data-broadcast-hidden-close]");
     if (hiddenClose) closeRoomInfo();
   };
-  document.querySelector("[data-broadcast-list-wrap]")?.addEventListener("click", screenClick);
   document.querySelector("[data-broadcast-room]")?.addEventListener("click", screenClick);
   infoPanelEl()?.addEventListener("input", (event) => {
     if (event.target.matches("[data-broadcast-indexer-input]")) syncRoomIndexerButtons();

@@ -161,9 +161,6 @@ export const KAPOSTS_SCHEDULE_MAX_MS = 30 * 24 * 60 * 60 * 1000;
 export function pollOptionsCsv(options) {
   return (options || []).map((o) => utf8ToBase64(String(o))).join(",");
 }
-export function pollOptionsFromCsv(csv) {
-  return String(csv || "").split(",").filter(Boolean).map((b64) => base64ToUtf8(b64) ?? "");
-}
 
 /** Two hours from the original post: the indexer's edit window, enforced on chain time. */
 export const KAPOSTS_EDIT_WINDOW_MS = 2 * 60 * 60 * 1000;

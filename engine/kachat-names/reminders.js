@@ -26,8 +26,6 @@ import { dayString as defaultDayString } from "./actions.js";
 
 /** The ids' root (Swift `KachatNameReminders.root`). */
 export const reminderRoot = "kachat-reminder-";
-/** The first build's ids (Swift `KachatNameReminders.legacyPrefix`). */
-export const legacyReminderPrefix = "kachat-local-";
 /** The first build's storage keys, `<prefix><wallet>`: removed wherever found. */
 export const legacyRemindersStoragePrefix = "kachat-name-reminders-v1:";
 /** Where every wallet's sets are kept: `<prefix><network>:<wallet>`. */

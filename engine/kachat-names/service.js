@@ -86,8 +86,6 @@ export function isRegistryUpgrading(error) {
 
 /** The address prefix of the network the app runs on (registry-state.js `addressPrefix`). */
 export { addressPrefix };
-/** The old name of `addressPrefix` (kept for callers of the earlier API). */
-export const testnetPrefix = addressPrefix;
 /** The bundled manifest JSON of a manifest network ("testnet-10" | "mainnet"), or null for none
  *  (Swift `Manifest.bundleResource(network:)`, iOS ef6b21e). */
 export function bundledManifestFor(network) {

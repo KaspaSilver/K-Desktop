@@ -92,7 +92,6 @@ import {
 } from "./kaposts-held.js";
 import {
   kapostsCharCount,
-  kapostsClampChars,
   kapostsPostLength,
   kapostsClampBytes,
   kapostsFoldedPrefix,
@@ -108,7 +107,6 @@ import {
   kapostsDrawerShouldClose,
   kapostsDrawerDim,
   kapostsPaymentRequestIn,
-  kachatSiteLinkIn,
   kapostsPreviewLinkIn,
   kapostsFailureDelivery,
   kapostsSubmitWithUtxoRetry,
@@ -121,7 +119,7 @@ import "./kapost-terms.css";
 import { postReportBody, sendContentReport, withBlockedAccount } from "./kapost-moderation.js";
 // Who a poster is: their .kachat name, avatar, banner and bio (iOS 3d6fb7c, KachatLive.identityName /
 // profileBanner / profileBio). Profiles are on every network (mainnet: profile-only identities).
-import { kachatCachedLabel, kachatCachedDisplayLabel, kachatCachedAvatarUrl, kachatCachedProfilePieces, kachatRetryImage, onKachatIdentityChange } from "./kachat-names-live.js";
+import { kachatCachedDisplayLabel, kachatCachedAvatarUrl, kachatCachedProfilePieces, kachatRetryImage, onKachatIdentityChange } from "./kachat-names-live.js";
 import { kachatNamesUiEnabled } from "./kachat-names-runtime.js";
 // Imported, not a string path: Vite only rewrites and emits assets it can SEE, and a path inside
 // a template literal is invisible to it - which left this 404ing on the built site.
@@ -6415,10 +6413,6 @@ function postDisplayText(post) {
   return state.text;
 }
 
-export function kaPostsFollowingAddresses() {
-  return [...(prefs.following || [])];
-}
-
 /// Stops the new-posts check when the tab is left, mirroring how iOS tears its check down with the
 /// view. Exported so the tab switch can call it the way it already calls stopBroadcastPolling.
 export function stopKaPostsPolling() {
@@ -7514,7 +7508,6 @@ export function initKaPosts(dependencies) {
       return;
     }
 
-    if (event.target.closest("[data-kaposts-settings]")) { deps.openKaPostsSettings?.(); return; }
     const more = event.target.closest("[data-kaposts-more]");
     if (more) {
       const p = findPost(more.dataset.kapostsMore);

@@ -18,7 +18,6 @@ import { shouldSkipIndexer, isIndexerDown } from "./indexer-health.js";
 import { createInboxBlockScan, groupRowsFromBlock, provenTxSender, PROOF_RETRY_DELAYS_MS } from "./outage-scan.js";
 import { blockFromBlockAddedEvent, extractBroadcastHitsFromBlock, normalizeBroadcastChannel, BroadcastSenderVerifier, BROADCAST_SENDER } from "./broadcasts.js";
 import {
-  KNS_DEFAULT_MAINNET_URL,
   normalizeDomainName as knsNormalizeDomainName,
   looksLikeDomain as knsLooksLikeDomain,
   resolveDomain as knsResolveDomain,

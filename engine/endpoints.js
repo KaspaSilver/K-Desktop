@@ -68,8 +68,6 @@ const TESTNET_ENDPOINT_DEFAULTS = Object.freeze({
   nodeScan: "",
 });
 export const ENDPOINT_DEFAULTS = IS_TESTNET ? TESTNET_ENDPOINT_DEFAULTS : MAINNET_ENDPOINT_DEFAULTS;
-/** The mainnet defaults, for hints and comparisons. */
-export const MAINNET_DEFAULTS = MAINNET_ENDPOINT_DEFAULTS;
 // The node "Default (Recommended)" connects to. iOS talks gRPC to toccata.kaspium.io; a browser
 // can only open wRPC over WebSocket.
 // The hosted "Better" choice: Kasia's public mainnet node, the one the Kasia web app connects to
@@ -395,7 +393,6 @@ export function setVerboseApiLogging(enabled, sink = null) {
   verboseApiLogging = Boolean(enabled);
   if (sink) apiLogSink = sink;
 }
-export function isVerboseApiLogging() { return verboseApiLogging; }
 function traceApiCall(rawUrl, init, run) {
   if (!verboseApiLogging || !apiLogSink || !rawUrl) return run();
   let host = "";

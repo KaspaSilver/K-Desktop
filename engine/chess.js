@@ -2,7 +2,7 @@
 // chat feature. Faithful port of iOS's ChessEngine.swift / ChessCodec (see
 // KaChat/Utilities/ChessEngine.swift and KaChat/Models/Models.swift). Board
 // state is never persisted directly — it's re-derived by replaying a game's
-// move messages through this engine (see deriveBoard / stage-3 ChessGameService).
+// move messages through this engine (see stage-3 ChessGameService).
 //
 // Representation: squares[rank][file], rank 0 = board rank "1"; file 0 = "a".
 // Piece = { type, color }; color "white"|"black"; type pawn|knight|bishop|rook|queen|king.
@@ -319,29 +319,6 @@ function revokeCastlingRightIfCornerTouched(board, square) {
   else if (square.file === 7 && square.rank === 0) board.whiteCanCastleKingside = false;
   else if (square.file === 0 && square.rank === 7) board.blackCanCastleQueenside = false;
   else if (square.file === 7 && square.rank === 7) board.blackCanCastleKingside = false;
-}
-
-// Convenience for the wire protocol: apply a move given algebraic squares. Returns the new board,
-// or null if the move is illegal. Promotion defaults to queen for a back-rank pawn move.
-export function applyAlgebraicMove(board, fromAlg, toAlg, promoLetter = null) {
-  const from = squareFromAlgebraic(fromAlg);
-  const to = squareFromAlgebraic(toAlg);
-  if (!from || !to) return null;
-  const m = normalizingPromotion(board, move(from, to, promotionFromLetter(promoLetter)));
-  if (!isLegalMove(board, m)) return null;
-  return applyMove(board, m);
-}
-
-// Replay a list of {from,to,promotion} algebraic moves from the initial position. Stops (returns
-// what it has) at the first illegal move — mirrors how the game is rebuilt from move messages.
-export function deriveBoard(moveList) {
-  let board = initialBoard();
-  for (const mv of moveList || []) {
-    const next = applyAlgebraicMove(board, mv.from, mv.to, mv.promotion);
-    if (!next) break;
-    board = next;
-  }
-  return board;
 }
 
 // --- wire codec (JSON envelopes embedded as message content; matches iOS ChessCodec) ---

@@ -486,10 +486,6 @@ function segmentedHtml(group, options, value, label) {
     </div>`;
 }
 
-function yearsOptions() {
-  return Array.from({ length: Math.max(1, maxYears()) }, (_, i) => ({ id: i + 1, title: yearsLabel(i + 1) }));
-}
-
 /** Sets a segmented group's value from a click; returns the chosen id or null. */
 function segmentedClick(event, root) {
   const option = event.target.closest("[data-kl-seg]");
@@ -1273,18 +1269,6 @@ function activityPageHtml() {
       ${kit.sectionHeader("Recent activity", "Every claim, renewal, listing, sale, offer, transfer and reclaim across the registry.")}
       ${list}
     </div>`;
-}
-
-/** The selected tab's live page: Marketplace, Available, Expired or Activity (iOS 73128b3). Your
- *  own names and the offers you made live in Profile > Your Domains (iOS 0765ce0). */
-/** How many live on a page, for its card; null until the registry has answered (KaPay 99ab88a
- *  KachatMarketView.count(of:)). The Available page is the lapsed names, Expired the ones in grace. */
-export function livePageCount(page) {
-  if (!liveHubIsLive() || !hub.loaded || hub.loadError) return null;
-  if (page === "available") return hub.lapsed.length;
-  if (page === "expired") return hub.grace.length;
-  if (page === "activity") return hub.activity.length;
-  return hub.listings.length;
 }
 
 export function livePageHtml(page) {
@@ -5145,15 +5129,6 @@ export function openLiveProfileEditor(owner = "profile") {
     const linktreeClear = layer.el.querySelector("[data-kl-linktree-clear]");
     if (linktreeClear) linktreeClear.hidden = !form.linktree;
     hydrateSocialImages(layer.el);
-  };
-
-  const renderChrome = () => {
-    if (closed || !layer) return;
-    const nav = layer.el.querySelector("[data-kl-nav]");
-    if (nav) nav.outerHTML = navFor();
-    renderLive();
-    layer.el.querySelectorAll("[data-kl-profile-body] input, [data-kl-profile-body] select")
-      .forEach((el) => { el.disabled = saving; });
   };
 
   /** Puts a field's platform and handle back into its inputs (a pasted link, a filled field). */

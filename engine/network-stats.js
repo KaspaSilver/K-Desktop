@@ -118,19 +118,6 @@ export function formatHashrate(hs) {
   return `${(phs * 1e9).toFixed(1)} MH/s`;
 }
 
-/// Parses what someone types into the mining estimate ("120 TH/s", "3.5 ph", "500") into H/s.
-/// A bare number is read as TH/s, which is the unit a single miner's rig is quoted in.
-export function parseHashrateInput(text) {
-  const raw = String(text || "").trim().toLowerCase().replace(/,/g, "");
-  if (!raw) return null;
-  const match = /^([0-9]*\.?[0-9]+)\s*(e|p|t|g|m|k)?h?\/?s?$/.exec(raw);
-  if (!match) return null;
-  const amount = Number(match[1]);
-  if (!Number.isFinite(amount) || amount <= 0) return null;
-  const scale = { e: 1e18, p: 1e15, t: 1e12, g: 1e9, m: 1e6, k: 1e3 }[match[2] || "t"];
-  return amount * scale;
-}
-
 /// Daily KAS for a given share of the network, at the current reward.
 ///
 /// Your share of the hashrate times the network's daily emission. It ignores luck, pool fees,

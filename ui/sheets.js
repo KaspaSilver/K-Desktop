@@ -10,7 +10,6 @@
 // full-screen flows, and a progress card that cannot be closed has nothing to drag.
 const CENTRED = [
   ".app-dialog-backdrop.is-alert",
-  ".kas-payment-alert-backdrop",
   ".progress-blocking",
   ".initial-sync-backdrop",
   "[data-setup-guide-modal]",

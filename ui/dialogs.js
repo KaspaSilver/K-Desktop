@@ -313,12 +313,3 @@ export function confirmText(text, options = {}) {
   });
 }
 
-export function promptText(text, initial = "", options = {}) {
-  const [first, ...rest] = String(text ?? "").split("\n");
-  return promptDialog({
-    title: first.trim() || "Enter a value",
-    message: rest.join("\n").trim(),
-    initial,
-    ...options,
-  });
-}

@@ -108,6 +108,8 @@ EOF
   # Where plain-HTTP Nextcloud (port 8080) listens. 127.0.0.1 = this machine only. Set 0.0.0.0
   # only for a home-network-only setup behind a router that does NOT forward port 8080.
   grep -q '^NC_HTTP_BIND=' .env || echo 'NC_HTTP_BIND=127.0.0.1' >> .env
+  # The database, Nextcloud and NPM passwords: readable by this user only, not everyone on the machine.
+  chmod 600 .env
 
   # 4) Custom Nextcloud image with ffmpeg (needed for video thumbnails)
   cat > Dockerfile.nextcloud <<'EOF'

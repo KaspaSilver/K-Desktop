@@ -21,6 +21,8 @@ add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-
 add_header X-Frame-Options "DENY" always;
 add_header X-Content-Type-Options "nosniff" always;
 add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Permissions-Policy "camera=(self), microphone=(self), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()" always;
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 ```
 
 Notes for the nginx side:
@@ -68,6 +70,11 @@ curl -sI https://kachat.app/desktop/nc-proxy/__probe | grep -iE 'content-securit
 | `frame-ancestors` | `'none'` | Nobody may frame the app. |
 | `object-src`, `base-uri`, `form-action` | `'none'`, `'self'`, `'self'` | No plugins. A `<base>` tag cannot repoint relative URLs. Forms only submit (and only in-page) to this origin. |
 | `upgrade-insecure-requests` | https only | Plain-http subresources (an `http://` og:image, a leftover `ws://` node) become https/wss, so the tab does not drop to "Not secure". |
+
+`Permissions-Policy` lets this origin use the camera (QR scan) and microphone (voice notes) and
+turns off location, payments, USB, serial and Bluetooth, which the app never uses.
+`Strict-Transport-Security` (https only) keeps later visits on https for a year; it has no
+`preload`, since that commits the whole domain.
 
 `Referrer-Policy: strict-origin-when-cross-origin` is the browser default made explicit. Nothing in
 the app or the relay checks `Referer`, and pictures from .kachat hosts are already requested with

@@ -66,8 +66,6 @@
 .kmkt-hero { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; padding-top: 4px; }
 .kmkt-hero-mark { color: var(--kaspa-ink); }
 .kmkt-hero-mark .kmkt-wordmark { height: 64px; }
-.kmkt-hero-title { margin: 0; font-size: 22px; font-weight: 700; line-height: 28px; color: var(--text); }
-.kmkt-hero-body { margin: 0; padding: 0 16px; font-size: 15px; line-height: 20px; color: var(--muted); }
 
 .kmkt-search { display: flex; flex-direction: column; gap: 10px; }
 .kmkt-search-field {
@@ -128,25 +126,8 @@
 .kmkt-page { display: flex; flex-direction: column; gap: 18px; padding-top: 4px; }
 .kmkt-footnote { margin: 0; text-align: center; font-size: 13px; line-height: 18px; color: var(--muted); }
 
-.kmkt-featured-strip {
-  display: flex; gap: 12px; overflow-x: auto; scrollbar-width: none;
-  margin: 0 -20px; padding: 0 20px;
-}
-.kmkt-featured-strip::-webkit-scrollbar { display: none; }
-.kmkt-featured {
-  flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
-  padding: 12px; border: 0; border-radius: 18px; background: var(--grouped-row);
-  cursor: pointer; text-align: left;
-}
-.kmkt-featured:hover { background: color-mix(in srgb, var(--grouped-row) 92%, var(--text)); }
-.kmkt-featured-art {
-  width: 170px; height: 90px; border-radius: 14px; background: var(--kaspa);
-  display: grid; place-items: center;
-}
-
 /* Rows in a card, with iOS's inset hairline between them. */
 .kmkt-list { overflow: hidden; --kmkt-inset: 16px; }
-.kmkt-inset-16 { --kmkt-inset: 16px; }
 .kmkt-inset-50 { --kmkt-inset: 50px; }
 .kmkt-inset-56 { --kmkt-inset: 56px; }
 .kmkt-row {
@@ -172,14 +153,8 @@ button.kmkt-row:active { background-color: var(--row-pressed); }
 .kmkt-avatar-dot.large { width: 40px; height: 40px; }
 
 /* My Names */
-.kmkt-my-names { gap: 12px; padding-top: 24px; }
-.kmkt-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
 .kmkt-empty-icon { color: var(--kaspa-ink); }
 .kmkt-empty-icon .kmkt-ico { width: 48px; height: 48px; stroke-width: 1.6; }
-.kmkt-empty h3 { margin: 0; font-size: 17px; font-weight: 600; color: var(--text); }
-.kmkt-empty p { margin: 0; padding: 0 16px; font-size: 15px; line-height: 20px; color: var(--muted); }
-.kmkt-empty .kmkt-wide-button { margin-top: 4px; width: calc(100% - 32px); }
-.kmkt-offers { display: flex; flex-direction: column; gap: 12px; padding-top: 20px; }
 .kmkt-empty-card { padding: 18px; text-align: center; font-size: 15px; color: var(--muted); }
 
 /* Listing detail */
@@ -315,23 +290,6 @@ button.kmkt-row:active { background-color: var(--row-pressed); }
   padding: 12px; border-radius: 12px; background: var(--grouped-row); font-size: 17px;
 }
 .kmkt-placeholder-text { color: var(--placeholder); }
-.kmkt-guide-avatar {
-  align-self: center; width: 120px; height: 120px; border-radius: 50%;
-  display: grid; place-items: center; background: var(--grouped-row); color: var(--ios-gray4);
-}
-.kmkt-guide-avatar .kmkt-ico { width: 48px; height: 48px; }
-.kmkt-guide-banner {
-  height: 120px; border-radius: 16px; display: grid; place-items: center;
-  background: var(--grouped-row); color: var(--ios-gray4);
-}
-.kmkt-guide-banner .kmkt-ico { width: 38px; height: 38px; stroke-width: 1.6; }
-.kmkt-guide-fields { border-radius: 12px; overflow: hidden; background: var(--grouped-row); text-align: left; }
-.kmkt-guide-fields-row {
-  padding: 12px 14px; font-size: 17px; line-height: 22px; color: var(--muted);
-  background-image: linear-gradient(var(--line), var(--line));
-  background-size: calc(100% - 14px) .5px; background-position: right bottom; background-repeat: no-repeat;
-}
-.kmkt-guide-fields-row:last-child { background-image: none; }
 
 /* Previous / Next, pinned outside the scroll so the guide can be tapped through (KNSWizardBottomBar). */
 .kmkt-guide-bar { flex: 0 0 auto; display: flex; gap: 12px; padding: 0 24px 24px; }
@@ -347,7 +305,6 @@ button.kmkt-row:active { background-color: var(--row-pressed); }
 /* ---- Phone widths: sheets go edge to edge, the cover goes full screen -------------------- */
 
 @media (max-width: 620px) {
-  .kmkt-featured-strip { margin: 0 -16px; padding: 0 16px; }
   .kmkt-backdrop.kmkt-backdrop-cover { padding: 0; }
   .kmkt-sheet-cover { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; }
   .kmkt-sheet-cover .kmkt-navbar { padding-top: calc(8px + var(--safe-top, 0px)); }

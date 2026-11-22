@@ -357,10 +357,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
   transition: color .16s ease, background-color .16s ease;
 }
 
-/* The live dock is not rearranged in place - reordering is Customize Dock's job, the way it is on
-   the phones, so a stray drag on the thing you navigate with cannot rebuild your layout. */
-.sidebar-tab-logo { width: 24px; height: 24px; object-fit: contain; display: block; }
-
 .sidebar-tab:hover .sidebar-tab-icon { background: var(--surface-2); }
 
 .sidebar-tab-icon {
@@ -423,26 +419,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
 .detail-empty-state h1 { color: var(--text); font-size: 20px; margin: 0 0 8px; }
 .detail-empty-state p { margin: 0; font-size: 14px; line-height: 1.5; }
 
-.app-placeholder-screen {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  max-width: 360px;
-  margin: 0 auto;
-  padding: 24px 24px 120px;
-  color: var(--muted);
-}
-
-.app-placeholder-screen .empty-icon { color: var(--muted); opacity: .6; margin: 0 auto 14px; }
-.app-placeholder-screen .empty-icon svg { width: 44px; height: 44px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.app-placeholder-screen h1 { color: var(--text); font-size: 22px; margin: 0 0 10px; }
-.app-placeholder-screen .architecture-badge { margin: 0 0 14px; }
-.app-placeholder-screen p { margin: 0; font-size: 14px; line-height: 1.5; }
-
 /* Compose sits at the bottom-right OF THE CHATS LIST, not of the window.
    Fixed positioning put it against the right edge of the viewport, which on a wide window is the
    far side of the open conversation - nowhere near the list it starts a new row in. Absolute
@@ -470,7 +446,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
 }
 
 .new-chat-fab:hover { filter: brightness(1.05); }
-.new-chat-fab .person-plus-icon { width: 27px; height: 27px; }
 
 /* On Chats, the dock moves into the chats list - bottom-left, sized to the list, sharing that
    corner with the compose button. The point is the other side: with nothing of the dock over the
@@ -929,9 +904,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
   50% { transform: scale(1.08); opacity: 1; }
 }
 
-
-.sf { font-size: 21px; line-height: 1; }
-
 .toolbar-balance {
   position: absolute;
   left: 50%;
@@ -961,8 +933,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
   border-radius: 15px;
   background: var(--surface-2);
 }
-
-.search-icon { color: var(--muted); font-size: 18px; }
 
 .search-input {
   width: 100%;
@@ -1021,31 +991,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
   max-width: 260px;
   color: var(--muted);
   line-height: 1.45;
-}
-
-.add-contact-button {
-  border: 0;
-  border-radius: 15px;
-  padding: 12px 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  color: var(--on-accent);
-  background: var(--kaspa);
-  font-weight: 700;
-  box-shadow: 0 12px 30px rgba(112,199,186,.16);
-}
-
-.add-contact-icon {
-  width: 23px;
-  height: 23px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2.2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  flex: 0 0 auto;
 }
 
 .chat-list {
@@ -1163,7 +1108,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
 .chat-row-delivery.failed { stroke: var(--ios-red); }
 .chat-row-delivery.warning { stroke: var(--ios-orange); }
 .chat-row-none { font-style: italic; }
-.chat-list-footer { padding: 10px 0 14px; text-align: center; color: var(--muted); font-size: 12px; }
 .chat-row-time {
   position: absolute;
   top: 13px;
@@ -1266,29 +1210,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-.conversation-actions {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  margin: 12px 0 4px;
-}
-
-.mini-action {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 8px 11px;
-  color: var(--kaspa-ink);
-  background: rgba(112,199,186,.075);
-  font-weight: 750;
-  font-size: 12px;
-}
-
-.mini-action.danger {
-  color: #ffb3b9;
-  background: rgba(143,39,50,.18);
-  border-color: rgba(255,115,130,.16);
-}
-
 
 .sync-status {
   justify-self: center;
@@ -1305,19 +1226,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.conversation-empty {
-  margin-top: 28px;
-  padding: 18px;
-  display: grid;
-  gap: 5px;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  color: var(--muted);
-  background: rgba(255,255,255,.035);
-}
-
-.conversation-empty strong { color: var(--text); }
 
 .modal-backdrop {
   position: fixed;
@@ -1511,13 +1419,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
 .setup-guide-nav .setup-guide-next { flex: 1; }
 
 /* Card header (broadcast-room parity): sender name + send time at the top. */
-.message-card-head { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--muted); }
-.message-card-head strong { color: var(--kaspa-ink); font-size: 12.5px; }
-/* Header carries the time now — the old corner timestamp stays only where the
-   header is hidden (photo-only / link-only bubbles keep their overlay time). */
-.message-bubble:not(.photo-bubble):not(.link-card-bubble) .message-time { display: none; }
-.message-bubble.photo-bubble .message-card-head,
-.message-bubble.link-card-bubble .message-card-head { display: none; }
 
 /* Apple-Pay-style payment cards (matches iOS's paymentCardBubble). The card
    takes over the bubble surface entirely — the bubble keeps its slot in the
@@ -1671,13 +1572,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
   letter-spacing: -.04em;
 }
 
-.screen-copy {
-  margin: 0 0 18px;
-  color: var(--muted);
-  line-height: 1.45;
-  font-size: 13px;
-}
-
 .settings-grid {
   display: grid;
   gap: 10px;
@@ -1776,10 +1670,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
   margin-bottom: 6px;
 }
 
-.screen-copy {
-  margin-bottom: 12px;
-}
-
 .settings-grid {
   gap: 8px;
 }
@@ -1829,19 +1719,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
   }
 }
 
-/* Step 9: future-ready message state indicators */
-.message-state-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(255,255,255,.16);
-}
-
-.message-state-dot.local-draft {
-  background: var(--kaspa);
-  box-shadow: 0 0 12px rgba(112,199,186,.35);
-}
-
 .unread-badge {
   min-width: 20px;
   height: 20px;
@@ -1855,76 +1732,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
   line-height: 1;
 }
 
-.message-status {
-  justify-self: end;
-  width: fit-content;
-  border-radius: 999px;
-  padding: 3px 7px;
-  color: #06110f;
-  background: rgba(255,255,255,.55);
-  font-size: 9px;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-}
-
-.message-status.local-draft {
-  background: rgba(6,17,15,.14);
-  color: #06110f;
-}
-
-/* Step 10: local send pipeline state colors */
-.message-state-dot.draft,
-.message-state-dot.local-draft {
-  background: rgba(255,255,255,.22);
-}
-
-.message-state-dot.pending {
-  background: #ffd166;
-  box-shadow: 0 0 12px rgba(255,209,102,.35);
-}
-
-.message-state-dot.broadcast {
-  background: #8fb9ff;
-  box-shadow: 0 0 12px rgba(143,185,255,.35);
-}
-
-.message-state-dot.confirmed {
-  background: var(--kaspa);
-  box-shadow: 0 0 12px rgba(112,199,186,.42);
-}
-
-.message-state-dot.failed {
-  background: #ff7382;
-  box-shadow: 0 0 12px rgba(255,115,130,.35);
-}
-
-.message-status.draft,
-.message-status.local-draft {
-  background: rgba(6,17,15,.14);
-  color: #06110f;
-}
-
-.message-status.pending {
-  background: rgba(255,209,102,.72);
-  color: #231a05;
-}
-
-.message-status.broadcast {
-  background: rgba(143,185,255,.72);
-  color: #061022;
-}
-
-.message-status.confirmed {
-  background: rgba(6,17,15,.18);
-  color: #06110f;
-}
-
-.message-status.failed {
-  background: rgba(143,39,50,.72);
-  color: #fff;
-}
-
 
 /* Step 14: inspectable Kasia preview message details */
 .message-bubble {
@@ -1934,76 +1741,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
 .message-bubble:focus-visible {
   outline: 2px solid rgba(112,199,186, 0.75);
   outline-offset: 3px;
-}
-
-.message-details-modal {
-  max-width: 390px;
-}
-
-.message-details-body {
-  display: grid;
-  gap: 10px;
-}
-
-.detail-row {
-  display: grid;
-  grid-template-columns: 104px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.detail-row span {
-  color: rgba(235, 255, 250, 0.56);
-  font-size: 12px;
-}
-
-.detail-row strong {
-  color: rgba(241, 255, 252, 0.92);
-  font-size: 12px;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-}
-
-.detail-section-title {
-  margin-top: 4px;
-  color: rgba(112,199,186, 0.88);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-
-.payload-box {
-  max-height: 128px;
-  overflow: auto;
-  padding: 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(112,199,186, 0.22);
-  background: rgba(8, 16, 20, 0.76);
-  color: rgba(236, 255, 251, 0.86);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
-.payload-box:not(.muted) {
-  cursor: copy;
-}
-
-.payload-box.muted {
-  color: rgba(235, 255, 250, 0.52);
-}
-
-
-/* Step 15 transport readiness */
-.compact-copy {
-  margin: 8px 0 12px;
-  font-size: 12px;
 }
 
 .readiness-list {
@@ -2055,74 +1792,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
   margin-top: 12px;
 }
 
-
-/* Step 17: explicit real on-chain send confirmation */
-.onchain-confirm-modal {
-  max-width: 460px;
-}
-
-.onchain-summary {
-  display: grid;
-  gap: 10px;
-  margin: 10px 0 14px;
-}
-
-.confirm-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.confirm-row span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.confirm-row strong, .confirm-row code {
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 900;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.confirm-preview {
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: rgba(112,199,186, 0.09);
-  border: 1px solid rgba(112,199,186, 0.18);
-  color: var(--text);
-  font-weight: 800;
-  line-height: 1.35;
-}
-
-
-/* Step 18: incoming preview button fits the conversation action row */
-.conversation-actions { flex-wrap: wrap; }
-
-/* Step 19: extended conversation-engine statuses */
-.message-state-dot.building,
-.message-state-dot.signing,
-.message-state-dot.broadcasting {
-  background: #ffd166;
-  box-shadow: 0 0 12px rgba(255,209,102,.35);
-}
-
-.message-status.building,
-.message-status.signing,
-.message-status.broadcasting {
-  background: rgba(255,209,102,.72);
-  color: #231a05;
-}
-
 .payload-textarea {
   min-height: 150px;
   resize: vertical;
@@ -2167,8 +1836,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
 .service-indicator.ready { background: var(--ios-green); box-shadow: 0 0 0 4px rgba(52,199,89,.11); }
 .service-indicator.busy { background: var(--ios-orange); box-shadow: 0 0 0 4px rgba(242,189,92,.10); }
 .service-indicator.error { background: var(--ios-red); box-shadow: 0 0 0 4px rgba(239,107,117,.10); }
-.settings-section-header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-.settings-section-header h2, .transport-card h2 { margin: 0; font-size: 17px; }
 .compact-details,
 .diagnostics-panel {
   border: 1px solid var(--surface-2);
@@ -2186,8 +1853,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
 }
 .compact-details summary::-webkit-details-marker,
 .diagnostics-panel > summary::-webkit-details-marker { display:none; }
-.compact-details[open] { padding: 0 12px 12px; }
-.compact-details[open] summary { padding-left:2px; }
 .diagnostics-panel { margin-top: 12px; }
 .diagnostics-panel[open] { padding: 0 12px 12px; }
 .diagnostics-panel[open] > summary { padding-left: 2px; }
@@ -2541,12 +2206,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
    same clearance. */
 .message-selection-toolbar { margin-top: var(--chat-header-h); }
 
-.conversation-empty {
-  align-self: center;
-  justify-self: center;
-  margin: 0;
-}
-
 .composer-shell {
   align-self: end;
   margin-top: 0;
@@ -2582,66 +2241,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
   height: 15px;
   flex: 0 0 auto;
   display: block;
-}
-
-/* Step 41 — compact message actions and iMessage-style local selection. */
-.message-action-backdrop {
-  place-items: center;
-  padding: 20px;
-}
-
-.message-action-sheet {
-  width: min(100%, 430px);
-  display: grid;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid rgba(112,199,186, 0.22);
-  border-radius: 24px;
-  background: rgba(13, 20, 26, 0.98);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
-}
-
-.message-action-sheet > button {
-  min-height: 52px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.055);
-  color: rgba(242, 255, 252, 0.95);
-  font: inherit;
-  font-weight: 750;
-  cursor: pointer;
-}
-
-.message-action-sheet > button:hover {
-  border-color: rgba(112,199,186, 0.35);
-  background: rgba(112,199,186, 0.08);
-}
-
-.message-action-preview,
-.message-action-title {
-  padding: 14px 12px 8px;
-  color: rgba(241, 255, 252, 0.94);
-  font-weight: 800;
-  overflow-wrap: anywhere;
-}
-
-.message-action-preview {
-  max-height: 90px;
-  overflow: auto;
-  color: rgba(235, 255, 250, 0.7);
-  font-weight: 600;
-}
-
-.message-action-note {
-  margin: -2px 12px 8px;
-  color: rgba(235, 255, 250, 0.55);
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.message-action-sheet .message-action-cancel {
-  margin-top: 6px;
-  color: rgba(255, 255, 255, 0.72);
 }
 
 .message-selection-toolbar {
@@ -2785,7 +2384,6 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
 
 /* A lone emoji loses its bubble and grows (iOS isSingleEmojiOnly). */
 .message-bubble.emoji-only { background: transparent !important; border: 0 !important; box-shadow: none !important; padding: 0 4px; }
-.message-bubble.emoji-only .message-card-head { display: none; }
 .message-bubble.emoji-only .message-text { font-size: 80px; line-height: 1.1; }
 /* A very long message shows a preview and opens in full on demand. */
 .message-show-more { display: block; margin-top: 4px; border: 0; background: transparent; padding: 0; color: var(--kaspa-ink); font-weight: 700; font-size: 12.5px; cursor: pointer; }
@@ -3060,21 +2658,6 @@ button.message-delivery-icon:hover .message-delivery-text { text-decoration: und
   grid-template-rows: auto auto;
 }
 
-.message-retry-link {
-  grid-column: 2;
-  grid-row: 2;
-  justify-self: end;
-  margin-top: 2px;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  color: var(--ios-red);
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.message-retry-link:hover { text-decoration: underline; }
-
 .message-delivery-icon.confirmed svg {
   fill: none;
   stroke: none;
@@ -3147,36 +2730,14 @@ button.message-delivery-icon:hover .message-delivery-text { text-decoration: und
 .settings-architecture-stack + .wallet-setup-card { margin-top: 0; }
 
 /* Step 63: incoming communication request */
-.handshake-request-card {
-  position: sticky;
-  top: 8px;
-  z-index: 6;
-  display: grid;
-  gap: 8px;
-  width: min(92%, 520px);
-  margin: 8px auto 14px;
-  padding: 14px;
-  border: 1px solid rgba(100, 244, 177, 0.28);
-  border-radius: 18px;
-  background: rgba(18, 25, 24, 0.94);
-  box-shadow: 0 12px 32px rgba(0,0,0,0.26);
-  backdrop-filter: blur(18px);
-}
-.handshake-request-card strong { font-size: 15px; }
-.handshake-request-card > span { color: var(--muted); font-size: 13px; line-height: 1.4; }
 .handshake-request-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 2px; }
 .handshake-request-actions button { min-height: 38px; border-radius: 12px; }
 
 
 /* Step 66: account/session architecture frame */
 .settings-group { margin-top: 14px; }
-.settings-group-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
-.settings-group-heading h2 { margin:0; font-size:18px; }
 .settings-group-label { margin:0 0 8px; padding-left:4px; color:var(--muted); font-size:12px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
 .settings-list-card, .account-session-card { border:1px solid var(--card-border); border-radius:22px; overflow:hidden; background:linear-gradient(180deg,var(--surface-1),rgba(255,255,255,.025)); }
-.account-session-card { padding:16px; }
-.account-session-card > .settings-list-row, .account-session-card > .settings-toggle-row { margin-left:-16px; margin-right:-16px; padding-left:16px; padding-right:16px; }
-.account-session-card > .primary-button { margin:12px 0; }
 .settings-list-row, .settings-toggle-row { width:100%; min-height:60px; padding:13px 15px; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--text); display:flex; align-items:center; gap:12px; text-align:left; }
 .settings-list-card > :last-child, .account-session-card > :last-child { border-bottom:0; }
 .settings-list-row:hover { background:rgba(255,255,255,.025); }
@@ -3184,7 +2745,6 @@ button.message-delivery-icon:hover .message-delivery-text { text-decoration: und
 .settings-row-copy { min-width:0; flex:1; display:grid; gap:3px; }
 .settings-row-copy strong, .settings-toggle-row strong { font-size:15px; }
 .settings-row-copy small, .settings-toggle-row small { display:block; color:var(--muted); font-size:12px; line-height:1.35; }
-.settings-row-chevron { color:var(--muted); font-size:25px; }
 .settings-toggle-row > span:first-child { flex:1; min-width:0; }
 .switch-control { flex:0 0 auto; }
 .switch-control input { position:absolute; opacity:0; pointer-events:none; }
@@ -3216,27 +2776,6 @@ button.message-delivery-icon:hover .message-delivery-text { text-decoration: und
 .profile-value-row strong { font-size:19px; }
 .profile-value-row.static { border:0; border-radius:0; }
 .profile-value-row span { color:var(--muted); text-align:right; }
-
-.account-manager-current { display:flex; align-items:center; gap:12px; padding:14px; border:1px solid var(--line); border-radius:18px; background:rgba(255,255,255,.035); }
-.account-manager-current > div { min-width:0; display:grid; gap:4px; }
-.account-manager-current small { color:var(--muted); overflow-wrap:anywhere; }
-.account-manager-actions { display:grid; gap:10px; margin-top:14px; }
-
-
-/* Step 67 — KaChat-style logout confirmation */
-.logout-backdrop { align-items: flex-end; padding: 20px; }
-.logout-sheet { width: min(100%, 520px); margin: 0 auto 18px; border-radius: 24px; border: 1px solid var(--line); background: rgba(25,29,34,.98); box-shadow: 0 24px 80px rgba(0,0,0,.55); overflow: hidden; text-align: center; }
-.logout-sheet h2 { margin: 0; padding: 22px 22px 6px; font-size: 22px; }
-.logout-sheet p { margin: 0; padding: 0 24px 20px; color: var(--muted); line-height: 1.45; }
-.logout-sheet-actions { display: grid; border-top: 1px solid var(--line); }
-.logout-sheet-actions button { min-height: 56px; border: 0; border-radius: 0; background: transparent; font: inherit; font-weight: 750; }
-.logout-destructive { color: var(--ios-red); }
-.logout-cancel { color: var(--accent); border-top: 1px solid var(--line) !important; }
-
-
-/* Step 68 — centered logout confirmation and saved-account landing screen */
-.logout-backdrop { align-items:center; justify-content:center; padding:24px; }
-.logout-sheet { margin:0 auto; }
 
 .logged-out-screen {
   position:fixed; inset:0; z-index:2000; overflow-y:auto;
@@ -3299,32 +2838,11 @@ button.message-delivery-icon:hover .message-delivery-text { text-decoration: und
 }
 
 
-/* Step 71 — KaChat V2 saved-account deletion */
-.account-delete-backdrop { align-items:center; justify-content:center; padding:24px; }
-.account-delete-sheet { width:min(100%,520px); border:1px solid var(--line); border-radius:24px; overflow:hidden; background:rgba(25,29,34,.99); box-shadow:0 24px 80px rgba(0,0,0,.6); text-align:center; }
-.account-delete-sheet h2 { margin:0; padding:22px 22px 7px; font-size:22px; }
-.account-delete-sheet p { margin:0; padding:0 24px 22px; color:var(--muted); line-height:1.5; }
-.account-delete-actions { display:grid; border-top:1px solid var(--line); }
-.account-delete-actions button { min-height:58px; border:0; border-radius:0; background:transparent; font:inherit; font-weight:780; }
-.account-delete-destructive { color:var(--ios-red); }
-.account-delete-cancel { color:var(--text); border-top:1px solid var(--line) !important; }
-
-
 /* Step 72: KaChat-style account creation */
 .create-account-modal { width: min(460px, calc(100vw - 32px)); }
-.seed-length-fieldset { border: 0; padding: 0; margin: 4px 0 14px; }
-.seed-length-fieldset legend { font-weight: 800; margin-bottom: 10px; }
-.seed-length-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.seed-length-options label { cursor: pointer; }
-.seed-length-options input { position: absolute; opacity: 0; pointer-events: none; }
-.seed-length-options span { display: flex; flex-direction: column; gap: 3px; min-height: 58px; justify-content: center; padding: 10px 14px; border-radius: 14px; border: 1px solid var(--softBorder, var(--line)); background: var(--softButton, var(--surface-1)); }
-.seed-length-options input:checked + span { border-color: rgba(83,127,255,.8); background: rgba(60,94,255,.17); box-shadow: 0 0 0 1px rgba(83,127,255,.25); }
-.seed-length-options small { opacity: .65; }
 .field-error { color: var(--ios-red); font-weight: 700; margin: 0; }
 .recovery-phrase-box { margin-top: 14px; padding: 16px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.8; user-select: text; word-spacing: 5px; }
 .recovery-countdown { display: block; margin-top: 12px; font-family: inherit; font-size: 12px; letter-spacing: .04em; color: var(--muted); word-spacing: normal; user-select: none; }
-
-.recovery-input { resize: vertical; min-height: 118px; line-height: 1.45; font-family: inherit; }
 
 /* Step 75 — signed-out account dialogs must render above the saved-account screen. */
 body.session-logged-out [data-create-account-modal],
@@ -3408,25 +2926,6 @@ body.session-logged-out [data-account-rename-modal] {
   }
 }
 
-/* Step 83 — single-line Seed Phrase and Log Out rows. */
-.settings-list-row-single {
-  min-height: 56px;
-  padding-top: 11px;
-  padding-bottom: 11px;
-}
-.settings-list-row-single .settings-row-copy {
-  display: flex;
-  align-items: center;
-}
-.settings-list-row-single .settings-row-copy strong {
-  font-size: 16px;
-  line-height: 1.2;
-}
-.settings-list-row-single .settings-row-icon svg {
-  display: block;
-  margin: 0 auto;
-}
-
 /* Step 85 — simplify the Profile account-name header only. */
 .profile-screen .profile-name-input {
   display: block;
@@ -3451,17 +2950,6 @@ body.session-logged-out [data-account-rename-modal] {
 
 
 /* Step 90: KaChat-style Create Chat sheet. Scoped to the contact modal only. */
-.person-plus-icon,
-.add-contact-icon.person-plus-icon {
-  width: 28px;
-  height: 28px;
-  display: block;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2.2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
 .create-chat-backdrop { z-index: 2100; }
 .create-chat-modal {
   width: min(100%, 430px);
@@ -3803,16 +3291,7 @@ body.session-logged-out [data-account-rename-modal] {
   color: var(--kaspa-ink); font-weight: 700; font-size: 12px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
 }
 .payment-back svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.composer.payment-mode .composer-inline-tools { display: none; }
 .composer-field-wrap { grid-template-columns: minmax(0, 1fr) auto 38px; }
-.composer-inline-tools { display: inline-flex; align-items: center; gap: 2px; align-self: center; padding-right: 2px; }
-.composer-inline-tool {
-  width: 30px; height: 30px; border: 0; border-radius: 10px; background: transparent; color: var(--muted);
-  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
-}
-.composer-inline-tool:hover { color: var(--text); background: rgba(255,255,255,.06); }
-.composer-inline-tool svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.composer-inline-tool img { width: 20px; height: 20px; }
 .composer:not(.payment-mode) .payment-unit-toggle,
 .composer:not(.payment-mode) .payment-conversion,
 .composer:not(.payment-mode) .payment-max { display: none !important; }
@@ -3831,16 +3310,6 @@ body.session-logged-out [data-account-rename-modal] {
   opacity: .55;
   cursor: wait;
 }
-
-
-/* Step 103: KaChat-style centered payment validation dialogs. */
-.kas-payment-alert-backdrop { z-index: 80; background: rgba(0,0,0,.66); backdrop-filter: blur(10px); }
-.kas-payment-alert { width:min(420px,calc(100vw - 34px)); overflow:hidden; border:1px solid var(--line); border-radius:24px; background:rgba(31,33,36,.98); box-shadow:0 28px 90px rgba(0,0,0,.68); text-align:center; }
-.kas-payment-alert h2 { margin:0; padding:24px 24px 8px; font-size:23px; letter-spacing:-.02em; }
-.kas-payment-alert p { margin:0; padding:0 28px 24px; color:var(--muted); font-size:16px; line-height:1.45; }
-.kas-payment-alert-actions { display:grid; border-top:1px solid var(--line); }
-.kas-payment-alert-actions button { min-height:58px; border:0; border-radius:0; background:transparent; color:var(--kaspa); font:inherit; font-size:17px; font-weight:800; }
-.kas-payment-alert-actions button + button { border-top:1px solid var(--line); }
 
 
 
@@ -3966,32 +3435,8 @@ body.session-logged-out [data-account-rename-modal] {
 
 /* Settings redesign — dropdown rows, segmented controls, info rows, footers */
 
-.settings-dropdown { padding: 0; overflow: hidden; }
-
-.settings-dropdown-toggle {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 60px;
-  padding: 13px 15px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-}
-
-.settings-dropdown-toggle .settings-row-copy { flex: 1; min-width: 0; }
 .settings-dropdown-toggle .architecture-badge,
 .settings-dropdown-caption { margin-left: auto; }
-/* An inline menu picker in a settings row (iOS Picker .menu): the value in the accent colour. */
-.settings-inline-select {
-  margin-left: auto; flex: 0 0 auto; max-width: 55%;
-  border: 0; background: transparent; color: var(--kaspa-ink);
-  font: inherit; font-size: 15px; text-align: right; cursor: pointer; padding: 4px 2px;
-}
-.settings-inline-select:focus-visible { outline: 2px solid color-mix(in srgb, var(--kaspa) 55%, transparent); border-radius: 6px; }
 
 .settings-dropdown-caption {
   color: var(--muted);
@@ -4012,15 +3457,6 @@ body.session-logged-out [data-account-rename-modal] {
   flex: 0 0 auto;
 }
 
-.settings-dropdown-toggle[aria-expanded="true"] .settings-dropdown-chevron { transform: rotate(180deg); }
-
-.settings-dropdown-body {
-  border-top: 1px solid var(--line);
-  padding: 14px 15px 16px;
-  display: grid;
-  gap: 12px;
-}
-
 .settings-dropdown-row {
   display: block;
   width: 100%;
@@ -4034,8 +3470,6 @@ body.session-logged-out [data-account-rename-modal] {
   font: inherit;
 }
 
-.settings-dropdown-body > .settings-dropdown-row:first-child { margin-top: -14px; }
-.settings-dropdown-body > .settings-dropdown-row:last-child { margin-bottom: -16px; }
 .settings-dropdown-row + .settings-dropdown-row { border-top: 1px solid var(--line); }
 .settings-dropdown-row:hover { background: var(--surface-1); }
 /* A three-way choice in a settings row, where a switch only offers two. */
@@ -4070,8 +3504,6 @@ body.session-logged-out [data-account-rename-modal] {
 }
 
 /* Menu customization rows (Settings > Menu). */
-
-.settings-toggle-row.settings-segmented-row { align-items: center; }
 
 .settings-segmented {
   display: inline-flex;
@@ -4127,14 +3559,6 @@ body.session-logged-out [data-account-rename-modal] {
 .saved-node-copy strong { font-size: 14px; }
 .saved-node-copy strong.mono, .saved-node-copy small { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .saved-node-copy small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
-.saved-node-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
-.saved-node-btn {
-  padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line);
-  background: transparent; color: var(--ink); font-size: 12.5px; font-weight: 600; cursor: pointer;
-}
-.saved-node-btn:hover { background: rgba(255,255,255,.06); }
-.saved-node-btn.danger { color: var(--ios-red); border-color: rgba(239,107,117,.24); }
-.saved-node-btn.danger:hover { background: rgba(239,107,117,.12); }
 
 .switch-control input:disabled + span { opacity: .4; cursor: not-allowed; }
 
@@ -4184,39 +3608,6 @@ body.session-logged-out [data-account-rename-modal] {
 [data-connection-latency].good, [data-connection-pool-health].good { color: var(--ios-green); }
 [data-connection-latency].warn, [data-connection-pool-health].warn { color: var(--ios-orange); }
 [data-connection-latency].bad, [data-connection-pool-health].bad { color: var(--ios-red); }
-
-.connection-pool-stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 8px;
-  padding: 16px 15px;
-  border-bottom: 1px solid var(--line);
-}
-
-.connection-pool-stat { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.connection-pool-stat strong { font-size: 20px; }
-.connection-pool-stat small { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
-
-.connection-pool-dot { width: 8px; height: 8px; border-radius: 50%; }
-.connection-pool-dot.active { background: var(--ios-green); }
-.connection-pool-dot.known { background: #5a9dff; }
-.connection-pool-dot.failovers { background: var(--muted); }
-
-.connection-endpoint-row {
-  width: 100%;
-  cursor: pointer;
-}
-
-.connection-endpoint-host {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 13.5px;
-  word-break: break-all;
-}
-
-.connection-endpoint-row .architecture-badge { margin-left: auto; flex: 0 0 auto; }
-.connection-endpoint-row small span.good { color: var(--ios-green); }
-.connection-endpoint-row small span.warn { color: var(--ios-orange); }
-.connection-endpoint-row small span.bad { color: var(--ios-red); }
 
 /* Chatting Address QR screen — forced white/light regardless of app theme,
    matching iOS's ChattingAddressQRView (QR codes must stay scannable). */
@@ -4458,43 +3849,12 @@ body.session-logged-out [data-account-rename-modal] {
   border-top: 1px solid var(--line);
   padding: 4px 0;
 }
-.manage-send-coin-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 14px;
-  cursor: pointer;
-}
-.manage-send-coin-row:hover { background: var(--surface-1); }
-.manage-send-coin-check { width: 16px; height: 16px; flex: 0 0 auto; accent-color: var(--kaspa); }
-.manage-send-coin-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.manage-send-coin-label { font-size: 12px; font-weight: 700; color: var(--kaspa-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.manage-send-coin-outpoint {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 11px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.manage-send-coin-amount { flex: 0 0 auto; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 /* Send amount field: clickable Kaspa-logo unit toggle (KAS <-> fiat) + input. */
 [data-manage-send-amount-label] { margin-bottom: 0; }
 /* The full-featured Send Kaspa modal (fee tiers + coin control) can exceed the viewport. */
 .send-kaspa-modal { max-height: 90vh; overflow-y: auto; }
 .send-kaspa-modal .modal-actions { margin-top: 20px; }
-.send-recipient-actions { display: flex; justify-content: flex-end; margin: 4px 0 6px; }
-/* Green check inside the recipient field once the address resolves / is valid. */
-.send-recipient-field { position: relative; display: block; }
-.send-recipient-field .field-input { padding-right: 42px; }
-.send-recipient-check {
-  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 22px; height: 22px; border-radius: 50%; color: #0a0f0d;
-  background: var(--kaspa); box-shadow: 0 0 0 3px rgba(112,199,186,.18);
-}
-.send-recipient-check svg { width: 13px; height: 13px; }
 
 /* Consolidate/Compound UTXOs button in a spending address's UTXOs tab (iOS parity). */
 .manage-address-consolidate-btn {
@@ -4530,10 +3890,6 @@ body.session-logged-out [data-account-rename-modal] {
 
 /* Paste and Scan QR: iOS spreads them across the row with an icon each, rather than leaving two
    bare links huddled at one end. */
-.cold-send-recipient-status:empty { display: none; }
-.cold-send-recipient-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: -4px; padding: 0 2px; }
-.cold-send-recipient-actions .cold-inline-link { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 700; }
-.cold-send-recipient-actions svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 /* The unit toggle is the ONLY way to switch between KAS and fiat, so it has to look like the
    control it is. iOS makes the Kaspa mark (or the currency symbol) the whole button; this keeps
    the code beside it for a pointer device but gives the mark the room to be seen. */
@@ -4593,7 +3949,6 @@ body.session-logged-out [data-account-rename-modal] {
 /* Fill the card minus symmetric side gaps. The `width: auto` here must beat
    `.settings-segmented.full { width: 100% }` (equal specificity, so this later
    rule wins); otherwise 100% + the side margins overflow the card's right edge. */
-.manage-address-screen .manage-address-tabs { margin: 0 18px 10px; width: auto; }
 .manage-address-screen .settings-segmented-option {
   color: var(--muted);
 }
@@ -4994,12 +4349,6 @@ body.session-logged-out [data-account-rename-modal] {
 .kns-pending-transfer .field-hint { margin: 0; }
 .kns-domain-card strong { font-size: 14.5px; }
 .kns-domain-card small { color: var(--muted); font-size: 11.5px; }
-.kns-domain-note {
-  margin: 6px 2px 10px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
 .spending-address-value {
   grid-area: value;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -5078,7 +4427,6 @@ body.session-logged-out [data-account-rename-modal] {
 .spending-row-menu-item:hover { background: var(--surface-1, rgba(255, 255, 255, .06)); }
 /* Hide Address is tinted the way iOS tints it - not destructive, but not the same weight as
    Copy either: it takes something off the list. */
-.cold-menu-item-warn, .cold-menu-item-warn svg { color: var(--ios-orange); }
 .spending-row-menu-item svg {
   width: 17px; height: 17px;
   fill: none; stroke: currentColor; stroke-width: 1.8;
@@ -5186,20 +4534,6 @@ body.session-logged-out [data-account-rename-modal] {
 
 .chats-tab-button.active::after { background: var(--kaspa); }
 
-.chats-tab-badge {
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  display: inline-grid;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--ios-red);
-  color: #fff;
-  font-size: 10.5px;
-  font-weight: 800;
-  line-height: 1;
-}
-
 /* Select toggle row, directly above the search bar. */
 .chat-select-toggle,
 .chat-select-all {
@@ -5251,31 +4585,6 @@ body.session-logged-out [data-account-rename-modal] {
 }
 
 .chat-selection-action.danger { color: var(--ios-red); border-color: rgba(239,107,117,.24); }
-
-.group-chats-placeholder {
-  width: 100%;
-  padding: 36px 22px;
-  text-align: center;
-  border: 1px solid var(--line);
-  border-radius: 28px;
-  background: linear-gradient(180deg, var(--surface-2), rgba(255,255,255,.025));
-  box-shadow: 0 18px 50px rgba(0,0,0,.22);
-}
-
-.group-chats-placeholder h1 {
-  margin: 0 0 8px;
-  font-size: 23px;
-  letter-spacing: -.02em;
-}
-
-.group-chats-placeholder .architecture-badge { margin: 0 0 14px; }
-
-.group-chats-placeholder p {
-  margin: 0 auto;
-  max-width: 260px;
-  color: var(--muted);
-  line-height: 1.45;
-}
 
 /* Pending photo attachment preview, shown in the composer before sending. */
 .pending-photo-preview {
@@ -5403,19 +4712,6 @@ body.session-logged-out [data-account-rename-modal] {
   margin: 18px 0 8px 4px;
 }
 
-.chat-info-profile-extra {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  margin-top: 4px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
-}
-.chat-info-profile-extra .chat-info-bio { text-align: center; }
-.chat-info-profile-extra .chat-info-social-links { justify-content: center; }
-
 .chat-info-avatar {
   position: relative;
   width: 60px;
@@ -5535,12 +4831,6 @@ body.session-logged-out [data-account-rename-modal] {
 }
 .chat-info-alias-eye:hover { color: var(--text); background: var(--line); }
 .chat-info-alias-eye svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.6; }
-.chat-info-alias-footer {
-  margin: 6px 4px 14px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
 
 .chat-info-stats-row {
   display: flex;
@@ -5590,28 +4880,6 @@ body.session-logged-out [data-account-rename-modal] {
   font-size: 14px;
   line-height: 1.45;
 }
-
-.chat-info-social-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.chat-info-social-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--surface-1);
-  color: var(--kaspa-ink);
-  font-size: 12.5px;
-  font-weight: 650;
-  text-decoration: none;
-}
-
-.chat-info-social-link:hover { background: var(--line); }
 
 .kns-register-modal { max-width: 440px; }
 
@@ -5678,44 +4946,6 @@ body.session-logged-out [data-account-rename-modal] {
 .kns-editor-guide-sub { font-size: 12px; color: var(--muted); }
 .kns-editor-guide-chevron { margin-left: auto; color: var(--muted); flex: 0 0 auto; }
 
-/* The in-app KNS setup-guide steps sheet. */
-.kns-guide-steps { display: grid; gap: 14px; margin: 4px 0 4px; }
-.kns-guide-step { display: flex; gap: 12px; align-items: flex-start; }
-.kns-guide-step-num {
-  flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: rgba(112,199,186,.16);
-  color: var(--kaspa-ink);
-  font-size: 13px;
-  font-weight: 800;
-}
-.kns-guide-step-body { display: grid; gap: 3px; }
-.kns-guide-step-title { font-size: 14px; font-weight: 650; color: var(--text); }
-.kns-guide-step-desc { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
-
-.kns-domain-input-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.kns-domain-input-row .field-input { flex: 1; }
-.kns-domain-suffix { color: var(--muted); font-weight: 700; }
-
-.kns-domain-quote {
-  margin-top: 10px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: var(--surface-1);
-  border: 1px solid var(--line);
-  font-size: 13px;
-  line-height: 1.5;
-}
-.kns-domain-quote strong { color: var(--kaspa-ink); }
-
 .kns-progress {
   margin-top: 10px;
   padding: 10px 14px;
@@ -5730,57 +4960,6 @@ body.session-logged-out [data-account-rename-modal] {
 .message-bubble {
   position: relative;
 }
-
-/* The outer element's hit-area (including its invisible bottom padding)
-   extends all the way down to touch the bubble's top edge with zero gap —
-   without that, the empty space between the bubble and the visible pill is
-   a "dead zone" where neither is hovered, so the bar vanishes (transition
-   back to opacity 0) before the mouse ever reaches it. The visible pill
-   itself is the inner element, sized to just its own content. */
-.message-reaction-bar {
-  position: absolute;
-  bottom: 100%;
-  padding-bottom: 10px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .12s ease;
-  z-index: 6;
-}
-.message-bubble.local .message-reaction-bar { right: 0; }
-.message-bubble.incoming .message-reaction-bar { left: 0; }
-
-.message-bubble:hover .message-reaction-bar,
-.message-reaction-bar:hover {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.message-reaction-bar-pill {
-  display: flex;
-  gap: 2px;
-  padding: 4px 6px;
-  border-radius: 999px;
-  background: rgba(20, 31, 34, 0.96);
-  border: 1px solid var(--line);
-  box-shadow: 0 8px 20px rgba(0,0,0,.3);
-}
-
-.message-area.selection-mode .message-reaction-bar { display: none; }
-
-.message-reaction-bar button {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  font-size: 16px;
-  cursor: pointer;
-  transition: transform .1s ease, background .1s ease;
-}
-.message-reaction-bar button:hover { background: var(--line); transform: scale(1.15); }
-.message-reaction-bar button.active { background: rgba(112,199,186,.18); }
 
 .message-reaction-pill {
   position: absolute;
@@ -5977,17 +5156,6 @@ body.session-logged-out [data-account-rename-modal] {
   color: var(--text-muted, #8b9691);
 }
 
-.create-warning {
-  display: flex; flex-direction: column; gap: 6px;
-  padding: 12px 14px; border-radius: 12px;
-  background: var(--surface-1); border: 1px solid var(--line);
-  margin-bottom: 14px;
-}
-.create-warning strong { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ios-orange); }
-.create-warning strong svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.create-warning p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.4; }
-.create-warning-orange { background: rgba(242,189,92,.08); border-color: rgba(242,189,92,.25); }
-
 /* Create New Account in one tap, and what moved behind "Advanced" (iOS d063b897 OnboardingView). */
 .logged-out-actions button.logged-out-advanced { min-height: 28px; background: none; border: 0; color: var(--kaspa-ink, var(--kaspa)); font-size: 13px; font-weight: 600; }
 .logged-out-actions button:disabled { opacity: .6; }
@@ -6034,10 +5202,6 @@ body.session-logged-out [data-account-rename-modal] {
 .account-backup-card-copy small { font-size: 12px; line-height: 1.3; color: var(--muted); }
 .account-backup-card-copy small[hidden] { display: none; }
 .account-backup-card[data-tone="funds"] .account-backup-card-copy small { color: var(--ios-red); }
-
-/* Receive's reminder (iOS d063b897 ReceiveKaspaQRView). */
-.receive-backup-reminder { margin: 0; padding: 10px 16px; font-size: 13px; font-weight: 600; line-height: 1.3; color: var(--ios-orange); background: rgba(255,159,10,.12); }
-.receive-backup-reminder[hidden] { display: none; }
 
 /* The Delete Account warning (iOS d063b897 DeleteAccountSheet). */
 .delete-account-warning { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
@@ -6090,24 +5254,10 @@ body.session-logged-out [data-account-rename-modal] {
 .account-backup-passed-icon { color: var(--kaspa); }
 .account-backup-passed-icon svg { display: block; width: 56px; height: 56px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
-.create-passphrase { margin: 6px 0 10px; }
-.create-passphrase summary { cursor: pointer; font-size: 13px; font-weight: 650; color: var(--kaspa-ink); }
-.create-passphrase .field-hint { margin: 8px 0; }
-
-.seed-reveal-cover {
-  width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px;
-  padding: 34px 16px; border-radius: 14px; border: 1px solid var(--line);
-  background: var(--surface-1); color: var(--muted); font-size: 14px; font-weight: 600;
-}
-.seed-reveal-cover svg { width: 34px; height: 34px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-
 .seed-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .seed-grid-cell { display: flex; align-items: baseline; gap: 6px; padding: 9px 10px; border-radius: 8px; background: var(--surface-1); border: 1px solid var(--line); }
 .seed-grid-index { font-size: 11px; color: var(--muted); min-width: 18px; text-align: right; }
 .seed-grid-word { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; color: var(--text); }
-
-.seed-copy-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 12px; }
-.seed-copy-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 .seed-confirm { display: flex; align-items: flex-start; gap: 10px; margin: 14px 0 4px; font-size: 13px; color: var(--text); line-height: 1.4; cursor: pointer; }
 .seed-confirm input { margin-top: 2px; width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--kaspa); }
@@ -6115,9 +5265,6 @@ body.session-logged-out [data-account-rename-modal] {
 .primary-button.full, .secondary-button.full { width: 100%; }
 
 /* Passphrase step (optional BIP39 25th word, shown after seed backup). */
-.passphrase-bullets { margin: 4px 0 12px; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
-.passphrase-bullets li { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
-.passphrase-bullets-warn li { color: var(--ios-orange); }
 .passphrase-field { display: flex; align-items: stretch; gap: 8px; }
 .passphrase-field .field-input { flex: 1; min-width: 0; }
 .passphrase-eye { flex: 0 0 auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-1); color: var(--kaspa-ink); font-weight: 650; font-size: 13px; padding: 0 14px; }
@@ -6180,7 +5327,6 @@ body.session-logged-out [data-account-rename-modal] {
 
 .setup-funding { display: flex; flex-direction: column; gap: 10px; }
 .setup-funding-address { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; word-break: break-all; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-1); color: var(--text); text-align: left; }
-.setup-gift-row { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-1); color: var(--muted); font-weight: 600; font-size: 13.5px; text-align: center; }
 
 .setup-node-row { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-1); color: var(--text); text-align: left; width: 100%; }
 .setup-node-row.selected { border-color: var(--kaspa-ink); }
@@ -6884,42 +6030,10 @@ body.session-logged-out [data-account-rename-modal] {
   .kaposts-rail-post span { display: none; }
 }
 
-
-/* What's-new wizard */
-.dock-wizard-backdrop { position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 20px; }
-.dock-wizard {
-  width: 100%; max-width: 420px; text-align: center;
-  border: 1px solid var(--card-border); border-radius: 22px;
-  background: var(--panel); box-shadow: 0 20px 60px var(--shadow);
-  padding: 26px 24px 20px; display: flex; flex-direction: column; gap: 14px;
-}
-.dock-wizard h2 { margin: 0; font-size: 20px; }
-.dock-wizard-page h3 { margin: 0 0 8px; font-size: 16px; color: var(--kaspa-ink); }
-.dock-wizard-page p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
-.dock-wizard-dots { display: flex; justify-content: center; gap: 6px; }
-.dock-wizard-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-3); }
-.dock-wizard-dots span.active { background: var(--kaspa); }
-.dock-wizard-actions { display: flex; justify-content: space-between; gap: 10px; }
-
 /* Customize Menu cycle hints */
 
 /* Broadcasts (4.0) */
-.broadcasts-screen {
-  flex: 1; min-height: 0; overflow: hidden;
-  display: flex; flex-direction: column;
-  width: 100%; max-width: 640px; margin: 0 auto;
-  padding: 20px 20px 40px;
-}
-.broadcast-list-wrap { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-bottom: 100px; }
-.broadcast-intro { margin: 0; color: var(--muted); font-size: 13px; }
-.broadcast-join-row { display: flex; gap: 8px; }
-.broadcast-join-row input { flex: 1; min-height: 42px; }
-.broadcast-list { display: flex; flex-direction: column; gap: 8px; }
-.broadcast-row { justify-content: space-between; }
 .broadcast-room { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
-.broadcast-room-dot { width: 10px; height: 10px; border-radius: 50%; background: #e05555; flex-shrink: 0; }
-.broadcast-room-dot.ok { background: var(--ios-green); }
-.broadcast-hidden-btn { margin-left: auto; }
 /* The room's header chip (iOS BroadcastRoomTitleChip). */
 .broadcast-room-chip { display: inline-flex; flex-direction: column; align-items: center; border: 0; background: transparent; cursor: pointer; padding: 0; margin: 0 auto; }
 .broadcast-room-chip-icon { width: 40px; height: 40px; border-radius: 50%; background: rgba(112,199,186,.2); color: var(--kaspa-ink); font-weight: 800; font-size: 18px; display: grid; place-items: center; z-index: 1; }
@@ -6944,18 +6058,7 @@ body.session-logged-out [data-account-rename-modal] {
 .broadcast-info-address { font-size: 11px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .secondary-button.danger { color: var(--ios-red); }
 /* Join sheet (iOS joinChannelSheet). */
-.broadcast-join-field { display: flex; align-items: center; gap: 4px; padding: 0 0 0 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-1); }
-.broadcast-join-hash { color: var(--muted); font-weight: 800; }
-.broadcast-join-field .kaposts-reply-input { border: 0; background: transparent; flex: 1; }
-.broadcast-join-row { display: flex; gap: 10px; }
-.broadcast-join-row button { flex: 1; }
-.broadcast-join-row button:disabled { opacity: .4; cursor: default; }
 /* Retention sheet (iOS RetentionSettingsView). */
-.broadcast-retention-backdrop { z-index: 3000; }
-.broadcast-retention-sheet { max-width: 420px; display: grid; gap: 10px; }
-.broadcast-retention-row { display: flex; gap: 8px; }
-.broadcast-retention-row input, .broadcast-retention-row select { flex: 1; min-width: 0; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-1); color: var(--text); padding: 9px 12px; font: inherit; font-size: 14px; }
-.broadcast-retention-warning { color: var(--ios-orange); }
 /* The recording bar (iOS recordingBar), the fee pill and the funding gate in a room. */
 .broadcast-recording-bar { display: flex; align-items: center; gap: 8px; padding: 0 0 2px; }
 .broadcast-recording-field {
@@ -7035,36 +6138,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .quick-reactions-actions { display: flex; gap: 10px; justify-content: flex-end; }
 .quick-reactions-actions .danger-text { color: var(--ios-red); }
 
-/* Reply banner above the room composer (context-menu Reply). */
-.broadcast-reply-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--kaspa, #70c7ba);
-  border-radius: 10px;
-  background: var(--surface-1, rgba(255,255,255,.04));
-  font-size: 12.5px;
-  color: var(--muted);
-}
-.broadcast-reply-banner-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.broadcast-reply-banner-cancel {
-  flex: 0 0 auto;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 13px;
-}
-.broadcast-reply-banner-cancel:hover { color: var(--text); }
-
 /* NOTE: .broadcast-row is taken by the channel LIST rows (justify-content:
    space-between above) — the message rows use their own class so received
    bubbles stay LEFT beside their avatar and only your own sit right. */
@@ -7084,24 +6157,12 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .broadcast-failed { color: var(--ios-red); }
 .broadcast-message-body { font-size: 14px; white-space: pre-wrap; word-break: break-word; }
 /* Decoded media envelopes in broadcast rooms (same wire shapes as 1:1). */
-.broadcast-message .broadcast-photo {
-  display: block;
-  max-width: 320px;
-  max-height: 320px;
-  border-radius: 10px;
-  margin-top: 2px;
-  cursor: zoom-in;
-}
 .broadcast-message .message-audio-bubble { margin-top: 2px; }
 .broadcast-message .message-reply-quote { cursor: default; margin-top: 2px; }
 
 /* Broadcast rooms reuse the 1:1 reaction bar/pill visuals — only the anchoring
    differs (mine = right-aligned bubbles, others = left). */
 .broadcast-message { position: relative; }
-.broadcast-message .message-reaction-bar { left: 0; }
-.broadcast-message.mine .message-reaction-bar { left: auto; right: 0; }
-.broadcast-message:hover .message-reaction-bar,
-.broadcast-message .message-reaction-bar:hover { opacity: 1; pointer-events: auto; }
 .broadcast-message .message-reaction-pill { right: 8px; }
 .broadcast-message.mine .message-reaction-pill { right: auto; left: 8px; }
 /* Chips hang below the bubble — leave room so they don't overlap the next row. */
@@ -7148,17 +6209,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .portfolio-card-value { font-size: 18px; font-weight: 850; letter-spacing: -.01em; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .portfolio-card-change { font-size: 12px; font-weight: 750; margin-top: 3px; }
 .portfolio-card-change.muted { color: var(--muted); }
-.portfolio-card-actions {
-  position: absolute; top: 34px; right: 8px; z-index: 5; display: flex; flex-direction: column;
-  border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, .3); overflow: hidden; min-width: 110px;
-}
-.portfolio-card-actions button {
-  border: none; background: transparent; color: var(--text); font: inherit; font-size: 13px;
-  text-align: left; padding: 8px 12px; cursor: pointer;
-}
-.portfolio-card-actions button:hover { background: var(--panel-3); }
-.portfolio-card-actions button.danger { color: var(--ios-red); }
 .portfolio-card-add {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
   width: 90px; border-style: dashed; color: var(--muted); font-size: 12px; font-weight: 700;
@@ -7166,16 +6216,9 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 }
 .portfolio-card-add-plus { font-size: 20px; font-weight: 800; color: var(--kaspa-ink); }
 /* Summary card (iOS summaryCard) */
-.portfolio-summary-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-.portfolio-summary-price { font-size: 27px; font-weight: 850; letter-spacing: -.01em; margin-top: 2px; }
-.portfolio-summary-24h { font-size: 13.5px; font-weight: 750; margin-top: 6px; white-space: nowrap; }
 .portfolio-summary-24h .muted, .portfolio-summary .muted { color: var(--muted); font-weight: 600; }
-.portfolio-summary-grid { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-top: 12px; }
-.portfolio-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.portfolio-stat.right { text-align: right; align-items: flex-end; }
 .portfolio-stat-label { color: var(--muted); font-size: 12.5px; }
 .portfolio-stat-value { font-size: 16px; font-weight: 800; }
-.portfolio-summary-divider { border-top: 1px solid var(--line); margin-top: 12px; }
 .portfolio-summary .gain, .portfolio-card-change.gain, .portfolio-summary-24h.gain { color: var(--ios-green); }
 .portfolio-summary .loss, .portfolio-card-change.loss, .portfolio-summary-24h.loss { color: var(--ios-red); }
 /* Charts + scrub crosshair */
@@ -7184,12 +6227,9 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .portfolio-scrub-line { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--muted); opacity: .6; pointer-events: none; }
 .portfolio-scrub-dot { position: absolute; width: 9px; height: 9px; border-radius: 50%; transform: translate(-4px, -4px); pointer-events: none; box-shadow: 0 0 0 2px var(--surface-1); }
 .portfolio-chart-empty { color: var(--muted); font-size: 13px; padding: 18px 0; text-align: center; }
-.portfolio-price-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
-.portfolio-price-row .profile-card-label { margin: 0; }
 .portfolio-ranges { display: flex; gap: 6px; }
 .portfolio-range { border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; padding: 4px 10px; cursor: pointer; }
 .portfolio-range.active { color: var(--kaspa-ink); border-color: var(--kaspa); }
-.portfolio-value-readout { font-size: 19px; font-weight: 800; margin: 2px 0 8px; }
 
 /* Two launcher squares (KAS price | portfolio value) on the main portfolio screen */
 .portfolio-squares { display: flex; gap: 12px; margin-bottom: 18px; }
@@ -7223,9 +6263,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .portfolio-detail-date { color: var(--muted); font-size: 13px; margin: 2px 0; }
 .portfolio-detail-price-row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
 .portfolio-detail-price { font-size: 30px; font-weight: 800; }
-.portfolio-detail-24h { font-size: 14px; font-weight: 700; }
-.portfolio-detail-24h.gain { color: var(--kaspa-ink); }
-.portfolio-detail-24h.loss { color: var(--ios-red); }
 /* The value screen's change sits UNDER the big number rather than beside it: a six-figure
    portfolio and its change have nowhere to go on one line. */
 .portfolio-detail-change { display: flex; align-items: baseline; gap: 7px; font-size: 14px; font-weight: 700; margin: -6px 0 10px; }
@@ -7248,16 +6285,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .portfolio-tx-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
 .portfolio-tx-header .profile-card-label { margin: 0; }
 .portfolio-tx-header-actions { position: relative; display: flex; align-items: center; gap: 14px; }
-.portfolio-menu {
-  position: absolute; top: 24px; right: 0; z-index: 6; display: flex; flex-direction: column;
-  border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, .3); overflow: hidden; min-width: 160px;
-}
-.portfolio-menu button {
-  border: none; background: transparent; color: var(--text); font: inherit; font-size: 13px;
-  text-align: left; padding: 9px 12px; cursor: pointer; white-space: nowrap;
-}
-.portfolio-menu button:hover { background: var(--panel-3); }
 .portfolio-tx-row {
   display: flex; align-items: center; gap: 10px; padding: 9px 0;
   border-top: 1px solid var(--line); font-size: 13px; cursor: pointer;
@@ -7355,13 +6382,10 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .profile-screen { padding-bottom: 24px; }
 /* Floating dock must never cover the tail of the Profile scroll (the About card) —
    same dodge the composer and cold-storage actions use. */
-.app-placeholder-screen { padding-bottom: 24px; }
 /* .sidebar-scroll is deliberately absent: the chats list runs under the dock and sets its own
    inset from --dock-inset (see the rule beside .app-sidebar). A flat 24px here silently beat it. */
 .kaposts-screen { padding-bottom: 16px; }
 .kaposts-content { padding-bottom: 24px; }
-.broadcasts-screen { padding-bottom: 16px; }
-.broadcast-list-wrap { padding-bottom: 24px; }
 .app-detail { padding-bottom: 0; }
 
 /* Scrollbar: slim, gutter OUTSIDE the cards instead of overlapping them. */
@@ -7570,85 +6594,13 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 [data-tip-modal] { z-index: 1600; }
 
 /* Broadcasts list, iOS parity: Popular + Your Channels sections of rounded cards */
-.broadcast-section-header {
-  display: flex; align-items: center; justify-content: space-between;
-  margin: 14px 4px 8px; font-size: 13.5px; font-weight: 700; color: var(--kaspa-ink);
-}
-.broadcast-join-toggle {
-  width: 26px; height: 26px; border-radius: 50%; border: 0; cursor: pointer;
-  background: rgba(112,199,186,.14); color: var(--kaspa-ink); font-size: 17px; font-weight: 700; line-height: 1;
-}
-.broadcast-join-toggle:hover { background: rgba(112,199,186,.22); }
 /* Retention note at the trailing edge of the Popular header (iOS parity: the in-room banner
    was removed, so the 30-day rule is stated once, here). Headers are intentionally NOT
    sticky - they scroll away with their content. */
-.broadcast-section-note { font-size: 11.5px; font-weight: 500; color: var(--muted); padding-right: 4px; }
-.broadcast-card {
-  display: flex; align-items: center; gap: 4px; padding: 12px 12px 12px 16px; margin-bottom: 8px;
-  border: 1px solid var(--line); border-radius: 16px; background: var(--panel-2);
-}
-.broadcast-card-main {
-  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left;
-  border: 0; background: transparent; color: var(--ink); cursor: pointer; padding: 0;
-}
-.broadcast-card-main strong { font-size: 15px; }
-.broadcast-card-main span { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.broadcast-card-icon {
-  width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent;
-  color: var(--muted); cursor: pointer; display: grid; place-items: center; flex: 0 0 auto;
-}
-.broadcast-card-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.broadcast-card-icon:hover { background: rgba(255,255,255,.06); }
-.broadcast-card-icon.active { color: var(--kaspa-ink); }
-.broadcast-card-leave {
-  flex: 0 0 auto; border: 0; background: transparent; color: var(--muted);
-  font-size: 12px; font-weight: 600; cursor: pointer; padding: 6px 8px;
-}
-.broadcast-card-leave:hover { color: var(--ios-red); }
 /* "Other Languages": collapsed category of curated language rooms at the foot of Popular. */
-.broadcast-languages-toggle {
-  width: 100%; gap: 8px; cursor: pointer; font: inherit; color: var(--ink); text-align: left;
-}
-.broadcast-languages-toggle:hover { border-color: var(--card-border); }
-.broadcast-languages-toggle strong { flex: 1; min-width: 0; font-size: 15px; }
-.broadcast-languages-globe { display: grid; place-items: center; flex: 0 0 auto; color: var(--kaspa-ink); }
-.broadcast-languages-globe svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.broadcast-languages-count { font-size: 13px; color: var(--muted); flex: 0 0 auto; }
-.broadcast-languages-chevron {
-  display: grid; place-items: center; flex: 0 0 auto; color: var(--muted);
-  transform: rotate(-90deg); transition: transform .2s ease;
-}
-.broadcast-languages-toggle.expanded .broadcast-languages-chevron { transform: rotate(0deg); }
-.broadcast-languages-chevron svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-/* Language rooms read as children of the row they slid out from. */
-.broadcast-card-language { margin-left: 16px; }
-.broadcast-card-language .broadcast-card-main strong { font-size: 14.5px; font-weight: 600; }
-.broadcast-empty-hint { margin: 4px 4px 0; color: var(--muted); font-size: 13px; font-style: italic; }
-.broadcast-join-card {
-  margin: 0 0 8px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel-2);
-}
-.broadcast-join-card strong { display: block; font-size: 14px; margin-bottom: 4px; }
-.broadcast-join-card p { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
 
 /* Send success card (iOS WithdrawalSuccessCard parity): the modal flips to this after a
    successful send - everything but the header hides, the checkmark + clickable txid shows. */
-.send-success-active > *:not(.modal-header):not(.send-success-card) { display: none !important; }
-.send-success-card {
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  padding: 26px 12px 8px; text-align: center;
-}
-.send-success-check {
-  width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center;
-  background: rgba(53,196,141,.15); color: var(--ios-green);
-}
-.send-success-check svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
-.send-success-card strong { font-size: 17px; }
-.send-success-label { font-size: 12px; color: var(--muted); }
-.send-success-txid {
-  max-width: 100%; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px; color: var(--kaspa-ink); text-decoration: underline;
-}
-.send-success-card .primary-button { margin-top: 14px; align-self: stretch; }
 .kaposts-mention-menu {
   position: absolute; z-index: 2200; max-height: 240px; overflow-y: auto;
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px;
@@ -7801,14 +6753,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .cold-addr-label { color: var(--kaspa-ink); font-size: 12.5px; font-weight: 750; }
 .cold-detail-note { margin: 8px 2px; color: var(--muted); font-size: 13.5px; }
 
-/* Address Actions capsule with an upward menu (iOS bottom Menu). No `position`
-   override here — the wrap must keep the sticky positioning from
-   .cold-bottom-actions (which also makes it the menu's containing block). */
-.cold-actions-menu {
-  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
-  top: auto; right: auto; min-width: 250px;
-}
-
 /* Per-address screen (iOS ColdStorageAddressTransactionHistoryView) */
 .cold-globe-link { display: flex; align-items: center; justify-content: center; color: var(--kaspa-ink); }
 .cold-globe-link svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
@@ -7823,10 +6767,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
    bottom-edge reveal slides over the modal's own bottom buttons and steals their clicks. */
 [data-cold-send-modal], [data-cold-input-modal], [data-cold-confirm-modal], [data-cold-qr-modal] { z-index: 450; }
 .cold-send-modal { width: min(100%, 460px); max-height: min(92vh, 780px); overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
-.cold-send-rows { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--card-border, var(--line)); border-radius: 12px; background: var(--surface-1, rgba(255,255,255,.04)); }
-.cold-send-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
-.cold-send-row span:first-child { color: var(--muted); }
-.cold-send-row code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 /* A funded row's toggle is dimmed: hiding one would hide money, so it is refused. iOS dims it
    the same way, which says so before the tap rather than by a toast after it. */
 .spending-visibility-toggle.locked { opacity: .45; cursor: default; }
@@ -7940,21 +6880,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .cold-actions-busy p { margin: 0; max-width: 38ch; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
 
 /* Coin Control: the row that opens the picker, and the picker itself (iOS CoinControlView). */
-.cold-send-coincontrol-row {
-  width: 100%;
-  padding: 11px 12px;
-  border: 1px solid var(--card-border, var(--line));
-  border-radius: 12px;
-  background: var(--surface-1, rgba(255,255,255,.04));
-  color: var(--text);
-  cursor: pointer;
-  text-align: left;
-  font: inherit;
-  font-size: 13px;
-}
-.cold-send-coincontrol-row:hover { border-color: rgba(112,199,186,.35); }
-.cold-send-coincontrol-row > span:first-child { color: var(--text); font-weight: 650; }
-.cold-send-row-value { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
 .cold-coincontrol-actions { display: flex; gap: 16px; }
 .cold-coincontrol-list {
   display: flex; flex-direction: column; gap: 6px;
@@ -7985,18 +6910,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .cold-coincontrol-unavailable { font-size: 11px; color: var(--ios-orange); }
 .cold-coincontrol-total { text-align: center; }
 
-.cold-send-status { margin: 4px 0 0; font-size: 12px; }
-.cold-send-status.good { color: var(--ios-green); }
-.cold-send-status.bad { color: var(--ios-red); }
-.cold-send-status.muted { color: var(--muted); }
-.cold-send-status.mono { color: var(--muted); font-family: ui-monospace, monospace; word-break: break-all; }
-.cold-send-locked-recipient { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--card-border, var(--line)); border-radius: 12px; }
-.cold-send-locked-recipient svg { width: 18px; height: 18px; flex: 0 0 auto; fill: none; stroke: var(--kaspa-ink); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
-.cold-send-locked-recipient code { font-family: ui-monospace, monospace; font-size: 11.5px; word-break: break-all; color: var(--kaspa-ink); }
-.cold-send-amount-wrap { display: flex; align-items: center; gap: 10px; }
-.cold-send-amount-wrap .field-input { flex: 1; }
-.cold-send-fee-row { padding: 2px 2px 0; }
-.cold-send-fee-input { max-width: 160px; }
 .field-error { color: var(--ios-red); font-size: 12.5px; margin: 0; }
 
 /* QR step: white panel so another device's camera gets maximum contrast */
@@ -8004,10 +6917,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
   background: #ffffff; color: #0b1210; border-radius: 16px;
   padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 12px;
 }
-.cold-send-qr-panel .cold-send-rows.dark { width: 100%; border-color: rgba(0,0,0,.12); background: rgba(0,0,0,.03); color: #1c2422; }
-.cold-send-qr-panel .cold-send-rows.dark span:first-child { color: rgba(0,0,0,.55); }
-.cold-send-qr-hint { margin: 0; font-size: 13.5px; color: rgba(0,0,0,.6); }
-.cold-send-fee-warning { margin: 0; width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 10px; font-size: 12.5px; line-height: 1.4; color: #7a4b00; background: rgba(230,150,0,.12); border: 1px solid rgba(230,150,0,.35); }
 .cold-send-qr-panel .cold-qr-frame canvas { display: block; width: 280px; height: 280px; }
 .cold-send-frame-dots { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; max-width: 300px; }
 .cold-send-frame-dots span { width: 8px; height: 8px; border-radius: 50%; background: #d1d5d3; }
@@ -8031,15 +6940,11 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .cold-send-scan-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-3, rgba(255,255,255,.14)); }
 .cold-send-scan-dots span.got { background: var(--kaspa, #70c7ba); }
 
-.cold-send-wait { margin: 30px 0; text-align: center; color: var(--muted); }
 .cold-send-result-icon { font-size: 44px; text-align: center; line-height: 1; }
 .cold-send-result-icon.good { color: var(--ios-green); }
 .cold-send-result-icon.bad { color: var(--ios-red); }
 .cold-send-result-title { margin: 0; text-align: center; font-size: 17px; font-weight: 750; }
 .cold-send-fail-message { text-align: center; }
-.cold-send-txid { display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid var(--card-border, var(--line)); border-radius: 12px; text-decoration: none; color: inherit; }
-.cold-send-txid span { font-size: 12px; color: var(--muted); }
-.cold-send-txid code { font-family: ui-monospace, monospace; font-size: 12px; color: var(--kaspa-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Cold Storage parity with iOS (ColdStorageView.swift). */
 /* Address row: label, short address, balance, then the badges on their own line - no chevron. */
@@ -8072,20 +6977,10 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .cold-utxo-failure strong { display: inline-flex; align-items: center; gap: 6px; color: var(--ios-red); font-size: 14px; }
 .cold-utxo-failure strong svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .cold-utxo-failure span { font-size: 12px; color: var(--muted); }
-.cold-send-start-scan { width: 100%; }
 .cold-send-camera-denied { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px 8px; text-align: center; }
 .cold-send-camera-icon svg { width: 56px; height: 56px; fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .cold-send-scan-progress { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .cold-send-scan-count { margin: 0; font-size: 15px; font-weight: 700; }
-.cold-send-wait { display: flex; flex-direction: column; align-items: center; gap: 12px; }
-.cold-send-wait p { margin: 0; }
-/* Success screen (iOS successView): the From and To cards around the check. */
-.cold-send-card { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border: 1px solid var(--card-border, var(--line)); border-radius: 12px; background: var(--surface-1, rgba(255,255,255,.04)); }
-.cold-send-card code { font-family: ui-monospace, monospace; font-size: 13px; word-break: break-all; }
-.cold-send-card-label { font-size: 12px; color: var(--muted); }
-.cold-send-card-sub { font-size: 13px; color: var(--muted); }
-.cold-send-txid-icon svg { width: 12px; height: 12px; vertical-align: -1px; fill: none; stroke: var(--kaspa-ink); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
-.sk-pill-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
 
 /* Zero-balance chat gate: funding card above a disabled composer */
 .chat-funding-gate {
@@ -8140,24 +7035,8 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
   padding: 4px 8px; border-radius: 999px; background: rgba(112,199,186,.12);
 }
 
-.create-chat-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.create-chat-picker-head .create-chat-section-title { margin-bottom: 0; }
-.create-chat-picker-search-toggle {
-  border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 4px; line-height: 0;
-}
-.create-chat-picker-search-toggle:hover { color: var(--text); }
-.create-chat-picker-search-toggle svg {
-  width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round;
-}
-.create-chat-picker-search { margin-top: 10px; }
-.create-chat-picker-query {
-  width: 100%; box-sizing: border-box; padding: 9px 12px; font: inherit; font-size: 13px;
-  color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 11px;
-}
-.create-chat-picker-query:focus { outline: none; border-color: rgba(112,199,186,.42); }
 /* The list scrolls on its own so a long follow graph cannot push Name off the bottom of the
    sheet - the address field and Add stay reachable however many people you follow. */
-.create-chat-picker-list { margin-top: 10px; max-height: 268px; overflow-y: auto; }
 .create-chat-picker-row {
   display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
   padding: 8px 8px; border: 0; border-radius: 12px; background: transparent;
@@ -8170,8 +7049,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
   font-size: 13.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .create-chat-picker-sub { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.create-chat-picker-check { flex: 0 0 auto; color: var(--ios-green); font-weight: 900; }
-.create-chat-picker-empty { margin: 8px 2px; color: var(--muted); font-size: 12.5px; }
 
 /* Post translation: an offer, a progress note, or where the text came from. Sits directly under a
    post's text, quiet enough that it reads as a footnote rather than an action bar. */
@@ -8352,12 +7229,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
   margin: 0; max-width: 34ch; text-align: center;
   font-size: 12.5px; line-height: 1.45; color: rgba(0,0,0,.45);
 }
-.cold-qr-copy {
-  display: inline-flex; align-items: center; gap: 7px;
-  border: 0; background: transparent; padding: 4px 8px;
-  color: var(--kaspa, #70c7ba); font-size: 13.5px; font-weight: 700; cursor: pointer;
-}
-.cold-qr-copy svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .cold-scan-modal {
   position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,.8);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
@@ -8401,7 +7272,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 
 /* Settings page */
 .child-mode-heading { margin: 0; font-size: 13px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
-.child-mode-keeps { margin: 0; font-size: 14px; color: var(--text); }
 .child-mode-success { margin: 0; font-size: 12.5px; font-weight: 700; color: var(--kaspa-ink); }
 .child-mode-prompt { border-top: 1px solid var(--line); }
 .child-mode-prompt-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -8572,37 +7442,7 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
    can, adds its own list rows, create modal, full-screen thread, and manage view)
    ============================================================================ */
 
-/* Sidebar: New Group action, shown only on the Group Chats tab. */
-.group-actions-row {
-  display: flex;
-  justify-content: flex-end;
-  padding: 6px 18px 0;
-  flex: 0 0 auto;
-}
-.new-group-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border: 0;
-  background: transparent;
-  color: var(--kaspa-ink);
-  font-size: 13.5px;
-  font-weight: 650;
-  padding: 4px 2px;
-  cursor: pointer;
-}
-.new-group-button svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
 /* Group rows in the sidebar list reuse the 1:1 chat-row layout wholesale. */
-.group-list .chat-row { cursor: pointer; }
 .group-avatar-fallback {
   display: flex;
   align-items: center;
@@ -8783,12 +7623,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
      that the content would sit on top of. */
   padding-top: calc(var(--chat-header-h) + 12px);
 }
-.group-message-sender {
-  font-size: 11.5px;
-  font-weight: 650;
-  color: var(--kaspa-ink);
-  margin: 0 0 3px 4px;
-}
 .group-message-area .message-row.incoming .message-bubble { position: relative; }
 .group-readonly-note {
   margin: 0 0 8px;
@@ -8811,12 +7645,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
   color: var(--muted);
   margin: 4px 2px 0;
 }
-.group-manage-name-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.group-manage-name-row .group-name-input { margin: 0; }
 /* Group photo (admin-set, shown to everyone) */
 .group-avatar-photo { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
 .group-photo-section { align-items: center; text-align: center; gap: 6px; }
@@ -8873,13 +7701,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 }
 .group-manage-row:hover { background: var(--surface, rgba(255,255,255,0.08)); }
 .group-manage-row-icon { display: inline-flex; color: var(--kaspa); flex: 0 0 auto; }
-.group-manage-footer {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.4;
-  margin: 4px 2px 0;
-}
-.group-manage-empty { color: var(--muted); font-size: 13px; padding: 8px 4px; margin: 0; }
 /* Group Info's notification switches (iOS's two toggles), shaped like .settings-toggle-row so
    they sit in the same visual family as the 1:1 Chat Info controls. */
 .group-manage-toggle-row {
@@ -8968,21 +7789,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
   cursor: pointer;
   padding: 4px 6px;
 }
-.group-manage-add-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px dashed var(--line);
-  background: var(--surface-1);
-  color: var(--kaspa-ink);
-  font-size: 14px;
-  font-weight: 650;
-  cursor: pointer;
-}
 .group-manage-danger {
   width: 100%;
   padding: 12px;
@@ -8993,81 +7799,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
   font-size: 14px;
   font-weight: 650;
   cursor: pointer;
-}
-
-/* ============================================================================
-   Node Connection screen — KasWare-style Automatic/Custom node selector
-   ============================================================================ */
-.node-mode-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.node-mode-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  width: 100%;
-  text-align: left;
-  padding: 14px;
-  border-radius: 14px;
-  border: 1px solid var(--line);
-  background: var(--surface-1);
-  color: var(--text);
-  cursor: pointer;
-  transition: border-color .15s ease, background .15s ease;
-}
-.node-mode-card:hover { background: var(--surface-2); }
-.node-mode-card.selected {
-  border-color: var(--kaspa-ink);
-  background: var(--kaspa-dim);
-}
-.node-mode-radio {
-  flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  margin-top: 2px;
-  border-radius: 50%;
-  border: 2px solid var(--muted);
-  position: relative;
-}
-.node-mode-card.selected .node-mode-radio {
-  border-color: var(--kaspa-ink);
-}
-.node-mode-card.selected .node-mode-radio::after {
-  content: "";
-  position: absolute;
-  inset: 3px;
-  border-radius: 50%;
-  background: var(--kaspa-ink);
-}
-.node-mode-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  flex: 1;
-}
-.node-mode-copy strong { font-size: 14px; font-weight: 650; }
-.node-mode-copy small { font-size: 12px; color: var(--muted); line-height: 1.4; }
-.node-mode-input {
-  margin-top: 8px;
-  width: 100%;
-  box-sizing: border-box;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--bg);
-  color: var(--text);
-  font-size: 13px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.node-mode-input:focus { outline: none; border-color: var(--kaspa-ink); }
-.node-mode-input:disabled { opacity: .5; cursor: not-allowed; }
-.node-mode-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
 }
 
 /* Custom contact photo picker in Chat Info. */
@@ -9081,34 +7812,9 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
   border-radius: 50%;
 }
 .chat-info-avatar-button:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: 3px; }
-.chat-info-avatar-edit {
-  position: absolute;
-  right: -2px;
-  bottom: -2px;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: var(--kaspa);
-  color: #062c24;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 3px solid var(--panel, var(--bg));
-  box-shadow: 0 2px 6px var(--shadow);
-}
-.chat-info-avatar-edit svg {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
 
 /* The badge is its own button now (a button cannot nest inside another), so it needs the resets
    the wrapping button used to provide. */
-.chat-info-avatar-edit { padding: 0; cursor: pointer; }
 .chat-info-avatar-wrap { position: relative; display: inline-flex; }
 
 /* Bled to the card's edges by cancelling its padding (.chat-info-header-card: 22px 16px). */
@@ -9152,8 +7858,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-
-.chat-info-domains-block { display: flex; flex-direction: column; }
 
 /* --- Chat Info: section rows + their sheets (iOS infoCard list + half sheets) --------------- */
 .chat-info-rows { padding: 0; overflow: hidden; margin-top: 14px; }
@@ -9275,17 +7979,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 
 .group-manage-row[disabled] { opacity: .55; cursor: default; }
 .group-manage-row[disabled]:hover { background: var(--surface-2, rgba(255,255,255,0.04)); }
-.chat-info-remove-photo {
-  display: block;
-  margin: 8px auto 0;
-  border: 0;
-  background: transparent;
-  color: var(--ios-red);
-  font-size: 13px;
-  font-weight: 650;
-  cursor: pointer;
-  padding: 2px 6px;
-}
 
 /* Search box inside the New Group / Add Member picker. */
 .group-member-search {
@@ -9365,39 +8058,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
   word-break: break-all;
 }
 .group-address-add { align-self: flex-start; }
-.group-selected-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.group-selected-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 6px 5px 12px;
-  border-radius: 999px;
-  background: var(--kaspa-dim);
-  color: var(--kaspa-ink);
-  font-size: 12.5px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.group-selected-chip-remove {
-  border: 0;
-  background: transparent;
-  color: var(--kaspa-ink);
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 4px;
-}
-
-/* "Members (X)" title above the New Group search field (matches iOS). */
-.group-members-title {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: .02em;
-  color: var(--text);
-}
 
 /* Collapsible New Group sections (Members / Contacts). */
 .group-section { margin: 12px 0 0; }
@@ -9456,17 +8116,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
   cursor: pointer;
 }
 .group-member-remove:hover { color: var(--text); }
-
-/* Per-message 12-hour send time, tucked in the bottom corner of the bubble. */
-.message-time {
-  display: block;
-  font-size: 10px;
-  line-height: 1;
-  margin-top: 4px;
-  opacity: .55;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
 
 /* Highlight the conversation you are currently viewing in the list. */
 .chat-row.active {
@@ -9706,20 +8355,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
   margin: 0;
   border-radius: 16px;
 }
-.message-bubble.photo-bubble .message-time {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  margin: 0;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, .72);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, .6);
-  backdrop-filter: blur(2px);
-}
 
 /* Link-only messages: the preview card IS the message (no chat-bubble chrome), timestamp below. */
 .message-bubble.link-card-bubble {
@@ -9729,11 +8364,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
   box-shadow: none;
 }
 .message-bubble.link-card-bubble .message-link-card { margin-top: 0; }
-.message-bubble.link-card-bubble .message-time {
-  display: block;
-  text-align: right;
-  margin-top: 4px;
-}
 
 /* Per-member "Resend invite" icon button in Group Info (admin). */
 .group-member-resend-btn {
@@ -9752,12 +8382,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .group-member-resend-btn:disabled { opacity: .5; cursor: default; }
 /* Mute a member's notifications without hiding their messages - the softer of the two controls
    on a member row. Teal when on, so the state reads at a glance down a roster. */
-.group-member-mute-btn {
-  flex: 0 0 auto; width: 30px; height: 30px; display: grid; place-items: center;
-  border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer;
-}
-.group-member-mute-btn:hover { background: var(--surface-2); color: var(--text); }
-.group-member-mute-btn.on { color: var(--kaspa); }
 .group-member-remove-btn {
   flex: 0 0 auto;
   width: 30px;
@@ -9900,8 +8524,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .profile-domain-detail-row .star { color: var(--kaspa-ink); }
 .profile-domain-detail-error { margin: 0; padding: 0 16px 12px; font-size: 12px; color: var(--ios-red); }
 .domains-inscribe-button { justify-content: center; }
-.domains-back-row { display: flex; align-items: center; gap: 8px; }
-.domains-back-row button { border: 0; background: transparent; color: var(--kaspa-ink); font-weight: 700; cursor: pointer; padding: 4px 0; }
 /* KNS editor sections and image pickers. */
 .kns-editor-section { margin: 12px 0 6px; font-size: 11.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .kns-image-row { display: flex; align-items: center; gap: 12px; }
@@ -9957,7 +8579,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 
 /* Seed entry grid (iOS SeedPhraseKeyboardView): numbered slots, invalid words in red, an
    accent ring on the active slot, and a suggestion bar of matching recovery words. */
-.seed-count-segmented { margin: 4px 0 12px; }
 .seed-entry-head { display: flex; align-items: center; justify-content: space-between; margin: 0 0 8px; }
 .seed-entry-count { font-size: 12px; font-weight: 700; color: var(--muted); }
 .seed-entry-count.complete { color: var(--ios-green); }
@@ -9986,7 +8607,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .progress-card-icon.warn { color: var(--ios-orange); }
 .progress-track { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
 .progress-fill { height: 100%; border-radius: 999px; background: var(--kaspa); transition: width .25s ease; }
-.progress-fill.indeterminate { width: 40%; animation: progress-slide 1.2s ease-in-out infinite; }
 @keyframes progress-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
 .progress-meta { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .modal-actions.stacked { flex-direction: column; }
@@ -10109,8 +8729,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .msg-context-reactions-more { width: 30px; height: 30px; border: 0; border-radius: 50%; background: rgba(255,255,255,.08); color: var(--muted); font-size: 18px; font-weight: 800; cursor: pointer; }
 .msg-context-reactions-more:hover { background: rgba(255,255,255,.14); color: var(--text); }
 
-.message-load-earlier { display: block; margin: 6px auto 12px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-1); color: var(--kaspa-ink, var(--kaspa)); font-size: 12.5px; font-weight: 700; cursor: pointer; }
-.message-load-earlier:hover { background: var(--surface-2); }
 .internal-link-icon.avatar { background: transparent; overflow: hidden; border-radius: 999px; }
 .internal-link-icon.avatar img, .internal-link-icon.avatar .message-avatar, .internal-link-icon.avatar .kaposts-avatar { width: 40px; height: 40px; border-radius: 999px; object-fit: cover; }
 
@@ -10135,8 +8753,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .voice-player-time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .voice-player.outgoing .voice-player-time { color: rgba(6,17,15,.75); }
 .message-link-audio.voice-player { margin-top: 8px; }
-
-.node-mode-badge { display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 999px; background: rgba(112,199,186,.16); color: var(--kaspa-ink, var(--kaspa)); font-size: 10.5px; font-weight: 800; vertical-align: middle; }
 
 
 /* =============================================================================================
@@ -10421,16 +9037,8 @@ html.standalone .ios-install-hint { display: none; }
   /* Saved nodes: address on its own line with an ellipsis, actions under it. */
   .saved-node-copy small, .saved-node-copy strong.mono { white-space: nowrap; }
   .saved-node-row { flex-wrap: wrap; }
-  .saved-node-actions { width: 100%; justify-content: flex-end; }
-
-  /* Segmented rows (Appearance) stack; the Manage Address tabs fit their labels. */
-  .settings-toggle-row.settings-segmented-row { flex-direction: column; align-items: stretch; gap: 8px; }
-  .settings-segmented-row .settings-segmented { display: flex; width: 100%; }
-  .settings-segmented-row .settings-segmented-option { flex: 1; }
 
   /* Portfolio summary stats stack; a P&L line never wraps under itself. */
-  .portfolio-summary-grid { flex-direction: column; gap: 8px; }
-  .portfolio-stat.right { align-items: flex-start; text-align: left; }
   .portfolio-stat-value { white-space: nowrap; font-size: 15px; }
 
   /* The chess board takes the width it is given rather than a desktop-sized margin. */
@@ -10442,9 +9050,6 @@ html.standalone .ios-install-hint { display: none; }
   .profile-screen, .kaposts-screen, .broadcasts-screen, .apps-tab-screen { padding-left: 12px; padding-right: 12px; }
   /* Seed words (reveal and import) at two per row, so an 8-letter word has room. */
   .seed-grid { grid-template-columns: repeat(2, 1fr); }
-  /* Camera, mic and KAS also live in the + menu; inline, only emoji stays so the field keeps
-     room to type. */
-  .composer-inline-tool[data-composer-camera], .composer-inline-tool[data-composer-mic] { display: none; }
 }
 
 /* Delivery mark in a broadcast message head: sits on the baseline row next to the time. */
@@ -10453,12 +9058,6 @@ html.standalone .ios-install-hint { display: none; }
 .broadcast-translate-note .kaposts-translate-link { font-size: 11.5px; }
 .account-overlay.self .chat-info-name-input[readonly] { pointer-events: none; }
 .broadcast-delivery-row .broadcast-delivery-icon { margin: 0; }
-
-/* Node Connection: the scan narrates itself under the button. */
-.node-scan-trace { margin: 8px 0 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
-
-/* Node Connection: the plain-ws:// warning reads as a caution, not a failure. */
-.node-insecure-warning { margin: 8px 2px 0; color: var(--ios-orange); font-size: 12.5px; line-height: 1.45; }
 
 /* KaPosts edit and delete (iOS 2d483a7, 5a55f62): "· edited" beside the time, a card dimmed
    behind the delete countdown. */
@@ -10480,9 +9079,6 @@ html.standalone .ios-install-hint { display: none; }
 
 /* Public Chats: the broadcast rooms as the Chats screen's third tab (iOS a566da7). The list sits
    in the chats pane like the other two lists; the room takes the detail pane. */
-.app-sidebar .broadcast-list-wrap { padding: 8px 12px var(--dock-inset, 124px); gap: 12px; }
-.app-sidebar .broadcast-list-wrap .kaposts-header { display: none; }
-.app-sidebar .broadcast-list-wrap[hidden] { display: none; }
 .app-detail > .broadcast-room { height: 100%; padding: calc(10px + var(--safe-top, 0px)) 16px calc(12px + var(--safe-bottom, 0px)); }
 .app-detail > .broadcast-room[hidden] { display: none; }
 /* KaPosts Settings: the default tip field. */
@@ -10506,31 +9102,6 @@ html.standalone .ios-install-hint { display: none; }
 .portfolio-scrub-span[hidden] { display: none; }
 .portfolio-summary-price.gain, .portfolio-detail-price.gain { color: var(--ios-green); }
 .portfolio-summary-price.loss, .portfolio-detail-price.loss { color: var(--ios-red); }
-
-/* Public Chats rows (iOS 83286b3): a chat-style row per room - # avatar, name, newest message,
-   time, bell-off mark and an unread badge. */
-.broadcast-list { gap: 2px; }
-.broadcast-room-row {
-  display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 10px; border: 0; border-radius: 14px;
-  background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit;
-}
-.broadcast-room-row:hover { background: rgba(255,255,255,.05); }
-.broadcast-room-row.active { background: rgba(112,199,186,.12); }
-.broadcast-room-row-avatar {
-  flex: 0 0 46px; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center;
-  background: rgba(112,199,186,.16); color: var(--kaspa-ink); font-size: 21px; font-weight: 700;
-}
-.broadcast-room-row-avatar.globe, .broadcast-room-row-avatar.plus { background: rgba(255,255,255,.07); color: var(--muted); }
-.broadcast-room-row-avatar svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.broadcast-room-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.broadcast-room-row-top, .broadcast-room-row-bottom { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.broadcast-room-row-top strong { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.broadcast-room-row-muted { flex: 0 0 14px; width: 14px; height: 14px; fill: none; stroke: var(--muted); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.broadcast-room-row-time { margin-left: auto; flex: 0 0 auto; font-size: 12px; color: var(--muted); }
-.broadcast-room-row-preview { flex: 1; min-width: 0; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.broadcast-room-row-bottom .unread-badge { flex: 0 0 auto; }
-.broadcast-room-row .broadcast-languages-chevron svg { width: 16px; height: 16px; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s ease; }
-.broadcast-room-row.expanded .broadcast-languages-chevron svg { transform: rotate(180deg); }
 
 
 /* Public Chats settings: the default rooms, each with a switch. */
@@ -10583,10 +9154,6 @@ html.standalone .ios-install-hint { display: none; }
 .chess-t-champion svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 .chess-t-code { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; }
 .chess-t-code b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.chess-t-clock-row { display: flex; align-items: center; gap: 12px; padding: 4px 6px; }
-.chess-t-clock { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; padding: 4px 12px; border-radius: 10px; background: rgba(255,255,255,.08); }
-.chess-t-clock.running { background: rgba(112,199,186,.2); }
-.chess-t-clock.low { color: var(--ios-red); }
 .chess-t-board { width: min(480px, 52vh, calc(100% - 12px)); }
 .chess-t-error { color: var(--ios-red); }
 .chess-t-segment { margin: 4px 0 6px; }
@@ -10982,23 +9549,6 @@ button.chess-t-row { cursor: pointer; }
 }
 
 /* Info cards */
-.create-account-flow .create-warning {
-  gap: 12px;                                        /* was 6px */
-  padding: 16px;                                    /* was 12px 14px */
-  border: 0;                                        /* was 1px line */
-  border-radius: 12px;
-  background: var(--ios-gray6);                     /* was surface-1 */
-  margin-bottom: 24px;                              /* was 14px */
-}
-.create-account-flow .create-warning strong { gap: 8px; font-size: 17px; font-weight: 600; color: var(--ios-orange); } /* was 13.5 #f2bd5c */
-.create-account-flow .create-warning strong svg { width: 20px; height: 20px; }
-/* exclamationmark.triangle.FILL: solid triangle, exclamation knocked out in the card colour */
-.create-account-flow .create-warning:not(.create-warning-orange) strong svg { fill: currentColor; stroke: var(--ios-gray6); stroke-width: 2; }
-.create-account-flow .create-warning p { font-size: 15px; line-height: 20px; color: var(--muted); } /* was 13/1.4 */
-.create-account-flow .create-warning-orange {
-  background: color-mix(in srgb, var(--ios-orange) 10%, transparent);  /* was rgba(242,189,92,.08) */
-  border: 0;                                        /* was orange .25 */
-}
 
 /* Create Account steps 1 and 2 (iOS acd879b / c6bd716): a bold title (title2), a note under it */
 .create-account-flow .create-step-title { margin: 0 0 8px; font-size: 22px; font-weight: 700; line-height: 28px; color: var(--text); }
@@ -11056,19 +9606,6 @@ button.chess-t-row { cursor: pointer; }
   background: var(--ios-disabled-fill); color: #fff; cursor: default;  /* Color.gray, not dimmed */
 }
 
-/* Seed reveal cover */
-.create-account-flow .seed-reveal-cover {
-  gap: 12px;                                        /* was 10px */
-  padding: 40px 16px;                               /* was 34px 16px */
-  border: 0;                                        /* was 1px line */
-  border-radius: 12px;                              /* was 14px */
-  background: var(--ios-gray6);                     /* was surface-1 */
-  color: var(--muted);
-  font-size: 15px; font-weight: 400;                /* was 14/600 */
-  margin-bottom: 24px;
-}
-.create-account-flow .seed-reveal-cover svg { width: 34px; height: 34px; stroke-width: 2; }
-
 /* Seed word grid (shared with the Settings seed viewer, which is the same iOS look) */
 .seed-grid { gap: 8px; }                            /* unchanged */
 .seed-grid-cell {
@@ -11123,28 +9660,6 @@ button.chess-t-row { cursor: pointer; }
   font-size: 17px; font-weight: 400; color: var(--text);
 }
 .import-account-flow [data-import-step="form"] .field-label .field-input:focus { border-color: var(--kaspa); box-shadow: none; }
-
-/* 12/24 words: iOS segmented control instead of the accent pill */
-.seed-count-segmented {
-  gap: 0;                                           /* was 4px */
-  padding: 2px;                                     /* was 3px */
-  border: 0;                                        /* was 1px line */
-  border-radius: 9px;                               /* was 999px */
-  background: var(--ios-fill-3);                    /* was surface-1 */
-  margin: 0 0 12px;                                 /* was 4px 0 12px */
-}
-.seed-count-segmented .settings-segmented-option {
-  padding: 6px 8px;                                 /* was 7px 14px */
-  border-radius: 7px;                               /* was 999px */
-  font-size: 13px; font-weight: 400; line-height: 18px;   /* was 650 */
-  color: var(--text);                               /* was muted */
-}
-.seed-count-segmented .settings-segmented-option.active {
-  background: var(--ios-segment-on);                /* was var(--kaspa) */
-  color: var(--text);                               /* was on-accent */
-  font-weight: 600;
-  box-shadow: 0 3px 8px rgba(0,0,0,.12), 0 3px 1px rgba(0,0,0,.04);
-}
 
 .seed-entry-head { margin: 0 0 12px; gap: 8px; }
 .seed-entry-head .field-hint { margin: 0; font-size: 15px; color: var(--muted); }  /* was 12px */
@@ -11496,7 +10011,6 @@ button.chess-t-row { cursor: pointer; }
 .settings-row-chevron, .settings-dropdown-chevron, .settings-hub-row svg { color: var(--label-tertiary); stroke: var(--label-tertiary); }
 .settings-dropdown-chevron { width: 14px; height: 14px; stroke-width: 2.6; }
 .settings-dropdown-value { font-size: 17px; font-weight: 400; color: var(--muted); }
-.settings-list-row-single { min-height: var(--row-min-h); }
 .settings-dropdown-row + .settings-dropdown-row { border-top: .5px solid var(--line); }
 .settings-dropdown-row:hover { background: var(--row-hover); }
 .settings-select-row { color: var(--text); font-weight: 400; }
@@ -11505,7 +10019,6 @@ button.chess-t-row { cursor: pointer; }
 .settings-group-footer { font-size: 13px; line-height: 1.35; padding: 0 16px; margin: 7px 0 0; color: var(--muted); }
 .settings-group { margin-top: 28px; }
 .settings-screen > .settings-group:first-child { margin-top: 8px; }
-.settings-group-heading h2 { font-size: 17px; font-weight: 600; }
 
 .switch-control span { width: 51px; height: 31px; border: 0; border-radius: 999px; background: var(--switch-off); transition: background-color .2s; }
 .switch-control span::after { width: 27px; height: 27px; left: 2px; top: 2px; background: #ffffff;
@@ -11559,7 +10072,6 @@ button.chess-t-row { cursor: pointer; }
 .cold-action-icon { color: var(--kaspa-ink); width: 28px; }
 .cold-action-row-warn .cold-action-icon, .cold-action-row-warn .cold-action-copy strong { color: var(--ios-orange); }
 .cold-action-row-danger .cold-action-icon, .cold-action-row-danger .cold-action-copy strong { color: var(--ios-red); }
-.cold-menu-item-warn, .cold-menu-item-warn svg { color: var(--ios-orange); }
 .kaposts-popover .kaposts-pop-row { border: .8px solid var(--glass-stroke); border-radius: 16px; background: var(--glass-fill); }
 .kaposts-popover .kaposts-pop-row.danger strong { color: var(--ios-red); }
 
@@ -11641,12 +10153,10 @@ button.chess-t-row { cursor: pointer; }
 .send-fee-summary { color: var(--kaspa-ink); text-decoration: underline; }
 .manage-send-coin-toggle { font-size: 17px; }
 .manage-send-coin-summary { color: var(--muted); }
-.send-recipient-check { background: var(--ios-green); color: #fff; box-shadow: none; }
 .cold-inline-link { font-size: 15px; font-weight: 400; }
 .cold-send-status.good, .cold-send-result-icon.good { color: var(--ios-green); }
 .cold-send-status.bad, .cold-send-result-icon.bad { color: var(--ios-red); }
 .cold-send-rows, .cold-send-coincontrol-row, .cold-coincontrol-row, .cold-compound-row { background: var(--sheet-row); border: 0; }
-.send-success-check { width: 52px; height: 52px; background: var(--ios-green); color: #ffffff; }
 
 /* ==== iOS theme: Manage Addresses ==== */
 .spending-address-row { border: .8px solid var(--glass-stroke); border-radius: 18px; background: var(--glass-fill);
@@ -11716,7 +10226,6 @@ button.chess-t-row { cursor: pointer; }
 .portfolio-tx-delete:hover, .portfolio-select-delete, .portfolio-card-actions button.danger { color: var(--ios-red); }
 .portfolio-tx-row.picked { background: rgba(112,199,186,.12); }
 .portfolio-tx-check.on { color: #fff; }
-.portfolio-menu, .portfolio-card-actions { background: var(--sheet-bg); border: .5px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.2); }
 
 /* ==== iOS theme: KaPosts (flat rows, not cards) ==== */
 .kaposts-feed { gap: 0; }
@@ -11782,7 +10291,6 @@ button.chess-t-row { cursor: pointer; }
 .chess-t-card { background: var(--grouped-row); border: 0; border-radius: var(--group-radius); }
 .chess-t-cta { border-radius: 12px; padding: 10px 14px; font-size: 15px; font-weight: 600; color: var(--on-accent); }
 .chess-t-cta.danger, .chess-actions .danger { color: var(--ios-red); }
-.chess-t-clock { background: var(--glass-fill); border-radius: 12px; }
 .chess-t-clock.low, .chess-t-countdown.low { color: var(--ios-red); }
 .chess-t-chip { background: var(--fill-tertiary); border-color: transparent; }
 .chess-t-chip.low { background: color-mix(in srgb, var(--ios-red) 14%, transparent); border-color: color-mix(in srgb, var(--ios-red) 55%, transparent); }
@@ -11818,9 +10326,6 @@ button.chess-t-row { cursor: pointer; }
 .settings-hub-back { font-size: 17px; font-weight: 400; gap: 4px; }
 .settings-hub-back svg { width: 20px; height: 20px; stroke-width: 2.4; }
 .saved-node-row { background: var(--sheet-row); border: 0; border-radius: 12px; }
-.saved-node-btn { color: var(--text); }
-.saved-node-btn.danger { color: var(--ios-red); border-color: color-mix(in srgb, var(--ios-red) 30%, transparent); }
-.saved-node-btn:hover { background: var(--fill-tertiary); }
 /* iOS IP Address Book row: the text copies, a red trash removes; the + adds. */
 button.saved-node-copy { flex: 1 1 auto; border: 0; background: none; color: var(--text); text-align: left; padding: 0; cursor: pointer; }
 .saved-node-trash { flex: 0 0 auto; border: 0; background: none; color: var(--ios-red); padding: 4px; cursor: pointer; display: inline-flex; }
@@ -11830,15 +10335,12 @@ button.saved-node-copy { flex: 1 1 auto; border: 0; background: none; color: var
 .saved-node-add-button { flex: 0 0 auto; border: 0; background: none; color: var(--kaspa); padding: 2px; cursor: pointer; display: inline-flex; }
 .saved-node-add-button:disabled { opacity: .4; cursor: default; }
 .saved-node-add-button svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-.node-insecure-warning { color: var(--ios-orange); }
 .security-warning-card { background: color-mix(in srgb, var(--ios-orange) 12%, transparent); }
 .security-warning-card strong { color: var(--ios-orange); }
 .settings-status-card { background: var(--sheet-row); box-shadow: none; }
 .settings-select { background: var(--fill-tertiary); border: 0; border-radius: 8px; font-weight: 400; font-size: 15px; }
-.account-manager-current { background: var(--sheet-row); border: 0; }
 .account-action-menu, .account-delete-sheet { background: var(--sheet-bg); border: .5px solid var(--line); }
 .account-action-menu-item-destructive, .account-delete-destructive { color: var(--ios-red); }
-.confirm-row { background: var(--sheet-row); border-color: transparent; }
 
 /* ==== iOS theme: Notifications center ==== */
 .notif-center-row { background: var(--grouped-row); border: 0; border-radius: 12px; }
@@ -11881,7 +10383,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .sidebar-tab.active, .sidebar-tab.active:hover { color: var(--kaspa-ink); }
 .sidebar-tab.active .sidebar-tab-icon { background: transparent; }
 .sidebar-tab svg { width: 25px; height: 25px; stroke-width: 1.8; }
-.sidebar-tab-logo { width: 24px; height: 24px; }
 .sidebar-tab-badge { background: var(--ios-red); min-width: 18px; height: 18px; font-size: 11px; font-weight: 600; top: 2px; }
 /* Profile's dock badge: a plain red dot, no number (iOS 28d9d68). */
 .sidebar-tab-badge.dot { min-width: 10px; width: 10px; height: 10px; padding: 0; top: 6px; }
@@ -11895,7 +10396,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
   box-shadow: var(--glass-shadow);
 }
 .new-chat-fab:hover { filter: none; background: var(--material); }
-.new-chat-fab .person-plus-icon { width: 25px; height: 25px; stroke-width: 2.2; }
 
 .chats-tab-button { padding: 12px 8px 0; gap: 8px; color: rgba(112,199,186,.5); }
 .chats-tab-button.active { color: var(--kaspa-ink); }
@@ -11903,7 +10403,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .chats-tab-button::after { height: 2.5px; border-radius: 0; margin-top: 0; }
 .chats-tab-button.active::after { background: var(--kaspa); }
 .chats-tab-bar { border-bottom: 1px solid var(--line); }        /* Divider(); already so */
-.chats-tab-badge { background: var(--ios-red); min-width: 18px; height: 17px; padding: 0 6px; font-size: 11px; font-weight: 700; }
 
 .search-wrap {
   margin: 10px 16px 8px; height: 36px; padding: 0 8px 0 30px; gap: 6px;
@@ -11959,7 +10458,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .chat-row-delivery-word { font-weight: 400; }
 .chat-row-delivery-word.failed, .chat-row-delivery.failed { color: var(--ios-red); stroke: var(--ios-red); }
 .chat-row-delivery-word.warning, .chat-row-delivery.warning { color: var(--ios-orange); stroke: var(--ios-orange); }
-.chat-list-footer { font-size: 13px; padding: 12px 0 14px; }
 
 .chat-selection-bar { padding: 10px 16px; border-top: 1px solid var(--bar-separator); background: var(--bar-bg); -webkit-backdrop-filter: var(--material-blur); backdrop-filter: var(--material-blur); }
 .chat-selection-action { border: 0; border-radius: 8px; background: var(--fill-tertiary); color: var(--kaspa-ink); font-weight: 500; }
@@ -11970,18 +10468,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .empty-state-card p, .group-chats-placeholder p { font-size: 14px; color: var(--muted); }
 .empty-icon { color: var(--muted); }
 .no-results-card { border: 0; background: transparent; }
-
-.app-sidebar .broadcast-list { margin: 0 -12px; gap: 0; }
-.broadcast-room-row { position: relative; padding: 12px 16px; border-radius: 0; }
-.broadcast-room-row::after { content: ""; position: absolute; left: 78px; right: 0; bottom: 0; height: 1px; background: var(--line); }
-.broadcast-room-row:last-child::after { display: none; }
-.broadcast-room-row:hover { background: var(--surface-1); }
-.broadcast-room-row:active { background: var(--press-overlay); }
-.broadcast-room-row.active { background: rgba(112,199,186,.14); }
-.broadcast-room-row-avatar { flex-basis: 50px; width: 50px; height: 50px; background: rgba(112,199,186,.2); font-size: 22px; font-weight: 700; font-family: ui-rounded, "SF Pro Rounded", inherit; }
-.broadcast-room-row-avatar.globe, .broadcast-room-row-avatar.plus { background: var(--surface-2); }
-.broadcast-room-row-top strong { font-size: 16px; font-weight: 600; }
-.broadcast-room-row-preview { font-size: 14px; }
 
 .conversation-identity { gap: 0; padding: 0; border-radius: 0; }
 .conversation-identity:hover { background: transparent; }
@@ -12045,11 +10531,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 
 .message-bubble.photo-bubble, .message-bubble.link-card-bubble { background: transparent; padding: 0; }
 
-.message-card-head { gap: 6px; margin-bottom: 2px; font-size: 11px; color: var(--muted); }
-.message-card-head strong { font-size: 11px; font-weight: 600; color: var(--kaspa-ink); }
-.message-bubble.local .message-card-head { color: rgba(255,255,255,.7); }
-.message-bubble.local .message-card-head strong { color: rgba(255,255,255,.85); }
-
 .message-delivery-icon { font-weight: 400; gap: 3px; }
 .message-delivery-icon svg { width: 13px; height: 13px; }
 .message-delivery-icon.pending { color: var(--muted); }
@@ -12095,7 +10576,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .quick-reaction-more { background: var(--primary-08); color: var(--muted); font-size: 15px; font-weight: 700; }
 .quick-reaction-emoji:hover, .emoji-picker-grid button:hover, .emoji-composer-grid button:hover { background: var(--primary-08); }
 .quick-reaction-reply svg { width: 17px; height: 17px; }
-.message-reaction-bar button:hover { background: var(--primary-08); }
 
 .msg-context-menu, .group-msg-menu {
   background: var(--material); -webkit-backdrop-filter: saturate(180%) blur(30px); backdrop-filter: saturate(180%) blur(30px);
@@ -12205,10 +10685,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 }
 .kachat-composer .composer-input { font-size: 16px; padding: 8px 12px; min-height: 36px; }   /* iOS body 17 */
 .composer-input::placeholder, .kaposts-reply-input::placeholder { color: var(--placeholder); }
-.composer-inline-tool { color: var(--muted); border-radius: 50%; }
-.composer-inline-tool:hover { color: var(--text); background: var(--primary-08); }
-.composer-inline-tool svg { width: 20px; height: 20px; }
-.composer-inline-tool img { width: 22px; height: 22px; }
 /* send = arrow.up.circle.fill in accent */
 .kachat-composer .composer-send {
   width: 32px; height: 32px; border-radius: 50%; align-self: center;
@@ -12299,7 +10775,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .broadcast-message-body { font-size: 16px; line-height: 1.3; }      /* iOS body 17 */
 .broadcast-message.mine .broadcast-pending { color: rgba(255,255,255,.7); }
 .broadcast-failed { color: var(--ios-red); }
-.broadcast-message .broadcast-photo { border-radius: 12px; }
 .broadcast-msg-row { gap: 8px; }
 
 .broadcast-room .kaposts-reply-bar { gap: 8px; padding: 0 0 2px; }
@@ -12335,7 +10810,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 /* iOS: bare accent pencil. Desktop's tinted circle was a deliberate affordance - see §9 decision. */
 .chat-info-name-pencil { border: 0; background: transparent; }
 .chat-info-name-pencil:hover { background: var(--primary-08); border-color: transparent; }
-.chat-info-avatar-edit { border-color: var(--grouped-cell-elevated); color: #fff; }
 
 .chat-info-rows { border: 0; border-radius: 10px; background: var(--grouped-cell-elevated); }
 .chat-info-row { position: relative; min-height: 44px; padding: 11px 16px; gap: 12px; border-bottom: 0; font-size: 16px; }   /* iOS body 17 */
@@ -12405,17 +10879,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .message-row.local > .message-avatar-slot { grid-column: 3; grid-row: 1 / span 2; align-self: end; }
 .message-row.local > .message-delivery-icon { grid-column: 2; grid-row: 2; justify-self: end; }
 
-/* ==== Public Chats settings (iOS ChatListView gear + PublicChatsSettingsView) ==== */
-.topbar-gear-button {
-  display: inline-grid; place-items: center;
-  width: 30px; height: 30px; padding: 0;
-  border: 0; border-radius: 999px; background: transparent;
-  color: var(--kaspa-ink); cursor: pointer;
-}
-.topbar-gear-button[hidden] { display: none; }
-.topbar-gear-button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.topbar-gear-button:hover { background: var(--fill-tertiary); }
-
 /* A Form sheet: grouped background, inline title, Done on the trailing side, no other chrome. */
 .public-settings-form {
   width: min(100%, 440px);
@@ -12442,15 +10905,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .public-settings-row .settings-row-copy { display: grid; gap: 2px; }
 .public-settings-row .settings-row-copy strong { font-size: 17px; font-weight: 400; }
 .public-settings-row .settings-row-copy small { font-size: 12px; color: var(--muted); }
-
-/* Public Chats Select mode (iOS e08c4cc): a selection circle leads each room row. */
-.broadcast-room-row.selecting { gap: 10px; }
-.broadcast-room-select {
-  flex: 0 0 22px; width: 22px; height: 22px; border-radius: 50%;
-  border: 1.5px solid var(--label-tertiary); display: grid; place-items: center;
-}
-.broadcast-room-row.selected .broadcast-room-select { background: var(--kaspa); border-color: var(--kaspa); }
-.broadcast-room-select svg { width: 14px; height: 14px; fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Create Chat: Other domains (iOS a0dbc15) */
 .create-chat-other-domains { margin-top: 8px; }
@@ -12568,12 +11022,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .profile-share-button:hover { background: rgba(142,142,147,.24); }
 .profile-share-button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
 
-/* Bell on the right of the bar, Profile only. */
-.topbar-bell-button { position: relative; width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--kaspa-ink); cursor: pointer; }
-.topbar-bell-button:hover { background: var(--fill-tertiary); }
-.topbar-bell-button svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.topbar-bell-button .profile-bell-dot { position: absolute; top: 6px; right: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--ios-red); }
-
 /* Account name: title3 semibold text and a secondary pencil.circle.fill, no card, tucked 8pt
    closer to the title (.padding(.top, -8)). */
 .profile-account-row { display: flex; align-items: center; gap: 8px; margin-top: -8px; min-height: 28px; flex-shrink: 0; }
@@ -12587,7 +11035,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .profile-account-pencil svg, .profile-account-done svg { width: 23px; height: 23px; }
 .profile-account-pencil svg circle { fill: var(--muted); }
 .profile-account-done svg circle { fill: var(--kaspa); }
-.profile-account-pencil svg .cutout { fill: var(--bg-plain); }
 .profile-account-done svg .cutout-stroke { fill: none; stroke: var(--bg-plain); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Hero: 140pt banner, 76pt avatar ringed in systemBackground overlapping by 38pt, the accent
@@ -12702,7 +11149,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .message-requests-list { overflow-y: auto; padding: 8px 16px 20px; }
 .message-requests-card { border-radius: 12px; overflow: hidden; background: var(--grouped-cell, var(--panel)); }
 .message-requests-card .chat-row { width: 100%; border-radius: 0; }
-.message-requests-footer { margin: 8px 16px 0; font-size: 13px; line-height: 1.35; color: var(--muted); }
 .message-requests-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 56px 16px; color: var(--muted); }
 .message-requests-empty svg { width: 40px; height: 40px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .message-requests-empty strong { color: var(--text); font-size: 17px; font-weight: 600; }
@@ -12749,12 +11195,7 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .testnet-reload-button { flex: 0 0 auto; border: 0; border-radius: 999px; padding: 6px 12px; background: var(--ios-orange); color: #fff; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
 .nc-testnet-off .settings-page-form strong { font-weight: 600; }
 /* Nextcloud on a hosted site: where to run KaChat yourself instead. */
-.nc-hosted-off .settings-page-form { display: grid; gap: 6px; }
-.nc-hosted-off .settings-page-form strong { font-weight: 600; }
-.nc-hosted-copy { margin: 0; font-size: 14px; line-height: 1.4; color: var(--muted); }
 .nc-hosted-off .settings-page-form a, .app-dialog-message a, .ab-io-note a { color: var(--accent); text-decoration: underline; }
-.nc-hosted-off a.settings-list-row { text-decoration: none; color: inherit; }
-.nc-hosted-off a.settings-list-row strong { color: var(--accent, var(--kaspa-ink)); }
 
 /* Profile hero: the .kachat profile's Linktree link (testnet). */
 .profile-hero-linktree { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 600; color: var(--kaspa-ink); text-decoration: none; }
@@ -12809,23 +11250,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .pay-sheet-head { text-align: center; padding: 4px 36px 0; }
 .pay-sheet-head h2 { margin: 0; font-size: 17px; font-weight: 600; }
 .pay-sheet-head p { margin: 4px 0 0; color: var(--muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pay-amount-entry { display: flex; align-items: baseline; justify-content: center; gap: 8px; min-height: 64px; cursor: text; max-width: 100%; overflow: hidden; }
-.pay-amount-input {
-  min-width: 1.6ch; max-width: 100%; padding: 0; border: 0; outline: none; background: transparent;
-  color: var(--text); text-align: center; font: inherit; font-size: 52px; font-weight: 700; letter-spacing: -.01em;
-  font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif; font-variant-numeric: tabular-nums;
-}
-.pay-amount-input::placeholder { color: var(--placeholder, var(--muted)); }
-.pay-amount-unit { color: var(--muted); font-weight: 600; font-size: 29px; font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif; white-space: nowrap; }
-.pay-amount-actions { display: flex; justify-content: center; gap: 10px; }
-.pay-chip {
-  display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 14px;
-  border: 1px solid var(--glass-stroke, var(--line)); background: var(--material, var(--surface-1));
-  color: var(--text); font: inherit; font-size: 12px; cursor: pointer; font-variant-numeric: tabular-nums;
-}
-.pay-chip svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.pay-chip:hover { background: var(--primary-08); }
-.pay-chip-max { color: var(--kaspa-ink); font-weight: 600; }
 .pay-memo {
   display: flex; align-items: flex-start; gap: 10px; padding: 13px 16px; border-radius: 22px; cursor: text;
   background: var(--material, var(--surface-1)); border: 1px solid var(--glass-stroke, var(--line));
@@ -12839,20 +11263,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .pay-sheet-from-warning { display: flex; align-items: flex-start; gap: 6px; margin: 0; text-align: left; font-size: 13px; line-height: 1.35; color: var(--ios-orange, #ff9500); }
 .pay-sheet-from-warning[hidden] { display: none; }
 .pay-sheet-from-warning svg { flex: 0 0 15px; width: 15px; height: 15px; margin-top: 1px; }
-.pay-hold-button {
-  position: relative; overflow: hidden; height: 56px; width: 100%; border: 0; border-radius: 999px;
-  background: var(--kaspa); color: #fff; font: inherit; font-size: 17px; font-weight: 600; cursor: pointer;
-  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
-}
-.pay-hold-button:disabled { opacity: .4; cursor: default; }
-.pay-hold-button.busy { opacity: 1; }
-.pay-hold-button:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: 3px; }
-.pay-hold-fill { position: absolute; inset: 0; background: rgba(255,255,255,.28); transform: scaleX(0); transform-origin: left center; transition: transform .2s ease-out; pointer-events: none; }
-.pay-hold-button.holding .pay-hold-fill { transform: scaleX(1); transition: transform .8s linear; }
-.pay-hold-label { position: relative; }
-@media (prefers-reduced-motion: reduce) {
-  .pay-hold-button.holding .pay-hold-fill { transition: transform .8s steps(4, end); }
-}
 
 /* A payment card opens its details on one click. */
 .message-payment-card[role="button"] { cursor: pointer; }
@@ -12885,7 +11295,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .new-chat-sheet-back svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .new-chat-sheet-title { margin: 4px 44px; text-align: center; font-size: 17px; font-weight: 600; letter-spacing: 0; }
 .new-chat-sheet .cold-action-icon { width: 28px; }
-.new-chat-sheet-logo { width: 24px; height: 24px; object-fit: contain; display: block; }
 .new-chat-sheet-caption { margin: 0; text-align: center; font-size: 12px; line-height: 1.4; color: var(--muted); }
 .new-chat-sheet-field { display: flex; align-items: center; gap: 4px; padding: 14px; border-radius: 16px; background: var(--fill-tertiary); cursor: text; }
 .new-chat-sheet-field span { font-size: 17px; font-weight: 600; color: var(--muted); }
@@ -13003,12 +11412,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px;
 }
 .sk-recipient-input::placeholder { color: var(--placeholder, var(--muted)); }
-.sk-recipient-check {
-  position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
-  display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
-  border-radius: 50%; background: var(--kaspa); color: #0a0f0d;
-}
-.sk-recipient-check svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 .sk-icon-button {
   flex: 0 0 auto; display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0;
   border: 0; border-radius: 50%; background: transparent; color: var(--kaspa-ink); cursor: pointer;
@@ -13099,39 +11502,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .sk-coin-list { max-height: 240px; overflow-y: auto; border-top: 1px solid var(--line); }
 
 /* Send button: slide the white knob to the right end (or a plain button, KasSigner's Build). */
-.sk-action {
-  position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 56px;
-  padding: 0 64px; overflow: hidden; border: 0; border-radius: 999px; background: var(--kaspa); color: #000;
-  font: inherit; font-size: 17px; font-weight: 600; cursor: pointer;
-  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
-}
-.sk-action-plain { padding: 0 20px; }
-.sk-action:disabled { opacity: .4; cursor: default; }
-.sk-action.busy { opacity: 1; cursor: progress; }
-.sk-action:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: 3px; }
-.sk-action-label { position: relative; z-index: 1; display: inline-flex; align-items: center; white-space: nowrap; pointer-events: none; }
-.sk-action-label .sk-spinner { border-color: #000; border-right-color: transparent; }
-.sk-slide { touch-action: none; cursor: default; }
-.sk-slide-fill {
-  position: absolute; left: 0; top: 0; bottom: 0; width: 56px; border-radius: 999px;
-  background: rgba(255,255,255,.25); pointer-events: none;
-}
-.sk-slide-knob {
-  position: absolute; left: 4px; top: 4px; z-index: 2; width: 48px; height: 48px; border-radius: 50%;
-  display: grid; place-items: center; background: #fff; color: var(--kaspa); cursor: grab;
-  box-shadow: 0 2px 8px rgba(0,0,0,.15); touch-action: none;
-}
-.sk-slide-knob svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.8; stroke-linecap: round; stroke-linejoin: round; }
-.sk-slide-dragging .sk-slide-knob { cursor: grabbing; }
-.sk-slide:disabled .sk-slide-knob { cursor: default; }
-.sk-slide.busy .sk-slide-knob { display: none; }
-.sk-slide.busy .sk-slide-fill { width: 100% !important; }
-.sk-slide-animating .sk-slide-knob { transition: transform .35s cubic-bezier(.3,1.3,.5,1); }
-.sk-slide-animating .sk-slide-fill { transition: width .35s cubic-bezier(.3,1.3,.5,1); }
-.sk-slide-animating .sk-slide-label { transition: opacity .35s ease; }
-@media (prefers-reduced-motion: reduce) {
-  .sk-slide-animating .sk-slide-knob, .sk-slide-animating .sk-slide-fill { transition: none; }
-}
 
 /* From (iOS 6333dd3 SendFromSection / SelectablePill): which of your addresses a send leaves from. */
 .sk-from { display: flex; flex-direction: column; gap: 10px; }
@@ -13185,7 +11555,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 
 /* Where the pieces sit */
 .send-kaspa-modal .sk-screen { margin-top: 8px; }
-.send-kaspa-modal .send-compound-note { margin: -4px 4px 0; }
 .cold-send-modal .sk-screen { margin-top: 0; }
 .pay-sheet .sk-amount { padding-top: 0; }
 @media (max-width: 480px) {
@@ -13260,8 +11629,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 
 /* The Chats New sheet (iOS f81e8d6): square glass tiles, three to a row. */
 .new-chat-sheet:not(.is-join) { width: min(100%, 400px); }
-.new-chat-sheet-tiles { gap: 14px; }
-.new-chat-sheet-tiles .action-tile { height: auto; aspect-ratio: 1 / 1; gap: 10px; }
 
 /* ==== Chat Send KAS: fee card + Coin Control (iOS 62c2773) ====
    The sheet carries the shared SendFeeControls card now, so it scrolls when the window is short.
@@ -13276,7 +11643,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .sk-coin-picker-list { max-height: min(46vh, 360px); }
 .sk-coin-picker-list .cold-coincontrol-row { width: 100%; font: inherit; }
 .sk-coin-picker-list .cold-coincontrol-row:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: 1px; }
-.sk-coin-retry { display: flex; justify-content: center; }
 .sk-coin-sheet .modal-actions { display: flex; justify-content: flex-end; }
 
 /* ==== Claim Testnet Kaspa (iOS 182ae68): Profile, testnet only, above the Chatting card. ==== */
@@ -13306,9 +11672,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .kl-owner .kl-owner-address:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: 2px; border-radius: 4px; }
 .kl-owner-copy-icon { display: inline-flex; flex: 0 0 auto; }
 .kl-owner-copy-icon .kmkt-ico { width: 13px; height: 13px; }
-.kl-offer-row.kl-offer-tappable { cursor: pointer; }
-.kl-offer-row.kl-offer-tappable:hover { background-color: var(--row-hover); }
-.kl-offer-row.kl-offer-dim { opacity: .6; }
 
 /* ==== .kachat marketplace tabs and tiles (iOS 0765ce0, 27a4f39, c488d1d) ====
    Marketplace (for sale) and Available as two-column grids of name tiles: centered, the full name
@@ -13347,7 +11710,6 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
   padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; line-height: 16px;
   color: var(--ios-green); background: color-mix(in srgb, var(--ios-green) 15%, transparent);
 }
-.kl-free-price { font-size: 12px; line-height: 16px; }
 
 /* ==== Your Domains > .kachat: My Offers under your names (iOS 0765ce0) ==== */
 .kl-domains-offers { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
@@ -13395,15 +11757,6 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
   background: #fff radial-gradient(circle, var(--kaspa) 0 4px, transparent 4.5px);
 }
 /* "What is this?": a plain accent link with questionmark.circle, under Generate Account */
-.create-account-flow .seed-explainer-link {
-  display: flex; align-items: center; justify-content: center; gap: 6px;
-  width: 100%; margin-top: 4px;
-  font-size: 15px; font-weight: 600; line-height: 20px; color: var(--kaspa);
-}
-.create-account-flow .seed-explainer-link svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-/* "What is a seed phrase?" is a page in the Create Account flow now (iOS 712bb4d): the
-   passphrase explainer's headline-and-text sections, a little taller since it is the whole step. */
-.create-account-flow .seed-explainer-page { max-height: min(60vh, 560px); margin: 4px 0 8px; }
 
 /* ==== Contacts, the Address Book in code (iOS AddressBookView, 00767a4 / cda0d99 / 1be4f6e; KaPay 8118f09) ====
    Kaspa Hub > Contacts (ui/address-book.js), its add / edit sheet and the full-screen picker,
@@ -14191,15 +12544,6 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
 .profile-hero-avatar:not(:has(img)) svg { fill: var(--kaspa-ink); stroke: none; width: 38px; height: 38px; }
 /* The toolbar balance in iOS's weight and secondary tone. */
 .toolbar-balance [data-toolbar-balance-value] { font-weight: 600; color: color-mix(in srgb, var(--text) 80%, transparent); }
-@media (max-width: 859px) {
-  /* Profile's bell in a round glass button, like the status light beside it (iOS toolbar). */
-  .topbar-bell-button {
-    width: 40px;
-    height: 40px;
-    border: 1px solid var(--bar-separator, var(--line));
-    background: var(--fill-tertiary, rgba(255,255,255,.06));
-  }
-}
 /* The tab bar draws its symbols filled, as iOS's does: each dock button carries iOS's .fill
    variant (lock.shield.fill, chart.pie.fill, bubble.left.and.bubble.right.fill,
    person.crop.circle.fill, book.closed.fill; square.and.pencil has none) next to the outline glyph.
@@ -14307,12 +12651,7 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
 .settings-menu-value > span { overflow: hidden; text-overflow: ellipsis; }
 .settings-menu-updown { width: 15px; height: 15px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .settings-menu-select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
-.settings-row-icon-plain { color: var(--text); }
-.settings-row-icon-plain svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; display: block; margin: 0 auto; }
-.settings-row-icon-plain svg circle { fill: currentColor; }
 .settings-menu-updown { width: 18px; height: 18px; stroke-width: 2; }
-.settings-row-icon-plain svg { stroke-width: 1.6; }
-.settings-row-icon-plain svg circle { r: 1.1; }
 .settings-row-icon-accent { color: var(--kaspa-ink); }
 .settings-row-icon-accent svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; display: block; margin: 0 auto; }
 .settings-row-icon-accent svg .fill { fill: currentColor; stroke: none; }
@@ -14334,8 +12673,6 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
 .diagnostics-export-row .settings-row-copy small { color: var(--muted); font-size: 15px; line-height: 1.35; white-space: normal; }
 .diagnostics-export-row { flex-wrap: wrap; align-items: center; row-gap: 6px; }
 .diagnostics-export-row .settings-row-copy { flex: 1 1 0; }
-.diagnostics-export-note { flex: 0 0 100%; color: var(--muted); font-size: 15px; line-height: 1.35; text-align: left; }
-.settings-row-icon-red { color: var(--ios-red); }
 .danger-row .settings-row-copy strong { font-weight: 400; }
 /* Connection Status sheet (iOS inline title): title centred between the edges, no hairline. */
 .connection-overlay-header { position: relative; border-bottom: 0; box-shadow: none; justify-content: flex-end; }
@@ -14518,14 +12855,10 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
   }
   .kmkt-header [data-kmkt-header-actions] .kaposts-icon-button { width: 34px; height: 36px; padding: 0; color: var(--kaspa-ink); background: none; border: 0; }
   .kmkt-header [data-kmkt-header-actions] .kaposts-icon-button svg { width: 24px; height: 24px; }
-  /* The four pages share the width evenly, as iOS's tab strip does. */
-  .kmkt-tabs { display: flex; }
-  .kmkt-tabs > .kmkt-tab { flex: 1 1 0; min-width: 0; padding-left: 2px; padding-right: 2px; white-space: nowrap; }
 }
 @media (max-width: 859px) {
   /* The chatting balance (iOS 6e938ff: no Buy From pill) keeps clear of the trailing capsule. */
   body:has([data-app-tab-screen="kachat-names"]:not([hidden]) [data-kmkt-header-actions]) [data-toolbar-balance] { padding-right: 80px; }
-  .kmkt-tabs > .kmkt-tab { font-size: 14px; }
 }
 /* iOS KaChatStatsView hero: chart.bar.xaxis filled at 34pt, the total at 44pt heavy rounded. */
 .kstats-hero-icon svg.filled { fill: currentColor; stroke: none; width: 40px; height: 40px; }
@@ -14640,7 +12973,6 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
   body .sidebar-tabbar .sidebar-tab:hover .sidebar-tab-icon,
   body .sidebar-tabbar .sidebar-tab.active .sidebar-tab-icon { background: transparent; }
   body .sidebar-tabbar .sidebar-tab-icon svg { width: 23px; height: 23px; }
-  body .sidebar-tabbar .sidebar-tab-icon .sidebar-tab-logo { width: 23px; height: 23px; }
   body .sidebar-tabbar .sidebar-tab > span:last-child,
   body.chats-tab .sidebar-tabbar .sidebar-tab > span:last-child { font-size: 11px; font-weight: 500; line-height: 13px; }
   /* The count rides on the symbol's top-right corner, as on iOS. */
