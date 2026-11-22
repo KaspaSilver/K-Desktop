@@ -48,26 +48,33 @@ export function rowSwipeAxis(dx, dy) {
   return x > y ? "x" : "y";
 }
 
-/** Where the row sits for a finger at `offset`: left stops giving past its buttons, right runs on
- *  to the row's edge for the full swipe. */
-export function clampRowSwipe(offset, { leftWidth = 0, rightWidth = 0, rowWidth = 0 } = {}) {
+/** Where the row sits for a finger at `offset`: left stops giving past its buttons (unless it has
+ *  a full swipe, `fullLeft`, as Manage Addresses' Hide does), right runs on to the row's edge for
+ *  the full swipe. */
+export function clampRowSwipe(offset, { leftWidth = 0, rightWidth = 0, rowWidth = 0, fullLeft = false } = {}) {
   if (offset < 0) {
     if (!leftWidth) return 0;
+    if (fullLeft) return Math.max(offset, -(rowWidth || -offset));
     return offset < -leftWidth ? -leftWidth + (offset + leftWidth) * OVERDRAG : offset;
   }
   if (!rightWidth) return 0;
   return Math.min(offset, rowWidth || offset);
 }
 
-/** Whether letting go here has passed the point where the right swipe's action runs. */
-export function isFullRowSwipe(offset, { rightWidth = 0, rowWidth = 0 } = {}) {
-  return rightWidth > 0 && rowWidth > 0 && offset >= rowWidth * FULL_SWIPE_RATIO;
+/** Whether letting go here has passed the point where a full swipe's action runs: the right
+ *  swipe's, or the left's when it has one (`fullLeft`). */
+export function isFullRowSwipe(offset, { leftWidth = 0, rightWidth = 0, rowWidth = 0, fullLeft = false } = {}) {
+  if (rowWidth <= 0) return false;
+  if (offset < 0) return fullLeft && leftWidth > 0 && -offset >= rowWidth * FULL_SWIPE_RATIO;
+  return rightWidth > 0 && offset >= rowWidth * FULL_SWIPE_RATIO;
 }
 
 /** Where a row goes when the finger lifts: "closed", "left" or "right" (open on that side), or
- *  "full" (a long right swipe runs its action; a left swipe has no full swipe, as on iOS, so a long
- *  swipe can't start a delete). `velocity` is px/ms, positive to the right. */
-export function settleRowSwipe({ offset = 0, velocity = 0, leftWidth = 0, rightWidth = 0, rowWidth = 0 } = {}) {
+ *  "full" (a long right swipe runs its action; a chat row's left swipe has no full swipe, as on iOS,
+ *  so a long swipe can't start a delete), or "full-left" where the left side has one (`fullLeft`:
+ *  Manage Addresses' Hide, K b0f0a4e6). `velocity` is px/ms, positive to the right. */
+export function settleRowSwipe({ offset = 0, velocity = 0, leftWidth = 0, rightWidth = 0, rowWidth = 0, fullLeft = false } = {}) {
+  if (offset < 0 && isFullRowSwipe(offset, { leftWidth, rowWidth, fullLeft })) return "full-left";
   if (offset > 0) {
     if (isFullRowSwipe(offset, { rightWidth, rowWidth })) return "full";
     if (!rightWidth || velocity < -FLING_PX_PER_MS) return "closed";
@@ -82,7 +89,8 @@ export function settleRowSwipe({ offset = 0, velocity = 0, leftWidth = 0, rightW
 
 /**
  * Swipes on `listEl`'s rows, each row being its `rowAttr` element.
- * actionsFor(id): { left, right } as chatRowSwipeActions gives them, or null for no swipes.
+ * actionsFor(id): { left, right } as chatRowSwipeActions gives them (`fullLeft: true` lets a long
+ * left swipe run the first left action), or null for no swipes.
  * iconFor(key): an action's icon markup. onAction(id, actionId): runs it, once the row has closed.
  * enabled(): false turns swipes off (Select mode, where the bulk bar owns actions).
  * ignoreStart(x): a touch that belongs to something else (the edge swipe back).
@@ -143,6 +151,9 @@ export function attachRowSwipes(listEl, { rowAttr, actionsFor, iconFor, onAction
     if (layerSide === "right") {
       const inset = Math.max(0, offset - rowSwipeWidths(actions).rightWidth);
       layer.firstElementChild?.style.setProperty("padding-left", `${inset}px`);
+    } else if (actions.fullLeft) {
+      const inset = Math.max(0, -offset - rowSwipeWidths(actions).leftWidth);
+      layer.firstElementChild?.style.setProperty("padding-right", `${inset}px`);
     }
   }
 
@@ -226,7 +237,7 @@ export function attachRowSwipes(listEl, { rowAttr, actionsFor, iconFor, onAction
     if (elapsed > 0) gesture.velocity = (event.clientX - gesture.lastX) / elapsed;
     gesture.lastX = event.clientX;
     gesture.lastAt = event.timeStamp;
-    const widths = { ...rowSwipeWidths(gesture.actions), rowWidth: gesture.row.offsetWidth };
+    const widths = { ...rowSwipeWidths(gesture.actions), rowWidth: gesture.row.offsetWidth, fullLeft: Boolean(gesture.actions.fullLeft) };
     shown.offset = clampRowSwipe(gesture.base + event.clientX - gesture.startX, widths);
     const armed = isFullRowSwipe(shown.offset, widths);
     if (armed !== gesture.armed) {
@@ -248,10 +259,11 @@ export function attachRowSwipes(listEl, { rowAttr, actionsFor, iconFor, onAction
       }
       return;
     }
-    const widths = { ...rowSwipeWidths(actions), rowWidth: row.offsetWidth };
+    const widths = { ...rowSwipeWidths(actions), rowWidth: row.offsetWidth, fullLeft: Boolean(actions.fullLeft) };
     // A finger taken away by the system (a call, a scroll) isn't a choice: it never runs an action.
     const where = settleRowSwipe({ offset: shown?.offset ?? 0, velocity: event.type === "pointerup" ? velocity : 0, ...widths });
     if (where === "full" && event.type === "pointerup") { runAfterClose(id, actions.right[0].id); return; }
+    if (where === "full-left" && event.type === "pointerup") { runAfterClose(id, actions.left[0].id); return; }
     if (where === "left") { openRow = { id, side: "left" }; settleTo(-widths.leftWidth); return; }
     if (where === "right") { openRow = { id, side: "right" }; settleTo(widths.rightWidth); return; }
     close();

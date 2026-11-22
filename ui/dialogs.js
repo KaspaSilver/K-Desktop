@@ -223,6 +223,8 @@ export const ACTION_TILE_ICONS = {
   envelopeOpen: tileSvg('<path d="M3 10.5 12 4l9 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19z"/><path d="m3 10.5 9 6 9-6"/>'),
   envelopeBadge: tileSvg('<path d="M14 5.5H4.5A1.5 1.5 0 0 0 3 7v11a1.5 1.5 0 0 0 1.5 1.5h15A1.5 1.5 0 0 0 21 18v-7"/><path d="m3 7.5 9 6 3.2-2.1"/><circle cx="19" cy="5.5" r="2.5"/>'),
   bell: tileSvg('<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>'),
+  // eye.slash (Manage Addresses' swipe to hide, K b0f0a4e6)
+  eyeSlash: tileSvg('<path d="M3 12s3.2-6.5 9-6.5c1.6 0 3 .5 4.2 1.2M21 12s-1.2 2.4-3.6 4.3A8.7 8.7 0 0 1 12 18.5c-5.8 0-9-6.5-9-6.5"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="M4 4l16 16"/>'),
   bellSlash: tileSvg('<path d="M8.2 5.9A6 6 0 0 1 18 11v4.2M18 18.5H4.5l1.5-2V11c0-.9.2-1.8.6-2.6"/><path d="M10 20.5a2 2 0 0 0 4 0"/><path d="m3.5 3.5 17 17"/>'),
   pin: tileSvg('<path d="M9 3.5h6l-1 6 3.5 3.5h-11L10 9.5z"/><path d="M12 13v7.5"/>'),
   unpin: tileSvg('<path d="M9 3.5h6l-1 6 3.5 3.5h-11L10 9.5z"/><path d="M12 13v7.5"/><path d="m4 4 16 16"/>'),

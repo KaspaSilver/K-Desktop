@@ -277,7 +277,7 @@ await check("no second \"Received kUSDT\" banner for a transfer a chat's notice 
   const w = world();
   w.coins[ME] = [{ n: 1, units: 1_000_000n }];
   const filed = new Set([txid(7)]);
-  const { wallet, notes } = makeWallet(w, { isNoticeFiled: (id) => filed.has(id) });
+  const { wallet, notes, tick } = makeWallet(w, { isNoticeFiled: (id) => filed.has(id) });
   await wallet.refresh(); // first look
   w.coins[ME].push({ n: 7, units: AMOUNT });
   await wallet.refresh();
@@ -285,7 +285,10 @@ await check("no second \"Received kUSDT\" banner for a transfer a chat's notice 
   assert.equal(wallet.activity().filter((r) => r.kind === "received").length, 1, "still in the kUSDT history");
   w.coins[ME].push({ n: 8, units: 2_000_000n });
   await wallet.refresh();
-  assert.deepEqual(notes, [{ title: "Received 2.00 kUSDT", body: "On your Chatting Address" }], "one no notice filed still rings");
+  assert.deepEqual(notes, [], "a coin with no notice yet waits for one (K b0f0a4e6)");
+  tick(W.KUSDT_NOTICE_WAIT_MS + 1000);
+  await wallet.refresh();
+  assert.deepEqual(notes, [{ title: "Received 2.00 kUSDT", body: "" }], "one no notice filed still rings, after the wait");
 });
 
 // MARK: - Tip In

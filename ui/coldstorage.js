@@ -1,10 +1,11 @@
 // Cold Storage tab — desktop match of iOS's ColdStorageListView + ColdStorageDetailView:
 // KasSigner kpub ACCOUNTS (extended public keys), not raw addresses. The list shows named
-// accounts with their truncated kpub and a ⋯ menu (Copy kpub / Rename); "Paste kpub" and
-// "Scan" live at the bottom exactly like iOS. Opening an account mirrors the iOS detail
-// screen: Name / kpub / Total Balance summary, per-address rows (label, short address,
-// balance, Used/Unused badge, ⋯ menu with Rename / Copy / QR / Hide), an "Address Actions"
-// capsule (Generate More / Discover with the same gap-limit-20 scan as iOS), and a red
+// accounts and a ⋯ menu (Copy kpub / Rename); "Paste kpub" and "Scan" live at the bottom
+// exactly like iOS. No kpub is ever shown as text (K b0f0a4e6): it reveals every address of the
+// account, so it is only copied. Opening an account mirrors the iOS detail screen: Name, the
+// full-width Total Balance card, per-address rows (label, short address, balance, Used/Unused
+// badge, ⋯ menu with Rename / Copy / QR / Hide), the floating Address Actions button (Generate
+// More / Discover with the same gap-limit-20 scan as iOS, Copy kpub), and a red
 // trash to remove the account. Keys never enter the picture — signing (compound/withdraw)
 // stays on the KasSigner device.
 
@@ -233,11 +234,6 @@ function deriveReceiveAddresses(kpub, start, end) {
   return generator.receiveAddressAsStrings(NETWORK_ID, start, end);
 }
 
-function truncateMiddle(value, keep = 14) {
-  const text = String(value || "");
-  return text.length <= keep * 2 + 3 ? text : `${text.slice(0, keep)}…${text.slice(-keep)}`;
-}
-
 // Same shape as iOS ColdStorageAddressEntry.shortAddress: prefix(14) + "..." + suffix(6).
 function shortColdAddress(address) {
   const text = String(address || "");
@@ -381,7 +377,6 @@ function renderList() {
               <span class="cold-row-lock">${LOCK_ICON}</span>
               <span class="chat-meta">
                 <strong>${deps.escapeHtml(account.label)}</strong>
-                <span class="cold-kpub">${deps.escapeHtml(truncateMiddle(account.kpub))}</span>
               </span>
             </button>
             <div class="spending-address-row-menu-wrap cold-menu-wrap">
@@ -428,10 +423,10 @@ function addressRowHtml(account, entry) {
 }
 
 /// The balance card at the top of an address's page (K 428a797b: Cold Storage's total uses iOS's
-/// shared KaspaAddressBalanceCard): the label, the amount large, and its worth in your currency on
-/// mainnet; a price that lands later redraws the page.
-function balanceCardHtml(label, sompi) {
-  const fiat = deps.kasFiatText?.(Number(sompi || 0) / 1e8, () => { if (activeAccountId && rootEl?.isConnected) renderDetail(); }) || "";
+/// shared KaspaAddressBalanceCard; K b0f0a4e6: an address's page too): the label, the amount
+/// large, and its worth in your currency on mainnet; a price that lands later redraws the page.
+function balanceCardHtml(label, sompi, redraw = renderDetail) {
+  const fiat = deps.kasFiatText?.(Number(sompi || 0) / 1e8, () => { if (activeAccountId && rootEl?.isConnected) redraw(); }) || "";
   return `<div class="address-balance-card">
         <p class="address-balance-card-label">${deps.escapeHtml(label)}</p>
         <p class="address-balance-card-amount">${fmtKasExact(sompi)} ${KAS_UNIT}</p>
@@ -472,23 +467,22 @@ function renderDetail() {
         </div>
         <button class="cold-inline-icon" type="button" data-cold-rename-account aria-label="Rename account">${PENCIL_ICON}</button>
       </div>
-      <div>
-        <p class="cold-summary-label">kpub</p>
-        <p class="cold-summary-kpub">${deps.escapeHtml(account.kpub)}</p>
-        <button class="cold-inline-link" type="button" data-cold-copy-kpub>${COPY_ICON}Copy kpub</button>
-      </div>
-      ${balanceCardHtml("Total Balance", totalSompi)}
-      <button class="primary-button cold-capsule cold-summary-actions" type="button" data-cold-actions-toggle ${detailBusy ? "disabled" : ""}${detailBusy ? ' aria-busy="true" aria-label="Address Actions"' : ""}>
-        ${detailBusy ? '<span class="sk-spinner" aria-hidden="true"></span>' : "Address Actions"}
-      </button>
     </div>
+    <!-- Full width, as Manage Addresses shows its total; no kpub on screen (K b0f0a4e6): it
+         reveals every address of the account, so it is only copied, from Address Actions. -->
+    ${balanceCardHtml("Total Balance", totalSompi)}
     <div class="cold-address-list">
       ${detailLoading && detailEntries.length === 0
         ? '<div class="cold-detail-spinner"><span class="initial-sync-spinner" aria-hidden="true"></span></div>'
         : sorted.length === 0
           ? '<p class="cold-detail-note">No addresses discovered yet.</p>'
           : sorted.map((e) => addressRowHtml(account, e)).join("")}
-    </div>`;
+    </div>
+    <!-- Manage Addresses' floating Address Actions button (K b0f0a4e6); it stays at the bottom
+         of the screen while the list scrolls under it. -->
+    <button type="button" class="spending-actions-fab cold-actions-fab" data-cold-actions-toggle aria-label="Address Actions"${detailBusy ? ' aria-busy="true"' : ""}>
+      ${detailBusy ? '<span class="sk-spinner" aria-hidden="true"></span>' : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h11M18 6h3M3 12h3M10 12h11M3 18h9M16 18h5"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></svg>'}
+    </button>`;
 }
 
 /// The half sheet behind "Address Actions" (iOS `addressActionsSheet`).
@@ -812,6 +806,7 @@ function renderColdActionsSheet() {
                  CHECKLIST_ICON)}
            ${row("refresh", "Refresh Balances", "Re-reads every address on this list from the chain.",
                  '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 6.06M20 5v6h-6"/></svg>')}
+           ${row("copy-kpub", "Copy kpub", "Puts this account's kpub on the clipboard. It reveals all its addresses.", COPY_ICON)}
          </div>
          ${detailDiscoverySummary ? `<p class="field-hint cold-actions-summary">${deps.escapeHtml(detailDiscoverySummary)}</p>` : ""}`}`;
 }
@@ -1100,10 +1095,9 @@ function renderAddressScreen() {
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
       </a>
     </div>
-    <div class="spending-detail-balance">
-      <span class="spending-detail-balance-label">Balance</span>
-      <span class="spending-detail-balance-value">${fmtKasExact(balanceSompi)} ${KAS_UNIT}</span>
-    </div>
+    <!-- The same balance card as a Manage Addresses address's page (K b0f0a4e6): its name, its
+         balance large, and its worth in your currency. -->
+    ${balanceCardHtml(displayLabelFor(account, entry.index), balanceSompi, renderAddressScreen)}
     <!-- History / UTXOs / Domains on the app's underline tab bar (iOS b96d727, 718b88c, fe52376). -->
     <nav class="domains-tabs address-tabs" aria-label="Cold address view">
       <button type="button" class="domains-tab ${addressTab === "transactions" ? "active" : ""}" data-cold-tab="transactions">History</button>
@@ -2146,7 +2140,7 @@ function sendStepHtml() {
         .filter((u) => selected.has(utxoKey(u)))
         .reduce((sum, u) => sum + BigInt(u.amountSompi), 0n);
       return sendStepScreenHtml({
-        step: "coincontrol", title: "Coin Control", className: "cold-send-coin-step",
+        step: "coincontrol", title: "UTXO Selection", className: "cold-send-coin-step",
         continueTitle: selected.size ? "Confirm Selection" : "Use Automatic Selection",
         // Cancel leaves the existing selection alone - a way out of the picker, not a reset.
         cancelAttr: "data-cold-coincontrol-cancel",
@@ -2537,9 +2531,15 @@ function buildModals() {
       handleAddressAction(addrAction.dataset.coldAddrAction, Number(addrAction.dataset.index));
       return;
     }
-    const action = event.target.closest("[data-cold-generate], [data-cold-discover], [data-cold-refresh], [data-cold-open-visibility]");
+    const action = event.target.closest("[data-cold-generate], [data-cold-discover], [data-cold-refresh], [data-cold-open-visibility], [data-cold-copy-kpub]");
     if (!action || action.disabled) return;
-    if (action.matches("[data-cold-generate]")) { closeColdActionsSheet(); runAddressAction("generate"); }
+    if (action.matches("[data-cold-copy-kpub]")) {
+      // the only place an account's kpub leaves the app (K b0f0a4e6); off the clipboard in 30 s
+      const account = activeAccount();
+      closeColdActionsSheet();
+      if (account) copyKpub(account.kpub);
+    }
+    else if (action.matches("[data-cold-generate]")) { closeColdActionsSheet(); runAddressAction("generate"); }
     else if (action.matches("[data-cold-discover]")) { runAddressAction("discover"); }
     else if (action.matches("[data-cold-refresh]")) { closeColdActionsSheet(); runAddressAction("refresh"); }
     else { closeColdActionsSheet(); showingVisibility = true; visibilityPage = 0; visUsageCache.clear(); render(); }
@@ -2848,7 +2848,10 @@ async function presentQr({ title, payload, copyToast, note, errorCorrectionLevel
   const canvas = modalsEl.querySelector("[data-cold-qr-canvas]");
   const noteEl = modalsEl.querySelector("[data-cold-qr-note]");
   modalsEl.querySelector("[data-cold-qr-title]").textContent = title;
-  modalsEl.querySelector("[data-cold-qr-address]").textContent = payload;
+  // No kpub text under its QR (K b0f0a4e6): only the code, for scanning.
+  const payloadEl = modalsEl.querySelector("[data-cold-qr-address]");
+  payloadEl.textContent = kpub ? "" : payload;
+  payloadEl.hidden = kpub;
   noteEl.textContent = note || "";
   noteEl.hidden = !note;
   modal.dataset.payload = payload;
@@ -3219,15 +3222,23 @@ async function beginImport(kpubRaw) {
   render();
 }
 
+/// Paste kpub takes what's on the clipboard at once (K b0f0a4e6): a valid kpub goes straight to
+/// naming the account, anything else is a toast. Only a browser that won't read the clipboard
+/// (no permission, no support) still gets the field to paste into.
 async function pasteImport() {
-  let clip = "";
-  try { clip = (await navigator.clipboard.readText())?.trim() || ""; } catch { /* permission */ }
+  let clip = null;
+  try { clip = (await navigator.clipboard.readText())?.trim() ?? ""; } catch { clip = null; }
+  if (clip !== null) {
+    if (clip && validateKpub(clip)) { beginImport(clip); return; }
+    deps.showToast?.("Not a valid kpub");
+    return;
+  }
   const input = await promptModal({
     title: "Enter kpub",
     message: "Paste the kpub exported from your KasSigner device. It contains no private key material.",
     label: "kpub",
     placeholder: "kpub...",
-    initial: clip.startsWith("kpub") ? clip : "",
+    initial: "",
     submitLabel: "Next",
     mono: true,
   });
@@ -3619,13 +3630,6 @@ export function initColdStorage(dependencies) {
     if (event.target.closest("[data-cold-paste]")) { pasteImport(); return; }
     if (event.target.closest("[data-cold-scan]")) { startScan(); return; }
     if (event.target.closest("[data-cold-remove]")) { removeActiveAccount(); return; }
-    if (event.target.closest("[data-cold-copy-kpub]")) {
-      const account = activeAccount();
-      if (account) {
-        copyKpub(account.kpub);
-      }
-      return;
-    }
     if (event.target.closest("[data-cold-rename-account]")) {
       const account = activeAccount();
       if (account) await renameAccountPrompt(account);

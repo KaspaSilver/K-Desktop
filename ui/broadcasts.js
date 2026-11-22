@@ -1013,6 +1013,7 @@ function mergeMessages(channel, rows) {
       title: `#${row.channel}`,
       body: stripBidiControls(humanizeBroadcastContent(row.content)).slice(0, 90),
       tag: `kachat-broadcast-${row.txId}`,
+      key: row.txId, // its push's tx_id: none if that push already came (K b0f0a4e6)
       // Clicking it opens the room (the app routes "room" to the detail pane).
       route: { kind: "room", channel: row.channel },
       onClick: () => deps.openRoomFromNotification?.(row.channel),

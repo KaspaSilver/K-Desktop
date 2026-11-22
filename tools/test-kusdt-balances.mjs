@@ -223,10 +223,10 @@ await check("Received: never for your own transfers", async () => {
   assert.equal(madeHere.received.length, 0, "a transaction made on this device");
 });
 
-await check("the notification reads as iOS's", () => {
+await check("the notification reads as K's: just the amount (K b0f0a4e6)", () => {
   const n = B.receivedNotification([{ units: 1_500_000n }, { units: 1_000_000n }], ["Chatting Address"], (u) => K.formatKusdt(u));
-  assert.deepEqual(n, { title: "Received 2.50 kUSDT", body: "On your Chatting Address" });
-  assert.equal(B.receivedNotification([{ units: 1n }], ["A", "B"], K.formatKusdt).body, "On 2 of your addresses");
+  assert.deepEqual(n, { title: "Received 2.50 kUSDT", body: "" });
+  assert.equal(B.receivedNotification([{ units: 1n }], ["A", "B"], K.formatKusdt).body, "");
 });
 
 if (failures.length) for (const f of failures) console.log(`FAIL ${f}`);

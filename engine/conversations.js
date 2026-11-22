@@ -95,6 +95,9 @@ export function normalizeMessage(message, conversationId) {
     payloadBytes: message?.payloadBytes ? Number(message.payloadBytes) : null,
     messageType: message?.messageType ? String(message.messageType) : null,
     paymentAmountKas: message?.paymentAmountKas != null ? String(message.paymentAmountKas) : null,
+    // a payment that is a KaPost tip: the post it tipped; or checked and not one (K b0f0a4e6)
+    ...(/^[0-9a-f]{64}$/.test(String(message?.tipPostId || "")) ? { tipPostId: String(message.tipPostId) } : {}),
+    ...(message?.tipChecked === true ? { tipChecked: true } : {}),
     note: message?.note ? String(message.note) : null,
     localNonce: String(message?.localNonce || createId()),
     transport: String(message?.transport || "preview"),

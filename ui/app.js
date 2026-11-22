@@ -45,7 +45,7 @@ import { startKachatNamesNotifier, openKachatNameFromNotification as openKachatN
 import { initKachatMarket, showKachatMarket, hideKachatMarket, openKachatProfileEditor, openKachatSetupGuide, KACHAT_WORDMARK_SVG, kachatAddressDomainsHtml, renderKachatLiveDomainsTab, openKachatMarketSheet } from "./kachat-market.js";
 import { initKachatStats, showKachatStats, hideKachatStats } from "./kachat-stats.js";
 // Closed-app notifications (Web Push) and the app icon's badge.
-import { initWebPush, scheduleWebPushSync, webPushStatus, webPushStatusText, webPushSignOut, webPushForgetAccount, setAppIconBadge, takePendingNotificationClick, needsHomeScreenInstall } from "./web-push.js";
+import { initWebPush, scheduleWebPushSync, webPushStatus, webPushStatusText, webPushSignOut, webPushForgetAccount, setAppIconBadge, takePendingNotificationClick, needsHomeScreenInstall, pushArrivedRecently } from "./web-push.js";
 import { authorKeyFromAddress, compressedPubkeyHex, PUSH_LIMITS } from "./web-push-core.js";
 import { deriveBlindedGroupId as pushBlindedGroupId, bytesToHex as pushBytesToHex, hexToBytes as pushHexToBytes } from "../engine/group.js";
 import { broadcastPushWatch, activeBroadcastChannelName } from "./broadcasts.js";
@@ -160,6 +160,7 @@ import { kusdtCoinIconHtml } from "./kusdt-icons.js";
 import { validTokenPaymentNotice, encodeTokenPaymentNotice, tokenPaymentText, unverifiedTokenPaymentText, tokenOfPaymentText, checkTokenNoticeOnChain } from "../engine/token-payment-notice.js";
 // KaPost Settings > Tip In (KaPost iOS f954738).
 import { TIP_IN_OPTIONS, TIP_IN_ASK, TIP_IN_KASPA, TIP_IN_KUSDT, storedTipIn, effectiveTipIn, withTipIn, tipInLayout } from "./kaposts-tip-in.js";
+import { createTipResolver, tipNeedsLookup } from "./kapost-tip-ledger.js";
 
 // Step 25 shell:
 // - Keeps KaspaEngine modules intact.
@@ -4273,23 +4274,45 @@ function maybeNotifyIncoming(conversationEntry, contact, message) {
   // payment", never the amount it claims.
   const title = displayNameForAddress(contact) || contact?.name || shortAddress(contact?.address || "");
   let body;
-  if (poolEnvelope) body = "Received payment";
+  // A contact's Send Dollars pings under their name like a Kaspa payment (K b0f0a4e6): "Sent you
+  // kUSDT", no amount, as it is only the sender's claim until the coin is checked.
+  if (poolEnvelope?.kind === "tokenNotice") body = "Sent you kUSDT";
+  else if (poolEnvelope) body = "Received payment";
   else if (isPaymentBubble(message)) body = chatPaymentNotificationBody({ amountKas: message.paymentAmountKas, unit: KAS_UNIT });
   // A payment request link is a card in the chat, never a link to read out (iOS bfe9f022).
   else if (parsePaymentRequestLinkCached(displayTextForMessage(message))) body = "Requested for payment";
   else body = displayTextForMessage(message) || "New message";
+  const tipCheck = !poolEnvelope && isPaymentBubble(message) && !parsePaymentCardParts(message)?.token
+    ? kaPostTipResolver.resolveNow(message) : Promise.resolve(null);
   // One notification per chat (iOS groups a chat's banners under its thread): the tag is the
   // sender's address, the same one a closed-app push for this chat uses (public/sw-push.js), so a
   // push's "New message" and this one's real text replace each other instead of stacking.
-  showAppNotification({
+  // A KaPost tip is one notice, "Received a tip", opening this chat (its KaPost banner is skipped).
+  tipCheck.then((tipPostId) => showAppNotification({
     title,
-    body,
+    body: tipPostId ? tipNotificationBody(message) : body,
     tag: `kachat-chat-${String(contact?.address || conversationEntry.id).toLowerCase()}`,
     key: notificationKeyForMessage(message),
     silent: mode !== "sound",
     route: { kind: "chat", conversationId: conversationEntry.id, address: contact?.address || "" },
     onClick: () => { setActiveAppTab("chats"); openConversation(conversationEntry.id); },
-  }).catch(() => { /* best-effort */ });
+  })).catch(() => { /* best-effort */ });
+}
+
+/// "Received a tip: 0.2 KAS" (K b0f0a4e6), the amount as the payment card shows it.
+function tipNotificationBody(message) {
+  const amount = String(message?.paymentAmountKas || "").trim() || parsePaymentCardParts(message)?.amountText || "";
+  return amount ? `Received a tip: ${amount} ${KAS_UNIT}` : "Received a tip";
+}
+
+/// A payment's text as people read it (K b0f0a4e6 readableContent): "Sent 1 KAS: Testing", never
+/// with the " — " the stored text keeps between amount and memo (the card and older messages
+/// split on it). Anything that isn't a payment is unchanged.
+function paymentDisplayText(message, text = message?.text) {
+  const value = String(text ?? "");
+  if (!isPaymentBubble(message)) return value;
+  const at = value.indexOf(" — ");
+  return at < 0 ? value : `${value.slice(0, at)}: ${value.slice(at + 3)}`;
 }
 
 /** The app is what you are looking at: its window is visible and has the focus (iOS
@@ -4365,6 +4388,9 @@ async function showAppNotification({ title, body, tag, key = "", silent = false,
     if (tag && key) {
       try { alreadyUp = (await registration.getNotifications({ tag })).some((note) => note.data?.key === key); } catch { alreadyUp = false; }
     }
+    // Its push came and is gone from the screen (clicked to open K, or dismissed): never a second
+    // banner for it (K b0f0a4e6). One still up gets the real text above, quietly.
+    if (key && !alreadyUp && await pushArrivedRecently(key)) return false;
     if (tag && renotify && !alreadyUp) options.renotify = true;
     if (alreadyUp) options.silent = true;
     const clickId = newNotificationClickId();
@@ -6575,6 +6601,8 @@ function chatListPreviewText(message) {
     if (internal.kind === "pay") return kasLabel(`Payment request: ${paymentRequestAmountText(internal.request)} KAS`);
   }
   const linkSafe = (text) => (WEB_LINK_RE.test(text) ? "📎 Sent a link" : text);
+  // "Sent 1 KAS: memo" (K b0f0a4e6)
+  if (isPaymentBubble(message)) return linkSafe(paymentDisplayText(message, unwrapped));
   const trimmed = unwrapped.trim();
   if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return linkSafe(unwrapped);
   const chessEnv = Chess.parseChessEnvelope(unwrapped);
@@ -6593,6 +6621,19 @@ function chatListPreviewText(message) {
   return linkSafe(unwrapped);
 }
 
+/// Whether a chat's last reaction is newer than its last message (K b0f0a4e6): compared on the
+/// chain's clock on both sides (a message's own time can be cut to whole seconds, and an own
+/// reaction is stamped with this computer's clock), so a reply right after a reaction could read
+/// as older and the reaction stayed the preview. A message not in a block yet is the newest thing
+/// in the chat, and one within a second of the reaction wins.
+function reactionIsNewerThanMessage(reactionEvent, message) {
+  const block = Number(message?.blockTime || 0);
+  const unmined = !(block > 0) && message?.direction === "outgoing" && message?.status !== MESSAGE_STATUSES.CONFIRMED;
+  if (unmined) return false;
+  const lastMs = Math.max(block > 0 ? (block > 1e12 ? block : block * 1000) : 0, Number(message?.createdAt || 0));
+  return Number(reactionEvent?.timestamp || 0) > lastMs + 1000;
+}
+
 function conversationPreview(conversationEntry) {
   const contact = contactForConversation(conversationEntry);
   const last = lastMessageFor(conversationEntry);
@@ -6605,7 +6646,7 @@ function conversationPreview(conversationEntry) {
   // the message), and only when there is a message at all. A target not on this device counts
   // as theirs (targetMessageIsOutgoing ?? false).
   if (!last) return "";
-  if (reactionEvent && reactionEvent.timestamp > last.createdAt) {
+  if (reactionEvent && reactionIsNewerThanMessage(reactionEvent, last)) {
     const targetMessage = conversationEntry.messages.find((entry) => entry.txid === reactionEvent.targetTxId || entry.id === reactionEvent.targetTxId);
     const reactedByMe = Boolean(reactionEvent.reactorAddress) && reactionEvent.reactorAddress === engine.address;
     const targetIsMine = targetMessage?.direction === "outgoing";
@@ -8761,6 +8802,8 @@ async function refreshOwnKnsProfileUntilResolved({ attempts = 6, delayMs = 5000 
 const SPENDING_STATE_KEY = "kachat-spending-state-v1";
 const spendingManageScreen = document.querySelector("[data-spending-manage-screen]");
 const spendingListEl = document.querySelector("[data-spending-address-list]");
+// Its rows' swipe to hide (attachRowSwipes, set up beside the list's click handler).
+let spendingRowSwipes = null;
 const spendingGenerateBtn = document.querySelector("[data-spending-generate]");
 const spendingScanBtn = document.querySelector("[data-spending-scan]");
 const spendingActionsToggle = document.querySelector("[data-spending-actions-toggle]");
@@ -9576,6 +9619,8 @@ async function attributeAndNotifyAddressActivity(increases, wallet = engine.addr
         title: `Received ${formatSompiForNotification(toAddress)} ${KAS_UNIT}`,
         body: describeActivityAddress(kind, address),
         tag: `kachat-addr-activity-${txid}`,
+        // its push (address_activity) carries the same txid
+        key: txid,
         // Clicking used to focus the window and stop there, which tells you a payment arrived
         // and then makes you go and find it. It now opens the address the money landed on, on
         // its History tab (iOS 13046ad): a spending address's detail, or the Cold Storage
@@ -9777,6 +9822,25 @@ function keepUnsentPaymentNotice(walletAddress, notice) {
   if (list.some((n) => n.txId === notice.txId)) return;
   list.push(notice);
   writeUnsentPaymentNotices(walletAddress, list.slice(-50));
+  scheduleUnsentNoticeRetry();
+}
+
+/// A held notice is usually waiting for the payment's own change to become spendable, which
+/// doesn't change the balance, so the balance watch alone could hold it until some unrelated
+/// payment came in (a contact's kUSDT card arrived minutes late that way, K b0f0a4e6). So it is
+/// also tried every 20 seconds while K is open and in view, for up to 15 minutes.
+const UNSENT_NOTICE_RETRY_MS = 20_000;
+const UNSENT_NOTICE_RETRY_FOR_MS = 15 * 60_000;
+function scheduleUnsentNoticeRetry() {
+  if (scheduleUnsentNoticeRetry.timer) return;
+  const started = Date.now();
+  const tick = () => {
+    scheduleUnsentNoticeRetry.timer = 0;
+    if (!readUnsentPaymentNotices().length || Date.now() - started >= UNSENT_NOTICE_RETRY_FOR_MS) return;
+    if (!document.hidden) sendUnsentPaymentNotices().catch(() => {});
+    scheduleUnsentNoticeRetry.timer = window.setTimeout(tick, UNSENT_NOTICE_RETRY_MS);
+  };
+  scheduleUnsentNoticeRetry.timer = window.setTimeout(tick, UNSENT_NOTICE_RETRY_MS);
 }
 
 /// Sends the notices that failed for want of KAS on the chatting address - called when its balance
@@ -9820,6 +9884,8 @@ function observeChattingBalanceForNotices() {
   if (observeChattingBalanceForNotices.last === seen) return;
   observeChattingBalanceForNotices.last = seen;
   if (kas > 0) sendUnsentPaymentNotices().catch(() => {});
+  // notices still held from an earlier run get the timer too
+  if (readUnsentPaymentNotices().length) scheduleUnsentNoticeRetry();
 }
 
 /// A `payment_notice` in a 1:1 chat (iOS 927322b handlePaymentNotice) - theirs (they paid us From
@@ -10760,6 +10826,7 @@ async function renderSpendingList() {
   spendingListEl.innerHTML = chattingRow + (items.length
     ? items.map((it) => spendingRowHtml(it.index, it.address, state, balCache[it.address]?.kas != null ? `${formatKasExact(balCache[it.address].kas)} ${KAS_UNIT}` : "…", balCache[it.address]?.used ?? null, false, { funded: Number(balCache[it.address]?.kas) > 0 })).join("")
     : emptyHtml);
+  spendingRowSwipes?.refresh();
   updateSpendingTotalBalance(all.map((it) => ({ kas: balCache[it.address]?.kas != null ? Number(balCache[it.address].kas) : null })));
   if (!all.length) return;
   // Enrich with live balance + used-state. Balances arrive in ONE batched node call (hidden
@@ -10827,6 +10894,7 @@ async function renderSpendingList() {
   spendingListEl.innerHTML = (engine.address ? chattingAddressRowHtml(domainOwning.has(engine.address)) : "") + (enriched.length
     ? enriched.map((e) => spendingRowHtml(e.index, e.address, shownState, e.totalKas != null ? `${formatKasExact(e.totalKas)} ${KAS_UNIT}` : `-- ${KAS_UNIT}`, e.used, domainOwning.has(e.address), { funded: e.kas > 0 })).join("")
     : emptyHtml);
+  spendingRowSwipes?.refresh();
   // Quantum shields: the local spend marks are in already; the chain's word per row follows, for
   // spends made on another device or before a restore (a spent mark is permanent - a revealed key
   // cannot be unrevealed). One row at a time, as iOS does.
@@ -11211,6 +11279,19 @@ spendingVisibilityList?.addEventListener("click", async (event) => {
   }
   renderSpendingVisibilityPage();
 });
+
+// Swipe left to hide (K b0f0a4e6 ManageAddressesView swipeActions), like marking mail read: a
+// partial swipe shows Hide, a full swipe hides at once. Same rules as the row menu's Hide Address
+// (an address on the kUSDT list refuses with a toast). Touch only; the Chatting Address row has
+// no swipe.
+spendingRowSwipes = spendingListEl ? attachRowSwipes(spendingListEl, {
+  rowAttr: "data-spending-row",
+  actionsFor: () => ({ left: [{ id: "hide", title: "Hide", icon: "eyeSlash", tint: "orange" }], right: [], fullLeft: true }),
+  iconFor: (key) => ACTION_TILE_ICONS[key] || "",
+  onAction(id) {
+    spendingListEl.querySelector(`[data-spending-action="hide"][data-index="${CSS.escape(String(id))}"]`)?.click();
+  },
+}) : null;
 
 spendingListEl?.addEventListener("click", async (event) => {
   const btn = event.target.closest("[data-spending-action]");
@@ -13505,7 +13586,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 321;
+const APP_BUILD = 322;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -15322,6 +15403,29 @@ function manageAddressTxDirection(tx, address) {
   return null;
 }
 
+/// Where an outgoing transaction's Kaspa went, by owner (K b0f0a4e6 / 800dcb75: an address got 10,
+/// sent 1, and the 8.99 of change to another address of yours wasn't shown): `toOthers` went to
+/// other people, `change` to this wallet's other addresses, by label in output order.
+function outgoingTxBreakdown(tx, address, labelFor = ownAddressLabelFor) {
+  const self = String(address || "").toLowerCase();
+  let toOthers = 0n;
+  const change = [];
+  for (const output of tx?.outputs || []) {
+    const to = String(output?.script_public_key_address || "").toLowerCase();
+    if (!to || to === self) continue;
+    const amount = BigInt(output.amount || 0);
+    const label = labelFor(to);
+    if (label) {
+      const line = change.find((c) => c.label === label);
+      if (line) line.sompi += amount;
+      else change.push({ label, sompi: amount });
+    } else toOthers += amount;
+  }
+  const changeTotal = change.reduce((sum, c) => sum + c.sompi, 0n);
+  // all of it to your own addresses: Moved
+  return { toOthers, change, changeTotal, moved: toOthers === 0n && changeTotal > 0n };
+}
+
 // The newest load per list: one list shows every spending address's history in turn, and a slow
 // answer for the address left behind must not land under the one opened since.
 const manageTxLoadTokens = new WeakMap();
@@ -15352,6 +15456,10 @@ async function loadManageAddressTransactions(address, listEl = manageAddressTran
     listEl.replaceChildren();
     for (const tx of transactions) {
       const info = manageAddressTxDirection(tx, address);
+      // An outgoing row counts what went to other people as Sent, and each of this wallet's other
+      // addresses that got change on its own line; all of it to your own addresses is Moved.
+      const breakdown = info?.isOutgoing ? outgoingTxBreakdown(tx, address) : null;
+      if (breakdown) info.amountSompi = breakdown.moved ? breakdown.changeTotal : breakdown.toOthers;
       const row = document.createElement("button");
       row.type = "button";
       row.className = "manage-address-row";
@@ -15361,11 +15469,18 @@ async function loadManageAddressTransactions(address, listEl = manageAddressTran
       const meta = document.createElement("span");
       meta.className = "manage-address-row-meta";
       const label = document.createElement("strong");
-      label.textContent = info == null ? "Transaction" : info.isOutgoing ? "Sent" : "Received";
+      label.textContent = info == null ? "Transaction" : info.isOutgoing ? (breakdown?.moved ? "Moved" : "Sent") : "Received";
+      meta.append(label);
+      for (const line of breakdown?.change || []) {
+        const changeEl = document.createElement("span");
+        changeEl.className = "manage-address-row-change";
+        changeEl.textContent = breakdown.moved ? `To ${line.label}` : `Change ${spendingKasText(line.sompi)} ${KAS_UNIT} to ${line.label}`;
+        meta.append(changeEl);
+      }
       const txidEl = document.createElement("span");
       txidEl.className = "manage-address-row-txid";
       txidEl.textContent = tx.transaction_id || "";
-      meta.append(label, txidEl);
+      meta.append(txidEl);
       if (tx.block_time) {
         const timeEl = document.createElement("span");
         timeEl.className = "manage-address-row-time";
@@ -16280,7 +16395,7 @@ function effectiveLanguageCode() {
 // the app language changes). English is the fallback for any missing key/lang,
 // so screens are wired incrementally and untranslated strings stay readable. ---
 const I18N = {
-  en: { appearance: "Appearance", language: "Language", currency: "Currency", "theme.system": "System", "theme.light": "Light", "theme.dark": "Dark", "send.recipient": "Recipient", "send.amount": "Amount", "send.networkFee": "Network Fee", "fee.normal": "Normal", "fee.priority": "Priority", "fee.custom": "Custom", "send.coinControl": "Coin Control", "send.title": "Send Kaspa", "action.send": "Send", "action.receive": "Receive", "action.copyAddress": "Copy Address" },
+  en: { appearance: "Appearance", language: "Language", currency: "Currency", "theme.system": "System", "theme.light": "Light", "theme.dark": "Dark", "send.recipient": "Recipient", "send.amount": "Amount", "send.networkFee": "Network Fee", "fee.normal": "Normal", "fee.priority": "Priority", "fee.custom": "Custom", "send.coinControl": "UTXO Selection", "send.title": "Send Kaspa", "action.send": "Send", "action.receive": "Receive", "action.copyAddress": "Copy Address" },
   es: { appearance: "Apariencia", language: "Idioma", currency: "Moneda", "theme.system": "Sistema", "theme.light": "Claro", "theme.dark": "Oscuro", "send.recipient": "Destinatario", "send.amount": "Cantidad", "send.networkFee": "Comisión de red", "fee.normal": "Normal", "fee.priority": "Prioritaria", "fee.custom": "Personalizada", "send.coinControl": "Control de monedas", "send.title": "Enviar Kaspa", "action.send": "Enviar", "action.receive": "Recibir", "action.copyAddress": "Copiar dirección" },
   fr: { appearance: "Apparence", language: "Langue", currency: "Devise", "theme.system": "Système", "theme.light": "Clair", "theme.dark": "Sombre", "send.recipient": "Destinataire", "send.amount": "Montant", "send.networkFee": "Frais de réseau", "fee.normal": "Normal", "fee.priority": "Prioritaire", "fee.custom": "Personnalisé", "send.coinControl": "Contrôle des pièces", "send.title": "Envoyer du Kaspa", "action.send": "Envoyer", "action.receive": "Recevoir", "action.copyAddress": "Copier l'adresse" },
   de: { appearance: "Darstellung", language: "Sprache", currency: "Währung", "theme.system": "System", "theme.light": "Hell", "theme.dark": "Dunkel", "send.recipient": "Empfänger", "send.amount": "Betrag", "send.networkFee": "Netzwerkgebühr", "fee.normal": "Normal", "fee.priority": "Priorität", "fee.custom": "Benutzerdefiniert", "send.coinControl": "Coin-Auswahl", "send.title": "Kaspa senden", "action.send": "Senden", "action.receive": "Empfangen", "action.copyAddress": "Adresse kopieren" },
@@ -19048,27 +19163,33 @@ function renderMessages(conversationEntry) {
     const paymentParts = parsePaymentCardParts(message);
     if (paymentParts) {
       bubble.classList.add("has-payment-card");
-      const paymentCard = buildPaymentCard(paymentParts, message.direction !== "incoming");
+      const paymentCard = buildPaymentCard(paymentParts, message.direction !== "incoming", message);
+      // A KaPost tip's card opens the post it tipped; any other payment its details (K b0f0a4e6).
+      const tipPostId = paymentParts.token ? null : message.tipPostId;
+      const openPayment = () => {
+        if (tipPostId) { setActiveAppTab("kaposts"); try { openKaPostFromNotification(tipPostId); } catch { /* KaPost not started */ } return; }
+        openPaymentDetailSheet(conversationEntry.id, message.id);
+      };
       // A payment still on its way shimmers (iOS shouldShowResolvingOverlay).
       if (![MESSAGE_STATUSES.CONFIRMED, MESSAGE_STATUSES.FAILED, MESSAGE_STATUS_UNCONFIRMED].includes(message.status) && message.direction !== "incoming") paymentCard.classList.add("payment-resolving");
       // One click opens its details (iOS PaymentCardTaps, 80a6aae); a double-click still reacts,
       // so the single click waits a beat and a second click cancels it.
       paymentCard.setAttribute("role", "button");
       paymentCard.tabIndex = 0;
-      paymentCard.setAttribute("aria-label", `${message.direction !== "incoming" ? "Sent" : "Received"} ${paymentParts.amountText} ${paymentParts.unit || KAS_UNIT}. Payment details`);
+      paymentCard.setAttribute("aria-label", `${paymentCardHeading(tipPostId ? message : null, message.direction !== "incoming")} ${paymentParts.amountText} ${paymentParts.unit || KAS_UNIT}. ${tipPostId ? "Open the post" : "Payment details"}`);
       paymentCard.addEventListener("click", (event) => {
         if (messageSelectionMode) return;
         if (bubble.paymentOpenTimer) { window.clearTimeout(bubble.paymentOpenTimer); bubble.paymentOpenTimer = 0; }
         if (event.detail > 1) return;
         bubble.paymentOpenTimer = window.setTimeout(() => {
           bubble.paymentOpenTimer = 0;
-          openPaymentDetailSheet(conversationEntry.id, message.id);
+          openPayment();
         }, 320);
       });
       paymentCard.addEventListener("keydown", (event) => {
         if (messageSelectionMode || (event.key !== "Enter" && event.key !== " ")) return;
         event.preventDefault();
-        openPaymentDetailSheet(conversationEntry.id, message.id);
+        openPayment();
       });
       bubble.append(paymentCard);
     } else {
@@ -21590,6 +21711,8 @@ async function sendTipNow(tipSompi) {
       note: verifiedTxid
         ? "Kaspa payment verified at recipient output."
         : "Kaspa node accepted and broadcast the payment transaction.",
+      // A tip that names the post (kchat:1:tip:): its card says "Sent tip" and opens the post.
+      ...(tip.tip && !tip.fundingAddress && /^[0-9a-f]{64}$/i.test(String(tip.tip.postId)) ? { tipPostId: String(tip.tip.postId).toLowerCase() } : {}),
     });
     // From a spending address the chatting address tells the chat about it, the memo with it, as
     // a chat payment from one does (iOS sendPayment(sourceSpendingIndex:), 927322b).
@@ -24964,7 +25087,27 @@ function parsePaymentCardParts(message) {
 
 // Builds the payment card element. All content is set via textContent (never
 // innerHTML), so no escaping concerns.
-function buildPaymentCard(parts, outgoing) {
+// Which chat payments are KaPost tips (K b0f0a4e6 KaPostTipLedger): each payment's transaction is
+// read once and the answer kept on the message, so its card says "Received tip" / "Sent tip" and
+// opens the tipped post. The chat redraws the card when the answer lands.
+const kaPostTipResolver = createTipResolver({
+  fetchTx: (txid) => engine.fetchChainTransaction(txid),
+  onAnswer(message, patch) {
+    applyMessagePatch(message, patch);
+    persistState();
+    if (!patch.tipPostId) return;
+    const conversationEntry = state.conversations.find((entry) => entry.id === message.conversationId)
+      || state.conversations.find((entry) => entry.messages?.includes(message));
+    if (conversationEntry && activeConversationId === conversationEntry.id) renderMessages(conversationEntry);
+  },
+});
+
+/** "Sent" / "Received", or "Sent tip" / "Received tip" for a KaPost tip (K PaymentCardHeading). */
+function paymentCardHeading(message, outgoing) {
+  return message?.tipPostId ? (outgoing ? "Sent tip" : "Received tip") : (outgoing ? "Sent" : "Received");
+}
+
+function buildPaymentCard(parts, outgoing, message = null) {
   const card = document.createElement("div");
   card.className = `message-payment-card ${outgoing ? "outgoing" : "incoming"}`;
   const logoWrap = document.createElement("span");
@@ -24984,7 +25127,9 @@ function buildPaymentCard(parts, outgoing) {
   body.className = "payment-card-body";
   const label = document.createElement("span");
   label.className = "payment-card-label";
-  label.textContent = outgoing ? "Sent" : "Received";
+  label.textContent = paymentCardHeading(parts.token ? null : message, outgoing);
+  // a Kaspa payment not asked about yet: is it a tip? (a kUSDT card never is)
+  if (!parts.token && tipNeedsLookup(message)) kaPostTipResolver.resolve(message);
   const amount = document.createElement("strong");
   amount.className = "payment-card-amount";
   amount.textContent = `${parts.amountText} ${parts.unit || KAS_UNIT}`;
@@ -31652,6 +31797,16 @@ function webPushMirror() {
   try { blocked = [...chatRequestState().blocked]; } catch { blocked = []; }
   let kapostsHidden = [];
   try { kapostsHidden = kaPostsHiddenXOnlyKeys(); } catch { kapostsHidden = []; }
+  // A KaPost push names its actor by key: the name K shows for a contact (yours, else their
+  // .kachat name), newest-named first, at most 500 (K b0f0a4e6 shared_identity_names).
+  const kapostsNames = {};
+  let namedKeys = 0;
+  for (const [address, name] of Object.entries(names)) {
+    if (namedKeys >= 500) break;
+    let key = "";
+    try { key = String(engine.kapostPubkeyForAddress?.(address) || "").toLowerCase(); } catch { key = ""; }
+    if (key.length === 66) { kapostsNames[key.slice(2)] = name; namedKeys += 1; }
+  }
   // The rooms that may ring: joined, bell on (KaPost b78fdb0 wantsRoomPush). A push from a room
   // left or switched off since is silent.
   let rooms = null;
@@ -31659,6 +31814,7 @@ function webPushMirror() {
   return {
     account: (engine.address || "").toLowerCase(),
     kapostsHidden,
+    kapostsNames,
     rooms,
     unit: KAS_UNIT,
     sound: (accountShellPrefs.notificationSound ?? true) !== false,

@@ -136,7 +136,7 @@ await check("the poll runs only while the page shows, signed in, Address Activit
   for (const off of ["visible", "account", "notificationsEnabled", "usesTokens"]) {
     assert.equal(W.shouldPoll({ visible: true, account: chatting, notificationsEnabled: true, usesTokens: true, [off]: off === "account" ? "" : false }), false, off);
   }
-  assert.equal(W.KUSDT_POLL_MS, 90_000);
+  assert.equal(W.KUSDT_POLL_MS, 30_000);
 });
 
 await check("receive notes, word for word (§10)", () => {
@@ -312,12 +312,17 @@ await check("Discover across a switch reveals and applies nothing", async () => 
 await check("Received: never on the first look; a payment from someone else after it, with Address Activity on", async () => {
   const w = world();
   w.coins[chatting] = [{ n: 1, index: 0, units: 5_000_000n }];
-  const { wallet, notes } = makeWallet(w);
+  let clock = 1_000_000;
+  const { wallet, notes } = makeWallet(w, { now: () => clock });
   await wallet.refresh();
   assert.deepEqual(notes, [], "first look: learn, don't announce");
   w.coins[chatting].push({ n: 4, index: 0, units: 12_500_000n });
   await wallet.refresh();
-  assert.deepEqual(notes, [{ title: "Received 12.50 kUSDT", body: "On your Chatting Address" }]);
+  // On the Chatting Address it waits up to two minutes for a contact's chat notice (K b0f0a4e6).
+  assert.deepEqual(notes, [], "waiting for a chat notice");
+  clock += W.KUSDT_NOTICE_WAIT_MS + 1000;
+  await wallet.refresh();
+  assert.deepEqual(notes, [{ title: "Received 12.50 kUSDT", body: "" }], "no notice came: the wallet says it, amount only");
   assert.equal(wallet.activity()[0].kind, "received");
   const quiet = makeWallet(w, { notificationsEnabled: () => false });
   await quiet.wallet.refresh();

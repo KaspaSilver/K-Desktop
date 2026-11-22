@@ -4030,6 +4030,8 @@ body.session-logged-out [data-account-rename-modal] {
   white-space: nowrap;
 }
 .manage-address-row-meta .manage-address-row-time { font-size: 11px; color: var(--muted); }
+/* Change to your other addresses under an outgoing row (K b0f0a4e6). */
+.manage-address-row-meta .manage-address-row-change { font-size: 11px; font-weight: 500; color: var(--ios-orange, #ff9f0a); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .manage-address-row-amount {
   flex: 0 0 auto;
@@ -6683,7 +6685,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .cold-empty-icon svg { width: 42px; height: 42px; fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .cold-account-row { align-items: center; }
 .cold-row-lock svg { width: 20px; height: 20px; fill: none; stroke: var(--kaspa-ink); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.cold-kpub { font-size: 12px; color: var(--muted); font-family: ui-monospace, monospace; }
 /* Sticky like iOS's safeAreaInset bottom bar: floats over the scrolling list
    instead of trailing after the last row. */
 /* Paste kpub / Scan live at the BOTTOM of the screen, above the dock, however many accounts
@@ -6697,7 +6698,9 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 }
 /* The account list takes the room, so the capsules are pushed to the bottom rather than trailing
    the last row. */
-[data-cold-root] { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* At least the screen's height, and taller with a long address list (not shrunk to the window with
+   the list overflowing it), so the floating Address Actions button ends up below the last row. */
+[data-cold-root] { display: flex; flex-direction: column; flex: 1 0 auto; }
 /* Air under the screen title. The account rows were sitting hard against "Cold Storage". */
 [data-cold-root] > .kaposts-header { margin-bottom: 12px; }
 [data-cold-root] > .cold-account-row + .cold-account-row { margin-top: 8px; }
@@ -6732,7 +6735,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .cold-summary-row > div { flex: 1; min-width: 0; }
 .cold-summary-label { margin: 0 0 3px; font-size: 12px; color: var(--muted); }
 .cold-summary-name { margin: 0; font-weight: 650; }
-.cold-summary-kpub { margin: 0 0 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--text); word-break: break-all; }
 /* An address's balance card (iOS AddressBalanceCard, K 428a797b for Cold Storage's total): the
    label, the amount large, its worth under it, on a soft accent gradient. */
 .address-balance-card {
@@ -6855,7 +6857,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 /* Address Actions (iOS `addressActionsSheet`): titled rows, because each of these does something
    worth a sentence - and because Address Visibility lives here now instead of being an unlabelled
    glyph in the header that said nothing about what it did. */
-.cold-summary-actions { width: 100%; margin-top: 4px; }
 .cold-actions-modal { max-width: 460px; }
 /* The address sheet puts the address itself in the kicker, and the kicker is uppercased - which
    turns a bech32 address into shouting. Case matters in an address people compare by eye. */
@@ -6969,7 +6970,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .cold-address-badges:empty { display: none; }
 .cold-detail-spinner { display: flex; justify-content: center; padding: 20px 0 8px; }
 .cold-detail-spinner .initial-sync-spinner, .portfolio-chart-loading .initial-sync-spinner, .cold-send-wait .initial-sync-spinner { width: 22px; height: 22px; border-width: 2.5px; }
-.cold-summary-actions .sk-spinner { margin: 0; border-color: #000; border-right-color: transparent; }
 .cold-sheet-subtitle { margin: 2px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); }
 .cold-sheet-section { margin: 4px 2px 6px; font-size: 12px; font-weight: 650; color: var(--muted); }
 .cold-actions-busy-count { font-size: 12.5px; color: var(--muted); }
@@ -10054,7 +10054,7 @@ button.chess-t-row { cursor: pointer; }
 .primary-button:disabled, .primary-button[disabled] { opacity: .4; }
 .secondary-button { background: var(--glass-fill); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: .8px solid var(--glass-stroke); color: var(--text); font-weight: 600; }
-.primary-button.full, .secondary-button.full, .cold-capsule, .cold-summary-actions { border-radius: 999px; }
+.primary-button.full, .secondary-button.full, .cold-capsule { border-radius: 999px; }
 .primary-button.danger, .danger-button { background: var(--ios-red); color: #fff; }
 .danger-button { border-radius: 16px; padding: 14px 18px; font-size: 15px; font-weight: 700; }
 .danger-button.subtle, .secondary-button.danger { background: var(--glass-fill); border: .8px solid var(--glass-stroke); color: var(--ios-red); }
@@ -11516,6 +11516,23 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .sk-coin-chevron svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .sk-coin-row[aria-expanded="true"] .sk-coin-chevron { transform: rotate(180deg); }
 .sk-coin-list { max-height: 240px; overflow-y: auto; border-top: 1px solid var(--line); }
+/* UTXO Selection: its own card above Network Fee (K b0f0a4e6), so people notice they can pick the
+   coins a send spends. */
+.sk-fee-stack { display: flex; flex-direction: column; gap: 12px; }
+.sk-utxo-card {
+  flex-direction: row; align-items: center; gap: 12px; width: 100%; color: var(--text);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.sk-utxo-card:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: 2px; }
+.sk-utxo-icon {
+  flex: 0 0 36px; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: color-mix(in srgb, var(--kaspa-ink, #49eacb) 15%, transparent); color: var(--kaspa-ink, #49eacb);
+}
+.sk-utxo-icon svg { width: 19px; height: 19px; fill: currentColor; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.sk-utxo-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sk-utxo-title { font-size: 14px; font-weight: 600; }
+.sk-utxo-caption { font-size: 12px; line-height: 1.35; color: var(--muted); }
+.sk-utxo-card .sk-coin-summary { font-size: 14px; white-space: nowrap; }
 
 /* Send button: slide the white knob to the right end (or a plain button, KasSigner's Build). */
 
@@ -12257,6 +12274,11 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
 .chat-list > .chat-row[data-conversation-id] { touch-action: pan-y pinch-zoom; }
 .chat-row.row-swipe-settling { transition: transform .22s cubic-bezier(.2,.9,.25,1), background-color .06s linear; }
 .chat-row-actions { position: absolute; z-index: 1; display: flex; overflow: hidden; }
+/* Manage Addresses rows swipe left to hide (K b0f0a4e6), with the chat rows' machinery. */
+.spending-address-list { position: relative; }
+.spending-address-list > .spending-address-row[data-spending-row] { touch-action: pan-y pinch-zoom; }
+.spending-address-row.row-swipe-settling { transition: transform .22s cubic-bezier(.2,.9,.25,1); }
+.spending-address-list > .chat-row-actions { border-radius: 18px; }
 .chat-row-actions.left { right: 0; flex-direction: row-reverse; }
 .chat-row-actions.right { left: 0; }
 .chat-row-actions.row-swipe-settling { transition: width .22s cubic-bezier(.2,.9,.25,1); }
@@ -13630,6 +13652,11 @@ body.has-backup-banner .app-body { padding-top: calc(var(--topbar-h) + var(--bac
 .spending-actions-fab:disabled { cursor: default; }
 .spending-actions-fab svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .spending-actions-fab .sk-spinner { margin: 0; }
+/* Cold Storage's account screen has the same floating Address Actions (K b0f0a4e6): sticky at the
+   bottom of the screen while the address list scrolls under it, at the bottom when it's short. */
+.cold-actions-fab { position: sticky; right: auto; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); align-self: flex-end; flex: 0 0 auto; margin: auto 4px 16px 0; }
+[data-cold-root] > .address-balance-card { margin-bottom: 14px; }
+.cold-qr-address[hidden] { display: none; }
 /* Address Visibility (iOS d1844582): a chain card's balance, in the accent when above 0, and the
    Chatting Address's fixed #0 row. */
 .spending-visibility-chain-balance { max-width: 100%; font-size: 12px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

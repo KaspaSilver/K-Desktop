@@ -230,11 +230,14 @@ export function isOwnTransfer(inputs, { known, ownAddresses, fallback }) {
  *  `fetchTransactionInputs(txid)` -> `[{ hash, index, address }]` | null (REST, resolved previous
  *  outpoints); `ownAddresses`: every address of the account. Returns
  *  `{ received: [{ holdingId, units, transactionId, index }], firstLook }`. */
-export async function findReceived({ store, current, previous = [], fetchTransactionInputs = async () => null, ownAddresses = [], now = Date.now() }) {
+export async function findReceived({ store, current, previous = [], fetchTransactionInputs = async () => null, ownAddresses = [], now = Date.now(), holdForNotice = () => false }) {
   const keyOf = (c) => outpointKey(c.transactionId, c.index);
   const all = current.flatMap((h) => h.coins ?? []);
   const known = store.seenOutpoints();
-  const remember = () => store.rememberSeen(all.map(keyOf));
+  // Coins waiting for their chat notice stay "new", so a later refresh looks at them again
+  // (K b0f0a4e6 TokenWallet.noticeWait): `holdForNotice(coin, holdingId)` says which.
+  const held = new Set();
+  const remember = () => store.rememberSeen(all.map(keyOf).filter((k) => !held.has(k)));
   if (known == null) { remember(); return { received: [], firstLook: true }; }
   const fresh = all.filter((c) => !known.has(keyOf(c)));
   if (!fresh.length) { remember(); return { received: [], firstLook: false }; }
@@ -263,6 +266,9 @@ export async function findReceived({ store, current, previous = [], fetchTransac
           checked.set(coin.transactionId, mine);
         }
         if (!mine && coin.state.amount > 0n) {
+          let wait = false;
+          try { wait = Boolean(holdForNotice(coin, h.holdingId)); } catch { wait = false; }
+          if (wait) { held.add(keyOf(coin)); continue; }
           received.push({ holdingId: h.holdingId, units: coin.state.amount, transactionId: coin.transactionId, index: coin.index });
           store.record({
             id: `${String(coin.transactionId).toLowerCase()}:${h.holdingId}:received`, kind: "received",
@@ -281,8 +287,6 @@ export async function findReceived({ store, current, previous = [], fetchTransac
  *  `labels` the received-on addresses' names in order. */
 export function receivedNotification(received, labels, formatAmount) {
   const total = received.reduce((s, r) => s + r.units, 0n);
-  return {
-    title: `Received ${formatAmount(total)}`,
-    body: labels.length === 1 ? `On your ${labels[0]}` : `On ${labels.length} of your addresses`,
-  };
+  // Just "Received 1.00 kUSDT" (K b0f0a4e6): no "On your Chatting Address" line.
+  return { title: `Received ${formatAmount(total)}`, body: "" };
 }

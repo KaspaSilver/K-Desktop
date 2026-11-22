@@ -27,10 +27,14 @@ import { isQuantumIndex, addressNumber } from "../engine/quantum.js";
 
 // MARK: - Constants (iOS TokenWallet)
 
-/** While the app is open, an account that uses kUSDT is checked this often (iOS startPolling). */
-export const KUSDT_POLL_MS = 90_000;
-/** ...unless the balances are younger than this (iOS refreshIfStale(maxAge: 80)). */
-export const KUSDT_POLL_MAX_AGE_MS = 80_000;
+/** While the app is open, an account that uses kUSDT is checked this often (iOS startPolling; 30 s
+ *  since K b0f0a4e6, when a Received kUSDT came minutes late at 90). */
+export const KUSDT_POLL_MS = 30_000;
+/** ...unless the balances are younger than this (iOS refreshIfStale(maxAge: 25)). */
+export const KUSDT_POLL_MAX_AGE_MS = 25_000;
+/** A new coin on the Chatting Address waits this long for a contact's Send Dollars notice before
+ *  the wallet announces it itself, so the chat's notification is the only one (K noticeWait). */
+export const KUSDT_NOTICE_WAIT_MS = 120_000;
 /** A screen that opens refreshes balances older than this (iOS refreshIfStale default, 60 s). */
 export const KUSDT_STALE_MS = 60_000;
 /** Send Dollars runs Discover as it opens, unless one ran this recently for the account (KaChat iOS
@@ -407,6 +411,8 @@ export function createKusdtWallet(deps) {
 
   function allCoins() { return [...coins.values()].flat(); }
 
+  /** Coins on the Chatting Address waiting for a chat notice: outpoint -> when first seen. */
+  const awaitingNotice = new Map();
   /** "Received X kUSDT" for what a refresh found (iOS announceNewCoins). */
   async function announce(previous, owner) {
     const store = storeFor(owner);
@@ -417,6 +423,22 @@ export function createKusdtWallet(deps) {
         store, current: currentList, previous, now: now(),
         fetchTransactionInputs: (txid) => deps.fetchTransactionInputs?.(txid) ?? null,
         ownAddresses: deps.ownAddresses?.() || [owner],
+        // On the Chatting Address a coin may be a contact's Send Dollars whose chat notice comes a
+        // little after it: wait for that notice (up to two minutes) so there's one ping, not two.
+        holdForNotice: (coin, holdingId) => {
+          const key = `${String(coin.transactionId).toLowerCase()}:${coin.index}`;
+          let filed = false;
+          try { filed = Boolean(deps.isNoticeFiled?.(String(coin.transactionId || "").toLowerCase())); } catch { filed = false; }
+          // with notifications off there is no second ping to spare, so no wait for the history row
+          let ringing = true;
+          try { ringing = deps.notificationsEnabled?.() !== false; } catch { ringing = true; }
+          if (filed || !ringing || holdingId !== CHATTING_HOLDING_ID) { awaitingNotice.delete(key); return false; }
+          const firstSeen = awaitingNotice.get(key) ?? now();
+          awaitingNotice.set(key, firstSeen);
+          if (now() - firstSeen < KUSDT_NOTICE_WAIT_MS) return true;
+          awaitingNotice.delete(key);
+          return false;
+        },
       });
     } catch (error) { log(`[kUSDT] received check failed: ${error?.message || error}`); return; }
     if (account() !== owner || !found.received.length) return;

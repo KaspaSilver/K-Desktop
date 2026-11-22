@@ -510,6 +510,20 @@ async function writeFocus() {
   lastFocusKey = key;
   try { await kvSet("focus", { key, at: Date.now() }); } catch { /* the worker rings, which is the safe side */ }
 }
+/** Whether a push for this key (its message's txid) reached this device in the last 30 minutes
+ *  (public/sw.js records every push it gets, K b0f0a4e6 push_arrivals_v1). The app then never
+ *  banners that message again once its push is gone from the screen: the one clicked to open K
+ *  above all. */
+export async function pushArrivedRecently(key, now = Date.now()) {
+  const wanted = String(key || "").trim().toLowerCase();
+  if (!wanted) return false;
+  let arrivals = null;
+  try { arrivals = await kvGet("arrivals"); } catch { return false; }
+  const at = Number(arrivals?.[wanted] || 0);
+  return at > 0 && now - at < PUSH_ARRIVAL_WINDOW_MS;
+}
+export const PUSH_ARRIVAL_WINDOW_MS = 30 * 60_000;
+
 /** A tap that had to open the app: handed over once, if it is fresh. */
 export async function takePendingNotificationClick() {
   let pending = null;

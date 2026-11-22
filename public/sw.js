@@ -150,6 +150,17 @@ async function handlePush(event) {
     mapped = { title: String(payload.title || "K"), options: { body: String(payload.body || "New notification"), tag: "kachat-push", icon: iconUrl(), data: { route: { kind: "tab", tab: "chats" }, key: "", push: true } }, badge: null, suppress: false };
   }
   let suppress = Boolean(mapped.suppress) || switchedOff;
+  // Every push is noted for half an hour (K b0f0a4e6 push_arrivals_v1): the open app never banners
+  // a message whose push already came, the one clicked to open it above all; and the second of a
+  // KaPost tip's two pushes (a payment and a "tipped your post", the same txid) is quiet.
+  try {
+    const seenBefore = await self.KaChatPushMap.recordPushArrival(payload, kvGet, kvSet);
+    if (seenBefore && self.KaChatPushMap.isTipPush(payload, mapped)) {
+      mapped.options.silent = true;
+      mapped.options.renotify = false;
+      mapped.badge = null;
+    }
+  } catch { /* nothing noted: the app may banner it once more */ }
   // One ring per burst from a sender or group (iOS part_push_bursts, sw-push.js).
   if (!suppress) {
     try {
@@ -188,7 +199,9 @@ async function handlePush(event) {
   try {
     const key = options.data?.key;
     const existing = key ? (await self.registration.getNotifications({ tag: options.tag })).find((note) => note.data?.key === key) : null;
-    if (existing) {
+    // A tip's "Received a tip" wording replaces its payment's "Sent you", quietly (K b0f0a4e6).
+    if (existing && options.data?.tip) { options.silent = true; options.renotify = false; mapped.badge = null; }
+    else if (existing) {
       await self.registration.showNotification(existing.title, { body: existing.body, tag: existing.tag, icon: existing.icon || iconUrl(), silent: true, data: existing.data });
       return;
     }

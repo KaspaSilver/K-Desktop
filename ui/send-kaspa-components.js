@@ -10,7 +10,7 @@
 //   amount entry    - the big centred amount, the KAS / currency switch (showing the converted
 //                     value) and Max
 //   info pills      - "Available: X KAS" (Compound UTXOs and KasSigner, which have no From)
-//   fee controls    - Network Fee (click it for a custom one), Normal / Fast / Priority, Coin Control
+//   fee controls    - UTXO Selection, then Network Fee (click it for a custom one), Normal / Fast / Priority
 //   action button   - slide the knob to the right end to send ("Slide to Send" / "Slide to
 //                     Consolidate"); a plain button for KasSigner's Build Unsigned Transaction
 //   own addresses   - Choose an Address: every address of the account, each Used / Unused
@@ -52,6 +52,8 @@ export const SEND_ICONS = {
   pencil: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L18.5 9.5a2.12 2.12 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l3 3"/></svg>',
   chevronDown: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
   chevronRight: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
+  // stacked coins (SF square.stack.3d.up.fill), for the UTXO Selection card
+  coins: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 3.5 7.2 12 11.4l8.5-4.2Z"/><path d="m3.5 11.6 8.5 4.2 8.5-4.2" fill="none"/><path d="m3.5 15.9 8.5 4.2 8.5-4.2" fill="none"/></svg>',
   arrows: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 20V5m0 0L3.5 8.5M7 5l3.5 3.5M17 4v15m0 0-3.5-3.5M17 19l3.5-3.5"/></svg>',
   slide: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 6 6-6 6M13 6l6 6-6 6"/></svg>',
   // person.text.rectangle(.fill), KaChat's contact card (KaPay 8118f09; was book.closed).
@@ -334,10 +336,11 @@ export const SEND_FEE_TIERS = [
 ];
 
 /**
- * Network Fee (click the amount to type a custom one), the fee speed and Coin Control - one card.
- * Attributes: P-fee="tier" (the speed buttons), P-fee-edit (the fee amount button, its text in
+ * UTXO Selection (coin control) in its own card above, so people notice they can pick the coins a
+ * send spends (K b0f0a4e6), then Network Fee (click the amount to type a custom one) and the fee
+ * speed. Attributes: P-fee="tier" (the speed buttons), P-fee-edit (the fee amount button, its text in
  * P-fee-summary), P-fee-editor / P-fee-custom / P-fee-commit (the custom fee field),
- * P-fee-estimating, P-coin-toggle (the Coin Control row, its value in P-coin-summary) and
+ * P-fee-estimating, P-coin-toggle (the UTXO Selection card, its value in P-coin-summary) and
  * P-coin-list (an inline UTXO list under it, when `coinList` is set). `editPill`: the fee shows with
  * an Edit capsule, for a review whose Edit opens the fee editor (KaPay 05db583 onEditFee).
  */
@@ -347,7 +350,16 @@ export function feeControlsHtml({
 } = {}) {
   const p = attrName(prefix);
   const showButton = !editing && !estimating;
+  const utxoCard = showCoinControl ? `
+      <button type="button" class="sk-card sk-utxo-card" data-${p}-coin-toggle aria-expanded="false">
+        <span class="sk-utxo-icon" aria-hidden="true">${SEND_ICONS.coins}</span>
+        <span class="sk-utxo-copy"><span class="sk-utxo-title">UTXO Selection</span><span class="sk-utxo-caption">Choose which coins this send spends.</span></span>
+        <span class="sk-coin-summary" data-${p}-coin-summary>${esc(coinSummary)}</span>
+        <span class="sk-coin-chevron" aria-hidden="true">${coinList ? SEND_ICONS.chevronDown : SEND_ICONS.chevronRight}</span>
+      </button>
+      ${coinList ? `<div class="manage-send-coin-list sk-coin-list" data-${p}-coin-list hidden>${coinListHtml}</div>` : ""}` : "";
   return `
+    <div class="sk-fee-stack">${utxoCard}
     <div class="sk-card sk-fee${editPill ? " ss-fee-edit" : ""}" data-${p}-fee-card>
       <div class="sk-fee-row">
         <span class="sk-fee-title">Network Fee</span>
@@ -367,18 +379,10 @@ export function feeControlsHtml({
         ${SEND_FEE_TIERS.map((t) => `<button type="button" class="settings-segmented-option${tier === t.id ? " active" : ""}" data-${p}-fee="${t.id}" aria-pressed="${tier === t.id ? "true" : "false"}">${esc(t.label)}</button>`).join("")}
       </div>
       <p class="sk-caption">If the network is busy, Fast or Priority pays a higher fee to help this confirm sooner. ${editPill ? "Edit sets a fee of your own." : "Click the fee amount to set a custom fee."}</p>
-      ${showCoinControl ? `
-      <div class="sk-divider" aria-hidden="true"></div>
-      <button type="button" class="sk-coin-row" data-${p}-coin-toggle aria-expanded="false">
-        <span class="sk-coin-title">Coin Control</span>
-        <span class="sk-coin-summary" data-${p}-coin-summary>${esc(coinSummary)}</span>
-        <span class="sk-coin-chevron" aria-hidden="true">${coinList ? SEND_ICONS.chevronDown : SEND_ICONS.chevronRight}</span>
-      </button>
-      ${coinList ? `<div class="manage-send-coin-list sk-coin-list" data-${p}-coin-list hidden>${coinListHtml}</div>` : ""}` : ""}
-    </div>`;
+    </div></div>`;
 }
 
-/** "Automatic" or "3 UTXOs selected", for the coin control row (iOS coinControlSummary). */
+/** "Automatic" or "3 UTXOs selected", for the UTXO Selection card (iOS coinControlSummary). */
 export function coinControlSummaryText(count) {
   const n = Number(count) || 0;
   return n ? `${n} UTXO${n === 1 ? "" : "s"} selected` : "Automatic";
@@ -679,7 +683,7 @@ export function openCoinControlPicker({ loadEntries, initialSelection = null, la
   backdrop.innerHTML = `
     <section class="contact-modal sk-source-sheet sk-coin-sheet" role="dialog" aria-modal="true" aria-labelledby="sk-coin-title">
       <div class="modal-header">
-        <div><h2 id="sk-coin-title">Coin Control</h2></div>
+        <div><h2 id="sk-coin-title">UTXO Selection</h2></div>
         <button class="modal-close" type="button" data-sk-coin-cancel aria-label="Cancel">×</button>
       </div>
       <div class="sk-coin-body" data-sk-coin-body></div>

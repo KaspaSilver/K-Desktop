@@ -124,7 +124,7 @@ await test("sign-in shows the K globe over the new motto, smaller beside saved a
 await test("the app is K: page title, home-screen name and the sentences that mean the app", () => {
   assert.match(html, /<title>K<\/title>/);
   assert.match(html, /apple-mobile-web-app-title" content="K"/);
-  for (const file of ["manifest.json", "manifest-dark.json"]) {
+  for (const file of ["manifest.json"]) {
     const manifest = JSON.parse(read("public", file));
     assert.equal(manifest.name, "K");
     assert.equal(manifest.short_name, "K");

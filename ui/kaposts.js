@@ -5119,11 +5119,15 @@ async function pollKaPostNotificationsForPings() {
     const text = stripKaChatMarker(n.postContent ? (decodePostContent({ postContent: n.postContent }) || "") : "").trim();
     const target = notificationTargetTxId(n, text);
     if (activePanel?.type === "notifications" && document.hasFocus()) continue; // the screen itself is the notification
+    // A tip is a payment in the tipper's chat: that chat's notification says "Received a tip" and
+    // opens the chat, so this would be a second one for it (K b0f0a4e6).
+    if (n.contentType === "tip") continue;
     if (!claimKaPostsBanner(`${actorAddress}|${target || n.postId || ""}|${n.contentType || ""}|${n.voteType || ""}`)) continue;
     deps.postDesktopNotification?.({
       title: "KaPost",
       body: `${posterName(actorAddress)} ${kaPostsNotificationAction(n, text)}`,
       tag: `kachat-kaposts-${n.id}`,
+      key: n.id, // its push's tx_id: none if that push already came (K b0f0a4e6)
       // A tap that comes back after the app was closed has no closure to call: the route opens
       // the post (or the KaPosts tab) instead.
       route: target ? { kind: "kapost", txId: target } : { kind: "tab", tab: "kaposts" },

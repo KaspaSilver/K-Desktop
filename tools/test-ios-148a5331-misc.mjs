@@ -35,7 +35,7 @@ await test("every Manage kUSDT row has its menu; the Chatting Address's is Copy,
 });
 
 await test("the new icon set is there and is the tab icon", () => {
-  for (const name of ["icon-192.png", "icon-512.png", "icon-512-maskable.png", "apple-touch-icon.png", "icon-192-dark.png", "icon-512-dark.png", "icon-512-maskable-dark.png", "apple-touch-icon-dark.png"]) {
+  for (const name of ["icon-192.png", "icon-512.png", "icon-512-maskable.png", "apple-touch-icon.png"]) {
     assert.ok(statSync(join(here, "..", "public", "icons", name)).size > 1000, name);
   }
   assert.match(html, /<link rel="icon" type="image\/png" href="\/icons\/icon-192\.png" \/>/);

@@ -11,7 +11,8 @@
 //
 // `mirror` (written by ui/web-push.js, names and flags only):
 //   { account, unit, sound, childMode, names: {addr: name}, quiet: [addr], blocked: [addr],
-//     groups: {blindedIdHex: {g: groupId, n: groupName, m: memberAddress}}, addressLabels: {addr: label} }
+//     groups: {blindedIdHex: {g: groupId, n: groupName, m: memberAddress}}, addressLabels: {addr: label},
+//     kapostsNames: {xOnlyPubkeyHex: name} }
 (function (root) {
   "use strict";
 
@@ -38,6 +39,63 @@
     return String(names[lower(address)] || "").trim() || shortAddress(address);
   }
   function has(list, address) { return Array.isArray(list) && list.indexOf(lower(address)) >= 0; }
+
+  // A KaPost push names its actor by public key. The Kaspa address that key pays (a Schnorr P2PK
+  // address: version 0 + the 32-byte x-only key, in Kaspa's cashaddr-style bech32), so a tip can
+  // open the tipper's chat and be named as the chat names them.
+  const CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+  function polymod(values) {
+    const GEN = [0x98f2bc8e61n, 0x79b76d99e2n, 0xf33e5fb3c4n, 0xae2eabe2a8n, 0x1e4f43e470n];
+    let c = 1n;
+    for (const d of values) {
+      const c0 = c >> 35n;
+      c = ((c & 0x07ffffffffn) << 5n) ^ BigInt(d);
+      for (let i = 0; i < 5; i += 1) if ((c0 >> BigInt(i)) & 1n) c ^= GEN[i];
+    }
+    return c ^ 1n;
+  }
+  function kaspaAddressFromXOnly(pubkeyHex, prefix) {
+    let hex = lower(pubkeyHex);
+    if (/^0[23][0-9a-f]{64}$/.test(hex)) hex = hex.slice(2);
+    const hrp = lower(prefix) || "kaspa";
+    if (!/^[0-9a-f]{64}$/.test(hex) || !/^[a-z]+$/.test(hrp)) return null;
+    const bytes = [0];
+    for (let i = 0; i < 64; i += 2) bytes.push(parseInt(hex.slice(i, i + 2), 16));
+    const data = [];
+    let acc = 0, bits = 0;
+    for (const b of bytes) {
+      acc = (acc << 8) | b; bits += 8;
+      while (bits >= 5) { bits -= 5; data.push((acc >> bits) & 31); }
+    }
+    if (bits > 0) data.push((acc << (5 - bits)) & 31);
+    const check = polymod([...[...hrp].map((ch) => ch.charCodeAt(0) & 31), 0, ...data, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const checksum = [];
+    for (let i = 7; i >= 0; i -= 1) checksum.push(Number((check >> BigInt(5 * i)) & 31n));
+    return `${hrp}:${[...data, ...checksum].map((d) => CHARSET[d]).join("")}`;
+  }
+  // The KaPost action a push is about, as K's notification extension reads it (kaPostsKind).
+  function kapostsKind(pushKind, body) {
+    switch (String(pushKind || "")) {
+      case "vote_up": return "like";
+      case "vote_down": return "dislike";
+      case "reply": case "quote": case "repost": case "follow": case "mention": case "tip": return String(pushKind);
+      default: break;
+    }
+    const text = lower(body);
+    if (text.includes("disliked your")) return "dislike";
+    if (text.includes("liked your")) return "like";
+    if (text.includes("replied to your")) return "reply";
+    if (text.includes("quoted your")) return "quote";
+    if (text.includes("reposted your")) return "repost";
+    if (text.includes("followed you")) return "follow";
+    if (text.includes("mentioned you")) return "mention";
+    if (text.includes("tipped your")) return "tip";
+    return "other";
+  }
+  function xOnlyOf(pubkey) {
+    const key = lower(pubkey);
+    return key.length === 66 ? key.slice(2) : key;
+  }
   // A public room's or K body can be a JSON envelope (a reply, a reaction): the text inside, never
   // raw JSON on a lock screen (iOS publicChatPreviewText).
   function tidy(text, fallback) {
@@ -238,8 +296,28 @@
       // someone this account muted or blocked on KaPost never rings (KaPost 369794e)
       const actor = lower(p.actor_pubkey);
       if (actor && Array.isArray(m.kapostsHidden) && m.kapostsHidden.includes(actor.length === 66 ? actor.slice(2) : actor)) out.suppress = true;
+      // Named as K names them (K b0f0a4e6): a contact's name or a .kachat name the app knows, else
+      // the server's subtitle (a KNS name or a short address).
+      const actorName = String(((m.kapostsNames || {})[xOnlyOf(actor)]) || "").trim();
+      // A tip is a payment in the tipper's chat: one "Received a tip: 0.2 KAS" there, opening that
+      // chat, under the tag and key its payment push uses (the same txid), so the two are one.
+      if (kapostsKind(p.kaposts_kind, p.body) === "tip") {
+        const tipper = kaspaAddressFromXOnly(actor, prefixOf(account) || "kaspa");
+        if (tipper && tipper !== account) {
+          const amount = String(p.body || "").split(": ").pop().split(" ")[0];
+          out.title = actorName || nameFor(m, tipper);
+          out.options.body = /^\d+(\.\d+)?$/.test(amount) ? `Received a tip: ${amount} ${unit}` : "Received a tip";
+          out.options.tag = `kachat-chat-${tipper}`;
+          out.options.renotify = true;
+          out.options.silent = !soundOn || has(m.quiet, tipper);
+          out.options.data.route = { kind: "chatAddress", address: tipper };
+          out.options.data.tip = true;
+          if (has(m.blocked, tipper)) out.suppress = true;
+          return out;
+        }
+      }
       out.title = "KaPost";
-      out.options.body = joined(String(p.subtitle || "").trim(), tidy(p.body, ""), " ") || "New activity";
+      out.options.body = joined(actorName || String(p.subtitle || "").trim(), tidy(p.body, ""), " ") || "New activity";
       out.options.tag = `kachat-kaposts-${p.tx_id || p.post_id || "activity"}`;
       const target = kapostsPushTarget(p);
       out.options.data.route = target ? { kind: "kapost", txId: target } : { kind: "tab", tab: "kaposts" };
@@ -304,5 +382,35 @@
     return mapped;
   }
 
-  root.KaChatPushMap = { notificationFromPush, routeKey, shortAddress, kasFromSompi, partBurstKey, applyPartBurst, PART_BURST_MS };
+  // Every push noted for half an hour (K b0f0a4e6 push_arrivals_v1), by its txid: the open app
+  // never banners that message again (ui/web-push.js pushArrivedRecently). True when the same txid
+  // came before: a KaPost tip's second push.
+  const PUSH_ARRIVAL_MS = 30 * 60 * 1000;
+  const PUSH_ARRIVAL_LIMIT = 500;
+  function noteArrival(ledger, payload, now) {
+    const p = payload && typeof payload === "object" ? payload : {};
+    const keys = [lower(p.tx_id), lower(p.dedup)].filter(Boolean);
+    const out = {};
+    for (const [key, at] of Object.entries(ledger || {})) if (now - Number(at) < PUSH_ARRIVAL_MS) out[key] = Number(at);
+    const seen = keys.some((key) => out[key] != null);
+    for (const key of keys) out[key] = now;
+    const entries = Object.entries(out);
+    if (entries.length > PUSH_ARRIVAL_LIMIT) {
+      entries.sort((a, b) => b[1] - a[1]);
+      return { ledger: Object.fromEntries(entries.slice(0, PUSH_ARRIVAL_LIMIT)), seen };
+    }
+    return { ledger: out, seen };
+  }
+  async function recordPushArrival(payload, get, set, now = Date.now()) {
+    const { ledger, seen } = noteArrival(await get("arrivals"), payload, now);
+    await set("arrivals", ledger);
+    return seen;
+  }
+  /** A tip's second push: its payment push after the "tipped your post" one, or that one after
+   *  the payment. Either way the same txid came first, and this one is quiet. */
+  function isTipPush(payload, mapped) {
+    return String((payload || {}).type || "") === "payment" || Boolean(mapped?.options?.data?.tip);
+  }
+
+  root.KaChatPushMap = { notificationFromPush, routeKey, shortAddress, kasFromSompi, partBurstKey, applyPartBurst, PART_BURST_MS, kaspaAddressFromXOnly, kapostsKind, noteArrival, recordPushArrival, isTipPush, PUSH_ARRIVAL_MS };
 })(typeof self !== "undefined" ? self : globalThis);
