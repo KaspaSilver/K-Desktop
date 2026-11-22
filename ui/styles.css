@@ -6078,6 +6078,9 @@ body.session-logged-out [data-account-rename-modal] {
 .broadcast-funding-gate { margin: 0 0 6px; }
 .kaposts-reply-bar.gated .broadcast-voice-btn { pointer-events: none; }
 .broadcast-message .message-reply-quote.clickable { cursor: pointer; }
+/* A room reply whose original isn't loaded: nobody named, and its claimed text in italics (K 428a797b). */
+.broadcast-message .message-reply-quote.unverified strong { text-transform: none; letter-spacing: 0; }
+.broadcast-message .message-reply-quote.unverified span { font-style: italic; }
 .broadcast-room { position: relative; }
 /* Group select mode (iOS enterSelectMode): the same toolbar and row checks as 1:1. */
 .group-message-area.selection-mode .message-row { cursor: pointer; }

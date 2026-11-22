@@ -265,15 +265,18 @@ export function kapostsSwitchTipText(text, toFiat, price) {
 /** The smallest tip (KaPost b78fdb0 instantTipMinimumSompi): the network's dust threshold, 0.2 KAS.
  *  Turning instant tips on starts there, and a smaller default is refused. */
 export const KAPOSTS_TIP_MIN_SOMPI = 20_000_000;
+/** No tip past every KAS there will ever be (28.7 billion), and none a number can't hold exactly: a
+ *  huge default tip in a currency is no tip, not a broken one (K 428a797b, audit #10). */
+const MAX_TIP_SOMPI = Math.min(Number.MAX_SAFE_INTEGER, 28_700_000_000 * 1e8);
 export function kapostsDefaultTipSompi(tip, price) {
   if (!tip) return null;
   if (Number(tip.fiat) > 0) {
     if (!(Number(price) > 0)) return null;
     const sompi = Math.round((Number(tip.fiat) / Number(price)) * 1e8);
-    return sompi > 0 ? sompi : null;
+    return sompi > 0 && sompi <= MAX_TIP_SOMPI ? sompi : null;
   }
   const sompi = Math.floor(Number(tip.sompi) || 0);
-  return sompi > 0 ? sompi : null;
+  return sompi > 0 && sompi <= MAX_TIP_SOMPI ? sompi : null;
 }
 
 // The KaChat links a post can carry (the same set as ui/app.js INTERNAL_LINK_IN_TEXT_RE).

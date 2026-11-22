@@ -790,14 +790,16 @@ function reactionsFor(channel) {
 function reactionsOn(channel, txId) {
   const byTarget = reactionsFor(channel);
   const cluster = roomParts.clusters.get(txId);
-  if (!cluster) return byTarget[txId] || {};
   const merged = { ...(byTarget[txId] || {}) };
-  for (const member of cluster.members) {
+  for (const member of cluster?.members || []) {
     if (member.txId === txId) continue;
     for (const [reactor, reaction] of Object.entries(byTarget[member.txId] || {})) {
       if (!(reactor in merged)) merged[reactor] = reaction;
     }
   }
+  // Someone you blocked or hid here doesn't show up on a pill either (K 428a797b, audit #22).
+  const hidden = hiddenIn(channel);
+  for (const reactor of Object.keys(merged)) if (hidden.has(reactor)) delete merged[reactor];
   return merged;
 }
 
@@ -1009,7 +1011,7 @@ function mergeMessages(channel, rows) {
     deps.postDesktopNotification?.({
       // Title the room, body the message preview alone (iOS: "#room" over previewText).
       title: `#${row.channel}`,
-      body: humanizeBroadcastContent(row.content).slice(0, 90),
+      body: stripBidiControls(humanizeBroadcastContent(row.content)).slice(0, 90),
       tag: `kachat-broadcast-${row.txId}`,
       // Clicking it opens the room (the app routes "room" to the detail pane).
       route: { kind: "room", channel: row.channel },
@@ -1327,6 +1329,18 @@ async function sendRoomRow(channel, pendingId, text, { showBubble = true, feeKas
 // Rendering
 // ---------------------------------------------------------------------------
 
+/** What a reply's quote shows (K 428a797b, audit #18). The sender and text a reply envelope
+ *  carries are whatever its author typed, so they could put any words in anyone's mouth: the quote
+ *  is drawn from the quoted message itself, found by its txid among the room's loaded messages
+ *  (with its edit). When it isn't loaded, nobody is named (`sender` null) and the claimed text is
+ *  shown as unverified. */
+function replyQuoteDisplay(channel, reply) {
+  const original = reply?.replyToId ? (messageCache[channel] || []).find((row) => row.txId === reply.replyToId) : null;
+  if (!original) return { sender: null, preview: stripBidiControls(String(reply?.replyToPreview || "")) };
+  const preview = humanizeBroadcastContent(effectiveContent(channel, original)).replace(/\s+/g, " ").trim().slice(0, 200);
+  return { sender: stripBidiControls(senderName(original.senderAddress)), preview: stripBidiControls(preview) };
+}
+
 function senderName(address) {
   if (!address) return "unknown";
   if (address === deps.engine.address) return "You";
@@ -1376,7 +1390,8 @@ function roomPreviewLine(name) {
   // A link-bearing message never shows its URL in a row, same as the chat lists.
   const rawPreview = humanizeBroadcastContent(effectiveContent(name, last));
   const previewText = /https?:\/\/\S+/i.test(rawPreview) ? "📎 Sent a link" : rawPreview;
-  return `${last.senderAddress === me ? "You" : senderName(last.senderAddress)}: ${previewText}`.replace(/\s+/g, " ").slice(0, 120);
+  // bidi controls out of the Chats row too (K 428a797b, audit #22), not only the bubble
+  return stripBidiControls(`${last.senderAddress === me ? "You" : senderName(last.senderAddress)}: ${previewText}`).replace(/\s+/g, " ").slice(0, 120);
 }
 
 function renderChannelList() {
@@ -1490,10 +1505,12 @@ function buildMessageElement(m) {
   if (replyEnvelope) {
     const quote = document.createElement("div");
     quote.className = "message-reply-quote";
+    const shown = replyQuoteDisplay(activeChannel, replyEnvelope);
     const label = document.createElement("strong");
-    label.textContent = replyEnvelope.replyToSender ? senderName(replyEnvelope.replyToSender) : "Reply";
+    label.textContent = shown.sender ?? "Original message not loaded";
     const preview = document.createElement("span");
-    preview.textContent = replyEnvelope.replyToPreview || "Message";
+    preview.textContent = shown.preview || "Message";
+    if (shown.sender == null) quote.classList.add("unverified");
     quote.append(label, preview);
     // Tapping the quote jumps to the original and lights it up; gone from this device's cache
     // (retention, or before you joined) says so instead of doing nothing.

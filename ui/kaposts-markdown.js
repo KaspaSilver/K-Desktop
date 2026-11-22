@@ -105,9 +105,35 @@ const INLINE_DELIMITERS = [
   ["*", (s) => { s.italic = true; }],
 ];
 
+/** Longest link label and link target the parser looks for (K 428a797b): past these a `[` is plain
+ *  text. */
+export const MAX_LINK_LABEL_LENGTH = 500;
+export const MAX_LINK_TARGET_LENGTH = 2048;
+
+/** Where the next `ch` starts from each position (`chars.length` when there is none), in one pass
+ *  from the end. Finding a link's or an emphasis run's end is then a lookup: without it every
+ *  unmatched `[` or `**` searched to the end of the text, so a long post of them cost the square
+ *  of its length (audit 2026-11-21 #15). */
+function nextIndexTable(chars, needle) {
+  const table = new Int32Array(chars.length + 1).fill(chars.length);
+  for (let i = chars.length - 1; i >= 0; i -= 1) table[i] = chars.startsWith(needle, i) ? i : table[i + 1];
+  return table;
+}
+
+/** The tables one parse of `chars` needs, each built the first time it is asked for. */
+function inlineIndex(chars) {
+  const tables = new Map();
+  return (needle) => {
+    let table = tables.get(needle);
+    if (!table) { table = nextIndexTable(chars, needle); tables.set(needle, table); }
+    return table;
+  };
+}
+
 function parseInline(chars, style, state) {
   let i = 0;
   let runStart = state.out.length;
+  const next = inlineIndex(chars);
 
   const flushPlainRun = () => {
     if (isPlain(style) || state.out.length <= runStart) return;
@@ -115,7 +141,7 @@ function parseInline(chars, style, state) {
   };
 
   while (i < chars.length) {
-    const link = matchLink(chars, i);
+    const link = matchLink(chars, i, next);
     if (link) {
       flushPlainRun();
       parseInline(link.label, { ...style, link: link.url }, state);
@@ -123,7 +149,7 @@ function parseInline(chars, style, state) {
       runStart = state.out.length;
       continue;
     }
-    const emphasis = matchEmphasis(chars, i);
+    const emphasis = matchEmphasis(chars, i, next);
     if (emphasis) {
       flushPlainRun();
       const inner = { ...style };
@@ -141,13 +167,13 @@ function parseInline(chars, style, state) {
 
 /** `[label](url)` at `i`. The URL must carry a scheme we are willing to open, so a post cannot
  *  dress `javascript:` up as friendly link text. */
-function matchLink(chars, i) {
+function matchLink(chars, i, next = inlineIndex(chars)) {
   if (chars[i] !== "[") return null;
-  const labelEnd = chars.indexOf("]", i + 1);
-  if (labelEnd <= i + 1) return null;
+  const labelEnd = next("]")[i + 1];
+  if (labelEnd >= chars.length || labelEnd <= i + 1 || labelEnd - (i + 1) > MAX_LINK_LABEL_LENGTH) return null;
   if (labelEnd + 1 >= chars.length || chars[labelEnd + 1] !== "(") return null;
-  const urlEnd = chars.indexOf(")", labelEnd + 2);
-  if (urlEnd <= labelEnd + 2) return null;
+  const urlEnd = next(")")[labelEnd + 2];
+  if (urlEnd >= chars.length || urlEnd <= labelEnd + 2 || urlEnd - (labelEnd + 2) > MAX_LINK_TARGET_LENGTH) return null;
   const label = chars.slice(i + 1, labelEnd);
   const rawTarget = chars.slice(labelEnd + 2, urlEnd).trim();
   const url = resolveKaPostsLinkTarget(rawTarget);
@@ -190,21 +216,17 @@ export function resolveKaPostsLinkTarget(raw) {
 
 /** An emphasis run opening at `i`, or null. Requires a closing marker on the same line with at
  *  least one character between: `****` and a lone `*` stay literal text. */
-function matchEmphasis(chars, i) {
+function matchEmphasis(chars, i, next = inlineIndex(chars)) {
   for (const [marker, apply] of INLINE_DELIMITERS) {
     if (!chars.startsWith(marker, i)) continue;
     const contentStart = i + marker.length;
     // An opening marker followed by whitespace is almost always literal punctuation
     // ("2 * 3 = 6"), not formatting.
     if (contentStart >= chars.length || /\s/.test(chars[contentStart])) continue;
-    let j = contentStart;
-    while (j < chars.length) {
-      if (chars.startsWith(marker, j)) {
-        if (j === contentStart) break;
-        return { content: chars.slice(contentStart, j), apply, next: j + marker.length };
-      }
-      j += 1;
-    }
+    // the closing marker: the next one from the content's start, by lookup (see nextIndexTable)
+    const j = next(marker)[contentStart];
+    if (j === contentStart || j >= chars.length) continue;
+    return { content: chars.slice(contentStart, j), apply, next: j + marker.length };
   }
   return null;
 }

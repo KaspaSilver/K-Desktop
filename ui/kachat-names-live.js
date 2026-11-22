@@ -4789,12 +4789,39 @@ export async function kachatRetryImage(src) {
   return entry.src;
 }
 
+// Who social pictures and bios are looked up for (K 428a797b, audit #17). A lookup tells X,
+// YouTube, GitHub, unavatar and the rest the viewer's IP and whose profile they looked at, so it
+// happens only for your own account, people in your chats or Address Book (the app's gate), and
+// anyone whose profile you opened this session. Anyone else - a KaPost author or a room member
+// scrolled past - shows the glyph and contacts no one.
+let socialLookupGate = null;
+const openedProfileAddresses = new Set();
+/** The app's half of the gate: `fn(address)` -> true for you, your chats and your Address Book. */
+export function setKachatSocialLookupGate(fn) {
+  socialLookupGate = typeof fn === "function" ? fn : null;
+}
+/** A profile was opened (User Info, a KaPost profile): its pictures may be looked up from now on,
+ *  wherever they show. */
+export function kachatProfileOpened(address) {
+  const key = String(address || "").trim().toLowerCase();
+  if (!key || openedProfileAddresses.has(key)) return;
+  openedProfileAddresses.add(key);
+  scheduleIdentityNotify();
+}
+function mayLookUpSocial(address) {
+  const key = String(address || "").trim().toLowerCase();
+  if (!key) return false;
+  if (openedProfileAddresses.has(key)) return true;
+  if (!socialLookupGate) return true; // before the app wires it (tests): as before
+  try { return Boolean(socialLookupGate(key)); } catch { return false; }
+}
+
 /** The address's `.kachat` avatar, ready for <img src> (render with referrerpolicy="no-referrer";
  *  on an error, kachatRetryImage). Null until its profile and its picture are resolved - reading it
  *  starts that in the background. */
 export function kachatCachedAvatarUrl(address) {
   const link = kachatCachedIdentity(address)?.profile?.avatar;
-  if (!link) return null;
+  if (!link || !mayLookUpSocial(address)) return null;
   const url = cachedSocialProfile(link)?.piece(SocialKind.avatar) ?? null;
   return url ? cachedImageSrc(url, link) : null;
 }
@@ -4807,6 +4834,9 @@ export function kachatCachedProfilePieces(address) {
   const profile = kachatCachedIdentity(address)?.profile ?? null;
   const pieces = { avatarUrl: null, bannerUrl: null, bio: null, linktreeUrl: null };
   if (!profile) return pieces;
+  // the Linktree link is the profile's own text; the rest is looked up elsewhere, so gated
+  pieces.linktreeUrl = Profile.linktreeLink(profile.linktree) ?? null;
+  if (!mayLookUpSocial(address)) return pieces;
   if (profile.avatar) {
     const url = cachedSocialProfile(profile.avatar)?.piece(SocialKind.avatar) ?? null;
     pieces.avatarUrl = url ? cachedImageSrc(url, profile.avatar) : null;
@@ -4816,7 +4846,6 @@ export function kachatCachedProfilePieces(address) {
     pieces.bannerUrl = url ? cachedImageSrc(url, profile.banner) : null;
   }
   if (profile.bio) pieces.bio = cachedSocialProfile(profile.bio)?.piece(SocialKind.bio) ?? null;
-  pieces.linktreeUrl = Profile.linktreeLink(profile.linktree) ?? null;
   return pieces;
 }
 

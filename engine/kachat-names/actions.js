@@ -318,6 +318,7 @@ export class ActionError extends Error {
   }
 
   static noWallet() { return new ActionError("noWallet", "No wallet is open."); }
+  static accountChanged() { return new ActionError("accountChanged", "The account changed while this was getting ready. Nothing was sent."); }
   /** No wallet (address and key) is open at all - the profile signer, on any network. */
   static noOpenWallet() { return new ActionError("noWallet", "No wallet is open."); }
   static keyMismatch() { return new ActionError("keyMismatch", "This wallet's key does not match its address."); }
@@ -1575,7 +1576,11 @@ export class KachatNamesActions {
     try {
       const rate = await this.feerateForTier(tier);
       await enqueueSend(s.address, async () => {
+        // the registry and fee waits above can be long: a claim never goes out for an account
+        // that is no longer the open one (K 428a797b, audit #13)
+        if (this.myAddress !== walletAddress) throw ActionError.accountChanged();
         const { builder: b, env, wallet } = await this._context(s, rate);
+        if (this.myAddress !== walletAddress) throw ActionError.accountChanged();
         const salt = newSalt();
         const plan = b.commit({ env, wallet, name, salt });
         const commit = plan.newCommit;
@@ -1608,12 +1613,13 @@ export class KachatNamesActions {
     }
     // The reclaim needs nothing from the wallet (its fee comes out of the freed deposit), so it
     // runs while the commit ages instead of after. If it fails, the driver sends it (iOS beb9c45).
-    if (lapsed) {
+    // Only for the account still open: otherwise its driver picks the claim up when it's back.
+    if (lapsed && this.myAddress === walletAddress) {
       try { await this._sendReclaim(lapsed, record); } catch (e) {
         this.engine?.log?.(`[KachatNames] reclaim of ${name} not sent yet: ${errorMessage(e)}`);
       }
     }
-    this._startDriver();
+    if (this.myAddress === walletAddress) this._startDriver();
     return record.commitTxId;
   }
 

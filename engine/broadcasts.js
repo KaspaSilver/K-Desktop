@@ -10,7 +10,7 @@
 // see "Sender verification" below).
 
 import { getEndpoint } from "./endpoints.js";
-import { IS_TESTNET } from "./network.js";
+import { IS_TESTNET, isValidKaspaAddress, isOnActiveNetwork } from "./network.js";
 import { sendPayloadTransaction } from "./transactions.js";
 import { createIndexerTrackedRooms, parseTrackedChannelsResponse, shouldAskTrackedRooms } from "./indexer-tracked-rooms.js";
 
@@ -469,6 +469,9 @@ export function extractBroadcastHitsFromBlock(kaspa, eventOrBlock, { networkId =
 const LIVE_VERIFY_DELAYS_MS = Object.freeze([1_500, 3_000, 5_000, 10_000, 25_000, 50_000]);
 const REST_TIMEOUT_MS = 12_000;
 const REST_BATCH = 100;
+/** Live posts' author lookups: at most four REST calls at once, and 64 posts waiting (audit #23). */
+const MAX_CONCURRENT_AUTHOR_LOOKUPS = 4;
+const MAX_PENDING_AUTHOR_LOOKUPS = 64;
 const MAX_REMEMBERED = 20_000;
 
 function rememberBounded(map, key, value) {
@@ -579,13 +582,17 @@ export class BroadcastSenderVerifier {
     const settled = this.settleHit(hit);
     if (settled.verdict !== BROADCAST_SENDER.UNKNOWN) return Promise.resolve(settled);
     if (this.inflight.has(key)) return this.inflight.get(key);
+    // Capped (K 428a797b RoomAuthorLookups, audit #23): a spammer's burst of posts can't start
+    // unlimited REST lookups and get this device rate-limited. Past 64 waiting, a post is dropped
+    // as unknown, as one the REST API never answered for is.
+    if (this.inflight.size >= MAX_PENDING_AUTHOR_LOOKUPS) return Promise.resolve({ verdict: BROADCAST_SENDER.UNKNOWN, senderAddress: "" });
     const run = (async () => {
       for (const delay of this.liveDelaysMs) {
         await this.sleep(delay);
         const local = this.settleHit(hit);
         if (local.verdict !== BROADCAST_SENDER.UNKNOWN) return local;
         let shape = null;
-        try { shape = (await this.lookupRest([key])).get(key) || null; }
+        try { shape = (await this.withLookupSlot(() => this.lookupRest([key]))).get(key) || null; }
         catch { shape = null; }
         if (!shape) continue;
         // Output 0 as the node streamed it when it was readable, else as the REST API has it.
@@ -596,6 +603,20 @@ export class BroadcastSenderVerifier {
     })().finally(() => { this.inflight.delete(key); });
     this.inflight.set(key, run);
     return run;
+  }
+
+  /** Runs `task` once one of the four lookup slots is free (audit #23: at most four at once). */
+  async withLookupSlot(task) {
+    this.lookupSlots ??= { active: 0, waiting: [] };
+    const slots = this.lookupSlots;
+    // a freed slot passes straight to the next waiter, so no newcomer slips in between
+    if (slots.active >= MAX_CONCURRENT_AUTHOR_LOOKUPS) await new Promise((resolve) => slots.waiting.push(resolve));
+    else slots.active += 1;
+    try { return await task(); }
+    finally {
+      const next = slots.waiting.shift();
+      if (next) next(); else slots.active -= 1;
+    }
   }
 
   /**
@@ -751,6 +772,38 @@ export function hasBroadcastIndexer() {
   return String(getEndpoint("broadcastIndexer") || "").trim().length > 0;
 }
 
+/** The largest indexer answer read at all (K 428a797b, audit #19): far past a page of 500. */
+const MAX_INDEXER_RESPONSE_CHARS = 24 * 1024 * 1024;
+/** More rows than any page asks for: the rest of an answer is ignored. */
+const MAX_INDEXER_ROWS = 500;
+/** One row's content: twice what a transaction's payload can carry. */
+const MAX_ROW_CONTENT_BYTES = 200_000;
+const TEXT_BYTES = new TextEncoder();
+
+/**
+ * The indexer rows the app can believe the shape of (K 428a797b PublicChatService.isWellFormed):
+ * a 64-hex txid, a valid address of this network, content within what a transaction can carry, a
+ * block time that isn't zero or more than a day ahead, and - when the row names its room - the
+ * room asked for. The rows carry no signature, so who sent one is still the indexer's word.
+ */
+export function wellFormedBroadcastRows(rows, channel, now = Date.now()) {
+  const room = normalizeBroadcastChannel(channel);
+  const out = [];
+  for (const row of Array.isArray(rows) ? rows.slice(0, MAX_INDEXER_ROWS) : []) {
+    if (!row || typeof row !== "object") continue;
+    if (!/^[0-9a-f]{64}$/i.test(String(row.txId || ""))) continue;
+    const sender = String(row.senderAddress || "");
+    if (!isValidKaspaAddress(sender) || !isOnActiveNetwork(sender)) continue;
+    const content = typeof row.content === "string" ? row.content : "";
+    if (!content || content.length > MAX_ROW_CONTENT_BYTES || TEXT_BYTES.encode(content).length > MAX_ROW_CONTENT_BYTES) continue;
+    const blockTime = Number(row.blockTime);
+    if (!(blockTime > 0) || blockTime > now + 24 * 3600 * 1000) continue;
+    if (row.channel && normalizeBroadcastChannel(row.channel) !== room) continue;
+    out.push(row);
+  }
+  return out;
+}
+
 /**
  * History page from the broadcast indexer. Returns `{ messages, hasMore }` with rows shaped
  * `{ txId, channel, senderAddress, content, blockTime }` — or throws; callers treat failures
@@ -773,8 +826,12 @@ export async function fetchBroadcastHistory({ channel, limit = 200, before = nul
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`Broadcast indexer request failed (${response.status}).`);
-    const json = await response.json();
-    const messages = Array.isArray(json?.messages) ? json.messages : [];
+    // size-capped and checked row by row before anything else reads it (audit #19)
+    if (Number(response.headers?.get?.("content-length")) > MAX_INDEXER_RESPONSE_CHARS) throw new Error("Broadcast indexer sent more than a page can hold.");
+    const body = await response.text();
+    if (body.length > MAX_INDEXER_RESPONSE_CHARS) throw new Error("Broadcast indexer sent more than a page can hold.");
+    const json = JSON.parse(body);
+    const messages = wellFormedBroadcastRows(json?.messages, channel);
     // An indexer only stores the rooms it tracks: rows back mean it keeps this room's history
     // (iOS 21c480d). The curated rooms are tracked anyway, so they are not written down.
     const name = normalizeBroadcastChannel(channel);

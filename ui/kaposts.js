@@ -119,7 +119,7 @@ import "./kapost-terms.css";
 import { postReportBody, sendContentReport, withBlockedAccount } from "./kapost-moderation.js";
 // Who a poster is: their .kachat name, avatar, banner and bio (iOS 3d6fb7c, KachatLive.identityName /
 // profileBanner / profileBio). Profiles are on every network (mainnet: profile-only identities).
-import { kachatCachedDisplayLabel, kachatCachedAvatarUrl, kachatCachedProfilePieces, kachatRetryImage, onKachatIdentityChange } from "./kachat-names-live.js";
+import { kachatCachedDisplayLabel, kachatCachedAvatarUrl, kachatCachedProfilePieces, kachatRetryImage, onKachatIdentityChange, kachatProfileOpened } from "./kachat-names-live.js";
 import { kachatNamesUiEnabled } from "./kachat-names-runtime.js";
 // Imported, not a string path: Vite only rewrites and emits assets it can SEE, and a path inside
 // a template literal is invisible to it - which left this 404ing on the built site.
@@ -734,11 +734,11 @@ function mapRemotePost(post) {
 function mapRemotePoll(poll) {
   if (!poll || !Array.isArray(poll.options) || poll.options.length < 2) return null;
   const options = poll.options.map((b64) => { try { return decodePostContent({ postContent: b64 }) ?? ""; } catch { return ""; } });
-  const counts = Array.isArray(poll.counts) ? poll.counts.map((n) => Number(n) || 0) : options.map(() => 0);
+  const counts = Array.isArray(poll.counts) ? poll.counts.map((n) => Math.max(0, Number.isFinite(Number(n)) ? Number(n) : 0)) : options.map(() => 0);
   return {
     options,
     counts,
-    total: Number(poll.total ?? counts.reduce((a, b) => a + b, 0)) || 0,
+    total: Math.max(0, Number(poll.total ?? counts.reduce((a, b) => a + b, 0)) || 0),
     closesAt: Number(poll.closesAt) || 0,
     myVote: Number.isInteger(poll.myVote) ? poll.myVote : null,
   };
@@ -1863,8 +1863,18 @@ function linkifyPlainText(value) {
 // A quoted post's text for a preview card: markdown styling applied, but nothing tappable. The
 // card is itself a button through to the quoted post, and a tappable link inside it would compete
 // with that (iOS KaPostCellView.markdownPreview).
+// The card shows five lines at most, so it's drawn from the first 1,200 characters, not a whole
+// 25,000-character post (K 428a797b, audit #15).
+const QUOTE_PREVIEW_CHARS = 1200;
 function markdownPreviewHtml(text) {
-  return linkifyPostText(text, { interactive: false });
+  let shown = String(text ?? "");
+  if (shown.length > QUOTE_PREVIEW_CHARS) {
+    let end = QUOTE_PREVIEW_CHARS;
+    const code = shown.charCodeAt(end - 1);
+    if (code >= 0xd800 && code <= 0xdbff) end -= 1; // never half an emoji
+    shown = shown.slice(0, end);
+  }
+  return linkifyPostText(shown, { interactive: false });
 }
 
 const ICONS = {
@@ -1925,8 +1935,9 @@ function pollCardHtml(post) {
   const clock = pending ? `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>` : "";
   const total = Math.max(0, Number(poll.total) || 0);
   const rows = poll.options.map((option, index) => {
-    const count = Number(poll.counts?.[index]) || 0;
-    const share = total > 0 ? count / total : 0;
+    // whatever the server says, a bar is 0-100% (K 428a797b, audit #20)
+    const count = Math.max(0, Number(poll.counts?.[index]) || 0);
+    const share = total > 0 ? Math.min(1, count / total) : 0;
     if (!showResults) {
       return `<button class="kaposts-poll-option" type="button" data-kaposts-poll-vote="${pid}" data-index="${index}" ${canVote ? "" : "disabled"}><span>${deps.escapeHtml(option)}</span>${clock}</button>`;
     }
@@ -4736,6 +4747,8 @@ function freshKeptProfilePanel(address, passedPubkey) {
 }
 
 async function openPosterProfile(address, passedPubkey) {
+  // opening it is what lets its .kachat pictures be looked up (K 428a797b)
+  try { kachatProfileOpened(address); } catch { /* names not started */ }
   rememberFeedScroll();
   panelGeneration += 1;
   clearPanelPagerSentinels();
@@ -6327,12 +6340,17 @@ function textHash(text) {
 /// treated as "nothing is supported" - the link is offered anyway and the real request decides,
 /// which is what iOS does. A deployment that has not built this endpoint yet should not silently
 /// remove the feature.
+// Translation sends no cookies, cache or referrer (K 428a797b, audit #24: its own session), so a
+// translation can't be tied to the reader by anything but the text itself, even when the
+// translator sits on the KaPost indexer's host.
+const TRANSLATE_FETCH = Object.freeze({ credentials: "omit", cache: "no-store", referrerPolicy: "no-referrer" });
+
 async function ensureTranslationLanguages() {
   const base = translationServiceUrl();
   if (!base) return null;
   if (kapostLanguages && kapostLanguagesUrl === base) return kapostLanguages;
   try {
-    const response = await fetch(`${base}/translate/languages`, { headers: { Accept: "application/json" } });
+    const response = await fetch(`${base}/translate/languages`, { headers: { Accept: "application/json" }, ...TRANSLATE_FETCH });
     if (!response.ok) return null;
     const json = await response.json();
     kapostLanguages = {
@@ -6411,6 +6429,7 @@ async function translatePost(post) {
     const txId = !post.editedAt && /^[0-9a-f]{64}$/i.test(String(post.remoteId || "")) ? String(post.remoteId) : null;
     const body = { target, posts: [txId ? { id: txId, text: post.text } : { text: post.text }] };
     const response = await fetch(`${base}/translate`, {
+      ...TRANSLATE_FETCH,
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(body),
@@ -6500,6 +6519,7 @@ export async function translateText(key, text) {
   const target = readerLanguage();
   try {
     const response = await fetch(`${base}/translate`, {
+      ...TRANSLATE_FETCH,
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ target, posts: [{ text: String(text || "") }] }),

@@ -40,7 +40,7 @@ import { parseBotChallengeLink, botChallengeFromLaunchSearch } from "../engine/c
 import { initKachatNamesRuntime, kachatNames, kachatNamesUiEnabled, kachatNamesLaunched, kachatProfiles, kachatVerifiedLabel, kachatLabelChecking, verifyKachatLabel } from "./kachat-names-runtime.js";
 import { PHOTO_UNLOCK_DELAY_MS, photosUnlockTime, photosAreHidden } from "./photo-unlock.js";
 import { createProfileRescans } from "./profile-rescan.js";
-import { kachatHeroProfile, kachatCachedOwnedNameCount, onKachatSocialChange, kachatCachedIdentity, kachatCachedLabel, kachatCachedDisplayLabel, kachatNameDisplay, kachatShowsEndings, setKachatShowsEndings, kachatCachedAvatarUrl, kachatCachedProfilePieces, onKachatIdentityChange, kachatRetryImage, kachatOwnersOfNames, kachatHeldNamesOf, kachatRescanProfile, kachatOwnedNameCount, onKachatRegistryChange, kachatClearProfileCache, kachatExpiredNames, startKachatUnnamedIdentitySweep } from "./kachat-names-live.js";
+import { kachatHeroProfile, kachatCachedOwnedNameCount, onKachatSocialChange, kachatCachedIdentity, kachatCachedLabel, kachatCachedDisplayLabel, kachatNameDisplay, kachatShowsEndings, setKachatShowsEndings, kachatCachedAvatarUrl, kachatCachedProfilePieces, onKachatIdentityChange, kachatRetryImage, kachatOwnersOfNames, kachatHeldNamesOf, kachatRescanProfile, kachatOwnedNameCount, onKachatRegistryChange, kachatClearProfileCache, kachatExpiredNames, startKachatUnnamedIdentitySweep, setKachatSocialLookupGate, kachatProfileOpened } from "./kachat-names-live.js";
 import { startKachatNamesNotifier, openKachatNameFromNotification as openKachatNameFromBell, removeKachatNameReminders } from "./kachat-names-notifier.js";
 import { initKachatMarket, showKachatMarket, hideKachatMarket, openKachatProfileEditor, openKachatSetupGuide, KACHAT_WORDMARK_SVG, kachatAddressDomainsHtml, renderKachatLiveDomainsTab, openKachatMarketSheet } from "./kachat-market.js";
 import { initKachatStats, showKachatStats, hideKachatStats } from "./kachat-stats.js";
@@ -13505,7 +13505,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 320;
+const APP_BUILD = 321;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -19666,6 +19666,8 @@ async function refreshChatInfoKnsSections(contact) {
 function paintChatInfoKachat(contact) {
   if (!kachatNamesUiEnabled() || !contact || chatInfoContactAddress !== contact.address) return;
   const address = contact.address;
+  // User Info is an opened profile: its .kachat pictures may be looked up (K 428a797b)
+  kachatProfileOpened(address);
   const isSelf = Boolean(engine.address) && address === engine.address;
   const identity = kachatCachedIdentity(address);
   const pieces = kachatCachedProfilePieces(address) || {};
@@ -32281,6 +32283,13 @@ queueMicrotask(async () => {
       onWatchedAddressesChanged: () => { try { scheduleWebPushSync(); } catch { /* not started yet */ } },
     });
   } catch (error) { appendEngineLog(`initColdStorage did not start: ${error?.message || error}`); }
+  // .kachat pictures and bios from X, YouTube, unavatar and the like are looked up only for you,
+  // your chats and your Address Book (and any profile you open): K 428a797b, audit #17.
+  setKachatSocialLookupGate((address) => {
+    if (engine.address && address === String(engine.address).toLowerCase()) return true;
+    if ((state.contacts || []).some((contact) => String(contact?.address || "").toLowerCase() === address)) return true;
+    return Boolean(addressBookEntry(address));
+  });
   try {
     initSwaps({
       engine, escapeHtml, accountScopedKey, showToast: showCopyToast,

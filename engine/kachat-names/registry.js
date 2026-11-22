@@ -906,7 +906,9 @@ export class KachatNamesRegistry {
       if (!e?.txId) continue;
       const time = e.at ?? 0n;
       at.set(e.txId, (at.get(e.txId) ?? 0n) > time ? at.get(e.txId) : time);
-      const years = e.years ?? 0n;
+      // a server's years are capped at 1,000 (K 428a797b, audit #20): one bad row can't make the
+      // fees read as nonsense
+      const years = (e.years ?? 0n) > 1000n ? 1000n : (e.years ?? 0n);
       if (e.name == null || !(years > 0n)) continue;
       const length = utf8Length(e.name);
       if (e.op === "register") {
