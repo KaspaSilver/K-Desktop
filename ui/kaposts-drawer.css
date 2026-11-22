@@ -182,7 +182,21 @@
   position: absolute; top: 6px; right: 6px; width: 9px; height: 9px; border-radius: 50%;
   background: var(--danger, #ff3b30); box-shadow: 0 0 0 2px var(--bg-plain, #000);
 }
+/* Share Profile beside the Profile title (K 804cbcb7); no other page has it. */
+.kaposts-title-share { flex: 0 0 auto; }
+[data-kaposts-panel]:not([data-kaposts-panel-root]) .kaposts-title-share { display: none; }
+/* At phone width the other pages centre their title; Profile's stays on the left, as iOS's fixed
+   large title, with Share Profile right after it. */
+@media (max-width: 859px) {
+  [data-kaposts-panel][data-kaposts-panel-root] > .kaposts-thread-header { justify-content: flex-start; padding-left: 16px; }
+  [data-kaposts-panel][data-kaposts-panel-root] > .kaposts-thread-header [data-kaposts-panel-back] { display: none; }
+  [data-kaposts-panel][data-kaposts-panel-root] > .kaposts-thread-header [data-kaposts-panel-title] {
+    position: static; text-align: left; font-size: 28px; font-weight: 700; flex: 0 1 auto;
+  }
+}
 .kaposts-root-buttons { flex-wrap: wrap; }
+/* A profile's posts move sideways with the finger (K 804cbcb7); scrolling stays the browser's. */
+.kaposts-profile-tabs + [data-kaposts-panel-list] { touch-action: pan-y; }
 .kaposts-root-buttons .kaposts-logout { color: var(--danger, #ff3b30); }
 .kaposts-see-all { white-space: nowrap; }
 .kaposts-root-profile .kaposts-content { position: relative; }

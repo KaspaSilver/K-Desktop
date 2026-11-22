@@ -6730,7 +6730,20 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .cold-summary-label { margin: 0 0 3px; font-size: 12px; color: var(--muted); }
 .cold-summary-name { margin: 0; font-weight: 650; }
 .cold-summary-kpub { margin: 0 0 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--text); word-break: break-all; }
-.cold-summary-balance { margin: 0; font-size: 22px; font-weight: 750; }
+/* An address's balance card (iOS AddressBalanceCard, K 428a797b for Cold Storage's total): the
+   label, the amount large, its worth under it, on a soft accent gradient. */
+.address-balance-card {
+  padding: 18px; border-radius: 22px; text-align: left;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent, #49eacb) 32%, transparent), color-mix(in srgb, var(--accent, #49eacb) 8%, transparent));
+  border: 0.8px solid color-mix(in srgb, var(--accent, #49eacb) 35%, transparent);
+}
+.address-balance-card p { margin: 0; }
+.address-balance-card-label, .address-balance-card-detail { font-size: 15px; color: var(--muted); }
+.address-balance-card-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.address-balance-card-amount {
+  margin: 4px 0 !important; font-size: 34px; font-weight: 700; color: var(--text);
+  font-variant-numeric: tabular-nums; overflow-wrap: anywhere; line-height: 1.15;
+}
 .cold-inline-icon {
   border: 0; background: transparent; color: var(--kaspa-ink); cursor: pointer;
   width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 8px;
@@ -14007,10 +14020,6 @@ button.kusdt-activity-row:hover { background: var(--surface-1, rgba(255,255,255,
 .message-payment-card.incoming .payment-card-logo.is-token { background: none; box-shadow: none; }
 .payment-card-logo.is-token .kusdt-coin-kaspa { box-shadow: 0 0 0 1.5px #fff; background: #fff; }
 .payment-detail-head .kusdt-coin { margin: 0 auto; }
-
-/* "Leaderboard" is the dock's longest name (KaChat iOS 148a5331): a touch smaller so it fits the
-   72px left dock whole. */
-body .sidebar-tabbar .sidebar-tab[data-app-tab="leaderboard"] > span:last-child { font-size: 10px; letter-spacing: -.01em; }
 
 /* ==== Sign-in: the K globe (KaChat iOS 58cfbf6f) ============================================
    The app icon's mark, centered, with the icon's teal glow behind it and on it, over the motto.

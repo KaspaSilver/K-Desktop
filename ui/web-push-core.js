@@ -30,7 +30,7 @@ export const PUSH_PATHS = Object.freeze({
 });
 // The service's limits (push.rs MAX_WATCHED_ADDRESSES / MAX_WATCHED_GROUP_IDS / MAX_ALIASES /
 // MAX_WATCH_ONLY_ADDRESSES / MAX_KAPOSTS_WATCH_AUTHORS). Over them a register is refused outright.
-export const PUSH_LIMITS = Object.freeze({ watched: 256, groups: 256, aliases: 256, watchOnly: 200, watchAuthors: 500 });
+export const PUSH_LIMITS = Object.freeze({ watched: 256, groups: 256, aliases: 256, watchOnly: 200, watchAuthors: 500, kapostsBlocked: 5000 });
 
 // ---- bytes ----------------------------------------------------------------------------------
 const UTF8 = new TextEncoder();
@@ -292,6 +292,10 @@ export function buildRegistrationFields(input) {
   return {
     device_token: normalizeWebDeviceToken(input.endpoint),
     platform: "web",
+    // K, the all-in-one app (kachat-indexer docs/K_ALL_IN_ONE_PUSH.md §1, K 428a797b): every kind
+    // of push - KaPost, rooms, Received KAS, .kachat - not only the chat kinds a registration with
+    // no topic gets. Not part of the signed preimage; a server that doesn't know it ignores it.
+    app: "k",
     watched_addresses: watchedAddresses,
     watched_group_ids: watchedGroupIds,
     watched_broadcast_channels: cappedUnique(input.broadcastChannels, 64, (v) => String(v || "").trim().toLowerCase()).sort(),
@@ -304,6 +308,9 @@ export function buildRegistrationFields(input) {
     kaposts_notify_follows: kaposts ? kaposts.follows !== false : true,
     kaposts_notify_mentions: kaposts ? kaposts.mentions !== false : true,
     kaposts_watch_authors: kaposts?.pubkey ? cappedUnique(input.kapostsWatchAuthors, PUSH_LIMITS.watchAuthors, (v) => String(v || "").trim().toLowerCase()).sort() : [],
+    // Whom you muted or blocked on KaPost (x-only keys): the service never pushes their activity
+    // (K 428a797b); the worker's own check (public/sw-push.js) stays as the second line.
+    kaposts_blocked_pubkeys: kaposts?.pubkey ? cappedUnique(input.kapostsBlockedPubkeys, PUSH_LIMITS.kapostsBlocked, (v) => String(v || "").trim().toLowerCase()).filter((v) => /^[0-9a-f]{64}$/.test(v)).sort() : [],
     watch_only_addresses: cappedUnique(input.watchOnlyAddresses, PUSH_LIMITS.watchOnly),
     primary_address: input.primaryAddress || null,
     aliases,

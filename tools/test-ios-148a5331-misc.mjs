@@ -52,15 +52,16 @@ await test("Edit Profile's Get a .kachat name opens the .kachat screen", () => {
   assert.match(app, /openKachatNames: \(\) => setActiveAppTab\("kachat-names"\),/);
 });
 
-await test("a sideways swipe picks Posts or Replies", async () => {
+await test("a sideways swipe picks Posts or Replies once it goes far enough (K 804cbcb7)", async () => {
   // kaposts.js touches the DOM on import, so the rule is read from the source and run here.
   const src = read("ui", "kaposts.js");
-  const body = src.slice(src.indexOf("export function profileTabAfterSwipe(dx, dy) {"));
+  const body = src.slice(src.indexOf("export function profileSwipeTarget({ dx, flung = dx, width, tab }) {"));
   const fn = new Function(`return (${body.slice("export ".length, body.indexOf("\n}\n") + 2)})`)();
-  assert.equal(fn(-80, 10), "replies");
-  assert.equal(fn(80, 10), "posts");
-  assert.equal(fn(-50, 0), null);
-  assert.equal(fn(-80, 60), null);
+  assert.equal(fn({ dx: -120, width: 400, tab: "posts" }), "replies", "past a quarter");
+  assert.equal(fn({ dx: 120, width: 400, tab: "replies" }), "posts");
+  assert.equal(fn({ dx: -80, width: 400, tab: "posts" }), null, "not far enough: settles back");
+  assert.equal(fn({ dx: -80, flung: -260, width: 400, tab: "posts" }), "replies", "a flick");
+  assert.equal(fn({ dx: 300, width: 400, tab: "posts" }), null, "no tab that way");
 });
 
 console.log(`ios 148a5331 misc: ${passed} passed`);

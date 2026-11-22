@@ -8,7 +8,8 @@ export const RAIL_ORDER = [
   "chats", "address-book",
   "kaposts",
   "wallet", "portfolio", "cold-storage", "kachat-names", "swaps",
-  "chess", "leaderboard",
+  // No Leaderboard item (K 428a797b): it's a card inside KaPlay > Chess again.
+  "chess",
   // No KaChat Bots item (owner, 2026-11-12): the bots live in Chats, as circles above the list.
   "kachat-stats", "apps",
   "profile", "settings",

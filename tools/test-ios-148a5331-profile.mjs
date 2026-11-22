@@ -31,8 +31,11 @@ test("your profile is the root page: no back, closes back to it", () => {
   assert.match(kaposts, /panelEl\?\.toggleAttribute\("data-kaposts-panel-root", show && isRootProfilePanel\(activePanel\)\);/);
 });
 
-test("Edit Profile, Share Profile, Log Out and See All Posts", () => {
-  for (const label of ["Edit Profile", "Share Profile", "Log Out", "See All Posts"]) assert.ok(kaposts.includes(`${label}</button>`), label);
+test("Edit Profile, Log Out and See All Posts; Share Profile beside the title (K 804cbcb7)", () => {
+  for (const label of ["Edit Profile", "Log Out", "See All Posts"]) assert.ok(kaposts.includes(`${label}</button>`), label);
+  assert.doesNotMatch(kaposts, /Share Profile<\/button>/);
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(html, /<strong data-kaposts-panel-title>Panel<\/strong>[\s\S]{0,300}<button class="kaposts-edit-kns kaposts-title-share" type="button" data-kaposts-share-profile>/);
   assert.match(app, /shareProfile: \(\) => shareOwnProfile\(\),/);
   assert.match(app, /logOut: \(\) => openLogoutModal\(\),/);
 });

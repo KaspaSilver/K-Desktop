@@ -3251,7 +3251,8 @@ export function addTransactionToPortfolio(portfolioId, {
 
 export function refreshPortfolio() {
   ensureDefaultPortfolio();
-  view = "main"; // always land on the main portfolio screen when the tab is (re)opened
+  // Comes back where it was left (K 428a797b: Kaspa Hub keeps opened sections alive), Price or
+  // Value included; an account switch is what starts it on the main screen again.
   render();
   refreshData();
   // Rows left unpriced by an import the browser was closed during (or by an older build with no
@@ -3262,6 +3263,7 @@ export function refreshPortfolio() {
 export function resetPortfolioForAccount() {
   closeActiveScanner(); // an account switch must never leave a camera running
   closeMoveSheet();     // its row belonged to the previous account
+  view = "main";
   cancelPriceBackfill(); // the previous account's loop may be sleeping; this account's starts below
   loadState();
   ensureDefaultPortfolio();

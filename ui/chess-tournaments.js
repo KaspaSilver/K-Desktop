@@ -155,14 +155,9 @@ let joinFeeText = null;               // "0.0017 KAS" once estimated this sessio
 
 // Navigation. mode: "duel" | "tournament". tab: play | active | finished.
 // name "games": a card per game, where KaPlay opens (KaPlay 45f28d9). name "home": Chess.
-// name "leaderboard": the Leaderboard's squares; name "board": 1v1's or Tournaments' page, by `mode`.
+// name "leaderboard": the Leaderboard's squares (a card under Bots, K 428a797b); name "board": 1v1's or Tournaments' page, by `mode`.
 // name "bots": Play > Bots and Leaderboard > Bots (ui/chess-bots.js paints and drives its own screens).
 let view = { name: "games", mode: "duel", tab: "play", tournamentId: null, gameId: null };
-// Which dock item the screen is for (KaChat iOS 148a5331): KaPlay ("games": the games, then Chess)
-// or Leaderboard ("leaderboard": its three rows as the first page, no way back from it). Each keeps
-// where it was while the other is up, as iOS's tabs keep their own pages.
-let rootView = "games";
-const viewByRoot = {};
 let autoOpenedGameId = null;
 let spectatorSwitchedFor = null;  // the player's game the board-watching spectator was sent to the bracket for
 let selectedSquare = null;
@@ -1176,6 +1171,8 @@ const ICON_TWO_FILLED = `<svg viewBox="0 0 24 24" aria-hidden="true" class="fill
 // Desktop's Leaderboard card: three steps of a podium. iOS has a dock tab for this instead of a card.
 const ICON_TROPHY_FILLED = `<svg viewBox="0 0 24 24" aria-hidden="true" class="filled"><path d="M6.5 3.5h11v5.8a5.5 5.5 0 0 1-11 0Z"/><path d="M6.6 5.3H3.8a.8.8 0 0 0-.8.9 4.6 4.6 0 0 0 3.9 4.1l.4-1.6a3 3 0 0 1-2.4-1.9h1.7ZM17.4 5.3h2.8c.5 0 .9.4.8.9a4.6 4.6 0 0 1-3.9 4.1l-.4-1.6a3 3 0 0 0 2.4-1.9h-1.7Z"/><path d="M10.8 14.4h2.4v3.1h-2.4Z"/><rect x="7.5" y="17.5" width="9" height="3" rx="1"/></svg>`;
 const ICON_BACK = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/></svg>`;
+// list.number (K 428a797b's Leaderboard card): 1, 2, 3 beside three lines.
+const ICON_LIST_NUMBER = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6h11M10 12h11M10 18h11"/><path d="M4 4.5 5.5 4v4M4 8h3M3.6 10.6c.4-.5 1-.7 1.6-.6.8.2 1.1 1 .6 1.7L3.6 14h3M3.7 16.3c.5-.4 1.2-.5 1.8-.2.8.4.7 1.5-.2 1.7.9.2 1.1 1.3.3 1.8-.6.4-1.5.3-2-.2"/></svg>`;
 const ICON_CHEVRON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>`;
 const ICON_EYE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>`;
 const ICON_KEY = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7.25" r="4.5"/><circle cx="12" cy="5.6" r="1"/><path d="M12 11.75v9l1.9-1.6-1.9-1.6 1.9-1.6-1.9-1.6"/></svg>`;
@@ -1279,7 +1276,12 @@ function renderHome() {
         <span class="chess-t-row-main"><strong>Bots</strong><small>Five bots, level 1 to 5, from Kaspa Silver to Yonatan Sompolinsky. Beat one to unlock the next. The result goes on Kaspa.</small></span>
         <span class="chess-t-row-chevron">${ICON_CHEVRON}</span>
       </button>
-      ${/* No Leaderboard card: it's a dock item of its own (KaChat iOS 148a5331). */ ""}
+      ${/* Leaderboard is a card here again, not a dock item (K 428a797b ChessHomeView). */ ""}
+      <button class="chess-t-game-card" type="button" data-chess-t-leaderboard>
+        <span class="chess-t-game-card-icon">${ICON_LIST_NUMBER}</span>
+        <span class="chess-t-row-main"><strong>Leaderboard</strong><small>Who's on top in 1v1 and tournaments, this month or all time, and against each bot.</small></span>
+        <span class="chess-t-row-chevron">${ICON_CHEVRON}</span>
+      </button>
       ${errorHtml()}
     </div>`;
 }
@@ -1474,7 +1476,7 @@ function squareHtml({ title, icon, attrs }) {
 
 function renderLeaderboard() {
   return `
-    ${headerHtml("Leaderboard", { back: rootView !== "leaderboard" })}
+    ${headerHtml("Leaderboard", { back: true })}
     <div class="chess-t-squares">
       ${squareHtml({ title: "1v1", icon: ICON_TWO_FILLED, attrs: `data-chess-t-board="duel"` })}
       ${squareHtml({ title: "Tournaments", icon: ICON_TROPHY_FILLED, attrs: `data-chess-t-board="tournament"` })}
@@ -2126,6 +2128,14 @@ function onClick(event) {
     render();
     return;
   }
+  if (event.target.closest("[data-chess-t-leaderboard]")) {
+    // Comes up on This month, with fresh boards asked for.
+    view = { ...view, name: "leaderboard", tournamentId: null, gameId: null };
+    leaderboardPeriod = "month";
+    refreshIndexerLeaderboards();
+    render();
+    return;
+  }
   if (event.target.closest("[data-chess-t-bots]")) {
     view = { ...view, name: "bots", tournamentId: null, gameId: null };
     selectedSquare = null;
@@ -2277,18 +2287,8 @@ export function initChessTournaments(dependencies) {
 }
 
 /** The Chess screen came on: keep the arena scanned and polled while it is up. */
-export function showChessTournaments({ root = "games" } = {}) {
+export function showChessTournaments() {
   if (!deps) return;
-  const nextRoot = root === "leaderboard" ? "leaderboard" : "games";
-  if (nextRoot !== rootView) {
-    viewByRoot[rootView] = view;
-    rootView = nextRoot;
-    view = viewByRoot[nextRoot] || { ...view, name: nextRoot, mode: "duel", tournamentId: null, gameId: null };
-    selectedSquare = null;
-    pendingPromotion = null;
-    // The Leaderboard comes up on This month, with fresh boards asked for.
-    if (nextRoot === "leaderboard" && !viewByRoot.leaderboard) { leaderboardPeriod = "month"; refreshIndexerLeaderboards(); }
-  }
   if (active) { render(); return; }
   active = true;
   now = Date.now();

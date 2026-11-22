@@ -9312,7 +9312,7 @@ function addressActivityWatchedMap() {
     for (const address of spendingWatchedAddressList()) map.set(address, "spending");
   }
   for (const entry of listColdWatchedAddresses()) {
-    if (entry.notify === false) continue;
+    if (entry.notify === false || entry.hidden) continue;
     if (!map.has(entry.address)) map.set(entry.address, `cold:${entry.label}`);
   }
   // the chatting address too, plain transfers only, under the same Address Activity switch
@@ -9328,7 +9328,7 @@ function addressActivityMutedList() {
     for (const address of spendingWatchedAddressList()) muted.add(address);
   }
   for (const entry of listColdWatchedAddresses()) {
-    if (entry.notify === false) muted.add(entry.address);
+    if (entry.notify === false || entry.hidden) muted.add(entry.address);
   }
   muted.delete(engine.address || "");
   return [...muted];
@@ -10683,8 +10683,10 @@ function spendingRowHtml(index, address, state, balanceText, used, hasDomain = f
 
 // The chatting address, first in the list (iOS 6333dd3 chattingAddressRow): it opens its own
 // screen (history, UTXOs, Domains, Send / Receive), the one Profile's Chatting row used to.
-function chattingAddressRowHtml() {
+function chattingAddressRowHtml(hasDomain = false) {
   const address = engine.address || "";
+  // Contains domain beside Used when it owns a KNS or .kachat name (K 428a797b ManageAddressesView).
+  const domainTag = hasDomain ? '<span class="spending-address-domain-tag">Contains domain</span>' : "";
   const balanceText = currentBalanceKas != null && currentBalanceKas !== "" ? `${formatKasExact(currentBalanceKas)} ${KAS_UNIT}` : `-- ${KAS_UNIT}`;
   return `
     <div class="spending-address-row chatting-address-row">
@@ -10692,7 +10694,7 @@ function chattingAddressRowHtml() {
         <span class="spending-address-label">Chatting Address<svg class="chatting-address-row-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 6.5A2.5 2.5 0 0 1 5 4h8.5A2.5 2.5 0 0 1 16 6.5v3A2.5 2.5 0 0 1 13.5 12H7.5L4 15v-3.2A2.5 2.5 0 0 1 2.5 9.5Z"/><path d="M10.5 11.5A2.5 2.5 0 0 1 13 9h6.5A2.5 2.5 0 0 1 22 11.5v3A2.5 2.5 0 0 1 19.5 17h-3L13 20v-3h0a2.5 2.5 0 0 1-2.5-2.5Z"/></svg></span>
         <span class="spending-address-value">${escapeHtml(spendingShortAddress(address))}</span>
         <span class="spending-address-balance" data-chatting-row-balance>${escapeHtml(balanceText)}</span>
-        <span class="spending-address-row-tags"><span class="spending-address-usage chatting-used">Used</span></span>
+        <span class="spending-address-row-tags"><span class="spending-address-usage chatting-used">Used</span>${domainTag}</span>
       </button>
       <svg class="chatting-address-row-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
     </div>`;
@@ -10732,7 +10734,8 @@ function updateSpendingTotalBalance(entries) {
 
 async function renderSpendingList() {
   if (!spendingListEl) return;
-  const chattingRow = engine.address ? chattingAddressRowHtml() : "";
+  // what's cached already; the full list below asks again
+  const chattingRow = engine.address ? chattingAddressRowHtml(Boolean(engine.peekKnsAddressInfo?.(engine.address)?.allDomains?.length)) : "";
   if (!activeAccountMnemonic()) {
     spendingListEl.innerHTML = `${chattingRow}<p class="spending-address-empty">This account has no 12 or 24 words, so spending addresses aren't available.</p>`;
     updateSpendingTotalBalance([]);
@@ -10797,16 +10800,18 @@ async function renderSpendingList() {
   // Batched, cached KNS assets-by-owner lookups drive the "Contains domain" tag (iOS parity). The
   // refresh is debounced/backed-off inside engine/kns.js, so reopening the screen is normally
   // cache-only.
+  // The chatting address is asked about first, then the spending ones (K 428a797b).
+  const domainLookup = [...(engine.address ? [engine.address] : []), ...enriched.map((e) => e.address)];
   let domainOwning = new Set();
   try {
-    await engine.refreshKnsIfNeeded?.(enriched.map((e) => e.address));
+    await engine.refreshKnsIfNeeded?.(domainLookup);
   } catch { /* tags fall back to whatever is cached */ }
-  for (const e of enriched) {
-    const info = engine.peekKnsAddressInfo?.(e.address);
-    if (info?.allDomains?.length) domainOwning.add(e.address);
+  for (const address of domainLookup) {
+    const info = engine.peekKnsAddressInfo?.(address);
+    if (info?.allDomains?.length) domainOwning.add(address);
   }
   // .kachat names count too (iOS 881ada6 ownersOfNames; empty where the registry isn't launched).
-  for (const address of await kachatOwnersOfNames(enriched.map((e) => e.address))) domainOwning.add(address);
+  for (const address of await kachatOwnersOfNames(domainLookup)) domainOwning.add(address);
   if (token !== spendingListToken) return;
   // Unused ones first, newest first - so a freshly generated address lands right under the
   // Chatting Address - then the used ones in number order (iOS 7abc06e8 / KaPay 59593af, owner's
@@ -10819,7 +10824,7 @@ async function renderSpendingList() {
     return aUsed ? a.index - b.index : b.index - a.index;
   });
   const shownState = getSpendingState(); // the spent marks may have grown meanwhile
-  spendingListEl.innerHTML = (engine.address ? chattingAddressRowHtml() : "") + (enriched.length
+  spendingListEl.innerHTML = (engine.address ? chattingAddressRowHtml(domainOwning.has(engine.address)) : "") + (enriched.length
     ? enriched.map((e) => spendingRowHtml(e.index, e.address, shownState, e.totalKas != null ? `${formatKasExact(e.totalKas)} ${KAS_UNIT}` : `-- ${KAS_UNIT}`, e.used, domainOwning.has(e.address), { funded: e.kas > 0 })).join("")
     : emptyHtml);
   // Quantum shields: the local spend marks are in already; the chain's word per row follows, for
@@ -12426,6 +12431,9 @@ function setActiveAppTab(tab) {
   // Public Chats is no screen of its own any more: its rooms are rows in Chats (KaChat 148a5331;
   // owner, 2026-11-21). A saved spot or an old link asking for it lands on Chats.
   if (tab === "broadcasts") tab = "chats";
+  // Leaderboard is a card inside KaPlay > Chess again (K 428a797b): a saved spot asking for the
+  // old dock item opens KaPlay.
+  if (tab === "leaderboard") tab = "chess";
   // A tab that lives in the Hub is REACHED through the Hub, so asking for it directly - a deep
   // link, a notification tap, the restored spot - opens it there rather than failing.
   if (tab !== "hub" && !dockPrefs.dock.includes(tab) && dockPrefs.hub.includes(tab)) {
@@ -12464,8 +12472,7 @@ function setActiveAppTab(tab) {
   publishDockHeight();
   appTabScreens.forEach((screen) => {
     // Profile shows KaPost's screen with your profile as its page (KaChat iOS 148a5331).
-    // Leaderboard is the Chess screen on its own first page (KaChat iOS 148a5331).
-    const shown = screenTab === "profile" ? "kaposts" : screenTab === "leaderboard" ? "chess" : screenTab;
+    const shown = screenTab === "profile" ? "kaposts" : screenTab;
     screen.hidden = screen.dataset.appTabScreen !== shown;
   });
   // Looked up here: the startup tab restore runs this before `groupChatScreen` (declared far below)
@@ -12501,7 +12508,7 @@ function setActiveAppTab(tab) {
   if (screenTab === "cold-storage") refreshColdStorage();
   try { if (screenTab === "swaps") refreshSwaps(); } catch { /* not started */ }
   // Chess keeps the arena scanned only while its screen is up (iOS acquire/release).
-  if (screenTab === "chess" || screenTab === "leaderboard") showChessTournaments({ root: screenTab === "leaderboard" ? "leaderboard" : "games" });
+  if (screenTab === "chess") showChessTournaments();
   else hideChessTournaments();
   try { if (screenTab === "kachat-names") showKachatMarket(); else hideKachatMarket(); } catch { /* not started */ }
   try { if (screenTab === "kachat-stats") showKachatStats(); else hideKachatStats(); } catch { /* not started */ }
@@ -12556,7 +12563,7 @@ sidebarTabButtons.forEach((button) => {
 // ---------------------------------------------------------------------------
 
 /** Full names, used in the More grid where a dock label is too short. */
-const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "ChangeNOW Swap", chess: "KaPlay", leaderboard: "Leaderboard", "kachat-names": ".kachat Domains", "kachat-stats": "KaChat Stats" };
+const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "ChangeNOW Swap", chess: "KaPlay", "kachat-names": ".kachat Domains", "kachat-stats": "KaChat Stats" };
 
 function tabFullName(tab) {
   if (TAB_FULL_NAMES[tab]) return TAB_FULL_NAMES[tab];
@@ -13498,7 +13505,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 319;
+const APP_BUILD = 320;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -31603,7 +31610,9 @@ async function collectWebPushRegistration() {
       // addresses most likely to receive are the newest - spending slots, then cold storage.
       const entries = [...addressActivityWatchedMap().entries()].filter(([, kind]) => kind !== "chatting");
       const ofKind = (match) => entries.filter(([, kind]) => match(kind)).map(([address]) => address).reverse();
-      watchOnly = [...ofKind((kind) => kind !== "cold"), ...ofKind((kind) => kind === "cold")];
+      // (the kind is "cold:<account>", so a plain "cold" never matched and cold ones were mixed in)
+      const isCold = (kind) => kind.startsWith("cold:");
+      watchOnly = [...ofKind((kind) => !isCold(kind)), ...ofKind(isCold)];
     }
   } catch { watchOnly = []; }
   // what the push service will announce: an address past the cap never gets a push
@@ -31616,6 +31625,7 @@ async function collectWebPushRegistration() {
     hiddenBroadcastSenders: rooms.hidden,
     kaposts,
     kapostsWatchAuthors: watchAuthors,
+    kapostsBlockedPubkeys: (() => { try { return kaPostsHiddenXOnlyKeys(); } catch { return []; } })(),
     watchOnlyAddresses: watchOnly,
   };
 }
@@ -32265,6 +32275,10 @@ queueMicrotask(async () => {
       currencySymbol: () => currencyMeta().symbol.trim(),
       currencyCode: () => selectedCurrency.toUpperCase(),
       formatFiatValue,
+      // The total's card: worth in your currency on mainnet only (testnet coins aren't worth anything).
+      kasFiatText: (kas, onPrice) => (IS_TESTNET ? null : kasFiatTextNow(kas, onPrice)),
+      // A receive switch flipped or an address hidden: the closed-app push list follows.
+      onWatchedAddressesChanged: () => { try { scheduleWebPushSync(); } catch { /* not started yet */ } },
     });
   } catch (error) { appendEngineLog(`initColdStorage did not start: ${error?.message || error}`); }
   try {

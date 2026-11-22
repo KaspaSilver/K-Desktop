@@ -116,6 +116,8 @@ let tabVisible = false;
 let roomOnScreen = false;
 // Only messages arriving AFTER app launch may ping — backfilled history never notifies.
 const broadcastSessionStartMs = Date.now();
+/** A room message older than this when it arrives isn't rung (K 428a797b InAppBanner: 3 minutes). */
+const ROOM_BANNER_MAX_AGE_MS = 3 * 60_000;
 let messageCache = {}; // { [channel]: [{ txId, senderAddress, content, blockTime, status? }] }
 // { [channel]: { byTarget: { [targetTxId]: { [reactorAddress]: { emoji, blockTime, removed? } } },
 //                txIds: [processed reaction txids], lastEvent: { senderAddress, emoji, blockTime } | null } }
@@ -997,9 +999,13 @@ function mergeMessages(channel, rows) {
     && (row.channel !== activeChannel || !roomOnScreen || document.hidden || !document.hasFocus())
     && !hiddenHere.has(row.senderAddress)
     && Number(row.blockTime || 0) >= broadcastSessionStartMs
+    // Only news: a message more than three minutes old when it arrives (a catch-up after the app
+    // slept) is listed, not rung (K 428a797b InAppBanner).
+    && Date.now() - Number(row.blockTime || 0) <= ROOM_BANNER_MAX_AGE_MS
     // A later part of a long voice note isn't news of its own (KaChat's one ring per note).
     && firstOfNote(row));
-  for (const row of pingable.slice(0, 3)) {
+  // One per message (K 428a797b), no longer the first three of a poll.
+  for (const row of pingable) {
     deps.postDesktopNotification?.({
       // Title the room, body the message preview alone (iOS: "#room" over previewText).
       title: `#${row.channel}`,

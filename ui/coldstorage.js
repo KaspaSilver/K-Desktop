@@ -427,6 +427,18 @@ function addressRowHtml(account, entry) {
     </div>`;
 }
 
+/// The balance card at the top of an address's page (K 428a797b: Cold Storage's total uses iOS's
+/// shared KaspaAddressBalanceCard): the label, the amount large, and its worth in your currency on
+/// mainnet; a price that lands later redraws the page.
+function balanceCardHtml(label, sompi) {
+  const fiat = deps.kasFiatText?.(Number(sompi || 0) / 1e8, () => { if (activeAccountId && rootEl?.isConnected) renderDetail(); }) || "";
+  return `<div class="address-balance-card">
+        <p class="address-balance-card-label">${deps.escapeHtml(label)}</p>
+        <p class="address-balance-card-amount">${fmtKasExact(sompi)} ${KAS_UNIT}</p>
+        ${fiat ? `<p class="address-balance-card-detail">${deps.escapeHtml(fiat)}</p>` : ""}
+      </div>`;
+}
+
 function renderDetail() {
   const account = activeAccount();
   if (!account) { activeAccountId = null; renderList(); return; }
@@ -465,10 +477,7 @@ function renderDetail() {
         <p class="cold-summary-kpub">${deps.escapeHtml(account.kpub)}</p>
         <button class="cold-inline-link" type="button" data-cold-copy-kpub>${COPY_ICON}Copy kpub</button>
       </div>
-      <div>
-        <p class="cold-summary-label">Total Balance</p>
-        <p class="cold-summary-balance">${fmtKasExact(totalSompi)} ${KAS_UNIT}</p>
-      </div>
+      ${balanceCardHtml("Total Balance", totalSompi)}
       <button class="primary-button cold-capsule cold-summary-actions" type="button" data-cold-actions-toggle ${detailBusy ? "disabled" : ""}${detailBusy ? ' aria-busy="true" aria-label="Address Actions"' : ""}>
         ${detailBusy ? '<span class="sk-spinner" aria-hidden="true"></span>' : "Address Actions"}
       </button>
@@ -979,6 +988,7 @@ async function toggleVisibilityRow(index, address) {
     account.hidden = [...latest];
     saveState();
     renderVisibility();
+    deps.onWatchedAddressesChanged?.();
     return;
   } else if (index <= account.maxIndex) {
     hiddenSet.delete(index);
@@ -992,6 +1002,7 @@ async function toggleVisibilityRow(index, address) {
   account.hidden = [...hiddenSet];
   saveState();
   renderVisibility();
+  deps.onWatchedAddressesChanged?.();
 }
 
 // --- Per-address screen (matches iOS ColdStorageAddressTransactionHistoryView:
@@ -2543,6 +2554,7 @@ function buildModals() {
     if (event.target.closest("[data-cold-qr-close]")) return;
     const payload = qrModal.dataset.payload;
     if (!payload) return;
+    if (qrModal.dataset.kpub === "1") { copyKpub(payload); return; }
     navigator.clipboard?.writeText(payload);
     deps.showToast?.(qrModal.dataset.copyToast || "Copied to clipboard.");
   });
@@ -2803,6 +2815,17 @@ function openQrModal(account, entry) {
   });
 }
 
+/// A kpub stays on the clipboard for 30 seconds (K 428a797b ColdStorageClipboard): it can't
+/// spend, but it hands over every address the account will ever use, so it isn't left there for
+/// whatever is pasted next. Cleared the way a copied private key is (ui/app.js).
+let kpubClipboardTimer = null;
+function copyKpub(kpub) {
+  navigator.clipboard?.writeText(kpub).catch(() => {});
+  deps.showToast?.("kpub copied. Clipboard will clear in 30s.");
+  if (kpubClipboardTimer) window.clearTimeout(kpubClipboardTimer);
+  kpubClipboardTimer = window.setTimeout(() => { navigator.clipboard?.writeText(" ").catch(() => {}); }, 30_000);
+}
+
 /// The account's extended public key as a QR, so another device can watch this account by
 /// scanning it (iOS ColdStorageKpubQRView). The warning is the one iOS prints under it: a kpub
 /// cannot spend, but handing one over hands over every address the account will ever use.
@@ -2811,6 +2834,7 @@ function openKpubQrModal(account) {
     title: account.label,
     payload: account.kpub,
     copyToast: "kpub copied to clipboard.",
+    kpub: true,
     note: "Watch-only. This cannot spend, but it reveals every address in this account.",
     // "L" where the address QR uses "M" (iOS ColdStorageKpubQRView.generateQR): a kpub is several
     // times longer, and "M" pushes it into a denser symbol that scans worse on screen.
@@ -2819,7 +2843,7 @@ function openKpubQrModal(account) {
 }
 
 /// One presenter for both QRs, so the address QR and the kpub QR cannot drift apart.
-async function presentQr({ title, payload, copyToast, note, errorCorrectionLevel = "M" }) {
+async function presentQr({ title, payload, copyToast, note, errorCorrectionLevel = "M", kpub = false }) {
   const modal = modalsEl.querySelector("[data-cold-qr-modal]");
   const canvas = modalsEl.querySelector("[data-cold-qr-canvas]");
   const noteEl = modalsEl.querySelector("[data-cold-qr-note]");
@@ -2829,6 +2853,7 @@ async function presentQr({ title, payload, copyToast, note, errorCorrectionLevel
   noteEl.hidden = !note;
   modal.dataset.payload = payload;
   modal.dataset.copyToast = copyToast;
+  modal.dataset.kpub = kpub ? "1" : "";
   modal.hidden = false;
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -3236,8 +3261,7 @@ async function handleAccountMenuAction(action, id) {
   const account = accounts.find((a) => a.id === id);
   if (!account) return;
   if (action === "copy") {
-    navigator.clipboard?.writeText(account.kpub);
-    deps.showToast?.("kpub copied to clipboard.");
+    copyKpub(account.kpub);
   } else if (action === "qr") {
     await openKpubQrModal(account);
   } else if (action === "notify") {
@@ -3246,6 +3270,8 @@ async function handleAccountMenuAction(action, id) {
     saveState();
     coldWatchedCache.fingerprint = "";
     render();
+    // the closed-app push list follows the switch (K 428a797b)
+    deps.onWatchedAddressesChanged?.();
   } else if (action === "rename") {
     await renameAccountPrompt(account);
   }
@@ -3460,13 +3486,16 @@ export async function openColdAddressHistory(address) {
 export function listColdWatchedAddresses() {
   if (!deps) return [];
   loadState();
-  const fingerprint = `${deps.engine?.address || ""}|${accounts.map((a) => `${a.id}:${a.maxIndex}`).join(",")}`;
+  const fingerprint = `${deps.engine?.address || ""}|${accounts.map((a) => `${a.id}:${a.maxIndex}:${a.hidden.join(".")}`).join(",")}`;
   if (coldWatchedCache.fingerprint === fingerprint) return coldWatchedCache.list;
   const list = [];
   for (const account of accounts) {
     try {
       const addresses = deriveReceiveAddresses(account.kpub, 0, account.maxIndex + 1);
-      addresses.forEach((address, index) => list.push({ address, index, label: account.label, notify: account.receiveNotifications !== false }));
+      // `hidden`: still ours (the self-send check), but only the addresses on screen notify
+      // (K 428a797b AddressActivityNotifier watches the visible ones).
+      const hidden = new Set(account.hidden.map(Number));
+      addresses.forEach((address, index) => list.push({ address, index, label: account.label, notify: account.receiveNotifications !== false, hidden: hidden.has(index) }));
     } catch { /* a bad kpub just contributes nothing */ }
   }
   coldWatchedCache.fingerprint = fingerprint;
@@ -3593,8 +3622,7 @@ export function initColdStorage(dependencies) {
     if (event.target.closest("[data-cold-copy-kpub]")) {
       const account = activeAccount();
       if (account) {
-        navigator.clipboard?.writeText(account.kpub);
-        deps.showToast?.("kpub copied to clipboard.");
+        copyKpub(account.kpub);
       }
       return;
     }

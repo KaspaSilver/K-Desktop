@@ -3806,26 +3806,108 @@ function removePostEverywhere(post) {
 // Panels (profile / notifications / engagement / bookmarks / muted / blocked / menu)
 // ---------------------------------------------------------------------------
 
-// newspaper, person.text.rectangle, square.and.arrow.up and rectangle.portrait.and.arrow.right:
+// newspaper, person.text.rectangle and rectangle.portrait.and.arrow.right:
 // the Profile tab's header buttons (KaChat iOS 148a5331 profileHeaderButtonLabel).
 const NEWSPAPER_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 5.5h12v13a1.5 1.5 0 0 1-1.5 1.5H6a1.5 1.5 0 0 1-1.5-1.5Z"/><path d="M16.5 9h3v9.5a1.5 1.5 0 0 1-3 0M7.5 8.5h6M7.5 11.5h6M7.5 14.5h6M7.5 17h4"/></svg>';
-const SHARE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12"/></svg>';
 const LOGOUT_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H5.75A1.75 1.75 0 0 0 4 5.75v12.5C4 19.22 4.78 20 5.75 20H10"/><path d="M14 8l4 4-4 4"/><path d="M18 12H9"/></svg>';
-/** Edit Profile, Share Profile and Log Out under your name on the Profile tab (owner's calls on
- *  iOS, 2026-11-21: Share beside Edit, and Log Out, which lived on the old Profile screen). */
+/** Edit Profile and Log Out under your name on the Profile tab (Log Out lived on the old Profile
+ *  screen). Share Profile sits beside the Profile title (K 804cbcb7, index.html). */
 function rootProfileButtonsHtml() {
   return `<span class="kaposts-profile-buttons kaposts-root-buttons">`
     + `<button class="kaposts-edit-kns" type="button" data-kaposts-edit-kns><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PANEL_ICONS.idCard}"/></svg>Edit Profile</button>`
-    + `<button class="kaposts-edit-kns" type="button" data-kaposts-share-profile>${SHARE_SVG}Share Profile</button>`
     + `<button class="kaposts-edit-kns kaposts-logout" type="button" data-kaposts-log-out>${LOGOUT_SVG}Log Out</button>`
     + `</span>`;
 }
 
-/** Which profile tab a finished swipe lands on, or null when it wasn't a sideways swipe: left
- *  goes to Replies, right back to Posts (KaChat iOS 148a5331 ProfileTabSwipe). */
-export function profileTabAfterSwipe(dx, dy) {
-  if (Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy) * 1.5) return null;
-  return dx < 0 ? "replies" : "posts";
+/** Where a profile's Posts/Replies swipe lands when the finger lets go (K 804cbcb7 / 428a797b
+ *  ProfileTabSwipe): the other tab once the posts went a quarter of the width, or a flick would
+ *  take them 60% of it; null (they settle back) otherwise, or when there's no tab that way. Left
+ *  goes to Replies, right back to Posts. */
+export function profileSwipeTarget({ dx, flung = dx, width, tab }) {
+  const next = dx < 0 ? "replies" : "posts";
+  if (!dx || next === (tab === "replies" ? "replies" : "posts")) return null;
+  return Math.abs(dx) > width * 0.25 || Math.abs(flung) > width * 0.6 ? next : null;
+}
+
+const PROFILE_SLIDE_OUT_MS = 140;
+const PROFILE_SLIDE_IN_MS = 220;
+const reducedMotion = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
+const profileListEl = () => panelBodyEl?.querySelector("[data-kaposts-panel-list]") || null;
+
+/** Puts the new tab's posts just off one side, then slides them to rest; the header stays put. */
+function slideProfileListIn(fromTrailing) {
+  const list = profileListEl();
+  if (!list || reducedMotion()) return;
+  const width = panelBodyEl.clientWidth || 390;
+  list.style.transition = "none";
+  list.style.transform = `translateX(${fromTrailing ? width : -width}px)`;
+  void list.offsetWidth; // the off-screen spot is drawn before the slide starts
+  list.style.transition = `transform ${PROFILE_SLIDE_IN_MS}ms ease-out`;
+  list.style.transform = "";
+}
+
+/** Shows a profile's other tab, sliding its posts in from the side it lies on (a tab tap too). */
+function showProfileTab(next) {
+  if (activePanel?.type !== "profile") return;
+  const current = activePanel.tab === "replies" ? "replies" : "posts";
+  if (next === current) return;
+  activePanel.tab = next;
+  renderPanel();
+  slideProfileListIn(next === "replies");
+}
+
+/** The posts follow a sideways finger (touch only; a mouse uses the tabs). An up-and-down scroll
+ *  never moves them: the direction is picked once, after 10 px. */
+function wireProfileTabSwipe(body) {
+  let drag = null;
+  const settle = (list) => {
+    if (!list) return;
+    list.style.transition = reducedMotion() ? "none" : "transform 300ms cubic-bezier(.2, .9, .3, 1)";
+    list.style.transform = "";
+  };
+  body.addEventListener("touchstart", (event) => {
+    const t = event.touches[0];
+    const list = profileListEl();
+    drag = event.touches.length === 1 && t && activePanel?.type === "profile" && list && list.contains(event.target)
+      ? { x: t.clientX, y: t.clientY, horizontal: null, list, dx: 0, lastX: t.clientX, lastAt: performance.now(), velocity: 0 }
+      : null;
+  }, { passive: true });
+  body.addEventListener("touchmove", (event) => {
+    const t = event.touches[0];
+    if (!drag || !t) return;
+    const dx = t.clientX - drag.x;
+    const dy = t.clientY - drag.y;
+    if (drag.horizontal === null) {
+      if (Math.abs(dx) <= 10 && Math.abs(dy) <= 10) return;
+      drag.horizontal = Math.abs(dx) > Math.abs(dy) * 1.2;
+    }
+    if (!drag.horizontal) return;
+    const now = performance.now();
+    if (now > drag.lastAt) drag.velocity = (t.clientX - drag.lastX) / (now - drag.lastAt);
+    drag.lastX = t.clientX;
+    drag.lastAt = now;
+    drag.dx = dx;
+    // no tab that way: the posts give a little and stop
+    const open = activePanel?.tab === "replies" ? "replies" : "posts";
+    const hasNeighbor = (dx < 0 ? "replies" : "posts") !== open;
+    drag.list.style.transition = "none";
+    drag.list.style.transform = `translateX(${hasNeighbor ? dx : dx / 4}px)`;
+  }, { passive: true });
+  const end = () => {
+    const d = drag;
+    drag = null;
+    if (!d?.horizontal || activePanel?.type !== "profile") return;
+    const width = body.clientWidth || 390;
+    const next = profileSwipeTarget({ dx: d.dx, flung: d.dx + d.velocity * 250, width, tab: activePanel.tab });
+    if (!next) { settle(d.list); return; }
+    if (reducedMotion()) { showProfileTab(next); return; }
+    // this tab slides off toward the finger's side, then the next one comes in
+    d.list.style.transition = `transform ${PROFILE_SLIDE_OUT_MS}ms ease-in`;
+    d.list.style.transform = `translateX(${d.dx < 0 ? -width : width}px)`;
+    window.setTimeout(() => showProfileTab(next), PROFILE_SLIDE_OUT_MS);
+  };
+  body.addEventListener("touchend", end, { passive: true });
+  body.addEventListener("touchcancel", () => { const d = drag; drag = null; if (d?.horizontal) settle(d.list); }, { passive: true });
 }
 
 /** Your own profile, as the Profile tab's page (not over a thread). */
@@ -5019,10 +5101,12 @@ async function pollKaPostNotificationsForPings() {
   // Counted only while the list is closed: with it open, the rows are already in front of you.
   if (activePanel?.type !== "notifications") recordUnseenKaPostsArrivals(fresh.length);
 
-  for (const { n, actorAddress } of fresh.slice(0, 5)) {
+  // One notification per new action (K 428a797b), no longer the first five of a poll.
+  for (const { n, actorAddress } of fresh) {
     const text = stripKaChatMarker(n.postContent ? (decodePostContent({ postContent: n.postContent }) || "") : "").trim();
     const target = notificationTargetTxId(n, text);
     if (activePanel?.type === "notifications" && document.hasFocus()) continue; // the screen itself is the notification
+    if (!claimKaPostsBanner(`${actorAddress}|${target || n.postId || ""}|${n.contentType || ""}|${n.voteType || ""}`)) continue;
     deps.postDesktopNotification?.({
       title: "KaPost",
       body: `${posterName(actorAddress)} ${kaPostsNotificationAction(n, text)}`,
@@ -5039,6 +5123,17 @@ async function pollKaPostNotificationsForPings() {
       },
     });
   }
+}
+
+// The same person, post and kind rings once in 15 minutes (K 428a797b KaPostsBannerLedger): a like
+// taken back and given again, or a reply deleted and re-posted, doesn't notify twice.
+const KAPOSTS_BANNER_WINDOW_MS = 15 * 60_000;
+const kaPostsBannerLedger = new Map();
+function claimKaPostsBanner(key, now = Date.now()) {
+  for (const [k, at] of kaPostsBannerLedger) if (now - at > KAPOSTS_BANNER_WINDOW_MS) kaPostsBannerLedger.delete(k);
+  if (kaPostsBannerLedger.has(key)) return false;
+  kaPostsBannerLedger.set(key, now);
+  return true;
 }
 
 /** Which post/comment a notification should open — same per-kind rule as mapNotificationRow. */
@@ -7146,26 +7241,10 @@ export function initKaPosts(dependencies) {
   panelEl = document.querySelector("[data-kaposts-panel]");
   panelTitleEl = document.querySelector("[data-kaposts-panel-title]");
   panelBodyEl = document.querySelector("[data-kaposts-panel-body]");
-  // A profile's Posts and Replies change with a sideways swipe (KaChat iOS 148a5331 ProfileTabSwipe,
-  // owner's call): wider than 1.5x its height and at least 60 px. Touch only; a mouse uses the tabs.
+  // A profile's Posts and Replies follow a sideways swipe (K 804cbcb7 ProfileTabSwipe).
   if (panelBodyEl && !panelBodyEl.dataset.profileSwipe) {
     panelBodyEl.dataset.profileSwipe = "1";
-    let start = null;
-    panelBodyEl.addEventListener("touchstart", (event) => {
-      const t = event.touches[0];
-      start = event.touches.length === 1 && t ? { x: t.clientX, y: t.clientY } : null;
-    }, { passive: true });
-    panelBodyEl.addEventListener("touchend", (event) => {
-      const t = event.changedTouches[0];
-      const from = start;
-      start = null;
-      if (!from || !t || activePanel?.type !== "profile") return;
-      const next = profileTabAfterSwipe(t.clientX - from.x, t.clientY - from.y);
-      if (next && next !== (activePanel.tab === "replies" ? "replies" : "posts")) {
-        activePanel.tab = next;
-        renderPanel();
-      }
-    }, { passive: true });
+    wireProfileTabSwipe(panelBodyEl);
   }
   if (!initKaPosts.siteCardsWired) {
     initKaPosts.siteCardsWired = true;
@@ -7588,8 +7667,8 @@ export function initKaPosts(dependencies) {
 
     const profileTab = event.target.closest("[data-kaposts-profile-tab]");
     if (profileTab && activePanel?.type === "profile") {
-      activePanel.tab = profileTab.dataset.kapostsProfileTab;
-      renderPanel();
+      // slides the same way a swipe does (K 804cbcb7)
+      showProfileTab(profileTab.dataset.kapostsProfileTab === "replies" ? "replies" : "posts");
       return;
     }
 

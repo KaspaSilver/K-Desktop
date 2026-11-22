@@ -55,7 +55,8 @@ await test("removing a cold account removes its coin labels, unless another watc
 });
 await test("the push watch list goes newest first, and only covered addresses count on push", () => {
   const app = read("ui/app.js");
-  assert.match(app, /watchOnly = \[\.\.\.ofKind\(\(kind\) => kind !== "cold"\), \.\.\.ofKind\(\(kind\) => kind === "cold"\)\];/);
+  // the kind is "cold:<account>" (fixed with K 428a797b: a plain "cold" never matched)
+  assert.match(app, /const isCold = \(kind\) => kind\.startsWith\("cold:"\);\n\s*watchOnly = \[\.\.\.ofKind\(\(kind\) => !isCold\(kind\)\), \.\.\.ofKind\(isCold\)\];/);
   assert.match(app, /pushWatchOnlyCovered = new Set\(watchOnly\.slice\(0, PUSH_LIMITS\.watchOnly\)/);
   assert.match(app, /const mayFallBack = !isChatting && !pushShowsReceive\(address\);/);
 });
