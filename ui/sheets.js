@@ -100,7 +100,7 @@ document.addEventListener("touchstart", (event) => {
   drag = { backdrop, card, x: touch.clientX, y: touch.clientY, dy: 0, t: event.timeStamp, active: false };
 }, { passive: true });
 
-document.addEventListener("touchmove", (event) => {
+function onSheetTouchMove(event) {
   if (!drag) return;
   const touch = event.touches[0];
   const dx = touch.clientX - drag.x;
@@ -115,7 +115,15 @@ document.addEventListener("touchmove", (event) => {
   event.preventDefault();
   drag.dy = Math.max(0, dy);
   drag.card.style.transform = `translateY(${drag.dy}px)`;
-}, { passive: false });
+}
+// Not passive (it stops the page scrolling under the gesture), so it is registered only where the
+// gesture exists: elsewhere (a touchscreen laptop) no scroll waits on it.
+function syncSheetTouchMoveListener() {
+  if (phoneSheets.matches) document.addEventListener("touchmove", onSheetTouchMove, { passive: false });
+  else document.removeEventListener("touchmove", onSheetTouchMove, { passive: false });
+}
+syncSheetTouchMoveListener();
+phoneSheets.addEventListener?.("change", syncSheetTouchMoveListener);
 
 function endDrag(event) {
   if (!drag) return;

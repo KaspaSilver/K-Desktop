@@ -90,4 +90,5 @@ page would break its own same-origin assets. Behind an https reverse proxy, `upg
 still adds the upgrade. Vite applies `preview.headers` to `index.html` and the static files only,
 never to the `/nc-proxy` relay middleware.
 
-The dev server (`npm run dev`) sends no CSP, so HMR and the error overlay keep working.
+The dev server (`npm run dev`) sends no CSP, so HMR and the error overlay keep working. It listens on
+this machine only; `npm run dev:lan` opens it to the local network (testing on a phone).

@@ -2988,6 +2988,9 @@ function youtubeVideoId(url) {
 
 // --- Open-Graph link previews (proxied HTML scrape, cached) ------------------
 const linkPreviewCache = new Map();
+// Bumped whenever a link's preview (or its tap-to-load approval) changes: a thread row that drew
+// a link is drawn again then, any other row is kept (threadRowCache).
+let linkPreviewStateVersion = 0;
 const linkPreviewFailCounts = new Map(); // url -> failed attempts this session   // url -> {title,description,image,site} | null (resolved)
 const linkPreviewPending = new Map(); // url -> Promise, so concurrent renders don't refetch
 let linkPreviewRerenderTimer = null;
@@ -3094,6 +3097,7 @@ function resolveLinkPreview(url) {
   const fetcher = ytId ? fetchYouTubeMeta(url, ytId) : fetchOpenGraph(url);
   const p = fetcher.catch(() => null).then((data) => {
     linkPreviewCache.set(url, data || null);
+    linkPreviewStateVersion += 1;
     linkPreviewPending.delete(url);
     // A failed scrape is NOT cached forever: a transient proxy/network hiccup right
     // when a link is SENT would otherwise permanently kill its preview card while
@@ -3106,7 +3110,7 @@ function resolveLinkPreview(url) {
       // dead link used to re-fetch (and rebuild the whole thread) every 30 seconds forever.
       if (attempts < 3) {
         window.setTimeout(() => {
-          if (linkPreviewCache.get(url) === null) linkPreviewCache.delete(url);
+          if (linkPreviewCache.get(url) === null) { linkPreviewCache.delete(url); linkPreviewStateVersion += 1; }
         }, 30000);
       }
     }
@@ -3132,18 +3136,15 @@ function scheduleActiveThreadRerender() {
 }
 
 // Rich card: thumbnail (optional) + site + title + description, linking out.
-const PROXIED_IMAGE_HOST_RE = /(^|\.)(cdninstagram\.com|fbcdn\.net|instagram\.com|facebook\.com)$/i;
 const previewImageBlobs = new Map(); // image url -> blob: url, so re-renders do not refetch
 async function loadPreviewImage(img, imageUrl, pageUrl) {
   let host = "";
-  let insecure = false;
-  try { const parsed = new URL(imageUrl); host = parsed.hostname; insecure = parsed.protocol === "http:"; } catch { host = ""; }
-  // A plain-http og:image on an https page is passive mixed content: the browser shows it and
-  // marks the whole tab "Not secure" for it. Those go through the same-origin relay instead
-  // (the page's CSP upgrades whatever is left to https, which a host without TLS cannot serve).
-  const mixed = insecure && typeof location !== "undefined" && location.protocol === "https:";
-  if (!PROXIED_IMAGE_HOST_RE.test(host) && !mixed) { img.src = imageUrl; return; }
+  try { host = new URL(imageUrl).hostname; } catch { host = ""; }
+  if (!host) { img.remove(); return; }
   if (previewImageBlobs.has(imageUrl)) { img.src = previewImageBlobs.get(imageUrl); return; }
+  // Every preview image comes through the same-origin relay (audit 2026-11-22): loaded straight
+  // from a link a contact sent, the image's server would learn the reader's IP address the moment
+  // the card drew, before anything was tapped. Only a KaChat run without a relay loads it directly.
   if (!(await isProxyAvailable())) { img.src = imageUrl; return; }
   const attempt = async (headers) => {
     const res = await fetch(proxiedUrl(imageUrl), { headers });
@@ -3357,6 +3358,7 @@ function buildTapToLoadCard(url, conversationEntry, onApproved = null) {
   card.addEventListener("click", (event) => {
     event.stopPropagation();
     approvedPreviewUrls.add(url);
+    linkPreviewStateVersion += 1;
     if (onApproved) onApproved();
     else renderMessages(conversationEntry);
   });
@@ -13496,7 +13498,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 318;
+const APP_BUILD = 319;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -18795,6 +18797,39 @@ function retryOneToOneParts(conversationId, cluster) {
   sendOneToOnePartsInOrder(conversationId, failed);
 }
 
+// The open 1:1 thread's rows from the last render, so a render (every sync poll, preview, reaction)
+// rebuilds only the rows whose message or surroundings changed and keeps the rest - their images,
+// voice players and link cards included - exactly as they are (audit 2026-11-22).
+let threadRowCache = { entry: null, context: "", rows: new Map(), days: new Map() };
+/** A message's own fields as a row was drawn from them; object fields (an edit) by value. */
+function threadRowFields(message) {
+  const fields = {};
+  for (const key of Object.keys(message)) {
+    const value = message[key];
+    fields[key] = value !== null && typeof value === "object" ? JSON.stringify(value) : value;
+  }
+  return fields;
+}
+function sameThreadRowFields(a, message) {
+  const keys = Object.keys(message);
+  if (keys.length !== Object.keys(a).length) return false;
+  for (const key of keys) {
+    const value = message[key];
+    if ((value !== null && typeof value === "object" ? JSON.stringify(value) : value) !== a[key]) return false;
+  }
+  return true;
+}
+/** Puts `nodes` into `container` in order, moving only what is out of place and removing the rest. */
+function reconcileChildren(container, nodes) {
+  const keep = new Set(nodes);
+  for (const child of [...container.childNodes]) if (!keep.has(child)) child.remove();
+  let cursor = container.firstChild;
+  for (const node of nodes) {
+    if (node === cursor) { cursor = cursor.nextSibling; continue; }
+    container.insertBefore(node, cursor);
+  }
+}
+
 function renderMessages(conversationEntry) {
   // The header's name and bio were written just before this; re-measure so the thread's top inset
   // matches whatever height they came out at.
@@ -18820,7 +18855,7 @@ function renderMessages(conversationEntry) {
   const isThreadSwitch = messageArea.dataset.renderedConversationId !== String(conversationEntry.id);
   const wasNearBottom = messageArea.scrollHeight - messageArea.scrollTop - messageArea.clientHeight < 120;
   const previousScrollTop = messageArea.scrollTop;
-  messageArea.innerHTML = "";
+  const nodes = [];
 
   const requestContact = contactForConversation(conversationEntry);
   // Every path that changes the relationship (incoming sync, accept/decline, our
@@ -18835,7 +18870,7 @@ function renderMessages(conversationEntry) {
   // is just the first line of a Message Request, accepted or rejected from its bar.
 
   if (messages.length === 0) {
-    messageArea.appendChild(messageEmpty);
+    messageArea.replaceChildren(messageEmpty);
     messageEmpty.hidden = false;
     syncBotChatPrompt();
     return;
@@ -18862,7 +18897,7 @@ function renderMessages(conversationEntry) {
   const windowed = hiddenCount ? messages.slice(hiddenCount) : messages;
   messageArea.dataset.hiddenCount = String(hiddenCount);
   if (hiddenCount) {
-    messageArea.appendChild(buildLoadEarlierButton(hiddenCount, () => extendMessageWindow(messageArea, windowKey, () => renderMessages(conversationEntry))));
+    nodes.push(buildLoadEarlierButton(hiddenCount, () => extendMessageWindow(messageArea, windowKey, () => renderMessages(conversationEntry))));
   }
 
   // Looked up once per render, not once per message: the same two faces and one name repeat on
@@ -18870,14 +18905,46 @@ function renderMessages(conversationEntry) {
   const peerAvatarHtml = requestContact ? avatarHtmlFor(requestContact, "message-avatar") : "";
   const ownAvatarHtml = selfAvatarHtml("message-avatar");
   const peerName = displayNameForAddress(requestContact) || shortAddress(requestContact?.address || "");
+  // What every row is drawn with besides its own message: when any of it changes, every row is
+  // drawn again. ("Today" moves at midnight, so the date is in it too.)
+  const rowContext = JSON.stringify([
+    messageSelectionMode, peerAvatarHtml, ownAvatarHtml, peerName, Boolean(requestContact),
+    isAcceptedContact(requestContact, conversationEntry), photosAreHidden(photosUnlockAt), engine.address || "",
+    new Date().toDateString(),
+  ]);
+  if (threadRowCache.entry !== conversationEntry || threadRowCache.context !== rowContext) {
+    threadRowCache = { entry: conversationEntry, context: rowContext, rows: new Map(), days: new Map() };
+  }
+  const keptRows = new Map();
+  const keptDays = new Map();
   let lastDayKey = "";
   windowed.forEach((message, index) => {
     // "Today"/"Yesterday"/date pill whenever the calendar day changes (iOS parity).
     const dayKey = new Date(Number(message.createdAt) || Date.now()).toDateString();
     if (dayKey !== lastDayKey) {
       lastDayKey = dayKey;
-      messageArea.appendChild(buildDaySeparatorElement(message.createdAt));
+      const separator = threadRowCache.days.get(dayKey) || buildDaySeparatorElement(message.createdAt);
+      keptDays.set(dayKey, separator);
+      nodes.push(separator);
     }
+
+    // The row from the last render, when nothing it was drawn from has changed. A chess row reads
+    // the whole game and a failed one of yours its retry, so those are always drawn afresh.
+    const rowCluster = partsInfo.clusters.get(message.id);
+    const rowExtras = JSON.stringify([
+      selectedMessageIds.has(message.id),
+      conversationEntry.reactionsByTxId?.[message.txid || message.id] || null,
+      localReactionStatusFor(`dm|${message.txid || message.id}|`) || null,
+      rowCluster ? [rowCluster.kind, rowCluster.status, rowCluster.isComplete, rowCluster.count, rowCluster.members.map((m) => `${m.id}:${m.status}`)] : null,
+    ]);
+    const cachedRow = threadRowCache.rows.get(message.id);
+    if (cachedRow && cachedRow.extras === rowExtras && sameThreadRowFields(cachedRow.fields, message)
+      && (cachedRow.linkVersion === null || cachedRow.linkVersion === linkPreviewStateVersion)) {
+      keptRows.set(message.id, cachedRow);
+      nodes.push(cachedRow.node);
+      return;
+    }
+    let rowHasLinks = false;
 
     const row = document.createElement("div");
     row.className = `message-row ${message.direction === "incoming" ? "incoming" : "local"}`;
@@ -19066,6 +19133,7 @@ function renderMessages(conversationEntry) {
       const bodyText = isLongMessage ? `${String(fullBodyText).slice(0, LONG_MESSAGE_PREVIEW_CHARS)}…` : fullBodyText;
       if (!isLongMessage && isSingleEmojiOnlyMessage(bodyText)) bubble.classList.add("emoji-only");
       const linkUrls = renderTextWithMentions(text, bodyText);
+      rowHasLinks = linkUrls.length > 0;
       if (isLongMessage) {
         const more = document.createElement("button");
         more.type = "button";
@@ -19083,6 +19151,7 @@ function renderMessages(conversationEntry) {
       // An in-app link (KaPosts post, broadcast room) previews as a native card and opens the
       // target screen; it is never scraped like a stranger's URL (iOS KaChatInternalLink).
       const internalLink = firstInternalLinkIn(bodyText);
+      if (internalLink) rowHasLinks = true;
       const previewable = internalLink ? null : linkUrls.find(isPreviewableUrl);
       // Only an accepted contact's links fetch on render. A stranger's link renders as a neutral
       // "Tap to load preview" card and only touches the link's server when you tap it; your own
@@ -19184,8 +19253,21 @@ function renderMessages(conversationEntry) {
       failedReaction: localReaction?.status === "failed" ? localReaction : null,
     }));
     row.append(selector, avatarSlot, stack);
-    messageArea.appendChild(row);
+    nodes.push(row);
+    // Kept for the next render unless it is still loading something (it is drawn again when that
+    // lands) or reads more than its own message (chess, a failed send's retry).
+    if (!chessEnv && !retryable && !row.querySelector(".composer-field-spinner, .voice-player.loading, .payment-resolving")) {
+      keptRows.set(message.id, {
+        fields: threadRowFields(message),
+        extras: rowExtras,
+        linkVersion: rowHasLinks ? linkPreviewStateVersion : null,
+        node: row,
+      });
+    }
   });
+  threadRowCache.rows = keptRows;
+  threadRowCache.days = keptDays;
+  reconcileChildren(messageArea, nodes);
 
   messageArea.dataset.renderedConversationId = String(conversationEntry.id);
   // Sending your own message always snaps down, even from deep in history.
@@ -32647,11 +32729,17 @@ function flushGroupMsgAll() {
   if (!groupMsgAllCache) return;
   try { localStorage.setItem(GROUP_MSG_KEY, JSON.stringify(groupMsgAllCache)); } catch {}
 }
+// Every group's messages are one stored value, so each save writes all of them: a busy group's
+// burst of messages is gathered into one write every 1.5 s (audit 2026-11-22; it was 0.3 s), and
+// anything waiting is written at once when the app is hidden or closed.
+const GROUP_MSG_SAVE_DELAY_MS = 1500;
 function saveGroupMsgAll(all) {
   groupMsgAllCache = all;
-  if (!groupMsgSaveTimer) groupMsgSaveTimer = window.setTimeout(flushGroupMsgAll, 300);
+  if (!groupMsgSaveTimer) groupMsgSaveTimer = window.setTimeout(flushGroupMsgAll, GROUP_MSG_SAVE_DELAY_MS);
 }
-window.addEventListener("pagehide", () => { if (groupMsgSaveTimer) { window.clearTimeout(groupMsgSaveTimer); flushGroupMsgAll(); } });
+function flushPendingGroupMsgAll() { if (groupMsgSaveTimer) { window.clearTimeout(groupMsgSaveTimer); flushGroupMsgAll(); } }
+window.addEventListener("pagehide", flushPendingGroupMsgAll);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushPendingGroupMsgAll(); });
 /// System lines - "X was added", a photo or name change - last ten minutes.
 ///
 /// They exist to tell you what just happened, and after that they are clutter in a thread you
@@ -34312,6 +34400,9 @@ if (typeof ResizeObserver === "function") {
 }
 window.addEventListener("resize", syncChatHeaderInsets);
 
+// The open group thread's rows from the last render, as threadRowCache keeps the 1:1 thread's.
+let groupRowCache = { groupId: null, context: "", rows: new Map(), days: new Map() };
+
 function renderGroupMessages() {
   if (!activeGroupId || !groupMessageArea) return;
   syncChatHeaderInsets();
@@ -34332,13 +34423,15 @@ function renderGroupMessages() {
   const isThreadSwitch = groupMessageArea.dataset.renderedGroupId !== String(activeGroupId);
   const wasNearBottom = groupMessageArea.scrollHeight - groupMessageArea.scrollTop - groupMessageArea.clientHeight < 120;
   const previousScrollTop = groupMessageArea.scrollTop;
-  groupMessageArea.innerHTML = "";
+  const nodes = [];
   if (!msgs.length) {
     if (groupMessageEmpty) {
       // An empty group is just empty (iOS shows no placeholder text).
       groupMessageEmpty.hidden = false;
       groupMessageEmpty.textContent = "";
-      groupMessageArea.appendChild(groupMessageEmpty);
+      groupMessageArea.replaceChildren(groupMessageEmpty);
+    } else {
+      groupMessageArea.replaceChildren();
     }
     return;
   }
@@ -34348,20 +34441,32 @@ function renderGroupMessages() {
   const windowed = groupHiddenCount ? msgs.slice(groupHiddenCount) : msgs;
   groupMessageArea.dataset.hiddenCount = String(groupHiddenCount);
   if (groupHiddenCount) {
-    groupMessageArea.appendChild(buildLoadEarlierButton(groupHiddenCount, () => extendMessageWindow(groupMessageArea, groupWindowKey, renderGroupMessages)));
+    nodes.push(buildLoadEarlierButton(groupHiddenCount, () => extendMessageWindow(groupMessageArea, groupWindowKey, renderGroupMessages)));
   }
+  // What every row is drawn with besides its own message (see renderMessages).
+  const ownGroupAvatarHtml = selfAvatarHtml("message-avatar");
+  const rowContext = JSON.stringify([groupSelectionMode, ownGroupAvatarHtml, engine.address || "", new Date().toDateString()]);
+  if (groupRowCache.groupId !== activeGroupId || groupRowCache.context !== rowContext) {
+    groupRowCache = { groupId: activeGroupId, context: rowContext, rows: new Map(), days: new Map() };
+  }
+  const keptRows = new Map();
+  const keptDays = new Map();
   let lastDayKey = "";
   windowed.forEach((message, index) => {
     // Day separator when the calendar day changes.
     const dayKey = new Date(Number(message.createdAt) || Date.now()).toDateString();
     if (dayKey !== lastDayKey) {
       lastDayKey = dayKey;
-      const sep = document.createElement("div");
-      sep.className = "message-day-separator";
-      const pill = document.createElement("span");
-      pill.textContent = groupDaySeparatorLabel(message.createdAt);
-      sep.append(pill);
-      groupMessageArea.appendChild(sep);
+      let sep = groupRowCache.days.get(dayKey);
+      if (!sep) {
+        sep = document.createElement("div");
+        sep.className = "message-day-separator";
+        const pill = document.createElement("span");
+        pill.textContent = groupDaySeparatorLabel(message.createdAt);
+        sep.append(pill);
+      }
+      keptDays.set(dayKey, sep);
+      nodes.push(sep);
     }
 
     // iMessage-style membership line — centered, no bubble/avatar.
@@ -34369,9 +34474,39 @@ function renderGroupMessages() {
       const sysRow = document.createElement("div");
       sysRow.className = "group-system-line";
       sysRow.textContent = message.text || "";
-      groupMessageArea.appendChild(sysRow);
+      nodes.push(sysRow);
       return;
     }
+
+    // The row from the last render, when nothing it was drawn from has changed: its message, its
+    // shown text (an edit), the sender's name and face, its reactions, selection and parts. A failed
+    // send of yours carries its retry, so it is always drawn afresh.
+    const rowKey = groupMsgKey(message);
+    const rowCluster = groupParts.clusters.get(rowKey);
+    const rowIncoming = message.direction === "incoming";
+    const rowShown = groupMessageContent(activeGroupId, message);
+    const rowSenderContact = rowIncoming ? state.contacts.find((c) => c.address === message.senderAddress) : null;
+    const rowExtras = JSON.stringify([
+      rowKey,
+      groupEditFor(activeGroupId, rowKey) || null,
+      rowIncoming ? groupSenderLabel(message.senderAddress) : "",
+      Boolean(rowSenderContact && isAcceptedContact(rowSenderContact)),
+      selectedGroupMessageKeys.has(rowKey),
+      groupReactionsFor(activeGroupId, rowKey),
+      localReactionStatusFor(`grp|${rowKey}|`) || null,
+      rowCluster ? [rowCluster.kind, rowCluster.status, rowCluster.isComplete, rowCluster.count, rowCluster.members.map((m) => `${groupMsgKey(m)}:${m.status}`)] : null,
+    ]);
+    const rowAvatar = rowIncoming ? memberAvatarHtml(message.senderAddress, "message-avatar") : ownGroupAvatarHtml;
+    const cachedRow = groupRowCache.rows.get(rowKey);
+    if (cachedRow && cachedRow.extras === rowExtras && cachedRow.shown === rowShown && cachedRow.avatar === rowAvatar
+      && sameThreadRowFields(cachedRow.fields, message)
+      && (cachedRow.linkVersion === null || cachedRow.linkVersion === linkPreviewStateVersion)
+      && (!cachedRow.replyToSender || groupSenderLabel(cachedRow.replyToSender) === cachedRow.replyLabel)) {
+      keptRows.set(rowKey, cachedRow);
+      nodes.push(cachedRow.node);
+      return;
+    }
+    let rowHasLinks = false;
 
     const incoming = message.direction === "incoming";
     const row = document.createElement("div");
@@ -34398,17 +34533,17 @@ function renderGroupMessages() {
     senderCaption.textContent = incoming ? groupSenderLabel(message.senderAddress) : "You";
 
     if (incoming) {
-      avatarSlot.innerHTML = memberAvatarHtml(message.senderAddress, "message-avatar");
+      avatarSlot.innerHTML = rowAvatar;
       avatarSlot.classList.add("group-avatar-clickable");
       avatarSlot.addEventListener("click", (event) => { event.stopPropagation(); openGroupMemberMenu(message.senderAddress, event.clientX, event.clientY); });
     } else {
-      avatarSlot.innerHTML = selfAvatarHtml("message-avatar");
+      avatarSlot.innerHTML = rowAvatar;
       avatarSlot.classList.add("group-avatar-clickable");
       avatarSlot.addEventListener("click", (event) => { event.stopPropagation(); openGroupMemberMenu(engine.address, event.clientX, event.clientY); });
     }
 
     // Rich content — same envelopes (reply / photo / voice) as 1:1, shared with iOS/Android.
-    const shownContent = groupMessageContent(activeGroupId, message);
+    const shownContent = rowShown;
     const storedEdit = groupEditFor(activeGroupId, groupMsgKey(message));
     const groupEdit = storedEdit && storedEdit.editor === message.senderAddress && isEditableContent(message.text) ? storedEdit : null;
     const imageEnvelope = parseImageEnvelope(shownContent);
@@ -34458,6 +34593,7 @@ function renderGroupMessages() {
       const bodyText = replyEnvelope ? replyEnvelope.text : shownContent;
       const linkUrls = renderTextWithMentions(text, bodyText);
       const internalLink = firstInternalLinkIn(bodyText);
+      rowHasLinks = Boolean(internalLink) || (linkUrls || []).length > 0;
       const previewable = internalLink ? null : (linkUrls || []).find(isPreviewableUrl);
       // The 1:1 rule (iOS 680cff3): your own messages and senders you have accepted as contacts
       // auto-load; anyone else's preview waits for a tap, so their server never learns your IP.
@@ -34552,8 +34688,24 @@ function renderGroupMessages() {
       failedReaction: localReaction?.status === "failed" ? localReaction : null,
     }));
     row.append(selector, avatarSlot, stack);
-    groupMessageArea.appendChild(row);
+    nodes.push(row);
+    const failedOwn = !incoming && (message.status === MESSAGE_STATUSES.FAILED || rowCluster?.status === "failed");
+    if (!failedOwn && !row.querySelector(".composer-field-spinner, .voice-player.loading")) {
+      keptRows.set(rowKey, {
+        fields: threadRowFields(message),
+        extras: rowExtras,
+        shown: rowShown,
+        avatar: rowAvatar,
+        replyToSender: replyEnvelope?.replyToSender && replyEnvelope.replyToSender !== engine.address ? replyEnvelope.replyToSender : "",
+        replyLabel: replyEnvelope?.replyToSender && replyEnvelope.replyToSender !== engine.address ? groupSenderLabel(replyEnvelope.replyToSender) : "",
+        linkVersion: rowHasLinks ? linkPreviewStateVersion : null,
+        node: row,
+      });
+    }
   });
+  groupRowCache.rows = keptRows;
+  groupRowCache.days = keptDays;
+  reconcileChildren(groupMessageArea, nodes);
   groupMessageArea.dataset.renderedGroupId = String(activeGroupId);
   const lastGroupMessage = msgs[msgs.length - 1];
   // Same rule as 1:1 (see renderMessages): only this device's own optimistic send returns

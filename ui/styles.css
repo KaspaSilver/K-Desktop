@@ -12036,7 +12036,10 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
 .portfolio-card,
 .portfolio-square,
 .kaposts-rail-post,
-.cold-action-row {
+.cold-action-row,
+.profile-card,
+.portfolio-hashrate-card,
+.action-tile {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }

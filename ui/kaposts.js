@@ -2179,6 +2179,57 @@ const FEED_EMPTY_STATES = {
   },
 };
 
+/** The HTML each feed cell was drawn from: a redraw replaces only the cells whose HTML changed. */
+let feedCellHtml = new WeakMap();
+const feedCellTemplate = typeof document !== "undefined" ? document.createElement("template") : null;
+function feedCellNode(html) {
+  feedCellTemplate.innerHTML = html;
+  const node = feedCellTemplate.content.firstElementChild;
+  if (node) feedCellHtml.set(node, html);
+  return node;
+}
+
+/**
+ * Brings the feed already on screen to `cells` ([post id, cell HTML], in order) by touching only
+ * what changed: a like, a countdown tick or a name that resolved redraws its own post, not every
+ * post on the page, so images, videos and link cards already loaded stay as they are and the scroll
+ * position never moves. Returns false (the caller rewrites the feed) when the feed holds something
+ * else (the empty state) or a post id twice.
+ */
+function patchFeedCells(cells) {
+  if (!feedCellTemplate || renderedFeedIds.size === 0) return false;
+  const ids = new Set(cells.map(([id]) => id));
+  if (ids.size !== cells.length) return false;
+  const onScreen = new Map();
+  for (const child of feedEl.children) {
+    if (child.matches("article.kaposts-cell[data-kaposts-post]")) onScreen.set(child.dataset.kapostsPost, child);
+    else if (!child.matches(".kaposts-new-pill-holder, [data-kaposts-sentinel]")) return false;
+  }
+  // the new-posts pill, at the top
+  const pillHtml = newPostsPillHtml();
+  const pill = feedEl.querySelector(":scope > .kaposts-new-pill-holder");
+  if (pill && feedCellHtml.get(pill) !== pillHtml) pill.remove();
+  if (pillHtml && !(pill?.isConnected)) {
+    const node = feedCellNode(pillHtml);
+    if (node) feedEl.prepend(node);
+  }
+  for (const [id, node] of onScreen) if (!ids.has(id)) node.remove();
+  let before = feedEl.querySelector(":scope > .kaposts-new-pill-holder");
+  for (const [id, html] of cells) {
+    let node = onScreen.get(id);
+    if (!node || feedCellHtml.get(node) !== html) {
+      const fresh = feedCellNode(html);
+      if (!fresh) return false;
+      if (node) node.replaceWith(fresh);
+      node = fresh;
+    }
+    const want = before ? before.nextElementSibling : feedEl.firstElementChild;
+    if (want !== node) feedEl.insertBefore(node, want);
+    before = node;
+  }
+  return true;
+}
+
 /**
  * Full repaint. Keeps the scroll position by default — a like or a countdown tick calls
  * renderAll(), and with hundreds of paged-in rows a rewrite that jumped to the top would be
@@ -2207,8 +2258,16 @@ function renderFeed({ resetScroll = false } = {}) {
       ${canLoadOlder ? `<button class="kaposts-load-older" type="button" data-kaposts-load-older>Load older posts</button>` : ""}
       ${loading ? `<div class="kaposts-empty-loading"><span class="kaposts-pager-spinner" aria-label="Loading"></span></div>` : ""}`;
   } else {
+    const cells = posts.map((post) => [post.id, postCellHtml(post)]);
+    if (!patchFeedCells(cells)) {
+      feedEl.innerHTML = newPostsPillHtml() + cells.map(([, html]) => html).join("");
+      const htmlById = new Map(cells);
+      for (const cell of feedEl.querySelectorAll(":scope > article.kaposts-cell[data-kaposts-post]")) {
+        const html = htmlById.get(cell.dataset.kapostsPost);
+        if (html !== undefined) feedCellHtml.set(cell, html);
+      }
+    }
     renderedFeedIds = new Set(posts.map((post) => post.id));
-    feedEl.innerHTML = newPostsPillHtml() + posts.map((post) => postCellHtml(post)).join("");
     // The footer: "Loading more..." while a page (page one included) is in flight, the failure
     // with "Tap to retry", or the sentinel that pulls the next page (iOS KaPostsLoadMoreFooter).
     mountPagerSentinel("feed", feedEl, feedPager, loadMoreFeed);
@@ -2234,10 +2293,11 @@ function appendFeedRows() {
   const ordered = activeFeedTab === "popular"
     ? [...posts].sort((a, b) => engagementScore(b) - engagementScore(a))
     : posts;
-  const html = ordered.map((post) => postCellHtml(post)).join("");
   const sentinel = feedEl.querySelector('[data-kaposts-sentinel="feed"]');
-  if (sentinel) sentinel.insertAdjacentHTML("beforebegin", html);
-  else feedEl.insertAdjacentHTML("beforeend", html);
+  for (const post of ordered) {
+    const node = feedCellNode(postCellHtml(post));
+    if (node) feedEl.insertBefore(node, sentinel || null);
+  }
   for (const post of ordered) renderedFeedIds.add(post.id);
   return ordered.length;
 }

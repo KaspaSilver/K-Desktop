@@ -78,7 +78,7 @@ document.addEventListener("touchstart", (event) => {
   swipe = { button, x: touch.clientX, y: touch.clientY, dx: 0, active: false };
 }, { passive: true });
 
-document.addEventListener("touchmove", (event) => {
+function onEdgeTouchMove(event) {
   if (!swipe) return;
   const touch = event.touches[0];
   const dx = touch.clientX - swipe.x;
@@ -92,7 +92,15 @@ document.addEventListener("touchmove", (event) => {
   event.preventDefault();
   swipe.dx = Math.max(0, dx);
   showIndicator(swipe.dx, touch.clientY, swipe.dx >= TRIGGER_PX);
-}, { passive: false });
+}
+// Not passive (it stops the page scrolling under the gesture), so it is registered only where the
+// gesture exists: elsewhere (a touchscreen laptop) no scroll waits on it.
+function syncEdgeTouchMoveListener() {
+  if (phone.matches) document.addEventListener("touchmove", onEdgeTouchMove, { passive: false });
+  else document.removeEventListener("touchmove", onEdgeTouchMove, { passive: false });
+}
+syncEdgeTouchMoveListener();
+phone.addEventListener?.("change", syncEdgeTouchMoveListener);
 
 function endSwipe() {
   if (!swipe) return;

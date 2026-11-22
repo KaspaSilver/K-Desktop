@@ -5,7 +5,8 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "bash tools/check-wasm.sh && vite --host 0.0.0.0",
+    "dev": "bash tools/check-wasm.sh && vite",
+    "dev:lan": "bash tools/check-wasm.sh && vite --host 0.0.0.0",
     "setup:wasm": "bash tools/build-kaspa-wasm.sh",
     "setup:cipher": "bash tools/setup-kasia-cipher.sh",
     "setup:all": "npm run setup:wasm && npm run setup:cipher",
@@ -19,7 +20,6 @@
     "@noble/ciphers": "^2.3.0",
     "@noble/curves": "^2.3.0",
     "@noble/hashes": "^2.3.0",
-    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "jsqr": "^1.4.0",
     "qrcode": "^1.5.4",
     "vite": "^8.3.8"
