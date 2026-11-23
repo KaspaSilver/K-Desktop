@@ -1881,11 +1881,13 @@ export class KaspaEngine {
     });
   }
 
-  /** Every saved-handshake note of this wallet, from the indexer: { stashes, complete }. */
-  async fetchSavedHandshakeNotes() {
+  /** This wallet's saved-handshake notes from the indexer, from `startBlockTime` (0: every one):
+   *  { stashes, complete }. */
+  async fetchSavedHandshakeNotes({ startBlockTime = 0 } = {}) {
     this.requireWallet();
     if (!this.isKasiaCipherLoaded()) await this.loadKasiaCipher();
     return fetchSavedHandshakeNotes({
+      startBlockTime,
       walletAddress: this.address,
       privateKeyHex: this.privateKeyHex,
       indexerUrl: getEndpoint("kasiaIndexer"),

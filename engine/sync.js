@@ -982,7 +982,7 @@ async function fetchSelfStashTransactionsFromChain({ walletAddress, cursor = 0, 
  * the COMPLETE read-back a contact note may be written after (MESSAGING.md §4): `complete` is
  * true only when the paging ran to its end, so a partial answer never licenses a duplicate.
  */
-export async function fetchSavedHandshakeNotes({ walletAddress, privateKeyHex, decryptMessage, indexerUrl, limit = 50, maxPages = 200 } = {}) {
+export async function fetchSavedHandshakeNotes({ walletAddress, privateKeyHex, decryptMessage, indexerUrl, startBlockTime = 0, limit = 50, maxPages = 200 } = {}) {
   if (!walletAddress?.startsWith(ADDRESS_PREFIX)) throw new Error("Load a wallet before reading saved contacts.");
   if (!privateKeyHex) throw new Error("The active private key is required to decrypt saved contacts.");
   if (typeof decryptMessage !== "function") throw new Error("Kasia cipher decryptor is unavailable.");
@@ -990,12 +990,13 @@ export async function fetchSavedHandshakeNotes({ walletAddress, privateKeyHex, d
   const scopeHex = Array.from(new TextEncoder().encode("saved_handshake"), (b) => b.toString(16).padStart(2, "0")).join("");
   const seen = new Set();
   const stashes = [];
-  let blockTime = 0;
+  const since = Math.max(0, Number(startBlockTime) || 0);
+  let blockTime = since;
   let complete = false;
   let rowCount = 0;
   // Indexer down: the same rows, read from this wallet's own history (iOS chainSelfStash).
   if (shouldSkipIndexer(baseUrl)) {
-    for (const row of await chainHistory.selfStashRows({ owner: walletAddress, scope: "saved_handshake" })) {
+    for (const row of await chainHistory.selfStashRows({ owner: walletAddress, scope: "saved_handshake", since })) {
       rowCount += 1;
       for (const candidate of selfStashEncryptedCandidates(row.stashed_data)) {
         try {

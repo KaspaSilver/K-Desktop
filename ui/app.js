@@ -616,8 +616,17 @@ const CONTACT_STASH_KEY = "kachat-contact-stash-v1";
 const CONTACT_STASH_MAX_PER_FLUSH = 3;
 let contactStashState = null;        // { wallet, known: Set, complete, pending: [address] }
 let contactStashFlushing = false;
-let contactNotesReadBackFor = null;  // the wallet this session already read back for
+let contactNotesReadBackFor = null;  // the wallet this session already read back for in full
 let contactNotesRetryAt = 0;         // after a failed read-back, not before this time
+// After the full read, new notes are looked for while the app runs, as K does on every sync (iOS
+// fetchSavedHandshakes): a chat you start on another device is found here without a reload.
+const CONTACT_NOTES_RECHECK_MS = 60_000;          // a look for notes newer than the last one seen
+const CONTACT_NOTES_FULL_RESCAN_MS = 24 * 60 * 60_000; // and a full read once a day
+const CONTACT_NOTES_REWIND_MS = 10 * 60_000;      // reread a little before it (late indexing)
+let contactNotesHighWater = 0;       // the newest note's block time, for this session's wallet
+let contactNotesCheckedAt = 0;       // when notes were last read
+let contactNotesFullAt = 0;          // when they were last read in full
+let contactNotesInFlight = false;
 let contactStashRetryAt = 0;         // after a failed note send, the queue waits until then
 let contactStashFailures = 0;        // consecutive failed note sends (backoff exponent)
 // Everything with a block time before this instant is history, whatever sweep happens to
@@ -8142,7 +8151,7 @@ async function refreshAllConversations({ quiet = true } = {}) {
     // Saved contacts are read back now, beside the handshakes (iOS's handshake bootstrap), not
     // after a first sweep that on a big imported account takes minutes: the chats they bring back
     // join the next sweep. Not awaited - it pages the whole history.
-    if (contactNotesReadBackFor !== (engine.address || "") && Date.now() >= contactNotesRetryAt) readBackContactNotes().catch(() => {});
+    if (contactNotesReadDue()) readBackContactNotes().catch(() => {});
     // Chats a past payment is the only proof of: once per wallet, alongside (see the function).
     restoreChatsFromPaymentHistory().catch(() => {});
     // People writing to us for the first time, without a handshake (Message Requests).
@@ -8199,8 +8208,9 @@ async function refreshAllConversations({ quiet = true } = {}) {
     // Read by the self-scheduling sweep loop: a failing indexer doubles the pause up to a
     // minute, a success snaps it back (this used to sit after the return and never ran).
     lastSweepFailed = sweepFailures > 0;
-    // Saved contacts: read back once per session after the first sweep, then drain what is queued.
-    if (contactNotesReadBackFor !== (engine.address || "") && Date.now() >= contactNotesRetryAt) readBackContactNotes().catch(() => {});
+    // Saved contacts: read back in full once per session, then looked at again for new ones; in
+    // between, drain what is queued.
+    if (contactNotesReadDue()) readBackContactNotes().catch(() => {});
     else if (contactStash().pending.length) flushContactStashQueue().catch(() => {});
   }
 }
@@ -13587,7 +13597,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 323;
+const APP_BUILD = 324;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -22045,16 +22055,34 @@ function backfillContactStashes() {
 }
 /** Once per session per wallet: read every note back, bring back the chats a fresh import could
  *  not otherwise find, record which contacts have notes, then write the missing ones. */
+/** Whether the sweep should read saved contact notes now: in full the first time for this wallet
+ *  (and once a day), otherwise just the new ones once a minute. */
+function contactNotesReadDue(now = Date.now()) {
+  const wallet = engine.address || "";
+  if (!wallet || contactNotesInFlight || now < contactNotesRetryAt) return false;
+  if (contactNotesReadBackFor !== wallet) return true;
+  return now - contactNotesCheckedAt >= CONTACT_NOTES_RECHECK_MS;
+}
+
 async function readBackContactNotes() {
   const wallet = engine.address || "";
-  if (!wallet || contactNotesReadBackFor === wallet) return;
+  if (!wallet || contactNotesInFlight) return;
+  // The first read for this wallet in this session is in full, and again once a day; the rest
+  // start a little before the newest note already seen.
+  const full = contactNotesReadBackFor !== wallet || Date.now() - contactNotesFullAt >= CONTACT_NOTES_FULL_RESCAN_MS;
+  if (full && contactNotesReadBackFor !== wallet) contactNotesHighWater = 0;
+  const startBlockTime = full ? 0 : Math.max(0, contactNotesHighWater - CONTACT_NOTES_REWIND_MS);
   contactNotesReadBackFor = wallet;
+  contactNotesInFlight = true;
+  contactNotesCheckedAt = Date.now();
   try {
-    const { stashes, complete } = await engine.fetchSavedHandshakeNotes();
+    const { stashes, complete } = await engine.fetchSavedHandshakeNotes({ startBlockTime });
     if (engine.address !== wallet) return;
+    if (full) contactNotesFullAt = Date.now();
+    for (const stash of stashes) contactNotesHighWater = Math.max(contactNotesHighWater, Number(stash.blockTime || 0));
     const s = contactStash();
     const deleted = loadDeletedContactAddresses();
-    let recovered = 0;
+    const recoveredEntries = [];
     let aliasesLearned = 0;
     for (const stash of stashes) {
       const address = stash.partnerAddress;
@@ -22074,27 +22102,44 @@ async function readBackContactNotes() {
         createdAt, updatedAt: createdAt, relationshipState: "legacy-manual", handshakeTxid: "",
         ...(theirAlias ? { legacyIncomingAliases: legacyWireAliases([theirAlias]) } : {}),
       };
+      const conversationEntry = createConversation({ contactId: contact.id, createdAt });
       state.contacts.push(contact);
-      state.conversations.push(createConversation({ contactId: contact.id, createdAt }));
-      recovered += 1;
+      state.conversations.push(conversationEntry);
+      recoveredEntries.push(conversationEntry);
     }
-    if (complete) s.complete = true;
+    // Only a read from the start that reached the end says which contacts have no note.
+    if (full && complete) s.complete = true;
     saveContactStash();
+    const recovered = recoveredEntries.length;
     if (aliasesLearned && !recovered) persistState();
     if (recovered > 0) {
-      appendEngineLog(`Saved contacts read back: ${recovered} chat${recovered === 1 ? "" : "s"} recovered.`);
+      appendEngineLog(`Saved contacts read back: ${recovered} chat${recovered === 1 ? "" : "s"} recovered${full ? "" : " (started on another device)"}.`);
       refreshSubscriptionAddresses({ restart: true });
-      pendingInitialCatchUp = true; // their history arrives as a silent backfill, not new mail
       persistState();
       renderChats();
+      if (full) {
+        pendingInitialCatchUp = true; // their history arrives as a silent backfill, not new mail
+      } else {
+        // A chat found while the app runs: its history is read now, quietly, without silencing
+        // the next sweep's news from every other chat. All started at once, so each is claimed
+        // as a catch-up before a sweep can take it as live mail.
+        await Promise.all(recoveredEntries.map((conversationEntry) => syncOneConversation(conversationEntry, { quiet: true, catchUp: true })
+          .catch((error) => appendEngineLog(`History fetch for a recovered chat failed: ${error.message}`))));
+        if (engine.address !== wallet) return;
+        persistState();
+        renderChats();
+      }
     }
-    if (complete) backfillContactStashes();
+    if (full && complete) backfillContactStashes();
     flushContactStashQueue().catch(() => {});
   } catch (error) {
     // Tried again in five minutes, not on every 5 s sweep: the read-back pages the whole history.
-    contactNotesReadBackFor = null;
+    // A full read that failed is a full read again; a later one keeps its place.
+    if (full) contactNotesReadBackFor = null;
     contactNotesRetryAt = Date.now() + 5 * 60_000;
     appendEngineLog(`Saved contact read-back failed (non-fatal): ${error.message}`);
+  } finally {
+    contactNotesInFlight = false;
   }
 }
 
@@ -30707,6 +30752,9 @@ async function importAndEnterAccount({ name, recoveryPhrase, passphrase = "", pa
     // for it (saved contacts, the inbox cursor, the group stream position) is read again too.
     contactNotesReadBackFor = null;
     contactNotesRetryAt = 0;
+    contactNotesHighWater = 0;
+    contactNotesCheckedAt = 0;
+    contactNotesFullAt = 0;
     contactStashState = null;
     chatRequestState.cache = null;
     groupManager = null;
