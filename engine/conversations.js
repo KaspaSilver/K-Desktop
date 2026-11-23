@@ -123,8 +123,20 @@ export function touchConversation(conversation, timestamp = Date.now()) {
   return conversation;
 }
 
+/** Puts a message in the thread at its time: after every message at or before it, so the order is
+ *  the one a reload's sort gives. A sync that reads back older messages (sent from another device,
+ *  a catch-up after time away) used to pile them at the bottom until the next reload. */
+export function insertMessageByTime(conversation, message) {
+  const list = conversation.messages;
+  const at = Number(message?.createdAt || 0);
+  let index = list.length;
+  while (index > 0 && Number(list[index - 1]?.createdAt || 0) > at) index -= 1;
+  list.splice(index, 0, message);
+  return message;
+}
+
 export function addMessageToConversation(conversation, message) {
-  conversation.messages.push(message);
+  insertMessageByTime(conversation, message);
   touchConversation(conversation, message.createdAt || Date.now());
   return message;
 }

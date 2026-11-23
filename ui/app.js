@@ -116,6 +116,7 @@ import {
   normalizeMessage as normalizeEngineMessage,
   applyMessagePatch,
   addMessageToConversation,
+  insertMessageByTime,
   statusLabel as engineStatusLabel,
 } from "../engine/conversations.js";
 import { KNSProfileLinkBuilder, safeExternalHref, clearAllKnsCache } from "../engine/kns.js";
@@ -7600,7 +7601,7 @@ async function syncOutgoingHandshakeEvidence({ quiet = true } = {}) {
         txid: hs.txid, messageType: "handshake", protocol: "kasia", protocolVersion: 1,
         payloadHex: hs.payloadHex || "", confirmations: 1, note: "Handshake sent",
       });
-      conversationEntry.messages.push(message);
+      insertMessageByTime(conversationEntry, message);
       added += 1;
     }
   }
@@ -13586,7 +13587,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 322;
+const APP_BUILD = 323;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
