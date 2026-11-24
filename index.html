@@ -13,7 +13,7 @@
   <!-- Too-old browsers (no WebAssembly / modern JS, e.g. iOS 10) get a clear message, not a blank layout. -->
   <script src="/browser-check.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=433" />
+  <link rel="stylesheet" href="./ui/styles.css?v=434" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (K's globe, dark only since K b0f0a4e6) is the tab icon too. -->
@@ -212,6 +212,8 @@
               <button type="button" class="chat-funding-gate-address" data-broadcast-funding-gate-address title="Copy address"></button>
               <button type="button" class="secondary-button" data-broadcast-funding-gate-copy>Copy Address</button>
             </div>
+            <!-- @ suggestions (K 157790b0): everyone who has written here, then your contacts. -->
+            <div class="mention-suggestions room-mention-suggestions" data-broadcast-mention-suggestions hidden></div>
             <div class="reply-banner" data-broadcast-reply-banner hidden>
               <div class="reply-banner-body">
                 <strong data-broadcast-reply-title>Replying to</strong>

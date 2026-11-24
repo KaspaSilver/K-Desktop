@@ -40,6 +40,8 @@ import { accountGuard } from "./account-guard.js";
 import { recordRoomEdit, restoreRoomEdit, roomLinkJoinPrompt, roomPollGapFloor } from "../engine/kaposts.js";
 import { groupParts, isLaterPart, VOICE_PATHS, voicePartSizes } from "../engine/voice-parts.js";
 import * as VoiceNotes from "./voice-notes.js";
+import { MENTIONS_ENABLED, mentionTokens, textMentionsName, roomMentionCandidates, attachMentionSuggestions } from "./username-mentions.js";
+import { primary as primaryName } from "../engine/name-services.js";
 
 // Public chain data caches are global but per network: a testnet room is not the mainnet room.
 const NET_SUFFIX = IS_TESTNET ? "-testnet" : "";
@@ -1344,6 +1346,103 @@ function replyQuoteDisplay(channel, reply) {
   return { sender: stripBidiControls(senderName(original.senderAddress)), preview: stripBidiControls(preview) };
 }
 
+// ---- @mentions by .kachat username (K bdf29425, 157790b0) ---------------------------------------
+// Room text is public: a mention is the plain `@name.kachat` (or `@name`) as typed. Bubbles style
+// and link each one (a click opens the profile) and outline a message that @'s you; typing "@"
+// suggests everyone who has written in the room, then your contacts, plus a looked-up name - only
+// people with a username.
+
+/** The text into `container` with each @username a clickable span, the rest through the link
+ *  renderer. Returns the links found, as renderTextWithLinks does. */
+function renderRoomText(container, text) {
+  const value = String(text ?? "");
+  const tokens = MENTIONS_ENABLED ? mentionTokens(value) : [];
+  const plain = (run) => {
+    if (!run) return [];
+    if (deps.renderTextWithLinks) return deps.renderTextWithLinks(container, run) || [];
+    container.append(run);
+    return [];
+  };
+  if (!tokens.length) return plain(value);
+  const urls = [];
+  let last = 0;
+  for (const token of tokens) {
+    urls.push(...plain(value.slice(last, token.start)));
+    const span = document.createElement("span");
+    span.className = "room-mention";
+    span.setAttribute("role", "link");
+    span.textContent = value.slice(token.start, token.end);
+    span.addEventListener("click", (event) => {
+      // the profile, not the message menu a click on the bubble opens
+      event.stopPropagation();
+      openMentionedProfile(token.name);
+    });
+    container.append(span);
+    last = token.end;
+  }
+  urls.push(...plain(value.slice(last)));
+  return urls;
+}
+
+/** Opens the profile of whoever `name` (a bare username) belongs to. Unknown names say so. */
+async function openMentionedProfile(name) {
+  try {
+    const found = primaryName((await deps.engine.resolveNameEverywhere?.(name)) || []);
+    if (found?.address) deps.openUserInfo?.(found.address);
+    else deps.showToast?.(`No one has the username @${name}.`);
+  } catch {
+    deps.showToast?.(`Couldn't look up @${name}.`);
+  }
+}
+
+/** Whether room text @'s the signed-in account by its username. */
+function roomTextMentionsMe(text) {
+  if (!MENTIONS_ENABLED) return false;
+  const me = deps.mentionUsernameOf?.(deps.engine.address);
+  return Boolean(me) && textMentionsName(text, me);
+}
+
+/** Who a room's @ suggests: everyone who has written here (newest first), then your contacts. */
+function roomMentionSource(query, lookedUp) {
+  const rows = activeChannel ? (messageCache[activeChannel] || []) : [];
+  const senders = [];
+  for (let i = rows.length - 1; i >= 0; i -= 1) if (rows[i]?.senderAddress) senders.push(rows[i].senderAddress);
+  return roomMentionCandidates({
+    query,
+    me: deps.engine.address || "",
+    senders,
+    contacts: deps.mentionContactAddresses?.() || [],
+    labelOf: (address) => deps.mentionUsernameOf?.(address) || null,
+    lookedUp,
+  });
+}
+
+function wireRoomMentions() {
+  if (!MENTIONS_ENABLED || !composerInput) return;
+  let list = document.querySelector("[data-broadcast-mention-suggestions]");
+  if (!list) {
+    // a cached older shell has no list: it goes just above the composer row
+    list = document.createElement("div");
+    list.className = "mention-suggestions room-mention-suggestions";
+    list.dataset.broadcastMentionSuggestions = "";
+    list.hidden = true;
+    composerInput.closest(".kaposts-reply-bar")?.before(list);
+  }
+  roomMentionList = attachMentionSuggestions(composerInput, {
+    container: list,
+    source: roomMentionSource,
+    lookup: async (typed) => {
+      const found = primaryName((await deps.engine.resolveNameEverywhere?.(typed)) || []);
+      return found?.name && found.address ? { address: found.address, name: found.name } : null;
+    },
+    subscribe: deps.onNamesChange || null,
+    avatarHtml: deps.mentionAvatarHtml || null,
+    displayName: deps.nameDisplay || ((n) => n),
+    escapeHtml: deps.escapeHtml,
+  });
+}
+let roomMentionList = null;
+
 function senderName(address) {
   if (!address) return "unknown";
   if (address === deps.engine.address) return "You";
@@ -1583,8 +1682,8 @@ function buildMessageElement(m) {
     // 500-character preview and opens in full on demand, as iOS does.
     const isLong = new TextEncoder().encode(String(fullText || "")).length > LONG_MESSAGE_BYTES;
     const bodyText = isLong ? `${String(fullText).slice(0, LONG_MESSAGE_PREVIEW_CHARS)}…` : fullText;
-    const urls = deps.renderTextWithLinks?.(body, stripBidiControls(bodyText)) ?? [];
-    if (!deps.renderTextWithLinks) body.textContent = stripBidiControls(bodyText);
+    // @usernames styled and clickable (K bdf29425): a click opens that person's profile.
+    const urls = renderRoomText(body, stripBidiControls(bodyText));
     if (isLong) {
       const more = document.createElement("button");
       more.type = "button";
@@ -1663,6 +1762,8 @@ function buildMessageElement(m) {
     }
   }
   el.append(timeLine);
+  // Someone else's message that @'s you by your username stands out (K bdf29425).
+  if (!mine && roomTextMentionsMe(originalText)) el.classList.add("mentions-me");
   appendReactionUi(el, m);
   // 1:1 parity: right-click opens the reactions + Reply/Copy/Hide menu.
   onContextGesture(el, (event) => {
@@ -2518,6 +2619,7 @@ function closeRoom() {
   releaseTypingFocus();
   cancelVoiceRecordingIfActive();
   cancelBroadcastReply();
+  roomMentionList?.close();
   if (activeChannel && composerInput) deps.saveDraft?.(`room:${activeChannel}`, composerInput.value);
   activeChannel = null;
   stopPolling();
@@ -3082,6 +3184,7 @@ export function initBroadcasts(dependencies) {
   loadState();
   renderChannelList();
   updateVoiceButtonVisibility();
+  wireRoomMentions();
 
   // Live block scanning: rows arrive in the indexer's row shape and go through the same
   // mergeMessages dedupe/retention/render path, so a message seen by both paths is stored once.

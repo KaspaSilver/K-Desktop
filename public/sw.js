@@ -154,17 +154,27 @@ async function handlePush(event) {
   if (mapped.hiddenRequest && !switchedOff) {
     try { await kvSet("hiddenRequests", self.KaChatPushMap.noteHiddenRequest(await kvGet("hiddenRequests"), mirror.account, mapped.hiddenRequest)); } catch { /* the app finds them on its own sync */ }
   }
+  const clients = await windowClients();
+  const appInFront = clients.some((client) => client.focused && client.visibilityState === "visible");
+  // A raw group push while the app is in front (K bdf29425): the app reads that message and
+  // banners it with its text, so this worker's "New group message" is held back. Not noted as
+  // arrived either, or the app would think its push came and not banner it.
+  let heldForApp = false;
+  try { heldForApp = !suppress && appInFront && Boolean(self.KaChatPushMap?.holdsBackWhileOpen(payload)); } catch { heldForApp = false; }
+  if (heldForApp) suppress = true;
   // Every push is noted for half an hour (K b0f0a4e6 push_arrivals_v1): the open app never banners
   // a message whose push already came, the one clicked to open it above all; and the second of a
   // KaPost tip's two pushes (a payment and a "tipped your post", the same txid) is quiet.
-  try {
-    const seenBefore = await self.KaChatPushMap.recordPushArrival(payload, kvGet, kvSet);
-    if (seenBefore && self.KaChatPushMap.isTipPush(payload, mapped)) {
-      mapped.options.silent = true;
-      mapped.options.renotify = false;
-      mapped.badge = null;
-    }
-  } catch { /* nothing noted: the app may banner it once more */ }
+  if (!heldForApp) {
+    try {
+      const seenBefore = await self.KaChatPushMap.recordPushArrival(payload, kvGet, kvSet);
+      if (seenBefore && self.KaChatPushMap.isTipPush(payload, mapped)) {
+        mapped.options.silent = true;
+        mapped.options.renotify = false;
+        mapped.badge = null;
+      }
+    } catch { /* nothing noted: the app may banner it once more */ }
+  }
   // One ring per burst from a sender or group (iOS part_push_bursts, sw-push.js).
   if (!suppress) {
     try {
@@ -179,13 +189,12 @@ async function handlePush(event) {
       }
     } catch { /* ring */ }
   }
-  const clients = await windowClients();
   // Open pages fetch straight away rather than at their next poll.
   for (const client of clients) {
     try { client.postMessage({ type: "kachat:push", data: { type: String(payload.type || ""), txId: String(payload.tx_id || "") } }); } catch { /* best-effort */ }
   }
   // The stream you are looking at, in a focused window, does not ring (iOS willPresent).
-  if (!suppress && clients.some((client) => client.focused && client.visibilityState === "visible")) {
+  if (!suppress && appInFront) {
     try {
       const focus = await kvGet("focus");
       const key = self.KaChatPushMap?.routeKey(mapped.options?.data?.route);

@@ -118,7 +118,8 @@ import "./kapost-terms.css";
 import { postReportBody, sendContentReport, withBlockedAccount } from "./kapost-moderation.js";
 // Who a poster is: their .kachat name, avatar, banner and bio (iOS 3d6fb7c, KachatLive.identityName /
 // profileBanner / profileBio). Profiles are on every network (mainnet: profile-only identities).
-import { kachatCachedDisplayLabel, kachatCachedAvatarUrl, kachatCachedProfilePieces, kachatRetryImage, onKachatIdentityChange, kachatProfileOpened } from "./kachat-names-live.js";
+import { kachatCachedDisplayLabel, kachatCachedAvatarUrl, kachatCachedProfilePieces, kachatRetryImage, onKachatIdentityChange, kachatProfileOpened, kachatCachedIdentity, kachatNameDisplay } from "./kachat-names-live.js";
+import { MENTIONS_ENABLED, mentionTokens, attachMentionSuggestions, kaPostMentionCandidates, noteKaPostPoster, recentKaPostPosters, resetKaPostPosters } from "./username-mentions.js";
 import { kachatNamesUiEnabled } from "./kachat-names-runtime.js";
 // Imported, not a string path: Vite only rewrites and emits assets it can SEE, and a path inside
 // a template literal is invisible to it - which left this 404ing on the built site.
@@ -646,6 +647,8 @@ function mapRemotePost(post) {
   const content = decodePostContent(post);
   const address = kaspaAddressFromPubkey(deps.engine, post.userPublicKey);
   if (content === null || !address) return null;
+  // a poster whose post was read: offered by the @ (K 157790b0 KaPostMentionSources.notePoster)
+  noteKaPostPoster(address);
   let quoted = null;
   if (post.quote?.referencedSenderPubkey) {
     const quotedText = post.quote.referencedMessage ? decodePostContent({ postContent: post.quote.referencedMessage }) : null;
@@ -1605,14 +1608,11 @@ function pendingActionButtonHtml(key) {
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
 
 /** Escapes text and wraps URLs in clickable spans (confirmation popover on click). */
-// @mention token: `@name` (optionally dotted, e.g. .kachat), not part of an email — must be
-// at the start or follow whitespace / an opening bracket-quote. Matches the indexer spec so what
-// highlights here is exactly what triggers a mention notification server-side.
-const MENTION_PATTERN = /(^|[\s([{<"'])@([a-z0-9-]+(?:\.[a-z0-9-]+)*)/gi;
-// @mentions rode on .kas names, which are gone (K 518fdc8c): one switch turns them off everywhere
-// until they are rebuilt on .kachat (iOS 08dd836 MentionsFeature.enabled). No suggestions, no
-// mentioned pubkeys on posts, and @name in a post is plain text.
-const MENTIONS_ENABLED = false;
+// @mention token: `@name` or `@name.kachat` by .kachat username (K bdf29425 UsernameMention, the
+// shared rules in ui/username-mentions.js): at the start or after whitespace / an opening
+// bracket-quote, `a-z 0-9 -`, 1-32, never part of an email. Only someone with a username can be
+// @'d; `@word` that can't be one stays text. KaPost's mentions are back on (they were off from 5.2
+// until mentions moved to .kachat).
 
 // Escape a plain-text run, but wrap any @mention tokens in a highlight span first.
 function escapeWithMentions(rawText) {
@@ -1620,13 +1620,10 @@ function escapeWithMentions(rawText) {
   if (!MENTIONS_ENABLED) return deps.escapeHtml(value);
   let out = "";
   let last = 0;
-  for (const m of value.matchAll(MENTION_PATTERN)) {
-    const lead = m[1] || "";
-    const domain = m[2];
-    const at = m.index + lead.length; // index of the '@'
-    out += deps.escapeHtml(value.slice(last, at));
-    out += `<span class="kaposts-mention" data-kaposts-mention="${deps.escapeHtml(domain.toLowerCase())}">@${deps.escapeHtml(domain)}</span>`;
-    last = at + 1 + domain.length;
+  for (const token of mentionTokens(value)) {
+    out += deps.escapeHtml(value.slice(last, token.start));
+    out += `<span class="kaposts-mention" data-kaposts-mention="${deps.escapeHtml(token.name)}">${deps.escapeHtml(value.slice(token.start, token.end))}</span>`;
+    last = token.end;
   }
   out += deps.escapeHtml(value.slice(last));
   return out;
@@ -1659,8 +1656,7 @@ async function mentionedPubkeysFor(text) {
   const seenTokens = new Set();
   // Scanned on the RENDERED text, as iOS does, so `**@alice**` still notifies alice: the mention
   // regex wants whitespace or line start before the "@", and the bold markers would hide that.
-  for (const m of renderKaPostsMarkdown(text).text.matchAll(MENTION_PATTERN)) {
-    const token = m[2].toLowerCase();
+  for (const { name: token } of mentionTokens(renderKaPostsMarkdown(text).text)) {
     if (token && !seenTokens.has(token)) { seenTokens.add(token); tokens.push(token); }
   }
   if (!tokens.length) return [];
@@ -1737,12 +1733,11 @@ function linkifyPostText(text, { interactive = true } = {}) {
     urls.push({ start: match.index, end: match.index + match[0].length, url: match[0] });
   }
   const mentions = [];
-  for (const m of value.matchAll(MENTION_PATTERN)) {
-    const at = m.index + (m[1] || "").length;
-    const end = at + 1 + m[2].length;
+  for (const token of mentionTokens(value)) {
+    const at = token.start;
     // A mention inside a bare URL is part of the URL, as the plain path already treats it.
     if (urls.some((u) => at >= u.start && at < u.end)) continue;
-    mentions.push({ start: at, end, domain: m[2] });
+    mentions.push({ start: at, end: token.end, domain: token.name });
   }
   const boundaries = new Set([0, value.length]);
   for (const r of [...urls, ...mentions, ...rendered.spans]) { boundaries.add(r.start); boundaries.add(r.end); }
@@ -6546,6 +6541,7 @@ export function resetKaPostsForAccount() {
   dropAllUndoables();
   threadRemainders.clear();
   followTapsThisSession.clear(); // the old account's taps aren't this one's
+  resetKaPostPosters(); // the @ suggests what this account has read
   closeFeedDrawer(); // the card was the old account's menu
   syncRailBadge();
   loadPrefs();
@@ -6602,128 +6598,33 @@ export function resetKaPostsForAccount() {
 }
 
 // --- @mention autocomplete --------------------------------------------------
-// Attach to a composer textarea: typing "@" opens a menu of your 1:1 contacts' .kachat names
-// (deps.getKachatMentionNames) and the query's live-resolved .kachat name (K 518fdc8c: .kachat
-// only). Picking one inserts "@name.kachat ".
-const MENTION_QUERY_RE = /(?:^|[\s([{<"'])@([a-z0-9-]*)$/i;
-
+// Typing "@" in a composer suggests, in order, the people you follow, people whose posts you've
+// seen lately, then your contacts - only those with a .kachat username, never you - plus a name
+// looked up as you type (K 157790b0 KaPostMentionSources). The list follows the names registry,
+// so people show as their usernames arrive. Picking one writes "@name.kachat ".
 function attachMentionAutocomplete(textarea) {
-  if (!MENTIONS_ENABLED) return;
-  if (!textarea || textarea.dataset.mentionWired) return;
-  textarea.dataset.mentionWired = "1";
-  let menu = null;
-  let items = [];
-  let activeIndex = 0;
-  let anchorStart = -1; // index of the '@' currently being completed
-  // Live resolution of the current query as a .kachat name (contacts come from the local list;
-  // this row lets you mention anyone with a name).
-  let resolveToken = 0;
-  let resolvedExtra = null; // { query, domain } - domain with its ending, e.g. "bob.kachat"
-
-  function close() {
-    if (menu) { menu.remove(); menu = null; }
-    items = [];
-    activeIndex = 0;
-    anchorStart = -1;
-    resolveToken += 1;
-    resolvedExtra = null;
-  }
-
-  function scheduleNameResolve(query) {
-    const clean = String(query || "").toLowerCase();
-    const token = ++resolveToken;
-    if (resolvedExtra && resolvedExtra.query !== clean) resolvedExtra = null;
-    if (clean.length < 2) return;
-    window.setTimeout(async () => {
-      if (token !== resolveToken) return;
-      try {
-        // anyone with a .kachat name
-        const results = (await deps.engine.resolveNameEverywhere?.(clean)) || [];
-        const resolution = primaryName(results);
-        if (token !== resolveToken || !resolution?.name) return;
-        resolvedExtra = { query: clean, domain: String(resolution.name).toLowerCase() };
-        const ctx = currentQuery();
-        if (ctx && ctx.query.toLowerCase() === clean) render(ctx.query);
-      } catch { /* no match: contacts-only list stands */ }
-    }, 400);
-  }
-
-  function currentQuery() {
-    const caret = textarea.selectionStart ?? textarea.value.length;
-    const before = textarea.value.slice(0, caret);
-    const match = before.match(MENTION_QUERY_RE);
-    if (!match) return null;
-    const query = match[1] || "";
-    return { query, atIndex: caret - query.length - 1, caret };
-  }
-
-  function render(query) {
-    const q = String(query || "").toLowerCase();
-    // contacts' .kachat names
-    items = [...new Set((deps.getKachatMentionNames?.() || []).map((n) => String(n).toLowerCase()))]
-      .filter((full) => !q || full.startsWith(q))
-      .sort()
-      .map((full) => ({ domain: full, name: "" }))
-      .slice(0, 6);
-    // a live-resolved .kachat name matching the query rides along
-    if (resolvedExtra && resolvedExtra.query === q && resolvedExtra.domain.startsWith(q)
-        && !items.some((c) => c.domain.toLowerCase() === resolvedExtra.domain)) {
-      items = [...items, { domain: resolvedExtra.domain, name: "" }];
-    }
-    if (!items.length) { close(); return; }
-    if (activeIndex >= items.length) activeIndex = 0;
-    if (!menu) {
-      menu = document.createElement("div");
-      menu.className = "kaposts-mention-menu";
-      document.body.appendChild(menu);
-    }
-    menu.innerHTML = items.map((c, i) => `
-      <button type="button" class="kaposts-mention-option${i === activeIndex ? " active" : ""}" data-mention-index="${i}">
-        <strong>@${deps.escapeHtml(c.domain)}</strong>${c.name && c.name.toLowerCase() !== c.domain.toLowerCase() ? `<span>${deps.escapeHtml(c.name)}</span>` : ""}
-      </button>`).join("");
-    const rect = textarea.getBoundingClientRect();
-    menu.style.left = `${rect.left + window.scrollX}px`;
-    menu.style.top = `${rect.bottom + window.scrollY + 4}px`;
-    menu.style.width = `${Math.min(rect.width, 320)}px`;
-  }
-
-  function choose(index) {
-    const item = items[index];
-    const caret = textarea.selectionStart ?? textarea.value.length;
-    if (!item || anchorStart < 0) { close(); return; }
-    const before = textarea.value.slice(0, anchorStart);
-    const after = textarea.value.slice(caret);
-    const insert = `@${item.domain} `;
-    textarea.value = before + insert + after;
-    const newCaret = before.length + insert.length;
-    close();
-    textarea.dispatchEvent(new Event("input", { bubbles: true }));
-    textarea.focus();
-    textarea.setSelectionRange(newCaret, newCaret);
-  }
-
-  function refresh() {
-    const ctx = currentQuery();
-    if (!ctx) { close(); return; }
-    anchorStart = ctx.atIndex;
-    render(ctx.query);
-    scheduleNameResolve(ctx.query);
-  }
-
-  textarea.addEventListener("input", refresh);
-  textarea.addEventListener("keydown", (event) => {
-    if (!menu || !items.length) return;
-    if (event.key === "ArrowDown") { event.preventDefault(); activeIndex = (activeIndex + 1) % items.length; render(currentQuery()?.query || ""); }
-    else if (event.key === "ArrowUp") { event.preventDefault(); activeIndex = (activeIndex - 1 + items.length) % items.length; render(currentQuery()?.query || ""); }
-    else if (event.key === "Enter" || event.key === "Tab") { event.preventDefault(); choose(activeIndex); }
-    else if (event.key === "Escape") { event.preventDefault(); close(); }
-  });
-  textarea.addEventListener("blur", () => { window.setTimeout(close, 150); });
-  document.addEventListener("mousedown", (event) => {
-    if (!menu) return;
-    const opt = event.target.closest?.("[data-mention-index]");
-    if (opt) { event.preventDefault(); choose(Number(opt.dataset.mentionIndex)); return; }
-    if (!menu.contains(event.target) && event.target !== textarea) close();
+  if (!MENTIONS_ENABLED || !textarea) return;
+  attachMentionSuggestions(textarea, {
+    className: "mention-suggest",
+    source: (query, lookedUp) => kaPostMentionCandidates({
+      query,
+      me: deps.engine?.address || "",
+      following: prefs.following || [],
+      recentPosters: recentKaPostPosters(),
+      contacts: deps.getMentionContactAddresses?.() || [],
+      labelOf: (address) => kachatCachedIdentity(address)?.label || null,
+      lookedUp,
+    }),
+    // anyone with a username, not only people seen here
+    lookup: async (typed) => {
+      const results = (await deps.engine.resolveNameEverywhere?.(typed)) || [];
+      const found = primaryName(results);
+      return found?.name && found.address ? { address: found.address, name: found.name } : null;
+    },
+    subscribe: (fn) => { try { onKachatIdentityChange(fn); } catch { /* names not started */ } },
+    avatarHtml: deps.mentionAvatarHtml || null,
+    displayName: kachatNameDisplay,
+    escapeHtml: deps.escapeHtml,
   });
 }
 

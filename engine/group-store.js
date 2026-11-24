@@ -831,7 +831,11 @@ export class GroupManager {
   // --- create (admin) ---
   // Generates the group, persists the admin's GroupBag, and distributes gctl_root
   // to every member (including self is skipped — we already hold the keys).
-  async createGroup({ name, memberAddresses = [] }) {
+  // `report(key, phase, error)` (K bdf29425 GroupActionReport): each step as it happens, so a
+  // screen can show the progress - key "#setup", each member's address, "#recovery"; phase
+  // "started" | "finished" | "failed".
+  async createGroup({ name, memberAddresses = [], report = null }) {
+    report?.("#setup", "started");
     const adminAddress = this.walletAddress;
     if (!adminAddress) throw new Error("Load a wallet before creating a group.");
     const roster = await this._buildRoster(memberAddresses, adminAddress);
@@ -867,11 +871,12 @@ export class GroupManager {
     };
     this._put(record);
     for (const member of roster) if (!member.isAdmin) this.markMemberInvited(record.groupId, member.address);
+    report?.("#setup", "finished");
     // The group is already created and persisted. A failed invite broadcast (transient node
     // / balance / network) must NOT block the admin from entering the new group — surface it
     // as a soft warning and let it be retried (re-adding a member re-distributes the root).
     try {
-      await this._distributeRoot(record, epoch);
+      await this._distributeRoot(record, epoch, report);
     } catch (error) {
       // After the sends: onto a fresh read, not the pre-send copy (DSK-053).
       const inviteWarning = error?.message || String(error);
@@ -894,7 +899,8 @@ export class GroupManager {
   }
 
   // Build + encrypt + broadcast a gctl_root to every non-self member at `epoch`.
-  async _distributeRoot(record, epoch) {
+  // `report` (optional): each member's send and the recovery copy, as createGroup's.
+  async _distributeRoot(record, epoch, report = null) {
     const groupSeed = G.hexToBytes(record.groupSeedHex);
     const groupId = G.hexToBytes(record.groupId);
     const groupRootEpoch = G.deriveGroupRootEpoch(groupSeed, groupId, epoch);
@@ -915,16 +921,20 @@ export class GroupManager {
     const failures = [];
     for (const member of record.members) {
       if (member.address === this.walletAddress) continue; // we already have the keys
+      report?.(member.address, "started");
       try {
         await this._sendControlToMember(member, json);
+        report?.(member.address, "finished");
       } catch (error) {
         failures.push({ address: member.address, message: error?.message || String(error) });
+        report?.(member.address, "failed", error);
       }
     }
     // Self-addressed copy WITH the group seed, so a seedless re-import of this wallet
     // rediscovers and fully rebuilds the group from chain alone (no cloud backup). This is
     // what closes the "admin groups vanish on fresh import" gap. Best-effort: a failure here
     // never blocks member delivery, and the backfill in syncGroups retries it.
+    report?.("#recovery", "started");
     try {
       const selfMember = { address: this.walletAddress, xOnlyPubKeyHex: this.selfPubHex() };
       const selfPayload = G.buildSignedRootPayload({
@@ -944,9 +954,11 @@ export class GroupManager {
         fresh.selfInviteEpoch = epoch;
         return true;
       });
+      report?.("#recovery", "finished");
     } catch (error) {
       // Leave selfInviteEpoch unset so syncGroups' backfill retries.
       this.engine.log?.(`Group self-invite send failed: ${error?.message || error}`);
+      report?.("#recovery", "failed", error);
     }
     if (failures.length) {
       const err = new Error(`${failures.length} of ${record.members.length - 1} invite(s) could not be sent`);
@@ -980,7 +992,9 @@ export class GroupManager {
   // --- membership changes (admin), each bumps the epoch and re-distributes ---
   // `onProgress({ stage, done, total })` reports each on-chain step of the key rotation, so a
   // screen can show that real work (one transaction per member, twice) is happening.
-  async addMember(groupId, address, { onProgress = null } = {}) {
+  // `report(key, phase, error)`: each transaction of the rotation as it goes, keyed by the member
+  // it goes to ("#recovery" for the recovery copy), as createGroup's (K bdf29425).
+  async addMember(groupId, address, { onProgress = null, report = null } = {}) {
     const addr = String(address || "").trim();
     {
       const record = this._requireAdmin(groupId);
@@ -1000,7 +1014,7 @@ export class GroupManager {
     });
     if (!record) return this.getGroup(groupId);
     this.markMemberInvited(groupId, addr);
-    return this._rotateEpoch(record, "add", onProgress);
+    return this._rotateEpoch(record, "add", onProgress, report);
   }
   async removeMember(groupId, address) {
     const addr = String(address || "").trim();
@@ -1041,7 +1055,7 @@ export class GroupManager {
 
   // Sends for a rotation already applied by _bumpEpoch. `record` is only read here (roster, seed,
   // photo of the epoch just rotated to); every later write goes onto a fresh read (DSK-053).
-  async _rotateEpoch(record, reason, onProgress = null) {
+  async _rotateEpoch(record, reason, onProgress = null, report = null) {
     const groupId = G.hexToBytes(record.groupId);
     const newEpoch = record.currentEpoch;
     // Announce, then hand out the new root (removed members never get it).
@@ -1056,12 +1070,19 @@ export class GroupManager {
     for (const member of others) {
       index += 1;
       onProgress?.({ stage: `Announcing the new group key (${index} of ${others.length})`, done, total });
-      const encryptedHex = await this.engine.encryptGroupControl(member.address, epochJson);
-      await this.engine.sendGroupPayload(G.buildControlPayload({ recipientXOnlyPubKey: member.xOnlyPubKeyHex, encryptedHex }));
+      report?.(member.address, "started");
+      try {
+        const encryptedHex = await this.engine.encryptGroupControl(member.address, epochJson);
+        await this.engine.sendGroupPayload(G.buildControlPayload({ recipientXOnlyPubKey: member.xOnlyPubKeyHex, encryptedHex }));
+      } catch (error) {
+        report?.(member.address, "failed", error);
+        throw error;
+      }
+      report?.(member.address, "finished");
       done += 1;
     }
     onProgress?.({ stage: `Sending the new group key to ${others.length} member${others.length === 1 ? "" : "s"}`, done, total });
-    await this._distributeRoot(record, newEpoch);
+    await this._distributeRoot(record, newEpoch, report);
     done += others.length;
     // A newly-added member should also receive the current group photo (root doesn't carry it).
     if (record.photoHex) {

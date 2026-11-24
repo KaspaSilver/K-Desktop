@@ -13695,3 +13695,93 @@ button.kusdt-activity-row:hover { background: var(--surface-1, rgba(255,255,255,
 
 /* Wallet's rows (KaChat iOS WalletView): Chatting Address's QR glyph is filled, like SF qrcode. */
 .wallet-screen .profile-recovery-row > svg.qr-glyph { fill: currentColor; stroke: none; }
+
+/* Chat header chips (K bdf29425): Messages' look - a 60pt photo with a slim name pill tucked just
+   under it - on the 1:1, group and room headers. Every click lands: the chip's hit area reaches
+   past its edges, and a press dims and shrinks the whole chip so a click is seen at once. The
+   empty bar either side still passes clicks to the thread beneath (Desktop's floating header). */
+:root { --chat-header-h: 104px; }
+@media (max-width: 620px) { :root { --chat-header-h: 100px; } }
+.conversation-header .conversation-avatar,
+.group-chat-header .group-chat-avatar,
+.broadcast-room-chip-icon { width: 60px; height: 60px; }
+.conversation-header .conversation-avatar { font-size: 22px; }
+.broadcast-room-chip-icon { font-size: 24px; }
+.conversation-identity h1 { margin-top: -5px; padding: 10px 27px 8px 14px; font-weight: 600; }
+.conversation-identity h1::after { top: 16px; border-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+.group-chat-header .group-chat-heading { margin-top: -5px; padding: 10px 27px 8px 14px; }
+.group-chat-header .group-chat-heading h1 { font-weight: 600; }
+.group-chat-header .group-chat-heading::after { top: 16px; border-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+.broadcast-room-chip-name { margin-top: -5px; padding: 10px 14px 8px; font-weight: 600; }
+.broadcast-room-chip-name svg { stroke: color-mix(in srgb, var(--muted) 60%, transparent); }
+.conversation-identity,
+.broadcast-room-chip { position: relative; transition: opacity .12s ease-out, transform .12s ease-out; }
+.conversation-identity::before,
+.broadcast-room-chip::before { content: ""; position: absolute; inset: -6px -40px; }
+/* the bar's own buttons stay above that reach */
+.conversation-header > :not(.conversation-identity) { z-index: 2; }
+.broadcast-room > .kaposts-thread-header > .kaposts-icon-button { position: relative; z-index: 2; }
+.conversation-identity:active,
+.broadcast-room-chip:active { opacity: .6; transform: scale(.96); }
+@media (prefers-reduced-motion: reduce) {
+  .conversation-identity:active, .broadcast-room-chip:active { transform: none; }
+}
+
+/* @ suggestions (K 157790b0 MentionSuggestionList): five rows show, then the list scrolls. Used by
+   the group and room composers (in place) and KaPost's (floating under the field). */
+.mention-suggest { --mention-row-h: 44px; max-height: calc(var(--mention-row-h) * var(--mention-visible-rows, 5)); overflow-y: auto; overscroll-behavior: contain; }
+.mention-suggest-floating {
+  position: absolute; z-index: 2200; border-radius: 14px; padding: 0;
+  background: var(--sheet-bg); border: 1px solid var(--line); box-shadow: 0 12px 32px rgba(0,0,0,.35);
+}
+.mention-suggest-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; height: var(--mention-row-h); padding: 0 12px;
+  border: 0; background: transparent; color: var(--text); cursor: pointer; text-align: left; font: inherit;
+}
+.mention-suggest-row + .mention-suggest-row { box-shadow: inset 0 .5px 0 var(--line); }
+.mention-suggest-row .chat-avatar, .mention-suggest-glyph { width: 28px; height: 28px; flex: 0 0 28px; font-size: 12px; }
+.mention-suggest-glyph { display: grid; place-items: center; border-radius: 50%; background: rgba(112,199,186,.2); color: var(--kaspa-ink); font-weight: 700; }
+.mention-suggest-row strong { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-suggest-row:hover, .mention-suggest-row.active { background: var(--surface-2); }
+.room-mention-suggestions { margin: 0 0 6px; }
+
+/* A room's @username (K bdf29425): styled and clickable; a message that @'s you is outlined. */
+.room-mention { color: var(--kaspa-ink); font-weight: 600; cursor: pointer; }
+.room-mention:hover { text-decoration: underline; }
+.broadcast-message.mine .room-mention { color: #fff; }
+.broadcast-message.mentions-me { box-shadow: inset 0 0 0 1.5px var(--kaspa); }
+
+/* Creating a group and adding members (K bdf29425 GroupActionSheets): a confirm sheet, then every
+   transaction on a progress sheet. Half sheets on a phone (ui/sheets.js), cards on a desktop. */
+.group-action-sheet { width: min(440px, calc(100vw - 32px)); padding: 22px 20px 16px; display: flex; flex-direction: column; gap: 12px; }
+.group-action-sheet h2 { margin: 0; font-size: 18px; font-weight: 700; }
+.group-action-confirm { align-items: stretch; text-align: center; }
+.group-action-message { margin: 0; font-size: 15px; line-height: 1.35; overflow-wrap: anywhere; }
+.group-action-fee { margin: 0; font-size: 13px; color: var(--muted); }
+.group-action-primary {
+  height: 50px; border: 0; border-radius: 999px; background: var(--kaspa); color: #000;
+  font: inherit; font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 4px;
+}
+.group-action-primary:active { opacity: .7; }
+.group-action-cancel { border: 0; background: transparent; color: var(--kaspa-ink); font: inherit; font-size: 16px; font-weight: 600; padding: 6px; cursor: pointer; }
+.group-action-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.group-action-bar > span { display: block; height: 100%; background: var(--kaspa); transition: width .25s ease-in-out; }
+.group-action-bar.has-failed > span { background: var(--ios-orange, #ff9f0a); }
+.group-action-count { margin: -4px 0 0; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.group-step-list { list-style: none; margin: 0; padding: 0; border-radius: 16px; background: var(--surface-1); max-height: min(46vh, 420px); overflow-y: auto; }
+.group-step { display: flex; align-items: flex-start; gap: 12px; padding: 11px 12px; }
+.group-step + .group-step { border-top: .5px solid var(--line); }
+.group-step-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.group-step-title { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-step.waiting .group-step-title { color: var(--muted); }
+.group-step.working .group-step-title { font-weight: 600; }
+.group-step-text small { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.group-step-text small.group-step-error { color: var(--ios-red); }
+.group-step-icon { width: 20px; height: 20px; flex: 0 0 20px; border-radius: 50%; display: grid; place-items: center; box-sizing: border-box; }
+.group-step-icon.waiting { border: 1.5px solid color-mix(in srgb, var(--muted) 50%, transparent); }
+.group-step-icon.working { border: 2px solid var(--surface-2); border-top-color: var(--kaspa); animation: group-step-spin .8s linear infinite; }
+.group-step-icon.done { background: var(--ios-green); }
+.group-step-icon.failed { background: var(--ios-red); }
+.group-step-icon svg { width: 14px; height: 14px; fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.group-action-note { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+@keyframes group-step-spin { to { transform: rotate(360deg); } }

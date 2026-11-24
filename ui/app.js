@@ -138,6 +138,8 @@ import * as Chess from "../engine/chess.js";
 // icon in the notification and on the KAS mark).
 import kaspaLogoUrl from "./assets/kaspa-logo.png";
 import { confirmText, confirmDialog, chooseDialog, alertDialog, promptDialog, PROMPT_EXTRA, infoSheet, userFacingError, ACTION_TILE_ICONS } from "./dialogs.js";
+import { MENTIONS_ENABLED, attachMentionSuggestions, groupMentionCandidates as usernameGroupMentionCandidates, encodeGroupMentionText, mentionName, groupSystemLineDisplay } from "./username-mentions.js";
+import { groupActionConfirmSheet, groupActionProgressSheet, groupCreateProgress, groupAddProgress, groupKeyDetail, GROUP_STEP } from "./group-action-sheets.js";
 import { onContextGesture, attachDoubleTap, onMessageClick, isTouchDevice, releaseTypingFocus } from "./touch.js";
 import { attachRowSwipes, chatRowSwipeActions } from "./row-swipe.js";
 import { IMPORT_ADDRESS_SEARCH_TIMEOUT_MS, raceImportSearch, rankImportAccounts, importChoiceKey, visibleImportRows, importFundsHint, rediscoveredGroupIsRead, pastedWordsInvalidMessage } from "./account-import.js";
@@ -12980,7 +12982,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 329;
+const APP_BUILD = 330;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -30741,16 +30743,10 @@ queueMicrotask(async () => {
         if (isPlaceholderContactName(contact) || name === defaultAliasFor(address) || name === address) return null;
         return name;
       },
-      // Contacts' .kachat names ("alice.kachat"), listed first in the @suggestions (iOS d0c5b09).
-      getKachatMentionNames: () => {
-        if (!kachatNamesUiEnabled()) return [];
-        const out = [];
-        for (const contact of state.contacts || []) {
-          const label = kachatCachedLabel(contact.address);
-          if (label && !out.includes(label)) out.push(label);
-        }
-        return out;
-      },
+      // Your contacts, offered by the @ after follows and recent posters (K 157790b0): only those
+      // with a username show (ui/username-mentions.js).
+      getMentionContactAddresses: () => mentionContactAddresses(),
+      mentionAvatarHtml: (address) => memberAvatarHtml(address, "chat-avatar"),
     });
   } catch (error) { appendEngineLog(`initKaPosts did not start: ${error?.message || error}`); }
 
@@ -30758,6 +30754,12 @@ queueMicrotask(async () => {
     initBroadcasts({
       engine,
       escapeHtml,
+      // @mentions by .kachat username (K bdf29425, 157790b0)
+      mentionUsernameOf,
+      mentionContactAddresses,
+      mentionAvatarHtml: (address) => memberAvatarHtml(address, "chat-avatar"),
+      onNamesChange: (fn) => { try { onKachatIdentityChange(fn); } catch { /* names not started */ } },
+      nameDisplay: kachatNameDisplay,
       defaultAlias: defaultAliasFor,
       voiceFileName,
       // The room owns the detail pane while open, beside the one Chats list (iOS a062577).
@@ -31528,7 +31530,8 @@ function maybeRecordGroupMention(groupId, senderAddress, text, id, createdAt) {
     source: "group",
     id: `group-mention-${id}`,
     title: `${senderName} mentioned you in ${groupName}`,
-    body: `"${String(text || "").slice(0, 90)}"`,
+    // "@kaspa:qq…" mentions (the group wire format) read as names (K bdf29425 mentionsAsNames)
+    body: `"${decodeGroupMentions(displayTextForMessage({ text }) || String(text || "")).slice(0, 90)}"`,
     timestamp: createdAt || Date.now(),
     targetKind: "group",
     targetId: groupId,
@@ -31857,7 +31860,7 @@ function startGroupEdit(message) {
   cancelGroupReply();
   groupEditTarget = message;
   const current = groupMessageContent(activeGroupId, message);
-  if (groupComposerInput) { groupComposerInput.value = decodeGroupMentions(String(parseReplyEnvelope(current)?.text ?? current)); autoGrowGroupComposer(); }
+  if (groupComposerInput) { groupComposerInput.value = decodeGroupMentionsForEditing(String(parseReplyEnvelope(current)?.text ?? current)); autoGrowGroupComposer(); }
   const title = document.querySelector("[data-group-reply-title]");
   if (title) title.textContent = "Editing message";
   if (groupReplyPreview) groupReplyPreview.textContent = decodeGroupMentions(replyPreviewTextFor({ ...message, text: current })) || "Message";
@@ -32137,6 +32140,11 @@ function groupPreviewText(text) {
   const raw = decodeGroupMentions(String(effective || "")).replace(/\s+/g, " ").trim();
   return raw.length > 42 ? `${raw.slice(0, 41)}…` : raw;
 }
+/** A membership line as the thread shows it: each address in the stored line as that person's
+ *  current name (K GroupSystemLine.display), so a name that lands later shows too. */
+function groupSystemLineText(text) {
+  return groupSystemLineDisplay(text, groupSenderLabel);
+}
 function groupSenderLabel(address) {
   if (address === engine.address) return "You";
   const contact = (state.contacts || []).find((c) => c.address === address);
@@ -32166,6 +32174,8 @@ function groupLastActivityAt(g) {
 /** A group row's preview (iOS GroupChatRow): the last message with its mentions decoded. iOS leads
  *  with a reaction newer than that; Desktop's group reactions carry no time to compare. */
 function groupRowPreview(last) {
+  // a membership line ("<address> joined the group") reads as it does in the thread
+  if (last?.system) return groupSystemLineText(last.text).replace(/\s+/g, " ").trim();
   return decodeGroupMentions(String(webLinkPreviewLabel(last.text) || displayTextForMessage({ text: last.text }) || "")).replace(/\s+/g, " ").trim();
 }
 
@@ -32379,7 +32389,7 @@ function openGroupChat(groupId) {
   // 360e5d2): what was typed comes back when the group reopens.
   if (switching) try {
     if (groupVoiceBusy() || groupVoiceStartToken) cancelGroupVoice(); // a recording belongs to its group
-    cancelGroupReply(); groupDraftMentions.clear(); closeGroupMentions(); closeGroupPlusMenu(); clearGroupPendingPhoto();
+    cancelGroupReply(); closeGroupMentions(); closeGroupPlusMenu(); clearGroupPendingPhoto();
     if (groupComposerInput) { groupComposerInput.value = readDraft(`group:${groupId}`); autoGrowGroupComposer(); }
     // whose draft it is: leaving after an account switch must not file it under the new account
     // (K audit 2026-11-24 #16)
@@ -33103,7 +33113,7 @@ function renderGroupMessages() {
     if (message.system) {
       const sysRow = document.createElement("div");
       sysRow.className = "group-system-line";
-      sysRow.textContent = message.text || "";
+      sysRow.textContent = groupSystemLineText(message.text);
       nodes.push(sysRow);
       return;
     }
@@ -33774,35 +33784,55 @@ async function addSelectedGroupMembers() {
   const k = members.length;
   const finalOthers = groupOtherMemberCount(rec) + k;
   const fee = await groupOpFeeHint(groupId, { controlTx: k * (2 * finalOthers + 1), photoTx: rec.photoHex ? k * finalOthers : 0 });
-  if (!await confirmDialog({ title: "Add members", message: `${countedText(k, "Add 1 member to the group?", "Add {n} members to the group?")}${fee}`, confirmLabel: "Add" })) return;
+  // K AddGroupMembersView (bdf29425): a confirm half sheet, then the progress of every add on its
+  // own half sheet. Each add rotates the group key and sends it to every member, so the step says
+  // which of those transactions is going out.
+  if (!await groupActionConfirmSheet({ title: "Add members", message: countedText(k, "Add 1 member to the group?", "Add {n} members to the group?"), feeLine: String(fee || "").trim(), confirmLabel: "Add" })) return;
   addMembersSheet.adding = true;
   renderAddMembersSheet();
+  const progress = groupAddProgress({ members, nameOf: groupSenderLabel });
+  const sheetDone = groupActionProgressSheet(progress);
   let failures = 0;
   for (const address of members) {
+    progress.set(address, "working");
+    // the transactions of this add: an announcement and the new key to every member (the one
+    // being added too), and the recovery copy
+    const others = groupOtherMemberCount(mgr.getGroup(groupId)) + 1;
+    const total = 2 * others + 1;
+    let sent = 0;
     try {
-      await mgr.addMember(groupId, address, {});
+      await mgr.addMember(groupId, address, {
+        report: (_key, phase) => {
+          if (phase !== "started") return;
+          sent += 1;
+          progress.setDetail(address, groupKeyDetail(sent, total));
+        },
+      });
+      progress.set(address, "done");
       // iMessage-style membership line for the admin (other members get theirs on the rotation).
       const epAdd = mgr.getGroup(groupId)?.currentEpoch;
-      appendGroupSystemMessage(groupId, `${groupSenderLabel(address)} was invited to the group chat`, Date.now(), `sys:${groupId}:${epAdd}:add:${address}`);
+      appendGroupSystemMessage(groupId, `${address} was invited to the group chat`, Date.now(), `sys:${groupId}:${epAdd}:add:${address}`);
       addMembersSheet.selected.delete(address);
     } catch (error) {
       appendEngineLog(`Add member failed for ${address}: ${error.message}`);
+      progress.set(address, "failed", { error: userFacingError(error) });
       failures += 1;
     }
   }
+  progress.finish();
   addMembersSheet.adding = false;
   renderGroupList();
   if (activeGroupId === groupId) {
     openGroupChat(groupId);
     if (groupManageScreen && !groupManageScreen.hidden) openGroupManage(groupId);
   }
+  renderAddMembersSheet();
+  await sheetDone;
+  // Done: all added closes Add Members; anyone left stays picked there to try again.
   if (failures === 0) {
     const el = document.querySelector("[data-add-members-modal]");
     if (el) el.hidden = true;
-    return;
   }
-  renderAddMembersSheet();
-  await alertDialog({ title: "Add Members", message: `${failures} member(s) could not be added. Please try again.` });
 }
 function closeGroupCreate(options = {}) {
   if (!groupCreateModal) return;
@@ -34232,7 +34262,8 @@ function applyGroupSyncResult(result, { catchUp = false } = {}) {
     // about you.
     if (ev.kind === "member-status") {
       if (ev.changed && isNews && ev.address !== engine.address) {
-        const who = groupSenderLabel(ev.address);
+        // the address, named as the line is drawn (groupSystemLineText), not frozen now (K bdf29425)
+        const who = ev.address;
         appendGroupSystemMessage(ev.groupId, ev.status === "joined" ? `${who} joined the group` : `${who} declined the invite`, lineAt, `sys:${ev.groupId}:status:${String(ev.txId || "").slice(0, 12)}`);
       }
       if (groupManageScreen && !groupManageScreen.hidden && activeGroupId === ev.groupId) { try { openGroupManage(activeGroupId); } catch {} }
@@ -34241,7 +34272,7 @@ function applyGroupSyncResult(result, { catchUp = false } = {}) {
     // A group photo the admin changed — system line + refresh the open header/list.
     if (ev.kind === "photo-updated") {
       if (ev.changed && isNews) {
-        const who = groupSenderLabel(ev.adminAddress);
+        const who = ev.adminAddress;
         appendGroupSystemMessage(ev.groupId, ev.cleared ? `${who} removed the group photo` : `${who} changed the group photo`, lineAt, `sys:${ev.groupId}:photo:${ev.photoKey || (ev.cleared ? "cleared" : "set")}`);
       }
       if (ev.groupId === activeGroupId) { try { openGroupChat(activeGroupId); } catch {} }
@@ -34251,14 +34282,14 @@ function applyGroupSyncResult(result, { catchUp = false } = {}) {
     if (!isNews) continue;
     // A rename (admin changed the group name) — system line for members.
     if (ev.renamedTo) {
-      appendGroupSystemMessage(ev.groupId, `${groupSenderLabel(ev.adminAddress)} changed the group name to "${ev.renamedTo}"`, lineAt, `sys:${ev.groupId}:name:${ev.epoch}:${ev.renamedTo}`);
+      appendGroupSystemMessage(ev.groupId, `${ev.adminAddress} changed the group name to "${ev.renamedTo}"`, lineAt, `sys:${ev.groupId}:name:${ev.epoch}:${ev.renamedTo}`);
     }
     for (const addr of ev.added || []) {
       if (addr === engine.address) continue;
-      appendGroupSystemMessage(ev.groupId, `${groupSenderLabel(addr)} was invited to the group chat`, lineAt, `sys:${ev.groupId}:${ev.epoch}:add:${addr}`);
+      appendGroupSystemMessage(ev.groupId, `${addr} was invited to the group chat`, lineAt, `sys:${ev.groupId}:${ev.epoch}:add:${addr}`);
     }
     for (const addr of ev.removed || []) {
-      appendGroupSystemMessage(ev.groupId, `${groupSenderLabel(addr)} was removed from the group chat`, lineAt, `sys:${ev.groupId}:${ev.epoch}:rem:${addr}`);
+      appendGroupSystemMessage(ev.groupId, `${addr} was removed from the group chat`, lineAt, `sys:${ev.groupId}:${ev.epoch}:rem:${addr}`);
     }
   }
   // Only events that changed something repaint: an unchanged photo or an epoch notice is not news.
@@ -34602,7 +34633,7 @@ async function runGroupAddMembers(groupId, members) {
       });
       // iMessage-style membership line for the admin (other members get theirs on the rotation).
       const epAdd = mgr.getGroup(groupId)?.currentEpoch;
-      appendGroupSystemMessage(groupId, `${groupSenderLabel(address)} was invited to the group chat`, Date.now(), `sys:${groupId}:${epAdd}:add:${address}`);
+      appendGroupSystemMessage(groupId, `${address} was invited to the group chat`, Date.now(), `sys:${groupId}:${epAdd}:add:${address}`);
       groupAddRun.added.push(address);
     } catch (error) {
       appendEngineLog(`Add member failed for ${address}: ${error.message}`);
@@ -34652,33 +34683,51 @@ groupCreateSubmit?.addEventListener("click", async () => {
           const total = perInvite * (members.length + 1) + perPhoto * photoTx;
           if (total > 0) feeLine = `\n\nEstimated network fee ≈ ${total.toFixed(6)} ${KAS_UNIT} across ${txCount} transaction${txCount === 1 ? "" : "s"}.`;
         } catch {}
-        // iOS AddContactView's "Create group" alert: the question and fee, Cancel / Create.
-        if (!await confirmDialog({ title: "Create group", message: `Create "${name}" and invite ${countedText(members.length, "1 member", "{n} members")}?${feeLine}`, confirmLabel: "Create" })) { updateGroupCreateSubmit(); return; }
+        // K AddContactView's "Create group" half sheet (bdf29425): the question and fee, Create /
+        // Cancel.
+        if (!await groupActionConfirmSheet({ title: "Create group", message: `Create "${name}" and invite ${countedText(members.length, "1 member", "{n} members")}?`, feeLine: feeLine.trim(), confirmLabel: "Create" })) { updateGroupCreateSubmit(); return; }
       }
       setStatus("Creating group and inviting members…");
-      const record = await mgr.createGroup({ name, memberAddresses: members });
+      // Then every step on a progress half sheet as it goes (K GroupActionProgressSheet): setting
+      // up, each invite, the recovery copy, the photo. Done opens the new group.
+      const photoHex = groupCreatePhotoHex;
+      const progress = groupCreateProgress({ name, members, nameOf: groupSenderLabel, withPhoto: Boolean(photoHex) });
+      let record = null;
+      const sheetDone = groupActionProgressSheet(progress, {
+        onDone: () => {
+          if (!record) return;
+          // Take the admin straight into the new group. The modal closes first, then the thread
+          // opens in the detail pane.
+          closeGroupCreate();
+          renderGroupList();
+          openGroupChat(record.groupId);
+        },
+      });
+      try {
+        record = await mgr.createGroup({ name, memberAddresses: members, report: (key, phase, error) => progress.apply(key, phase, error) });
+      } catch (error) {
+        progress.finish(userFacingError(error));
+        throw error;
+      }
       // The photo goes out after the group exists, since it is addressed to its members. A photo
       // that fails to distribute must not fail the creation - the group is already real, and the
       // admin can retry from Group Info.
-      if (groupCreatePhotoHex) {
+      if (photoHex) {
         setStatus("Sending the group photo…");
+        progress.set(GROUP_STEP.photo, "working");
         try {
-          await mgr.setGroupPhoto(record.groupId, groupCreatePhotoHex);
+          await mgr.setGroupPhoto(record.groupId, photoHex);
+          progress.set(GROUP_STEP.photo, "done");
         } catch (error) {
+          progress.set(GROUP_STEP.photo, "failed", { error: userFacingError(error) });
           setStatus(`Group created, but the photo did not reach everyone: ${error.message}`);
         }
       }
-      // Take the admin straight into the new group. The modal closes first, then the thread
-      // opens in the detail pane.
-      closeGroupCreate();
+      progress.finish();
       renderGroupList();
-      openGroupChat(record.groupId);
-      if (record.inviteWarning) {
-        setStatus(`Group created, but some invites did not send: ${record.inviteWarning}`);
-        showCopyToast("Group created. Some invites failed to send - open group info to retry.");
-      } else {
-        setStatus("Group created");
-      }
+      if (record.inviteWarning) setStatus(`Group created, but some invites did not send: ${record.inviteWarning}`);
+      else setStatus("Group created");
+      await sheetDone;
     }
   } catch (error) {
     if (groupCreateError) { groupCreateError.textContent = error.message; groupCreateError.hidden = false; }
@@ -34714,7 +34763,6 @@ const groupCancelReplyBtn = document.querySelector("[data-group-cancel-reply]");
 const groupMentionSuggestions = document.querySelector("[data-group-mention-suggestions]");
 
 let groupReplyTarget = null;            // message currently being replied to
-const groupDraftMentions = new Map();   // inserted @label -> kaspa address (for encode-on-send)
 let groupVoiceRecorder = null, groupVoiceChunks = [], groupVoiceStartMs = 0, groupVoiceTimer = null, groupVoiceMime = "";
 // A start waiting on the microphone prompt (startGroupVoice): a second tap meanwhile is ignored, and
 // cancelGroupVoice (trash, another group, an account switch) clears it so the stream the prompt
@@ -34743,80 +34791,56 @@ function cancelGroupReply() {
   if (groupReplyBanner) groupReplyBanner.hidden = true;
 }
 
-// Members mentionable with a single-token handle (.kachat name / short address, no spaces).
-function groupMentionCandidates(query) {
-  const g = getGroupManager()?.getGroup(activeGroupId);
-  if (!g) return [];
-  const q = String(query || "").toLowerCase();
-  return g.members
-    .filter((m) => m.address && m.address !== engine.address)
-    .map((m) => {
-      // Prefer their name as the single-token handle (what the user wants shown); fall back to
-      // a space-free contact label, else the short address.
-      const label = mentionDisplayLabel(m.address);
-      const handle = /\s/.test(label) ? shortAddress(m.address) : label;
-      return { address: m.address, label, handle };
-    })
-    .filter((m) => !q || m.handle.toLowerCase().includes(q) || m.label.toLowerCase().includes(q))
-    .slice(0, 6);
+/** The bare .kachat username an address is @'d by, or null: only people with one can be mentioned
+ *  (K bdf29425 UsernameMention.handle). */
+function mentionUsernameOf(address) {
+  if (!kachatNamesUiEnabled()) return null;
+  try { return mentionName(kachatCachedIdentity(address)?.label); } catch { return null; }
 }
-// (Runs per keystroke while mentions are off: skip the DOM writes when already closed.)
-function closeGroupMentions() {
-  if (!groupMentionSuggestions || (groupMentionSuggestions.hidden && !groupMentionSuggestions.firstChild)) return;
-  groupMentionSuggestions.hidden = true;
-  groupMentionSuggestions.innerHTML = "";
+/** Your contacts' addresses, for the room and KaPost @ suggestions (K ContactsManager.activeContacts). */
+function mentionContactAddresses() {
+  return (state.contacts || []).filter((c) => c.address && !isKachatBot(c.address)).map((c) => c.address);
 }
-// @mentions are off until they are rebuilt on .kachat (iOS 08dd836): no suggestions, typed
-// @names go out as plain text, and "Only Notify if I'm Mentioned" is hidden and not applied (the
-// stored choice is kept, so no group goes quiet).
-const GROUP_MENTIONS_ENABLED = false;
-function refreshGroupMentions() {
-  if (!GROUP_MENTIONS_ENABLED) return closeGroupMentions();
-  if (!groupComposerInput || !groupMentionSuggestions) return;
-  const value = groupComposerInput.value;
-  const caret = groupComposerInput.selectionStart ?? value.length;
-  const before = value.slice(0, caret);
-  const match = /(^|\s)@([^\s@]*)$/.exec(before);
-  if (!match) return closeGroupMentions();
-  const candidates = groupMentionCandidates(match[2]);
-  if (!candidates.length) return closeGroupMentions();
-  groupMentionSuggestions.innerHTML = candidates.map((c) => `
-    <button type="button" class="mention-suggestion" data-mention-address="${escapeHtml(c.address)}" data-mention-handle="${escapeHtml(c.handle)}">
-      ${memberAvatarHtml(c.address, "chat-avatar")}
-      <span><strong>${escapeHtml(c.label)}</strong><small>${escapeHtml(shortAddress(c.address))}</small></span>
-    </button>`).join("");
-  groupMentionSuggestions.hidden = false;
-}
-function insertGroupMention(address, handle) {
-  if (!groupComposerInput) return;
-  const value = groupComposerInput.value;
-  const caret = groupComposerInput.selectionStart ?? value.length;
-  const before = value.slice(0, caret).replace(/@([^\s@]*)$/, `@${handle} `);
-  groupComposerInput.value = before + value.slice(caret);
-  groupDraftMentions.set(`@${handle}`, address);
-  closeGroupMentions();
-  groupComposerInput.focus();
-  autoGrowGroupComposer();
-}
-// Replace tracked @handle tokens with the on-chain @<address> form. No braces — matches iOS/Android
-// GroupMentionCodec so mentions decode cross-platform (desktop's old @{address} form did not).
+function closeGroupMentions() { groupMentionList?.close(); }
+// @mentions by .kachat username (K bdf29425): typing "@" suggests the members with a username,
+// a picked one writes "@name.kachat", and the text goes out with "@<their address>" (the group wire
+// format, encodeGroupMentions) and reads as their name. "Only Notify if I'm Mentioned" applies.
+const GROUP_MENTIONS_ENABLED = MENTIONS_ENABLED;
+const groupMentionList = GROUP_MENTIONS_ENABLED && groupComposerInput && groupMentionSuggestions
+  ? attachMentionSuggestions(groupComposerInput, {
+    container: groupMentionSuggestions,
+    source: (query) => usernameGroupMentionCandidates({
+      query,
+      members: getGroupManager()?.getGroup(activeGroupId)?.members || [],
+      me: engine.address,
+      labelOf: mentionUsernameOf,
+    }),
+    subscribe: (fn) => { try { onKachatIdentityChange(fn); } catch { /* names not started */ } },
+    avatarHtml: (address) => memberAvatarHtml(address, "chat-avatar"),
+    displayName: kachatNameDisplay,
+    escapeHtml,
+  })
+  : null;
+// Each member's "@name" / "@name.kachat" becomes "@<their address>". No braces - matches the
+// iOS/Android GroupMentionCodec so mentions decode cross-platform (desktop's old @{address} form
+// did not). A name that isn't a member's stays text.
 function encodeGroupMentions(text) {
-  let out = String(text || "");
+  const out = String(text || "");
   if (!GROUP_MENTIONS_ENABLED) return out;
-  // Autocomplete-tracked handles first (exactly what the user inserted).
-  for (const [handle, address] of [...groupDraftMentions.entries()].sort((a, b) => b[0].length - a[0].length)) {
-    out = out.split(handle).join(`@${address}`);
-  }
-  // Also catch a member's name typed by hand — iterate members longest-label-first, mirroring
-  // iOS/Android GroupMentionCodec so a manually-typed @alice.kachat still encodes.
   const g = getGroupManager()?.getGroup(activeGroupId);
   const members = (g?.members || [])
     .filter((m) => m.address && m.address !== engine.address)
-    .map((m) => ({ address: m.address, label: mentionDisplayLabel(m.address) }))
-    .filter((m) => m.label && !/\s/.test(m.label))
-    .sort((a, b) => b.label.length - a.label.length);
-  for (const m of members) out = out.split(`@${m.label}`).join(`@${m.address}`);
-  return out;
+    .map((m) => ({ address: m.address, name: mentionUsernameOf(m.address) }))
+    .filter((m) => m.name);
+  return encodeGroupMentionText(out, members);
+}
+/** Group text back into the composer for an edit: a mention of someone with a username as
+ *  "@name.kachat" (so it encodes again on send), anyone else as their name. */
+function decodeGroupMentionsForEditing(text) {
+  return String(text || "").replace(CHAT_MENTION_TOKEN_RE, (_, address) => {
+    const name = mentionUsernameOf(address);
+    return name ? `@${name}.kachat` : `@${mentionDisplayLabel(address)}`;
+  });
 }
 
 // --- Long voice notes and multi-part photos in groups (iOS 7c5c22e3) ---
@@ -35088,7 +35112,6 @@ groupComposer?.addEventListener("submit", async (event) => {
     groupComposerInput.value = "";
     saveDraft(`group:${activeGroupId}`, "");
     autoGrowGroupComposer();
-    groupDraftMentions.clear();
     cancelGroupReply();
     closeGroupMentions();
     sendGroupEdit(activeGroupId, target, encoded);
@@ -35107,7 +35130,6 @@ groupComposer?.addEventListener("submit", async (event) => {
   groupComposerInput.value = "";
   saveDraft(`group:${activeGroupId}`, "");
   autoGrowGroupComposer();
-  groupDraftMentions.clear();
   cancelGroupReply();
   closeGroupMentions();
   const feeKas = groupFeeOverrideKas;
@@ -35135,7 +35157,7 @@ groupComposerInput?.addEventListener("keydown", (event) => {
   }
   groupComposer?.requestSubmit();
 });
-groupComposerInput?.addEventListener("input", () => { autoGrowGroupComposer(); refreshGroupMentions(); });
+groupComposerInput?.addEventListener("input", () => { autoGrowGroupComposer(); });
 // Cmd+V of an image stages it as the pending photo (iOS handlePastedImageData), on chain.
 groupComposerInput?.addEventListener("paste", async (event) => {
   const file = Array.from(event.clipboardData?.items || []).find((item) => item.type?.startsWith("image/"))?.getAsFile();
@@ -35155,10 +35177,6 @@ groupComposerInput?.addEventListener("paste", async (event) => {
   } catch {
     setGroupSendError("Couldn't load that photo. Please try a PNG, JPEG, or HEIF image.");
   }
-});
-groupMentionSuggestions?.addEventListener("click", (event) => {
-  const btn = event.target.closest("[data-mention-address]");
-  if (btn) insertGroupMention(btn.dataset.mentionAddress, btn.dataset.mentionHandle);
 });
 // Cancelling an edit empties the composer too (iOS group editBanner); a reply keeps the text.
 groupCancelReplyBtn?.addEventListener("click", () => {
@@ -35972,7 +35990,7 @@ groupManageBody?.addEventListener("click", async (event) => {
       catch (error) { setStatus(`Group action failed: ${error.message}`); alertDialog({ title: "Resend Invites", message: userFacingError(error) }); return; }
       // iMessage-style membership line for the admin (other members get theirs on the rotation).
       const epRem = mgr.getGroup(activeGroupId)?.currentEpoch;
-      appendGroupSystemMessage(activeGroupId, `${groupSenderLabel(removeAddr)} was removed from the group chat`, Date.now(), `sys:${activeGroupId}:${epRem}:rem:${removeAddr}`);
+      appendGroupSystemMessage(activeGroupId, `${removeAddr} was removed from the group chat`, Date.now(), `sys:${activeGroupId}:${epRem}:rem:${removeAddr}`);
       openGroupManage(activeGroupId);
       openGroupChat(activeGroupId);
       setStatus("Member removed");

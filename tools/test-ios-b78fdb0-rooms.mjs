@@ -43,7 +43,8 @@ await test("one delivered copy settles one leftover row", async () => {
 });
 await test("a push opens only a joined room, and rings only for one with its bell on", () => {
   assert.match(rooms, /if \(!joinedChannels\.includes\(clean\)\) return;\n\s+openRoom\(clean\);/);
-  assert.match(read("public/sw-push.js"), /if \(Array\.isArray\(m\.rooms\) && !m\.rooms\.includes\(channel\)\) out\.suppress = true;/);
+  // (a push that @'s you by username passes the bell, K bdf29425: tools/test-k-mentions.mjs)
+  assert.match(read("public/sw-push.js"), /if \(Array\.isArray\(m\.rooms\) && !m\.rooms\.includes\(channel\) && !mentionsYou\) out\.suppress = true;/);
   assert.match(read("ui/app.js"), /try \{ rooms = broadcastPushWatch\(\)\.channels; \} catch \{ rooms = null; \}/);
 });
 

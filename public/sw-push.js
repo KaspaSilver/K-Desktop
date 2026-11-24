@@ -290,8 +290,11 @@
       const channel = lower(p.channel);
       if (m.childMode) out.suppress = true;
       // only a joined room with its bell on rings (KaPost b78fdb0): one left or muted since the
-      // push service last heard is silent
-      if (Array.isArray(m.rooms) && !m.rooms.includes(channel)) out.suppress = true;
+      // push service last heard is silent - except a push that @'s you by your username, which the
+      // indexer sends whether or not the bell is on (K bdf29425, INDEXER_HANDOFF.md "Push for
+      // @username mentions in public chats"; K's extension shows any room push it gets)
+      const mentionsYou = String(p.mention || "").toLowerCase() === "true";
+      if (Array.isArray(m.rooms) && !m.rooms.includes(channel) && !mentionsYou) out.suppress = true;
       // An edit changes an earlier message in place: nothing to announce (KaChat iOS 148a5331).
       if (isRoomEdit(p.body)) out.suppress = true;
       out.title = String(p.title || "").trim() || `#${channel}`;
@@ -357,6 +360,15 @@
     out.options.body = String(p.body || "").trim() || "Something new in K";
     out.options.tag = `kachat-push-${p.tx_id || type || "other"}`;
     return out;
+  }
+
+  /** A raw group push the open app would show itself (K bdf29425 AppDelegate willPresent): this
+   *  worker never reads a group message, so its "New group message" is never what the app shows.
+   *  While a window of the app is focused, it reads the message and banners it with its text, so
+   *  the push is held back. */
+  function holdsBackWhileOpen(payload) {
+    const type = String((payload && payload.type) || "");
+    return type === "group_message" || type === "group_control";
   }
 
   /** The route a focused screen is showing, in the same terms a push's route uses, so the worker
@@ -432,5 +444,5 @@
     return next.length > 500 ? next.slice(next.length - 500) : next;
   }
 
-  root.KaChatPushMap = { noteHiddenRequest, notificationFromPush, routeKey, shortAddress, kasFromSompi, partBurstKey, applyPartBurst, PART_BURST_MS, kaspaAddressFromXOnly, kapostsKind, noteArrival, recordPushArrival, isTipPush, PUSH_ARRIVAL_MS };
+  root.KaChatPushMap = { holdsBackWhileOpen, noteHiddenRequest, notificationFromPush, routeKey, shortAddress, kasFromSompi, partBurstKey, applyPartBurst, PART_BURST_MS, kaspaAddressFromXOnly, kapostsKind, noteArrival, recordPushArrival, isTipPush, PUSH_ARRIVAL_MS };
 })(typeof self !== "undefined" ? self : globalThis);
