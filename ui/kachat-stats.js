@@ -18,6 +18,7 @@
 // the header's refresh button stands in for iOS's pull to refresh.
 
 import "./kachat-stats.css";
+import { cycleBarHtml, cycleChanged } from "./cycle-button.js";
 import { statsCountText, statsKasText } from "../engine/amounts.js";
 import { KAS_UNIT } from "../engine/network.js";
 
@@ -302,12 +303,9 @@ function heroHtml() {
     </div>`;
 }
 
-/** Transactions | Fees on the app's underline tab bar (iOS UnderlineTabBar). */
+/** Transactions | Fees on the cycle button (K 518fdc8c PageCycleBar): each click fades to the other. */
 function tabsHtml() {
-  return `
-    <nav class="domains-tabs kstats-tabs" role="tablist" aria-label="KaChat Stats">
-      ${PAGES.map((p) => `<button type="button" role="tab" aria-selected="${p.id === page}" class="domains-tab${p.id === page ? " active" : ""}" data-kstats-page="${p.id}">${esc(p.title)}</button>`).join("")}
-    </nav>`;
+  return cycleBarHtml({ name: "kstats-page", options: PAGES, value: page, className: "kstats-cycle", attrs: "data-kstats-page" });
 }
 
 /** One kind (iOS 4924787 statCard): its icon, name and what it counts, then its 24 Hours, 7 Days
@@ -415,7 +413,7 @@ function render() {
     <div class="kstats-body">
       ${heroHtml()}
       ${tabsHtml()}
-      ${page === "fees" ? feesPageHtml() : transactionsPageHtml()}
+      <div class="kstats-page${cycleChanged("page:kstats", page) ? " cycle-fade" : ""}">${page === "fees" ? feesPageHtml() : transactionsPageHtml()}</div>
       ${footerHtml()}
     </div>`;
   screenEl.scrollTop = scrollTop;
@@ -444,7 +442,7 @@ function onClick(event) {
   if (!target) return;
   const pageButton = target.closest("[data-kstats-page]");
   if (pageButton) {
-    const next = pageButton.getAttribute("data-kstats-page");
+    const next = pageButton.getAttribute("data-cycle-next");
     if (next && next !== page && PAGES.some((p) => p.id === next)) { page = next; render(); }
     return;
   }

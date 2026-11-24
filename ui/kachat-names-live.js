@@ -5052,7 +5052,33 @@ export function openLiveProfileEditor(owner = "profile") {
     });
   };
 
+  // The Username section comes first (K 518fdc8c KachatLiveProfileEditor; owner, 2026-11-23): the
+  // primary name, and Get a username, which closes this and opens the Usernames screen.
   const formHtml = () => `
+    ${launched ? section(`
+      <label class="kmkt-form-row kl-link-field">
+        <span>Primary name</span>
+        <select class="kl-select" data-kl-profile-primary aria-label="Primary name">
+          <option value="" ${form.primary ? "" : "selected"}>None</option>
+          ${activeNames.map((n) => `<option value="${esc(n)}" ${n === form.primary ? "selected" : ""}>${esc(kachatNameDisplay(n))}</option>`).join("")}
+        </select>
+      </label>
+      <button type="button" class="kmkt-form-row kl-get-name" data-kl-get-kachat-name>
+        <span class="kl-get-name-label">${kit.ICON?.at || ""}Get a username</span>
+      </button>`, {
+      header: "Username",
+      footerHtml: footer("K shows you by your primary name while you own it and it's active; otherwise by your oldest active name, or your address."),
+    }) : section(`
+      <div class="kmkt-form-row">
+        <span>Primary name</span>
+        <span class="kmkt-muted">Coming soon</span>
+      </div>
+      <button type="button" class="kmkt-form-row kl-get-name" data-kl-get-kachat-name>
+        <span class="kl-get-name-label">${kit.ICON?.at || ""}Get a username</span>
+      </button>`, {
+      header: "Username",
+      footerHtml: footer(".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch."),
+    })}
     ${section(`
       <div class="kmkt-form-row kmkt-label-row">
         <span class="kmkt-label-icon">${LI.card}</span>
@@ -5068,30 +5094,6 @@ export function openLiveProfileEditor(owner = "profile") {
           autocorrect="off" spellcheck="false" data-kl-profile-linktree aria-label="Linktree username" />
         <button type="button" class="kl-input-clear" data-kl-linktree-clear aria-label="Clear"${form.linktree ? "" : " hidden"}><svg viewBox="0 0 24 24" aria-hidden="true"><circle class="kl-clear-disc" cx="12" cy="12" r="10"/><path class="kl-clear-x" d="m9 9 6 6m0-6-6 6"/></svg></button>
       </label>`, { header: "Links", footerHtml: `<div data-kl-linktree-foot>${linktreeFooter()}</div>` })}
-    ${launched ? section(`
-      <label class="kmkt-form-row kl-link-field">
-        <span>Primary name</span>
-        <select class="kl-select" data-kl-profile-primary aria-label="Primary name">
-          <option value="" ${form.primary ? "" : "selected"}>None</option>
-          ${activeNames.map((n) => `<option value="${esc(n)}" ${n === form.primary ? "selected" : ""}>${esc(kachatNameDisplay(n))}</option>`).join("")}
-        </select>
-      </label>
-      <button type="button" class="kmkt-form-row kl-get-name" data-kl-get-kachat-name>
-        <span class="kl-get-name-label">${kit.ICON?.at || ""}Get a .kachat name</span>
-      </button>`, {
-      header: ".kachat Name",
-      footerHtml: footer("K shows you by your primary name while you own it and it's active; otherwise by your oldest active name, or your address."),
-    }) : section(`
-      <div class="kmkt-form-row">
-        <span>Primary name</span>
-        <span class="kmkt-muted">Coming soon</span>
-      </div>
-      <button type="button" class="kmkt-form-row kl-get-name" data-kl-get-kachat-name>
-        <span class="kl-get-name-label">${kit.ICON?.at || ""}Get a .kachat name</span>
-      </button>`, {
-      header: ".kachat Name",
-      footerHtml: footer(".kachat names aren't on mainnet yet. Your avatar, banner, bio and links save now; you can pick a primary name once names launch."),
-    })}
     <div data-kl-profile-save-wrap>${saveHtml()}</div>
     <div data-kl-profile-clear-wrap>${clearHtml()}</div>`;
 

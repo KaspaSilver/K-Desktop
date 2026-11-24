@@ -1,6 +1,6 @@
 // KaChat iOS 148a5331, the smaller parts: the Terms are the app's first screen; every Manage kUSDT
 // row has a menu; the new app icon; request QRs always hold the kachat.app link; Edit Profile's
-// "Get a .kachat name"; Posts/Replies change with a sideways swipe.
+// "Get a username" (K 518fdc8c); Posts/Replies change with the cycle button, no sideways swipe.
 import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -46,22 +46,18 @@ await test("a request's QR always holds its kachat.app link", () => {
   assert.doesNotMatch(read("engine", "payment-request.js"), /export function paymentRequestKaPayLink/);
 });
 
-await test("Edit Profile's Get a .kachat name opens the .kachat screen", () => {
+await test("Edit Profile's Get a username opens the Usernames screen", () => {
   assert.equal(live.split("data-kl-get-kachat-name>").length, 3); // both sections
   assert.match(live, /kit\.closeLayer\(layer\);\n        deps\(\)\.openKachatNames\?\.\(\);/);
   assert.match(app, /openKachatNames: \(\) => setActiveAppTab\("kachat-names"\),/);
 });
 
-await test("a sideways swipe picks Posts or Replies once it goes far enough (K 804cbcb7)", async () => {
-  // kaposts.js touches the DOM on import, so the rule is read from the source and run here.
+await test("Posts / Replies change with the cycle button only, fading; no sideways swipe (K 518fdc8c)", async () => {
   const src = read("ui", "kaposts.js");
-  const body = src.slice(src.indexOf("export function profileSwipeTarget({ dx, flung = dx, width, tab }) {"));
-  const fn = new Function(`return (${body.slice("export ".length, body.indexOf("\n}\n") + 2)})`)();
-  assert.equal(fn({ dx: -120, width: 400, tab: "posts" }), "replies", "past a quarter");
-  assert.equal(fn({ dx: 120, width: 400, tab: "replies" }), "posts");
-  assert.equal(fn({ dx: -80, width: 400, tab: "posts" }), null, "not far enough: settles back");
-  assert.equal(fn({ dx: -80, flung: -260, width: 400, tab: "posts" }), "replies", "a flick");
-  assert.equal(fn({ dx: 300, width: 400, tab: "posts" }), null, "no tab that way");
+  assert.match(src, /cycleButtonHtml\(\{ name: "kaposts-profile", options: PROFILE_PAGES/);
+  assert.match(src, /const PROFILE_PAGES = \[\["posts", "Posts"\], \["replies", "Replies"\]\];/);
+  assert.match(src, /restartFade\(panelBodyEl\?\.querySelector\("\[data-kaposts-panel-list\]"\)\)/);
+  assert.doesNotMatch(src, /profileSwipeTarget|wireProfileTabSwipe|slideProfileListIn|data-kaposts-profile-tab=/);
 });
 
 console.log(`ios 148a5331 misc: ${passed} passed`);

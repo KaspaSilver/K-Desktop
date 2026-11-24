@@ -13,6 +13,7 @@
 // left; audit 2026-11-24 #12) and waits for the next direction.
 
 import "./arcade.css";
+import { cycleButtonHtml, cycleChanged } from "./cycle-button.js";
 import btcCoinUrl from "./assets/coins/coin_btc.png";
 import kaspaLogoUrl from "./assets/kaspa-logo.png";
 import { arcadeIconHtml } from "./arcade-icon.js";
@@ -496,6 +497,7 @@ function leaderboardHtml() {
   const rows = b.rows(gameId, period);
   const my = me().toLowerCase();
   const options = [["month", "This month"], ["all", "All time"]];
+  const fade = cycleChanged(`page:arcade-${gameId}`, period) ? " cycle-fade" : "";
   let body;
   if (!rows.length) {
     body = b.unreachable(gameId)
@@ -510,15 +512,16 @@ function leaderboardHtml() {
         <span class="arcade-board-score">${esc(formatArcadeScore(row.score))}</span>
       </button>`).join("")}</div>`;
   }
+  // This month / All time on the cycle button beside the title (K 518fdc8c ArcadeViews).
   return `
     <div class="arcade-board-head">
       <h2>Leaderboard</h2>
-      <button class="kaposts-icon-button" type="button" data-arcade-refresh aria-label="Refresh" title="Refresh">${ICON_REFRESH}</button>
+      <span class="arcade-board-tools">
+        ${cycleButtonHtml({ name: `arcade-period-${gameId}`, options, value: period, hint: "Switches the leaderboard period", attrs: "data-arcade-period" })}
+        <button class="kaposts-icon-button" type="button" data-arcade-refresh aria-label="Refresh" title="Refresh">${ICON_REFRESH}</button>
+      </span>
     </div>
-    <div class="settings-segmented full chess-t-segment" role="radiogroup" aria-label="Leaderboard period">
-      ${options.map(([id, label]) => `<button class="settings-segmented-option${period === id ? " active" : ""}" type="button" role="radio" aria-checked="${period === id}" data-arcade-period="${id}">${esc(label)}</button>`).join("")}
-    </div>
-    ${body}`;
+    <div class="arcade-board-rows${fade}">${body}</div>`;
 }
 
 function renderHome() {
@@ -728,7 +731,7 @@ export function arcadeClick(event) {
     return;
   }
   const period_ = t.closest("[data-arcade-period]");
-  if (period_) { period = period_.dataset.arcadePeriod === "all" ? "all" : "month"; requestRender(); return; }
+  if (period_) { period = period_.dataset.cycleNext === "all" ? "all" : "month"; requestRender(); return; }
   if (t.closest("[data-arcade-refresh]")) { refreshBoards(true); return; }
   const user = t.closest("[data-arcade-user]");
   if (user) { deps().openUserInfo?.(user.dataset.arcadeUser); return; }

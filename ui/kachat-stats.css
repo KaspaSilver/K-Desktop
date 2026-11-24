@@ -84,7 +84,7 @@
 .kstats-hero-total .kstats-redacted { border-radius: 10px; }
 
 /* Transactions | Fees (iOS 4924787 UnderlineTabBar), the full width like iOS's. */
-.domains-tabs.kstats-tabs { margin: 0; flex-shrink: 0; }
+.cycle-bar:has(.kstats-cycle) { margin: 0; }
 
 /* A card per kind (iOS 4924787 statCard): icon, name and what it counts, then its three figures. */
 .profile-card.kstats-card { padding: 0; overflow: hidden; }

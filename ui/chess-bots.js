@@ -1,5 +1,7 @@
 // KaPlay > Bots (iOS c3c04a1: ChessBotsView, ChessBotDetailView, ChessBotGameView; KaPlay ddec987:
-// ChessBotLeaderboardViews, ChessBotLeaderboardService, ChessBotLinks; ONLINE_CHESS.md §7). Five
+// ChessBotLeaderboardService, ChessBotLinks; ONLINE_CHESS.md §7). The bots' boards are drawn on the
+// chess screen's leaderboard (ui/chess-tournaments.js, K 518fdc8c ChessHomeView); their own screens
+// are gone (audit 2026-11-24 #41). Five
 // bots, level 1 to 5, as a ladder: level 1 is open, each level opens when the one before it is
 // beaten (kept on this device, per address). The bot runs here, its search in a Web Worker
 // (engine/chess-bot-worker.js), and the game costs nothing while it is played; when it ends, its
@@ -15,7 +17,7 @@ import "./chess-bots.css";
 import * as Chess from "../engine/chess.js";
 import {
   CHESS_BOTS, CHESS_BOTS_CHANNEL, chessBot, SIDE_PREFERENCES, resolveSide, botRecord, isBotUnlocked,
-  addBotResult, parseBotRecords, addStampedWin, parseStampedWins, indexerBotBoards, botBoardRows, botHasBeenPlayed,
+  addBotResult, parseBotRecords, addStampedWin, parseStampedWins, indexerBotBoards, botBoardRows,
   sampleStampContent, chessBotBestMove, ChessBotGame,
 } from "../engine/chess-bot.js";
 import { botSharePostText, botChallengeBannerText } from "../engine/chess-bot-links.js";
@@ -34,7 +36,7 @@ const STAMPED_WINS_KEY = "kachat-chess-bot-stamped-wins-v1";
 const ACCOUNT_DATA_PREFIX = "kachat-account-data-v1";
 
 let ctx = null;                // { deps, render, exit }
-let screen = "ladder";         // ladder | detail | game | boards | board
+let screen = "ladder";         // ladder | detail | game
 let selectedLevel = 1;
 let sidePreference = "White";
 let game = null;
@@ -48,8 +50,7 @@ let resetScroll = false;
 let asking = false;            // a resign / leave sheet is up
 let challenge = null;          // a challenge link on screen (engine/chess-bot-links.js), its banner up
 let boards = {};               // period -> level -> { games, rows }: the indexer's boards
-let boardLevel = 1;
-let boardPeriod = "month";     // This month whenever a board comes up (iOS @State)
+let boardsUnreachable = false; // the last ask for the boards failed (nothing came back)
 let lastBoardsFetch = 0;
 let boardsSerial = 0;
 
@@ -176,10 +177,10 @@ async function estimateStampFee() {
 
 const BOARDS_MIN_MS = 20_000;
 
-/** GET /chess/bots/leaderboard?period=month|all&limit=100. At most every 20 s; any failure leaves
- *  what is there in place. */
-function refreshBoards() {
-  if (lastBoardsFetch && Date.now() - lastBoardsFetch < BOARDS_MIN_MS) return;
+/** GET /chess/bots/leaderboard?period=month|all&limit=100. At most every 20 s (`force`: now); any
+ *  failure leaves what is there in place. The chess screen repaints when a board lands. */
+function refreshBoards(force = false) {
+  if (!force && lastBoardsFetch && Date.now() - lastBoardsFetch < BOARDS_MIN_MS) return;
   const base = String(getEndpoint("broadcastIndexer") || "").trim().replace(/\/+$/, "");
   if (!base) return;
   lastBoardsFetch = Date.now();
@@ -198,15 +199,29 @@ function refreshBoards() {
       } catch { levels = null; }
       finally { clearTimeout(timer); }
       if (serial !== boardsSerial) return;
-      if (!levels) continue;
+      boardsUnreachable = !levels;
+      if (!levels) { ctx?.boardsChanged?.(); continue; }
       boards = { ...boards, [period]: levels };
-      if (screen === "boards" || screen === "board") requestRender();
+      ctx?.boardsChanged?.();
     }
   })().catch(() => {});
 }
 
 function boardRows(level, period) {
   return botBoardRows({ boards, level, period, wins: loadStampedWins(), address: deps().engine?.address || "", nowMs: Date.now() });
+}
+
+/** One bot's board for the chess screen's leaderboard: fewest moves to win first. */
+export function chessBotBoardRows(level, period) {
+  return boardRows(level, period);
+}
+/** Ask the indexer for the bots' boards (at most every 20 s unless `force`). */
+export function refreshChessBotBoards(force = false) {
+  refreshBoards(force);
+}
+/** The bots' boards couldn't be loaded (the last ask failed). */
+export function chessBotBoardsUnreachable() {
+  return boardsUnreachable;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -471,59 +486,6 @@ function renderGame() {
     </div>`;
 }
 
-// --- Leaderboard > Bots: the bots that have been played (ChessBotLeaderboardsView) ---
-
-function renderBoards() {
-  const records = loadRecords();
-  const played = CHESS_BOTS.filter((bot) => botHasBeenPlayed({ records, boards, level: bot.level }));
-  const rows = played.map((bot) => {
-    const best = boardRows(bot.level, "all")[0];
-    return `
-      <button class="chess-bot-card" type="button" data-chess-bot-board="${bot.level}">
-        ${avatarHtml(bot, 44)}
-        <span class="chess-bot-card-main"><strong>${esc(bot.name)}</strong><small>${best ? `Best: ${best.moves} moves` : "Not beaten yet"}</small></span>
-        <span class="chess-bot-card-trailing">${ICON_CHEVRON}</span>
-      </button>`;
-  }).join("");
-  return `
-    ${headerHtml("Bots")}
-    <div class="chess-t-body chess-bot-body">
-      ${played.length ? "" : `<p class="field-hint">No bot has been played yet.</p>`}
-      ${rows}
-      <p class="field-hint">Ranked by the fewest moves to win.</p>
-    </div>`;
-}
-
-// --- One bot's board (ChessBotLeaderboardView) ---
-
-function renderBoard() {
-  const bot = chessBot(boardLevel) || CHESS_BOTS[0];
-  const month = boardPeriod === "month";
-  const rows = boardRows(bot.level, boardPeriod);
-  const my = String(deps().engine?.address || "");
-  const nameOf = (address) => deps().displayNameFor?.(address) || address;
-  const options = [["month", "This month"], ["all", "All time"]];
-  return `
-    ${headerHtml(bot.name)}
-    <div class="chess-t-body chess-bot-body">
-      <div class="settings-segmented full chess-t-segment" role="radiogroup" aria-label="Leaderboard period">
-        ${options.map(([id, label]) => `<button class="settings-segmented-option${boardPeriod === id ? " active" : ""}" type="button" role="radio" aria-checked="${boardPeriod === id}" data-chess-bot-period="${id}">${esc(label)}</button>`).join("")}
-      </div>
-      ${month ? `<p class="field-hint chess-t-period-note">Resets on the 1st of every month (UTC).</p>` : ""}
-      <p class="screen-kicker">Fewest moves to beat ${esc(bot.name)}</p>
-      ${rows.length ? "" : `<p class="field-hint">${esc(month ? `Nobody has beaten ${bot.name} this month yet.` : `Nobody has beaten ${bot.name} yet.`)}</p>`}
-      <div class="chess-t-list">
-        ${rows.map((row, index) => `
-          <button class="chess-t-row${row.address === my ? " me" : ""}" type="button" data-chess-bot-user="${esc(row.address)}">
-            <span class="chess-t-rank">${index + 1}</span>
-            ${deps().avatarHtmlFor?.(row.address, "chess-t-avatar") || ""}
-            <span class="chess-t-row-main"><strong>${esc(nameOf(row.address))}</strong></span>
-            <span class="chess-bot-board-moves">${row.moves} moves</span>
-          </button>`).join("")}
-      </div>
-    </div>`;
-}
-
 // ---------------------------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------------------------
@@ -591,7 +553,6 @@ function go(next) {
   pendingPromotion = null;
   resetScroll = true;
   if (next === "detail") estimateStampFee().catch(() => {});
-  if (next === "boards" || next === "board") refreshBoards();
   requestRender();
 }
 
@@ -613,8 +574,6 @@ async function back() {
     go("ladder");
     return;
   }
-  if (screen === "board") { go("boards"); return; }
-  if (screen === "boards") { ctx?.exit?.("leaderboard"); return; }
   challenge = null;
   ctx?.exit?.();
 }
@@ -659,9 +618,10 @@ function tapSquare(file, rank) {
 
 /** `dependencies`: Chess Online's deps (engine, escapeHtml, estimateFeeKas, isChattingBalanceZero,
  *  showFundingGate, appendEngineLog, showToast; accountScopedKey when the host passes it).
- *  `render`: repaint Chess Online's screen. `exit`: back to Chess Online's home. */
-export function initChessBots({ deps: dependencies, render, exit, lookUpTransaction }) {
-  ctx = { deps: dependencies || {}, render, exit, lookUpTransaction };
+ *  `render`: repaint Chess Online's screen. `exit`: back to Chess Online's home. `boardsChanged`:
+ *  the bots' boards changed (the chess screen's leaderboard repaints). */
+export function initChessBots({ deps: dependencies, render, exit, lookUpTransaction, boardsChanged }) {
+  ctx = { deps: dependencies || {}, render, exit, lookUpTransaction, boardsChanged };
 }
 
 /** The home card opened the bots: the ladder. */
@@ -671,11 +631,6 @@ export function openChessBots() {
   selectedSquare = null;
   pendingPromotion = null;
   resetScroll = true;
-}
-
-/** The Leaderboard's Bots square: a board per played bot. */
-export function openChessBotBoards() {
-  go("boards");
 }
 
 /** A challenge link (ChessHomeView.takeChallenge): that bot's screen with the challenge at the top,
@@ -692,8 +647,6 @@ export function openChessBotChallengeScreen(link) {
 export function renderChessBots() {
   if (screen === "game" && game) return renderGame();
   if (screen === "detail") return renderDetail();
-  if (screen === "boards") return renderBoards();
-  if (screen === "board") return renderBoard();
   return renderLadder();
 }
 
@@ -724,18 +677,6 @@ export function chessBotsClick(event) {
     go("detail");
     return;
   }
-  const board = t.closest("[data-chess-bot-board]");
-  if (board) {
-    boardLevel = Number(board.dataset.chessBotBoard);
-    boardPeriod = "month";
-    go("board");
-    return;
-  }
-  const period = t.closest("[data-chess-bot-period]");
-  if (period) { boardPeriod = period.dataset.chessBotPeriod; requestRender(); return; }
-  // A board's row: the same User Info sheet a public chat opens from View Profile.
-  const user = t.closest("[data-chess-bot-user]");
-  if (user) { deps().openUserInfo?.(user.dataset.chessBotUser); return; }
   const side = t.closest("[data-chess-bot-side]");
   if (side) { sidePreference = side.dataset.chessBotSide; requestRender(); return; }
   if (t.closest("[data-chess-bot-play]") || t.closest("[data-chess-bot-again]")) { newGame(); return; }

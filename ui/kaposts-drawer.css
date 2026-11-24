@@ -1,5 +1,5 @@
-/* KaPosts' phone header, the hamburger's slide-out card and the swipeable feeds (iOS 865c9ab
-   KaPostsFeedDrawer / KaPostsFeedPager, 494751a), plus the Notifications cog (d37f64d) and the
+/* KaPosts' phone header and the hamburger's slide-out card (iOS 865c9ab KaPostsFeedDrawer,
+   494751a), the feed's cycle button (K 518fdc8c), plus the Notifications cog (d37f64d) and the
    Wallet button beside Edit Profile (865c9ab). Imported from ui/kaposts.js, which builds the
    elements. The older KaPosts rules live in ui/styles.css; the ones overridden here are written
    one class more specific, so they win wherever this sheet lands in the cascade. */
@@ -108,20 +108,38 @@
 .kaposts-drawer-close:focus-visible,
 .kaposts-drawer-row:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: -2px; }
 
-/* --- Swipeable feeds (iOS KaPostsFeedPager) -------------------------------------------------------- */
+/* --- The feed button (K 518fdc8c feedCycleButton) ------------------------------------------------- */
 
-/* Up and down stays the browser's scroll; sideways is the pager's. */
-.kaposts-screen [data-kaposts-feed] {
-  touch-action: pan-y pinch-zoom;
-  transition: transform .3s cubic-bezier(.25, .9, .3, 1); /* ≈ spring(response: 0.3, dampingFraction: 0.9) */
+/* Following / Feed / Popular: one cycle button at the head of the feed, the refresh at the end. At
+   phone width the same button sits beside the header's title instead. No sideways swipe. */
+.kaposts-feed-head { display: flex; align-items: center; gap: 10px; padding: 2px 0 10px; border-bottom: .5px solid var(--line); }
+.kaposts-feed-head[hidden] { display: none; }
+.kaposts-feed-head > .kaposts-feed-refresh { margin-left: auto; height: 38px; border-bottom: 0; }
+.kaposts-phone-bar > .kaposts-feed-cycle { display: none; }
+@media (max-width: 859px) {
+  .kaposts-phone-bar > .kaposts-feed-cycle { display: inline-flex; flex: 0 1 auto; }
+  .kaposts-feed-head > .kaposts-feed-cycle { display: none; }
+  .kaposts-feed-head { padding-top: 0; }
 }
-.kaposts-screen [data-kaposts-feed].kaposts-pager-dragging { transition: none; }
-.kaposts-screen [data-kaposts-feed].kaposts-pager-leaving { transition-timing-function: cubic-bezier(.42, 0, 1, 1); }
-/* The feed moving sideways never widens the page. */
-.kaposts-screen > .kaposts-content { overflow-x: hidden; }
+
+/* A profile's Posts / Replies: the cycle button, leading, above the posts (K profileFeedTabBar). */
+.kaposts-profile-cycle { padding: 2px 0 6px; }
+
+/* Someone else's profile: Follow and Chat under the follow counts, a size up from the rest
+   (K 518fdc8c; owner, 2026-11-24). Follow is filled, Chat outlined. */
+.kaposts-profile-meta > .kaposts-profile-actions.kaposts-under-counts {
+  order: 0; margin: 4px 0 2px; padding-top: 0; align-self: flex-start; justify-content: flex-start; flex-wrap: wrap; gap: 10px;
+}
+.kaposts-under-counts > .kaposts-follow {
+  margin: 0; padding: 8px 18px; border-radius: 999px; background: var(--kaspa); color: #000;
+  font-size: 14px; font-weight: 700; line-height: 1.2;
+}
+.kaposts-under-counts > .kaposts-follow.following { background: rgba(142, 142, 147, .35); color: var(--text); }
+.kaposts-under-counts > .kaposts-profile-chat { padding: 8px 16px; font-size: 14px; line-height: 1.2; }
+.kaposts-under-counts > .kaposts-profile-chat svg { width: 16px; height: 16px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .kaposts-drawer-card, .kaposts-drawer-dim, .kaposts-screen [data-kaposts-feed] { transition-duration: 1ms; }
+  .kaposts-drawer-card, .kaposts-drawer-dim { transition-duration: 1ms; }
 }
 
 /* --- Notifications' cog (iOS d37f64d): top left of the screen ------------------------------------ */

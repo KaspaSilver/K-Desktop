@@ -63,7 +63,8 @@ await test("KaPost feed: 10 px, 1.3x sideways, the lock holds to the end", async
   assert.equal(KAPOSTS_PAGER_SIDEWAYS_BIAS, 1.3);
   assert.equal(kapostsAxisLock(12, 10), "y");
   assert.equal(kapostsPagerTarget({ selection: 0, pageCount: 2, dx: -200, dy: 300, width: 400, locked: true }), 1);
-  assert.match(read("ui/kaposts.js"), /dy: current\.dy, locked: true,/);
+  // The feeds no longer swipe (K 518fdc8c: one cycle button, no sideways swipe); the rule stays tested.
+  assert.doesNotMatch(read("ui/kaposts.js"), /attachFeedPager|kapostsPagerTarget\(/);
 });
 
 if (failures) { console.log(`${failures} failed`); process.exit(1); }

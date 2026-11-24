@@ -271,7 +271,7 @@ const tick = () => intervals.get(200)?.();
 
 // --- A bot game's stamped win goes to the account it was played under --------------------------------
 {
-  click("data-chess-t-bots");
+  ui.playChess("bots"); // the Play sheet's Bots (K 518fdc8c ChessHomeView)
   click("data-chess-bot-open", { chessBotOpen: "1" });
   click("data-chess-bot-play");
   const played = stub.botGames?.at(-1);

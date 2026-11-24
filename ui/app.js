@@ -50,7 +50,7 @@ import { authorKeyFromAddress, compressedPubkeyHex, PUSH_LIMITS } from "./web-pu
 import { deriveBlindedGroupId as pushBlindedGroupId, bytesToHex as pushBytesToHex, hexToBytes as pushHexToBytes } from "../engine/group.js";
 import { broadcastPushWatch, activeBroadcastChannelName } from "./broadcasts.js";
 // The Chats dock tab's unread count (iOS 64d63846 / eec2e30) and the Select bar's room Mute.
-import { chatListUnreadCount, chatsTabUnreadCount, debouncedCountPublisher } from "./chat-unread.js";
+import { chatListUnreadCount, chatsTabUnreadCount, debouncedCountPublisher, coalescedRunner } from "./chat-unread.js";
 import { setBroadcastRoomsNotify } from "./broadcasts.js";
 import { kaPostsWatchedAuthorAddresses, kaPostsHiddenXOnlyKeys } from "./kaposts.js";
 import { openKaPostComposerWithText, openKaPostQuickComposer } from "./kaposts.js";
@@ -88,6 +88,9 @@ import {
   createStepFlow, createFeeEditorStep, keypadHtml, wireKeypad, applyKeypadKey, stepChipHtml, stepQuestionHtml, reviewRowHtml, reviewAddressHtml,
 } from "./send-steps.js";
 import "./send-steps.css";
+import "./cycle-button.css";
+// Every page switch inside a screen (K 518fdc8c CycleCapsuleButton / PageCycleBar).
+import { updateCycleButton, restartFade } from "./cycle-button.js";
 import { initNextcloud, noteContactActivity, resetNextcloudForAccount, uploadNextcloudMedia, isNextcloudConnected, openNextcloudMediaPicker, nextcloudDirectOnly, storedNextcloudLoginsFor, revokeNextcloudLogins } from "./nextcloud.js";
 // Swap (K 5.4 SwapView): ChangeNOW for other coins and kUSDT through Trestly's pool; the Wallet's Swap button and the dock.
 import { initSwaps, refreshSwaps, resetSwapsForAccount, selectSwapCoin } from "./swaps.js";
@@ -2021,8 +2024,11 @@ utxoRenameModal?.addEventListener("click", (event) => {
   if (event.target === utxoRenameModal) closeUtxoRename();
 });
 
-const serviceHealthButton = document.querySelector("[data-service-health-button]");
-const serviceHealthLed = document.querySelector("[data-service-health-led]");
+/** The connection dot's colour (K 518fdc8c ConnectionHealth): "ready" green connected, "busy" orange
+ *  connecting, "error" red after 8 s disconnected. Drawn only at the top of Settings and on the
+ *  dock's Settings icon (left dock and phone bottom bar alike), on no other screen. */
+let connectionDotState = "busy";
+let connectionDotLabel = "Connecting";
 let latestServiceStatusText = "Starting services";
 const toolbarBalance = document.querySelector("[data-toolbar-balance]");
 const toolbarBalanceValue = document.querySelector("[data-toolbar-balance-value]");
@@ -6837,25 +6843,36 @@ function showCopyToast(message, { style = null } = {}) {
   }, 1800);
 }
 
-function updateGlobalHealthIndicator() {
-  if (!serviceHealthLed) return;
+/** K ConnectionHealth.update: connected is green (a slow node is still connected; Connection
+ *  Status shows its latency), connecting orange, and red only once the drop has lasted 8 s
+ *  (DISCONNECT_GRACE_MS). Desktop has no suspected-DPI state to follow (K's audit #29). */
+function connectionDotFor({ stateName, connecting }) {
+  if (stateName === "error") return { state: "error", label: "Disconnected" };
+  if (connecting) return { state: "busy", label: "Connecting" };
+  return { state: "ready", label: "Connected" };
+}
 
-  const { stateName, latencyMs, connecting } = computeConnectionHealth();
-
-  serviceHealthLed.classList.remove("ready", "busy", "error");
-  serviceHealthLed.classList.add(stateName);
-  try { renderSettingsHeader(); } catch { /* the Settings bar isn't wired yet during early init */ }
-  if (serviceHealthButton) {
-    const stateLabel = stateName === "error"
-      ? "Disconnected"
-      : connecting
-        ? "Connecting"
-        : stateName === "busy"
-          ? `Connected · high latency${latencyMs ? ` (${latencyMs} ms)` : ""}`
-          : "Connected";
-    serviceHealthButton.setAttribute("aria-label", `${stateLabel}. Open Connection Status`);
-    serviceHealthButton.title = stateLabel;
+function paintConnectionDots() {
+  document.querySelectorAll("[data-settings-health-led], [data-dock-connection-dot]").forEach((el) => {
+    el.classList.remove("ready", "busy", "error");
+    el.classList.add(connectionDotState);
+  });
+  const settingsButton = document.querySelector("[data-settings-health-button]");
+  if (settingsButton) {
+    settingsButton.setAttribute("aria-label", `${connectionDotLabel}. Open Connection Status`);
+    settingsButton.title = connectionDotLabel;
   }
+  // The dock's Settings item says the state too (the dot itself is drawn, not read).
+  const dockSettings = document.querySelector('.sidebar-tab[data-app-tab="settings"]');
+  if (dockSettings) dockSettings.setAttribute("aria-label", `Settings, ${connectionDotLabel}`);
+}
+
+function updateGlobalHealthIndicator() {
+  const dot = connectionDotFor(computeConnectionHealth());
+  connectionDotState = dot.state;
+  connectionDotLabel = dot.label;
+  paintConnectionDots();
+  try { renderSettingsHeader(); } catch { /* the Settings bar isn't wired yet during early init */ }
 }
 
 function setStatus(text) {
@@ -8422,12 +8439,9 @@ function settingsBalanceExact() {
 function renderSettingsHeader() {
   const value = document.querySelector("[data-settings-balance-value]");
   if (value) value.textContent = `${settingsBalanceExact() ?? "--"} ${KAS_UNIT}`;
-  const led = document.querySelector("[data-settings-health-led]");
-  if (led && serviceHealthLed) led.className = serviceHealthLed.className;
-  // The other places the dot appears (a public room's bar, a group chat's) follow the same state.
-  if (serviceHealthLed) document.querySelectorAll("[data-mirror-health-led]").forEach((el) => { el.className = serviceHealthLed.className; });
+  // The connection dot at the top of Settings (K ConnectionStatusIndicator).
+  paintConnectionDots();
 }
-document.querySelectorAll("[data-mirror-health-button]").forEach((button) => button.addEventListener("click", (event) => { event.stopPropagation(); openConnectionOverlay(); }));
 document.querySelector("[data-settings-health-button]")?.addEventListener("click", () => openConnectionOverlay());
 document.querySelector("[data-settings-balance]")?.addEventListener("click", async () => {
   const exact = settingsBalanceExact();
@@ -8462,7 +8476,6 @@ function closeConnectionOverlay() {
   connectionOverlay.hidden = true;
 }
 
-document.querySelector("[data-open-connection-status]")?.addEventListener("click", openConnectionOverlay);
 document.querySelector("[data-close-connection-overlay]").addEventListener("click", closeConnectionOverlay);
 connectionOverlay.addEventListener("click", (event) => {
   if (event.target === connectionOverlay) closeConnectionOverlay();
@@ -9713,7 +9726,7 @@ function openOwnAddressHistory(address) {
   const found = resolveOwnAddress(address);
   if (!found) return false;
   if (found.kind === "chatting") {
-    document.querySelector('[data-manage-address-tab="transactions"]')?.click();
+    setManageAddressTab("transactions");
     openManageAddressScreen();
   } else if (found.kind === "spending") {
     openSpendingDetailScreen(found.index);
@@ -11708,9 +11721,15 @@ async function loadSpendingDetailUtxos(address) {
   }
 }
 
+/** An address's pages, in the cycle button's order (K PageCycleBar: History / UTXOs / Usernames). */
+const ADDRESS_PAGES = [["transactions", "History"], ["utxos", "UTXOs"], ["kachat", "Usernames"]];
+
 function setSpendingDetailTab(tab) {
-  document.querySelectorAll("[data-spending-detail-tab]").forEach((b) => b.classList.toggle("active", b.dataset.spendingDetailTab === tab));
+  const button = document.querySelector("[data-spending-detail-cycle]");
+  const changed = button?.dataset.cycleValue !== tab;
+  updateCycleButton(button, { options: ADDRESS_PAGES, value: tab });
   document.querySelectorAll("[data-spending-detail-panel]").forEach((p) => { p.hidden = p.dataset.spendingDetailPanel !== tab; });
+  if (changed) restartFade(document.querySelector(`[data-spending-detail-panel="${tab}"]`));
   if (tab === "kachat") paintKachatAddressDomains("[data-spending-detail-panel=\"kachat\"]", spendingDetailAddress);
 }
 
@@ -11753,7 +11772,7 @@ function refreshSpendingDetailIfOpen() {
   }
 }
 
-document.querySelectorAll("[data-spending-detail-tab]").forEach((b) => b.addEventListener("click", () => setSpendingDetailTab(b.dataset.spendingDetailTab)));
+document.querySelector("[data-spending-detail-cycle]")?.addEventListener("click", (event) => setSpendingDetailTab(event.currentTarget.dataset.cycleNext || "transactions"));
 document.querySelector("[data-close-spending-detail]")?.addEventListener("click", closeSpendingDetailScreen);
 document.querySelector("[data-spending-detail-receive]")?.addEventListener("click", () => {
   if (!spendingDetailAddress) return;
@@ -12961,7 +12980,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 328;
+const APP_BUILD = 329;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -15194,58 +15213,22 @@ const manageSendController = makeSendController({
 document.querySelector("[data-manage-address-send]")?.addEventListener("click", () => openSendKaspaModal({ lockSource: true }));
 document.querySelector("[data-manage-send-back]")?.addEventListener("click", () => showManageView("list"));
 
-document.querySelectorAll("[data-manage-address-tab]").forEach((tabButton) => {
-  tabButton.addEventListener("click", () => {
-    document.querySelectorAll("[data-manage-address-tab]").forEach((btn) => btn.classList.toggle("active", btn === tabButton));
-    const target = tabButton.dataset.manageAddressTab;
-    document.querySelectorAll("[data-manage-address-panel]").forEach((panel) => {
-      panel.hidden = panel.dataset.manageAddressPanel !== target;
-    });
-    // Receive and Send only on History (iOS 0b9fd28).
-    const actions = document.querySelector("[data-manage-address-actions]");
-    if (actions) actions.hidden = target !== "transactions";
-    if (target === "kachat") paintKachatAddressDomains("[data-manage-address-panel=\"kachat\"]", engine.address);
+/** The chatting address's History, UTXOs or Usernames, from its cycle button (K PageCycleBar). */
+function setManageAddressTab(target) {
+  const button = document.querySelector("[data-manage-address-cycle]");
+  const changed = button?.dataset.cycleValue !== target;
+  updateCycleButton(button, { options: ADDRESS_PAGES, value: target });
+  document.querySelectorAll("[data-manage-address-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.manageAddressPanel !== target;
   });
-});
-// Swipe sideways between History, UTXOs and Domains (iOS 0b9fd28, the pager Connection Settings
-// uses too).
-attachTabSwipe(document.querySelector("[data-manage-view=\"list\"] .manage-address-body"), () => [...document.querySelectorAll("[data-manage-address-tab]")]);
-
-/**
- * Swipe left / right on `body` to the next / previous of `tabs()` (tab buttons, the active one
- * with .active): judged when the finger lifts, on a move more than 50 px across and more than 1.5
- * times as far across as up or down, as .kachat's tabs did (KaPay 99ab88a made them cards). The touch is only
- * measured, never claimed, so the page keeps scrolling under it and a tap stays a tap. Touch only:
- * a mouse drag selects text, and the tabs are right there. Not from a text field.
- */
-function attachTabSwipe(body, tabs) {
-  if (!body) return;
-  let start = null;
-  body.addEventListener("touchstart", (event) => {
-    start = null;
-    if (event.touches.length !== 1 || event.target.closest?.("input, textarea, select, [contenteditable]")) return;
-    const t = event.touches[0];
-    // From the left edge it is the swipe back (ui/edge-back.js), not a tab change.
-    if (t.clientX <= 24) return;
-    start = { id: t.identifier, x: t.clientX, y: t.clientY };
-  }, { passive: true });
-  body.addEventListener("touchcancel", () => { start = null; }, { passive: true });
-  body.addEventListener("touchend", (event) => {
-    const from = start;
-    start = null;
-    if (!from || event.touches.length) return;
-    const t = [...event.changedTouches].find((touch) => touch.identifier === from.id);
-    if (!t) return;
-    const dx = t.clientX - from.x;
-    const dy = t.clientY - from.y;
-    if (!(Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5)) return;
-    const list = tabs();
-    const index = list.findIndex((tab) => tab.classList.contains("active"));
-    const next = index >= 0 ? list[dx < 0 ? index + 1 : index - 1] : null;
-    next?.click();
-  }, { passive: true });
+  if (changed) restartFade(document.querySelector(`[data-manage-address-panel="${target}"]`));
+  // Receive and Send only on History (iOS 0b9fd28).
+  const actions = document.querySelector("[data-manage-address-actions]");
+  if (actions) actions.hidden = target !== "transactions";
+  if (target === "kachat") paintKachatAddressDomains("[data-manage-address-panel=\"kachat\"]", engine.address);
 }
-
+document.querySelector("[data-manage-address-cycle]")?.addEventListener("click", (event) => setManageAddressTab(event.currentTarget.dataset.cycleNext || "transactions"));
+setManageAddressTab("transactions");
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   // Only the topmost screen closes: Send Kaspa sits over the address page that opened it.
@@ -15836,7 +15819,8 @@ document.querySelector("[data-connection-save]")?.addEventListener("click", () =
     } catch { /* names not running here */ }
   }
   loadEndpointInputs();
-  showSettingsCategory(settingsSubscreenParentIndex != null ? settingsSubscreenParentIndex : null);
+  // Save keeps it and goes back to the cards (K pageScreen's Save).
+  showConnectionPage(null, { bar: true });
 });
 loadEndpointInputs();
 
@@ -20583,6 +20567,7 @@ function setSettingsBackBar(visible, label, title = "") {
   if (titleEl) { titleEl.hidden = !visible; titleEl.textContent = visible ? title : ""; }
 }
 document.querySelector("[data-settings-nav-back]")?.addEventListener("click", () => {
+  if (connectionPageBack()) return;
   showSettingsCategory(settingsSubscreenParentIndex != null ? settingsSubscreenParentIndex : null);
 });
 
@@ -20650,12 +20635,48 @@ if (IS_TESTNET) {
   document.querySelectorAll('[data-endpoint="kaspaApi"]').forEach((input) => { input.placeholder = ENDPOINT_DEFAULTS.kaspaApi; });
 }
 
-// Connection Settings: one tab per kind of connection (iOS ee01f81). Every field saves as it
-// changes, so switching tabs never loses an edit.
-function showConnectionTab(name) {
-  document.querySelectorAll("[data-connection-tab]").forEach((tab) => tab.classList.toggle("active", tab.dataset.connectionTab === name));
-  document.querySelectorAll("[data-connection-panel]").forEach((panel) => { panel.hidden = panel.dataset.connectionPanel !== name; });
-  if (name === "domains") paintKachatNamesSource({ check: true });
+// Connection Settings: a card per connection, each opening its own page (K ConnectionSettingsView's
+// cards; no tabs inside a screen, K 518fdc8c). The fields keep their edits between pages; Save
+// keeps them all and goes back to the cards; leaving Connection Settings drops unsaved edits.
+const CONNECTION_PAGES = { indexer: "Indexer", node: "Node", domains: "Domains", explorer: "Explorer" };
+let connectionPage = null;
+/** The host a card shows for its connection (K cardSummary): the field's server, or "Not set". */
+function connectionHost(raw) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return "Not set";
+  try { return new URL(/^[a-z]+:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`).host || trimmed; } catch { return trimmed; }
+}
+function paintConnectionCards() {
+  const fieldOf = (key) => document.querySelector(`[data-endpoint="${key}"]`);
+  const summary = { indexer: "kasiaIndexer", domains: "kachatNamesIndexer", explorer: "kaspaApi" };
+  for (const [page, key] of Object.entries(summary)) {
+    const el = document.querySelector(`[data-connection-card-summary="${page}"]`);
+    const field = fieldOf(key);
+    if (el) el.textContent = connectionHost(field?.value || field?.placeholder || "");
+  }
+}
+/** Null: the cards. A page's name: that connection's page, with Save. `bar`: the Settings bar's
+ *  title follows (only while Connection Settings is the page on screen). */
+function showConnectionPage(name, { bar = false } = {}) {
+  connectionPage = CONNECTION_PAGES[name] ? name : null;
+  const cards = document.querySelector("[data-connection-cards]");
+  if (cards) cards.hidden = Boolean(connectionPage);
+  const head = document.querySelector("[data-connection-settings-head]");
+  if (head) head.hidden = !connectionPage;
+  document.querySelectorAll("[data-connection-panel]").forEach((panel) => { panel.hidden = panel.dataset.connectionPanel !== connectionPage; });
+  if (connectionPage === "domains") paintKachatNamesSource({ check: true });
+  if (!connectionPage) paintConnectionCards();
+  if (bar) {
+    setSettingsBackBar(true, connectionPage ? "Connection Settings" : "Connection", connectionPage ? CONNECTION_PAGES[connectionPage] : "Connection Settings");
+    if (settingsScreenEl) settingsScreenEl.scrollTop = 0;
+  }
+}
+/** Back from a connection's page goes to the cards first (true), not out of Connection Settings. */
+function connectionPageBack() {
+  const open = settingsGroupsEls.find((group) => group.dataset.settingsSubscreen === "connection-settings");
+  if (!connectionPage || !open || open.hidden) return false;
+  showConnectionPage(null, { bar: true });
+  return true;
 }
 // Connection Settings > Domains: where .kachat names are read from right now (iOS KaPlay 1d23002
 // namesRegistry.source) - the names indexer's address, or the chain when it doesn't serve this
@@ -20675,12 +20696,8 @@ function paintKachatNamesSource({ check = false } = {}) {
   row.querySelector("[data-kachat-names-source-note]").hidden = source?.kind !== "chain";
   if (check && !source) runtime.registry.prepare().catch(() => {}).finally(() => paintKachatNamesSource());
 }
-document.querySelectorAll("[data-connection-tab]").forEach((tab) => {
-  tab.addEventListener("click", () => showConnectionTab(tab.dataset.connectionTab));
-});
-// The tabs swipe too (iOS 4c0d5a8).
-document.querySelectorAll("[data-connection-panel]").forEach((panel) => {
-  attachTabSwipe(panel, () => [...document.querySelectorAll("[data-connection-tab]")]);
+document.querySelectorAll("[data-connection-card]").forEach((card) => {
+  card.addEventListener("click", () => showConnectionPage(card.dataset.connectionCard, { bar: true }));
 });
 
 function showSettingsSubscreen(name, parentIndex) {
@@ -20697,7 +20714,7 @@ function showSettingsSubscreen(name, parentIndex) {
     loadEndpointInputs();
     document.querySelectorAll("[data-endpoint-error]").forEach((el) => { el.hidden = true; });
     renderNodeChoice();
-    showConnectionTab("indexer");
+    showConnectionPage(null);
   }
   settingsSubscreenParentIndex = Number.isInteger(parentIndex) && parentIndex >= 0 ? parentIndex : null;
   settingsHubEl.hidden = true;
@@ -20720,6 +20737,7 @@ settingsScreenEl?.addEventListener("click", (event) => {
   const row = event.target.closest("[data-settings-hub-row]");
   if (row) { showSettingsCategory(Number(row.dataset.settingsHubRow)); return; }
   if (event.target.closest("[data-settings-hub-back]")) {
+    if (connectionPageBack()) return;
     showSettingsCategory(settingsSubscreenParentIndex != null ? settingsSubscreenParentIndex : null);
     return;
   }
@@ -22173,13 +22191,11 @@ importPayloadForm?.addEventListener("submit", (event) => {
 });
 
 
-// Debounced: each keystroke previously rebuilt the entire chat list synchronously
-// (innerHTML + per-row preview derivation), which was visible typing lag with many chats.
-let chatSearchDebounce = null;
-searchInput.addEventListener("input", () => {
-  if (chatSearchDebounce) clearTimeout(chatSearchDebounce);
-  chatSearchDebounce = window.setTimeout(() => { chatSearchDebounce = null; renderChats(); }, 180);
-});
+// Coalesced: each keystroke previously rebuilt the entire chat list synchronously
+// (innerHTML + per-row preview derivation), which was visible typing lag with many chats. 180 ms
+// after the last change, but never more than a second stale (K 518fdc8c, audit 2026-11-24 #27).
+const scheduleChatSearchRender = coalescedRunner({ run: () => renderChats(), delayMs: 180, maxWaitMs: 1000 });
+searchInput.addEventListener("input", () => scheduleChatSearchRender());
 attachPinnedSearch(document.querySelector("[data-app-sidebar]"));
 
 messageArea.addEventListener("click", (event) => {
@@ -31074,7 +31090,7 @@ queueMicrotask(async () => {
         return requestPassword({ mode: "verify", title: "Confirm Transaction", message: reason || "Confirm this transaction." });
       },
       walletAddress: () => engine.address || "",
-      // Edit Profile's "Get a .kachat name" (KaChat iOS 148a5331): the .kachat screen.
+      // Edit Profile's "Get a username" (KaChat iOS 148a5331, K 518fdc8c): the Usernames screen.
       openKachatNames: () => setActiveAppTab("kachat-names"),
       // The chatting address's balance in sompi (iOS currentWallet.balanceSompi), or null while unknown.
       walletBalanceSompi: () => {

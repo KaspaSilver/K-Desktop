@@ -25,6 +25,7 @@
 // Styles: ui/swaps.css.
 
 import "./swaps.css";
+import { cycleBarHtml, cycleChanged } from "./cycle-button.js";
 import kaspaLogoUrl from "./assets/kaspa-logo.png";
 import coinAda from "./assets/coins/coin_ada.png";
 import coinBch from "./assets/coins/coin_bch.png";
@@ -318,14 +319,13 @@ function kusdtTarget() {
 function render() {
   if (!rootEl || !deps) return;
   const header = `<div class="kaposts-header"><h1 class="kaposts-title">Swap</h1></div>`;
-  // The page switch (K 5.4 cycle button; Desktop keeps its underline tabs).
-  const tabs = `<nav class="chats-tab-bar swap-tab-bar" aria-label="Swap sections">
-    <button type="button" class="chats-tab-button ${tab === "swap" ? "active" : ""}" data-swap-tab="swap"><span class="chats-tab-label-row">Swap</span></button>
-    <button type="button" class="chats-tab-button ${tab === "history" ? "active" : ""}" data-swap-tab="history"><span class="chats-tab-label-row">Swap History</span></button>
-  </nav>`;
+  // Swap / Swap History on the cycle button (K 518fdc8c SwapView PageCycleBar): each click fades to
+  // the other page.
+  const tabs = cycleBarHtml({ name: "swap-page", options: [["swap", "Swap"], ["history", "Swap History"]], value: tab, attrs: "data-swap-tab" });
+  const fade = cycleChanged("page:swap", tab) ? " cycle-fade" : "";
   const kind = currentKind();
   const overlay = tab === "swap" && !agreements[kind] ? renderAgreement(kind) : "";
-  rootEl.innerHTML = `<div class="swap-root">${header}${tabs}<div class="swap-page">${tab === "swap" ? renderSwapPage() : renderHistory()}</div>${overlay}</div>`;
+  rootEl.innerHTML = `<div class="swap-root">${header}${tabs}<div class="swap-page${fade}">${tab === "swap" ? renderSwapPage() : renderHistory()}</div>${overlay}</div>`;
   const qr = rootEl.querySelector("[data-swap-qr]");
   if (qr?.dataset.swapQr) deps.engine.drawQrFor(qr, qr.dataset.swapQr, { dark: "#06110f", light: "#ffffff" }).catch(() => {});
 }
@@ -1274,7 +1274,7 @@ export function initSwaps(dependencies) {
       return;
     }
     const tabButton = event.target.closest("[data-swap-tab]");
-    if (tabButton) { tab = tabButton.dataset.swapTab; render(); return; }
+    if (tabButton) { tab = tabButton.dataset.cycleNext === "history" ? "history" : "swap"; render(); return; }
     if (event.target.closest("[data-swap-agree]")) {
       if (!agreementChecked) return;
       acceptAgreement(currentKind());

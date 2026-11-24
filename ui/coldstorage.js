@@ -14,6 +14,7 @@ import { NETWORK_ID, KAS_UNIT, lowercasedKaspaAddress } from "../engine/network.
 import { sompiFromUserText, kasToSompi, fiatTextFloorFromSompi, checkedUtxoAnswer } from "../engine/amounts.js";
 import { kachatOwnersOfNames } from "./kachat-names-live.js";
 import { renderAddressDomainsTab } from "./address-domains-tab.js";
+import { cycleBarHtml, cycleChanged } from "./cycle-button.js";
 import { userFacingError, alertDialog } from "./dialogs.js";
 import { drawKasSignerFrame } from "../engine/qr.js";
 import jsQR from "jsqr";
@@ -65,6 +66,8 @@ let balanceCache = new Map(); // address -> sompi, per opened account
 // Per-address screen (iOS ColdStorageAddressTransactionHistoryView)
 let activeAddressIndex = null; // non-null = address screen within the open account
 let addressTab = "transactions";
+/** An address's pages, in the cycle button's order (K ColdStorageAddressTransactionHistoryView). */
+const COLD_ADDRESS_PAGES = [["transactions", "History"], ["utxos", "UTXOs"], ["kachat", "Usernames"]];
 let addrTxs = { state: "idle", txs: [], error: null };
 let addrUtxos = { state: "idle", entries: [], error: null };
 let addrToken = 0;
@@ -1097,13 +1100,10 @@ function renderAddressScreen() {
     <!-- The same balance card as a Manage Addresses address's page (K b0f0a4e6): its name, its
          balance large, and its worth in your currency. -->
     ${balanceCardHtml(displayLabelFor(account, entry.index), balanceSompi, renderAddressScreen)}
-    <!-- History / UTXOs / Usernames on the app's underline tab bar (iOS b96d727, 718b88c, fe52376). -->
-    <nav class="domains-tabs address-tabs" aria-label="Cold address view">
-      <button type="button" class="domains-tab ${addressTab === "transactions" ? "active" : ""}" data-cold-tab="transactions">History</button>
-      <button type="button" class="domains-tab ${addressTab === "utxos" ? "active" : ""}" data-cold-tab="utxos">UTXOs</button>
-      <button type="button" class="domains-tab ${addressTab === "kachat" ? "active" : ""}" data-cold-tab="kachat">Usernames</button>
-    </nav>
-    <div class="manage-address-list cold-address-panel">
+    <!-- History / UTXOs / Usernames on the cycle button (K 518fdc8c PageCycleBar), each click fading
+         to the next page. -->
+    ${cycleBarHtml({ name: "cold-address", options: COLD_ADDRESS_PAGES, value: addressTab, attrs: "data-cold-tab" })}
+    <div class="manage-address-list cold-address-panel${cycleChanged("page:cold-address", addressTab) ? " cycle-fade" : ""}">
       ${addressTab === "transactions" ? addressTxRowsHtml(entry) : addressTab === "utxos" ? addressUtxoRowsHtml(entry) : "<div data-cold-kachat-names></div>"}
     </div>
     <div class="cold-bottom-actions">
@@ -3618,7 +3618,7 @@ export function initColdStorage(dependencies) {
       return;
     }
     const tab = event.target.closest("[data-cold-tab]");
-    if (tab) { addressTab = tab.dataset.coldTab; render(); return; }
+    if (tab) { addressTab = COLD_ADDRESS_PAGES.some(([id]) => id === tab.dataset.cycleNext) ? tab.dataset.cycleNext : "transactions"; render(); return; }
     if (event.target.closest("[data-cold-addr-receive]")) {
       const account = activeAccount();
       const entry = detailEntries.find((e) => e.index === activeAddressIndex);

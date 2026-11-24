@@ -44,3 +44,29 @@ export function debouncedCountPublisher({ read, publish, delayMs = 300, setTimer
     }, delayMs);
   };
 }
+
+/**
+ * The Chats list's rebuild (K 518fdc8c ChatListView.scheduleFilteredConversationsRefresh): coalesced
+ * to one run `delayMs` after the last call, but never held more than `maxWaitMs` since the list was
+ * last rebuilt. A pure debounce let a long burst (typing on, or a sync's changes) keep the list and
+ * its search stale until it paused (audit 2026-11-24 #27). Returns `schedule()`; `schedule.cancel()`
+ * drops a pending run. Timers and the clock are injectable for the test.
+ */
+export function coalescedRunner({ run, delayMs = 180, maxWaitMs = 1000, setTimer = setTimeout, clearTimer = clearTimeout, now = () => Date.now() }) {
+  let timer = null;
+  let lastRunAt = -Infinity;
+  const fire = () => {
+    timer = null;
+    lastRunAt = now();
+    run();
+  };
+  const schedule = () => {
+    if (timer !== null) clearTimer(timer);
+    timer = null;
+    // Held a second already: rebuild now.
+    if (now() - lastRunAt > maxWaitMs) { fire(); return; }
+    timer = setTimer(fire, delayMs);
+  };
+  schedule.cancel = () => { if (timer !== null) clearTimer(timer); timer = null; };
+  return schedule;
+}

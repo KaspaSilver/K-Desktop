@@ -13,7 +13,7 @@
   <!-- Too-old browsers (no WebAssembly / modern JS, e.g. iOS 10) get a clear message, not a blank layout. -->
   <script src="/browser-check.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=432" />
+  <link rel="stylesheet" href="./ui/styles.css?v=433" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (K's globe, dark only since K b0f0a4e6) is the tab icon too. -->
@@ -75,11 +75,9 @@
 
   <main id="app" class="kachat-shell" aria-label="K web shell">
     <header class="app-topbar">
-      <div class="toolbar-health-cluster">
-        <button class="service-health-button" data-service-health-button data-open-connection-status type="button" aria-label="Service status. Open Connection Status" title="Open Connection Status">
-          <span class="service-health-led busy" data-service-health-led aria-hidden="true"></span>
-        </button>
-      </div>
+      <!-- No connection dot here (K 518fdc8c): it is only at the top of Settings and on the dock's
+           Settings icon. The cluster stays as the bar's leading spacer. -->
+      <div class="toolbar-health-cluster"></div>
       <div class="toolbar-balance" data-toolbar-balance title="Current wallet balance">
         <img class="toolbar-balance-logo" src="./ui/assets/kaspa-logo.png" alt="" aria-hidden="true" width="15" height="15" />
         <span data-toolbar-balance-value>-- KAS</span>
@@ -176,8 +174,6 @@
               <button class="kaposts-icon-button" type="button" data-broadcast-back aria-label="Back">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/></svg>
               </button>
-              <!-- The connection dot beside back (iOS PublicChatChannelView's leading items). -->
-              <button class="service-health-button mirror-health-button" type="button" data-mirror-health-button aria-label="Open Connection Status" title="Open Connection Status"><span class="service-health-led busy" data-mirror-health-led aria-hidden="true"></span></button>
 
               <!-- The room's header chip (iOS BroadcastRoomTitleChip): a # circle over a name
                    capsule, and the way into Room Info. -->
@@ -475,9 +471,6 @@
                     <p class="conversation-bio group-chat-sub" data-group-chat-sub></p>
                   </span>
                 </button>
-                <!-- The trailing connection dot (iOS GroupChatDetailView): tapping the header opens
-                     Group Info, so the right of the bar is free for it. -->
-                <button class="service-health-button mirror-health-button group-chat-health" type="button" data-mirror-health-button aria-label="Open Connection Status" title="Open Connection Status"><span class="service-health-led busy" data-mirror-health-led aria-hidden="true"></span></button>
               </div>
               <div class="message-selection-toolbar" data-group-selection-toolbar hidden>
                 <button class="selection-cancel" type="button" data-group-cancel-selection>Cancel</button>
@@ -654,10 +647,10 @@
             </button>
           </nav>
           <div class="kaposts-content">
-          <div class="kaposts-feed-tabs" data-kaposts-feed-tabs>
-            <button class="kaposts-feed-tab" type="button" data-kaposts-feed-tab="following">Following</button>
-            <button class="kaposts-feed-tab active" type="button" data-kaposts-feed-tab="feed">Feed</button>
-            <button class="kaposts-feed-tab" type="button" data-kaposts-feed-tab="popular">Popular</button>
+          <!-- Following, Feed and Popular are one cycle button (K 518fdc8c feedCycleButton): each
+               click fades to the next. No tabs and no sideways swipe. ui/kaposts.js paints it. -->
+          <div class="kaposts-feed-head" data-kaposts-feed-head>
+            <button class="cycle-button kaposts-feed-cycle" type="button" data-cycle="kaposts-feed" data-kaposts-feed-cycle aria-label="Feed, 2 of 3. Switches to the next feed"><span class="cycle-button-title">Feed</span></button>
             <!-- Pull-to-refresh has no desktop gesture; this is the same reload on a button.
                  KaPosts Settings is the last rail item, as on iOS. -->
             <button class="kaposts-feed-refresh" type="button" data-kaposts-refresh aria-label="Refresh" title="Refresh">
@@ -960,6 +953,9 @@
         <!-- gearshape (iOS AppTab.settings, d54ea87c): Settings as a tab, opening the Settings page
              in place with no Done. -->
         <span class="sidebar-tab-icon" aria-hidden="true"><svg class="tab-glyph-gear" viewBox="0 0 24 24"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 0 1 0 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 0 1 0-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.369-.491l1.217.456c.355.133.75.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281Z"/> <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg></span>
+        <!-- The connection dot on the gear (K 518fdc8c SettingsDockIcon): green connected, orange
+             connecting, red after 8 s disconnected. The same button is the phone bottom bar's. -->
+        <span class="sidebar-tab-badge dot dock-connection-dot busy" data-dock-connection-dot aria-hidden="true"></span>
         <span>Settings</span>
       </button>
       <button class="sidebar-tab" type="button" data-app-tab="hub">
@@ -1136,20 +1132,39 @@
 
           <!-- Connection sub-screens. -->
           <section class="settings-group" data-settings-subscreen="connection-settings" data-settings-title="Connection Settings">
-            <!-- iOS ConnectionSettingsView: one Save (top right) covers every tab; it refuses while a
-                 field holds http://, saves scheme-less values as https:// and blank as the default. -->
-            <div class="connection-settings-head">
-              <!-- The page's own title is the bar's "Connection Settings": no second one here. -->
+            <!-- iOS ConnectionSettingsView: Save (top right of a connection's page) refuses while a
+                 field holds http://, saves scheme-less values as https:// and blank as the default,
+                 then goes back to the cards. -->
+            <div class="connection-settings-head" data-connection-settings-head hidden>
+              <!-- The page's own title is the bar's: no second one here. -->
               <button class="linklike-button connection-save-button" type="button" data-connection-save>Save</button>
             </div>
-            <!-- One tab per kind of connection (iOS ee01f81); the fields keep their edits across tabs. -->
-            <nav class="domains-tabs connection-tabs" aria-label="Connection type">
-              <button type="button" class="domains-tab active" data-connection-tab="indexer">Indexer</button>
-              <button type="button" class="domains-tab" data-connection-tab="node">Node</button>
-              <button type="button" class="domains-tab" data-connection-tab="domains">Domains</button>
-              <button type="button" class="domains-tab" data-connection-tab="explorer">Explorer</button>
-            </nav>
-            <div class="connection-panel" data-connection-panel="indexer">
+            <!-- A card per connection, each opening its own page (K ConnectionSettingsView's cards; the
+                 tabs are gone, K 518fdc8c: no tabs inside a screen). The fields keep their edits
+                 between pages until Save or leaving Connection Settings. -->
+            <div class="connection-cards" data-connection-cards>
+              <button type="button" class="connection-card" data-connection-card="indexer">
+                <span class="connection-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5a5 5 0 0 0-5 5v3.2L5.5 15h13L17 11.7V8.5a5 5 0 0 0-5-5Z"/><path d="M10 18a2 2 0 0 0 4 0"/></svg></span>
+                <span class="connection-card-copy"><strong>Indexer</strong><code data-connection-card-summary="indexer"></code></span>
+                <svg class="settings-dropdown-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+              </button>
+              <button type="button" class="connection-card" data-connection-card="node">
+                <span class="connection-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="16" height="6.5" rx="1.5"/><path d="M7.5 7.25h.01M7.5 16.75h.01"/></svg></span>
+                <span class="connection-card-copy"><strong>Node</strong><code data-node-choice-current></code></span>
+                <svg class="settings-dropdown-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+              </button>
+              <button type="button" class="connection-card" data-connection-card="domains">
+                <span class="connection-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.6"/><path d="M15.6 12v1.3a2.4 2.4 0 0 0 4.8 0V12a8.4 8.4 0 1 0-3.3 6.7"/></svg></span>
+                <span class="connection-card-copy"><strong>Domains</strong><code data-connection-card-summary="domains"></code></span>
+                <svg class="settings-dropdown-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+              </button>
+              <button type="button" class="connection-card" data-connection-card="explorer">
+                <span class="connection-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m15.6 8.4-2.1 5.1-5.1 2.1 2.1-5.1z"/></svg></span>
+                <span class="connection-card-copy"><strong>Explorer</strong><code data-connection-card-summary="explorer"></code></span>
+                <svg class="settings-dropdown-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+              </button>
+            </div>
+            <div class="connection-panel" data-connection-panel="indexer" hidden>
             <p class="settings-group-label">Message Indexer</p>
             <div class="settings-list-card">
               <div class="settings-page-form">
@@ -2277,12 +2292,9 @@
              View in Explorer, each saying what it does. -->
         <button type="button" class="address-actions-pill" data-open-address-actions>Address Actions</button>
 
-        <!-- Right above what it switches, on the app's underline tab bar (iOS b96d727, 718b88c). -->
-        <nav class="domains-tabs address-tabs" aria-label="Chatting address view">
-          <button type="button" class="domains-tab active" data-manage-address-tab="transactions">History</button>
-          <button type="button" class="domains-tab" data-manage-address-tab="utxos">UTXOs</button>
-          <button type="button" class="domains-tab" data-manage-address-tab="kachat">Usernames</button>
-        </nav>
+        <!-- Right above what it switches: the cycle button (K 518fdc8c PageCycleBar), each click
+             fading to the next page. ui/app.js paints it. -->
+        <div class="cycle-bar address-cycle"><button class="cycle-button" type="button" data-cycle="manage-address" data-manage-address-cycle aria-label="History, 1 of 3. Switches to the next page"><span class="cycle-button-title">History</span></button></div>
 
         <div class="manage-address-body">
           <div data-manage-address-panel="transactions">
@@ -2479,12 +2491,8 @@
         <span class="spending-detail-balance-value" data-spending-detail-balance>-- KAS</span>
       </div>
 
-      <!-- History / UTXOs / .kachat on the app's underline tab bar (iOS b96d727, 718b88c). -->
-      <nav class="domains-tabs address-tabs" aria-label="Spending address view">
-        <button type="button" class="domains-tab active" data-spending-detail-tab="transactions">History</button>
-        <button type="button" class="domains-tab" data-spending-detail-tab="utxos">UTXOs</button>
-        <button type="button" class="domains-tab" data-spending-detail-tab="kachat">Usernames</button>
-      </nav>
+      <!-- History / UTXOs / Usernames on the cycle button (K 518fdc8c PageCycleBar). -->
+      <div class="cycle-bar address-cycle"><button class="cycle-button" type="button" data-cycle="spending-address" data-spending-detail-cycle aria-label="History, 1 of 3. Switches to the next page"><span class="cycle-button-title">History</span></button></div>
 
       <div class="manage-address-body">
         <div data-spending-detail-panel="transactions">

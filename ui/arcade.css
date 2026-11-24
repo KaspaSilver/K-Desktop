@@ -26,6 +26,9 @@
 .arcade-play-button { width: 100%; max-width: 420px; min-height: 50px; border-radius: 999px; font-size: 17px; font-weight: 700; }
 .arcade-board-head { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
 .arcade-board-head h2 { margin: 0; font-size: 20px; }
+.arcade-board-head { gap: 10px; }
+.arcade-board-tools { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.arcade-board-rows { display: flex; flex-direction: column; }
 .arcade-board-empty { text-align: center; padding: 20px 0; }
 .arcade-board-score { font-weight: 700; font-variant-numeric: tabular-nums; }
 .chess-t-rank.top { color: var(--kaspa-ink); }

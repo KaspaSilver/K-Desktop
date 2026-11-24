@@ -433,7 +433,7 @@ async function wonGame(options) {
   const a = await openArena([]);
   stub.botGames.length = 0;
   const click = (attr, dataset = {}) => { const el = { dataset }; screen.onclick({ target: { closest: (sel) => (sel === `[${attr}]` ? el : null) } }); };
-  click("data-chess-t-bots");
+  a.ui.playChess("bots"); // the Play sheet's Bots (K 518fdc8c ChessHomeView)
   click("data-chess-bot-open", { chessBotOpen: "1" });
   click("data-chess-bot-play");
   const played = stub.botGames.at(-1);

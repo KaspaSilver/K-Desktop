@@ -97,10 +97,7 @@ import {
   kapostsLongRelativeTime,
   kapostsNamedRelativeTime,
   KAPOSTS_FEED_MENU,
-  kapostsAxisLock,
-  kapostsPagerOffset,
   kapostsProjectedTranslation,
-  kapostsPagerTarget,
   kapostsDrawerWidth,
   kapostsDrawerShouldClose,
   kapostsDrawerDim,
@@ -113,8 +110,10 @@ import {
 import { botChallengeIn, botChallengeTitle } from "../engine/chess-bot-links.js";
 import { arcadeChallengeIn, arcadeChallengeTitle } from "../engine/arcade-services.js";
 import { arcadeIconHtml } from "./arcade-icon.js";
-// The phone header's hamburger, its slide-out card and the swipeable feeds (iOS 865c9ab).
+// The phone header's hamburger and its slide-out card (iOS 865c9ab).
 import "./kaposts-drawer.css";
+// Following / Feed / Popular, Posts / Replies and Search's Posts / People: the cycle button (K 518fdc8c).
+import { cycleButtonHtml, updateCycleButton, restartFade } from "./cycle-button.js";
 import "./kapost-terms.css";
 import { postReportBody, sendContentReport, withBlockedAccount } from "./kapost-moderation.js";
 // Who a poster is: their .kachat name, avatar, banner and bio (iOS 3d6fb7c, KachatLive.identityName /
@@ -134,7 +133,7 @@ const sessionReplyIds = new Set();
 let deps = null; // { engine, escapeHtml, shortAddress, accountScopedKey, showToast, appendEngineLog }
 
 // DOM
-let feedEl, statusEl, tabsEl, threadEl, threadRootEl, threadRepliesEl, toastsEl;
+let feedEl, statusEl, feedHeadEl, threadEl, threadRootEl, threadRepliesEl, toastsEl;
 let composerEl, composerInput, composerMeter, composerSubmit, composerTitle, composerQuote;
 
 // State
@@ -2337,7 +2336,7 @@ function syncSurfaces(threadPost) {
   if (threadEl) threadEl.hidden = !showThread;
   if (panelEl) panelEl.hidden = !showPanel;
   if (feedEl) feedEl.hidden = !showFeed;
-  if (tabsEl) tabsEl.hidden = !showFeed;
+  if (feedHeadEl) feedHeadEl.hidden = !showFeed;
 }
 
 function currentThreadPost() {
@@ -3846,95 +3845,18 @@ function rootProfileButtonsHtml() {
     + `</span>`;
 }
 
-/** Where a profile's Posts/Replies swipe lands when the finger lets go (K 804cbcb7 / 428a797b
- *  ProfileTabSwipe): the other tab once the posts went a quarter of the width, or a flick would
- *  take them 60% of it; null (they settle back) otherwise, or when there's no tab that way. Left
- *  goes to Replies, right back to Posts. */
-export function profileSwipeTarget({ dx, flung = dx, width, tab }) {
-  const next = dx < 0 ? "replies" : "posts";
-  if (!dx || next === (tab === "replies" ? "replies" : "posts")) return null;
-  return Math.abs(dx) > width * 0.25 || Math.abs(flung) > width * 0.6 ? next : null;
-}
+/** Posts and Replies on a profile: the cycle button, fading to the other page as KaPost's feeds do
+ *  (K 518fdc8c profileFeedTabBar; owner, 2026-11-24: no sideways swipe). */
+const PROFILE_PAGES = [["posts", "Posts"], ["replies", "Replies"]];
 
-const PROFILE_SLIDE_OUT_MS = 140;
-const PROFILE_SLIDE_IN_MS = 220;
-const reducedMotion = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
-const profileListEl = () => panelBodyEl?.querySelector("[data-kaposts-panel-list]") || null;
-
-/** Puts the new tab's posts just off one side, then slides them to rest; the header stays put. */
-function slideProfileListIn(fromTrailing) {
-  const list = profileListEl();
-  if (!list || reducedMotion()) return;
-  const width = panelBodyEl.clientWidth || 390;
-  list.style.transition = "none";
-  list.style.transform = `translateX(${fromTrailing ? width : -width}px)`;
-  void list.offsetWidth; // the off-screen spot is drawn before the slide starts
-  list.style.transition = `transform ${PROFILE_SLIDE_IN_MS}ms ease-out`;
-  list.style.transform = "";
-}
-
-/** Shows a profile's other tab, sliding its posts in from the side it lies on (a tab tap too). */
+/** Shows a profile's other page; its posts fade in (the header stays put). */
 function showProfileTab(next) {
   if (activePanel?.type !== "profile") return;
   const current = activePanel.tab === "replies" ? "replies" : "posts";
   if (next === current) return;
   activePanel.tab = next;
   renderPanel();
-  slideProfileListIn(next === "replies");
-}
-
-/** The posts follow a sideways finger (touch only; a mouse uses the tabs). An up-and-down scroll
- *  never moves them: the direction is picked once, after 10 px. */
-function wireProfileTabSwipe(body) {
-  let drag = null;
-  const settle = (list) => {
-    if (!list) return;
-    list.style.transition = reducedMotion() ? "none" : "transform 300ms cubic-bezier(.2, .9, .3, 1)";
-    list.style.transform = "";
-  };
-  body.addEventListener("touchstart", (event) => {
-    const t = event.touches[0];
-    const list = profileListEl();
-    drag = event.touches.length === 1 && t && activePanel?.type === "profile" && list && list.contains(event.target)
-      ? { x: t.clientX, y: t.clientY, horizontal: null, list, dx: 0, lastX: t.clientX, lastAt: performance.now(), velocity: 0 }
-      : null;
-  }, { passive: true });
-  body.addEventListener("touchmove", (event) => {
-    const t = event.touches[0];
-    if (!drag || !t) return;
-    const dx = t.clientX - drag.x;
-    const dy = t.clientY - drag.y;
-    if (drag.horizontal === null) {
-      if (Math.abs(dx) <= 10 && Math.abs(dy) <= 10) return;
-      drag.horizontal = Math.abs(dx) > Math.abs(dy) * 1.2;
-    }
-    if (!drag.horizontal) return;
-    const now = performance.now();
-    if (now > drag.lastAt) drag.velocity = (t.clientX - drag.lastX) / (now - drag.lastAt);
-    drag.lastX = t.clientX;
-    drag.lastAt = now;
-    drag.dx = dx;
-    // no tab that way: the posts give a little and stop
-    const open = activePanel?.tab === "replies" ? "replies" : "posts";
-    const hasNeighbor = (dx < 0 ? "replies" : "posts") !== open;
-    drag.list.style.transition = "none";
-    drag.list.style.transform = `translateX(${hasNeighbor ? dx : dx / 4}px)`;
-  }, { passive: true });
-  const end = () => {
-    const d = drag;
-    drag = null;
-    if (!d?.horizontal || activePanel?.type !== "profile") return;
-    const width = body.clientWidth || 390;
-    const next = profileSwipeTarget({ dx: d.dx, flung: d.dx + d.velocity * 250, width, tab: activePanel.tab });
-    if (!next) { settle(d.list); return; }
-    if (reducedMotion()) { showProfileTab(next); return; }
-    // this tab slides off toward the finger's side, then the next one comes in
-    d.list.style.transition = `transform ${PROFILE_SLIDE_OUT_MS}ms ease-in`;
-    d.list.style.transform = `translateX(${d.dx < 0 ? -width : width}px)`;
-    window.setTimeout(() => showProfileTab(next), PROFILE_SLIDE_OUT_MS);
-  };
-  body.addEventListener("touchend", end, { passive: true });
-  body.addEventListener("touchcancel", () => { const d = drag; drag = null; if (d?.horizontal) settle(d.list); }, { passive: true });
+  restartFade(panelBodyEl?.querySelector("[data-kaposts-panel-list]"));
 }
 
 /** Your own profile, as the Profile tab's page (not over a thread). */
@@ -4232,8 +4154,9 @@ function renderPanel() {
     panelBodyEl.innerHTML = `
       <div class="kaposts-profile-hero">
         <div class="kaposts-profile-banner${kachatBanner ? " has-img" : ""}">${kachatBanner}</div>
-        ${/* Someone else's: Follow and Chat beside the avatar, above the name, so a long name never
-             squeezes them (iOS 472cb72, .kaposts-profile-row.other). */ ""}
+        ${/* Someone else's: the avatar on its own, the name the full width below it, and Follow
+             and Chat under the follow counts (K 518fdc8c; owner, 2026-11-23), so a long name never
+             squeezes them. */ ""}
         <div class="kaposts-profile-row${isMine && !isRootProfilePanel(panel) ? "" : " other"}">
           ${posterAvatarHtml(address)}
           <div class="kaposts-profile-meta">
@@ -4244,6 +4167,13 @@ function renderPanel() {
               <button type="button" class="kaposts-count-link" data-kaposts-follow-list="following"${panel.pubkey ? "" : " disabled"}><b>${isMine ? prefs.following.filter((a) => a !== address).length : (panel.details?.followingCount ?? 0)}</b> Following</button>&nbsp;&nbsp;
               <button type="button" class="kaposts-count-link" data-kaposts-follow-list="followers"${panel.pubkey ? "" : " disabled"}><b>${panel.details?.followersCount ?? 0}</b> Followers</button>
             </span>
+            ${!isMine ? `<span class="kaposts-profile-actions kaposts-under-counts">
+              <button class="kaposts-follow${isFollowing ? " following" : ""}" type="button" data-kaposts-profile-follow>${isFollowing ? "Following" : "Follow"}</button>
+              <button class="kaposts-profile-chat" type="button" data-kaposts-profile-chat title="Open a chat with ${deps.escapeHtml(posterName(address))}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155"/></svg>
+                Chat
+              </button>
+            </span>` : ""}
             ${profile.bio ? `<span class="kaposts-profile-bio" data-kaposts-profile-bio>${deps.escapeHtml(profile.bio)}</span><button type="button" class="kaposts-bio-more" data-kaposts-bio-more hidden>More</button>` : ""}
             ${isMine && isRootProfilePanel(panel) ? rootProfileButtonsHtml() : ""}
             ${isMine && !isRootProfilePanel(panel) ? `<span class="kaposts-profile-buttons"><button class="kaposts-edit-kns" type="button" data-kaposts-edit-profile><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PANEL_ICONS.idCard}"/></svg>Edit KaChat Profile</button>${/* Beside it, Wallet (iOS 865c9ab): the chatting address's balance, history and coins -
@@ -4252,19 +4182,9 @@ function renderPanel() {
           ${isRootProfilePanel(panel) ? `<span class="kaposts-profile-actions">
             <button class="kaposts-edit-kns kaposts-see-all" type="button" data-kaposts-see-all title="Opens KaPost, where everyone's posts are.">${NEWSPAPER_SVG}See All Posts</button>
           </span>` : ""}
-          ${!isMine ? `<span class="kaposts-profile-actions">
-            <button class="kaposts-follow${isFollowing ? " following" : ""}" type="button" data-kaposts-profile-follow>${isFollowing ? "Following" : "Follow"}</button>
-            <button class="kaposts-profile-chat" type="button" data-kaposts-profile-chat title="Open a chat with ${deps.escapeHtml(posterName(address))}">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155"/></svg>
-              Chat
-            </button>
-          </span>` : ""}
         </div>
       </div>
-      <div class="kaposts-feed-tabs kaposts-profile-tabs">
-        <button class="kaposts-feed-tab${panel.tab !== "replies" ? " active" : ""}" type="button" data-kaposts-profile-tab="posts">Posts</button>
-        <button class="kaposts-feed-tab${panel.tab === "replies" ? " active" : ""}" type="button" data-kaposts-profile-tab="replies">Replies</button>
-      </div>
+      <div class="cycle-bar kaposts-profile-cycle">${cycleButtonHtml({ name: "kaposts-profile", options: PROFILE_PAGES, value: panel.tab === "replies" ? "replies" : "posts", attrs: "data-kaposts-profile-cycle" })}</div>
       <div class="kaposts-panel-list" data-kaposts-panel-list>
         ${panel.loading && feedItems.length === 0
           ? `<div class="kaposts-feed-status">Loading…</div>`
@@ -4605,6 +4525,9 @@ function matchingSearchPeople(panel) {
       : b.postCount - a.postCount));
 }
 
+/** Search's two pages, in the cycle button's order (K KaPostsSearchView.Scope). */
+const SEARCH_SCOPES = [["posts", "Posts"], ["people", "People"]];
+
 // The shell (scope picker + field) is built once per panel so typing never loses focus; only
 // the results box below it is rebuilt.
 function renderSearchPanel(panel) {
@@ -4614,10 +4537,9 @@ function renderSearchPanel(panel) {
       <div class="kaposts-search-root" data-kaposts-search-root>
         ${/* iOS: the search field sits in the navigation bar drawer, above the Posts | People picker. */ ""}
         <input class="kaposts-search-input" type="search" data-kaposts-search-input placeholder="Posts and people" autocomplete="off" spellcheck="false" />
-        <div class="kaposts-search-scope" role="tablist">
-          <button type="button" data-kaposts-search-scope="posts">Posts</button>
-          <button type="button" data-kaposts-search-scope="people">People</button>
-        </div>
+        ${/* Posts / People on the cycle button every page switch uses, with a screen-reader name
+             (K 518fdc8c, audit 2026-11-24 #37). Painted by renderSearchResults. */ ""}
+        <div class="cycle-bar kaposts-search-scope"><button class="cycle-button" type="button" data-cycle="kaposts-search" data-kaposts-search-scope></button></div>
         <div class="kaposts-search-results" data-kaposts-search-results></div>
       </div>`;
   }
@@ -4630,9 +4552,7 @@ function renderSearchResults(panel) {
   const root = panelBodyEl?.querySelector("[data-kaposts-search-root]");
   const results = root?.querySelector("[data-kaposts-search-results]");
   if (!root || !results || activePanel !== panel) return;
-  root.querySelectorAll("[data-kaposts-search-scope]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.kapostsSearchScope === panel.scope);
-  });
+  updateCycleButton(root.querySelector("[data-kaposts-search-scope]"), { options: SEARCH_SCOPES, value: panel.scope === "people" ? "people" : "posts" });
   const query = searchQuery(panel);
   const loading = Boolean(panel.pager?.loading);
   const hasMore = Boolean(panel.pager?.hasMore);
@@ -6807,12 +6727,24 @@ function attachMentionAutocomplete(textarea) {
   });
 }
 
-/** Following, Feed or Popular on screen - from the tab bar or a swipe across the feed. */
+/** The three feeds, in the cycle button's order (K FeedTab.allCases). */
+const FEED_CHOICES = [["following", "Following"], ["feed", "Feed"], ["popular", "Popular"]];
+const FEED_CYCLE_HINT = "Switches to the next feed";
+
+/** Every feed button (the content's, and the phone header's) on the feed showing. */
+function paintFeedCycle() {
+  document.querySelectorAll("[data-kaposts-feed-cycle]").forEach((button) => {
+    updateCycleButton(button, { options: FEED_CHOICES, value: activeFeedTab, hint: FEED_CYCLE_HINT });
+  });
+}
+
+/** Following, Feed or Popular on screen, from the cycle button: the posts fade to the next feed. */
 function selectFeedTab(tab) {
   // Re-selecting the tab on screen changes nothing (iOS onChange(of: selectedFeed)).
-  if (!tab || tab === activeFeedTab) return;
+  if (!tab || tab === activeFeedTab || !FEED_CHOICES.some(([id]) => id === tab)) return;
   activeFeedTab = tab;
-  tabsEl?.querySelectorAll("[data-kaposts-feed-tab]").forEach((b) => b.classList.toggle("active", b.dataset.kapostsFeedTab === tab));
+  paintFeedCycle();
+  restartFade(feedEl);
   // Feed <-> Popular share the global feed: keep every page already scrolled in (Popular is a
   // re-sort of the same set) and only deepen Popular's window. Only a real source change - to
   // or from Following - starts a new paginated feed.
@@ -6898,7 +6830,6 @@ const FEED_MENU_ICONS = {
   scheduled: PANEL_ICONS.clock,
 };
 const DRAWER_SLIDE_MS = 220; // iOS slideDuration 0.22
-const PAGER_SETTLE_MS = 300; // iOS .spring(response: 0.3, dampingFraction: 0.9)
 
 let phoneBarEl = null;
 let drawerEl = null;
@@ -6917,6 +6848,7 @@ function mountPhoneBar() {
   phoneBarEl.innerHTML = `
     <button class="kaposts-menu-button" type="button" data-kaposts-menu aria-label="Menu" aria-haspopup="dialog" aria-expanded="false">${MENU_SVG}</button>
     <h1 class="kaposts-title">KaPost</h1>
+    <button class="cycle-button kaposts-feed-cycle" type="button" data-cycle="kaposts-feed-phone" data-kaposts-feed-cycle></button>
     <span class="kaposts-phone-bar-actions"></span>`;
   screen.prepend(phoneBarEl);
   phoneBarEl.addEventListener("click", (event) => {
@@ -7062,106 +6994,6 @@ function attachDrawerDrag() {
   drawerEl.addEventListener("touchmove", (event) => { if (event.cancelable) event.preventDefault(); }, { passive: false });
 }
 
-/**
- * Following, Feed and Popular swiped between with a finger (iOS 865c9ab KaPostsFeedPager). A touch
- * commits to one direction on its first 12 px: up and down is the list scrolling and never moves
- * the feed; sideways moves it, a third as far past the first or last tab. Let go past a third of
- * the width, or flick it past half, and the next tab comes in; otherwise it springs back. iOS lays
- * the three feeds side by side; Desktop holds one feed's posts at a time, so the one on screen
- * slides out and the next one slides in from the other side.
- *
- * Touch and pen only: a mouse drag selects text, and the tab bar is right there.
- */
-function attachFeedPager() {
-  if (!feedEl || feedEl.dataset.kapostsPager) return;
-  feedEl.dataset.kapostsPager = "1";
-  const tabs = () => [...(tabsEl?.querySelectorAll("[data-kaposts-feed-tab]") || [])].map((b) => b.dataset.kapostsFeedTab);
-  let drag = null;
-  let suppressClick = false;
-  let settleTimer = 0;
-  // `ms`: how long the move takes (0 = follow the finger); the curve is the spring's
-  // (ui/kaposts-drawer.css).
-  const place = (x, ms = PAGER_SETTLE_MS, leaving = false) => {
-    feedEl.classList.toggle("kaposts-pager-dragging", !ms);
-    feedEl.classList.toggle("kaposts-pager-leaving", Boolean(ms && leaving));
-    feedEl.style.transitionDuration = ms ? `${ms}ms` : "";
-    feedEl.style.transform = x ? `translate3d(${x}px, 0, 0)` : "";
-  };
-  const scrollsSideways = (target) => {
-    for (let el = target; el && el !== feedEl; el = el.parentElement) {
-      if (el.scrollWidth > el.clientWidth + 1 && /(auto|scroll)/.test(getComputedStyle(el).overflowX)) return true;
-    }
-    return false;
-  };
-  const finish = (event, cancelled) => {
-    if (!drag || event.pointerId !== drag.id) return;
-    const current = drag;
-    drag = null;
-    if (current.axis !== "x") return;
-    suppressClick = true;
-    window.setTimeout(() => { suppressClick = false; }, 0);
-    const order = tabs();
-    const selection = Math.max(0, order.indexOf(activeFeedTab));
-    const width = feedEl.clientWidth || window.innerWidth;
-    const next = cancelled ? selection : kapostsPagerTarget({
-      selection, pageCount: order.length, dx: current.dx, dy: current.dy, locked: true,
-      predicted: kapostsProjectedTranslation(current.dx, recentVelocity(current.samples)), width,
-    });
-    if (next === selection) { place(0); return; }
-    // Out the way the finger was going, the next tab's posts in from the other side: the two
-    // halves of one 0.3 s settle.
-    const direction = next > selection ? -1 : 1;
-    const half = PAGER_SETTLE_MS / 2;
-    place(direction * width, half, true);
-    window.clearTimeout(settleTimer);
-    settleTimer = window.setTimeout(() => {
-      selectFeedTab(order[next]);
-      place(-direction * width, 0);
-      void feedEl.offsetWidth;
-      place(0, half);
-    }, half);
-  };
-  feedEl.addEventListener("pointerdown", (event) => {
-    if (event.pointerType === "mouse" || drag) return;
-    if (threadStack.length || activePanel || feedEl.hidden) return;
-    if (event.target.closest("input, textarea, select, video, audio, [contenteditable]") || scrollsSideways(event.target)) return;
-    drag = { id: event.pointerId, x0: event.clientX, y0: event.clientY, dx: 0, dy: 0, axis: null, samples: [] };
-    pushSample(drag.samples, event.timeStamp, 0);
-  });
-  feedEl.addEventListener("pointermove", (event) => {
-    if (!drag || event.pointerId !== drag.id) return;
-    const dx = event.clientX - drag.x0;
-    const dy = event.clientY - drag.y0;
-    drag.dx = dx;
-    drag.dy = dy;
-    if (!drag.axis) {
-      drag.axis = kapostsAxisLock(dx, dy);
-      if (!drag.axis) return;
-      // Up and down is the list's: this touch never moves the pages.
-      if (drag.axis === "y") { drag = null; return; }
-      try { feedEl.setPointerCapture(event.pointerId); } catch { /* the pointer already went */ }
-    }
-    pushSample(drag.samples, event.timeStamp, dx);
-    const order = tabs();
-    place(kapostsPagerOffset(Math.max(0, order.indexOf(activeFeedTab)), order.length, dx), 0);
-  });
-  feedEl.addEventListener("pointerup", (event) => finish(event, false));
-  // The browser took the touch (it started scrolling the list): back to the page it was on.
-  feedEl.addEventListener("pointercancel", (event) => finish(event, true));
-  // Once a touch is sideways the list must not scroll under it (iOS Safari can still start a
-  // vertical scroll from a diagonal move without this).
-  feedEl.addEventListener("touchmove", (event) => {
-    if (drag?.axis === "x" && event.cancelable) event.preventDefault();
-  }, { passive: false });
-  // A swipe that ends over a post is not a tap on it.
-  feedEl.addEventListener("click", (event) => {
-    if (!suppressClick) return;
-    suppressClick = false;
-    event.preventDefault();
-    event.stopPropagation();
-  }, true);
-}
-
 /** The notification settings, behind the cog at the top left of Notifications (iOS d37f64d,
  *  NotificationsHubPage). Desktop keeps the KaPosts switches in KaPosts Settings > Notifications,
  *  so that page opens. */
@@ -7218,7 +7050,7 @@ export function initKaPosts(dependencies) {
     }, { passive: true });
   }
   statusEl = document.querySelector("[data-kaposts-status]");
-  tabsEl = document.querySelector("[data-kaposts-feed-tabs]");
+  feedHeadEl = document.querySelector("[data-kaposts-feed-head]");
   threadEl = document.querySelector("[data-kaposts-thread]");
   threadRootEl = document.querySelector("[data-kaposts-thread-root]");
   threadRepliesEl = document.querySelector("[data-kaposts-thread-replies]");
@@ -7237,11 +7069,6 @@ export function initKaPosts(dependencies) {
   panelEl = document.querySelector("[data-kaposts-panel]");
   panelTitleEl = document.querySelector("[data-kaposts-panel-title]");
   panelBodyEl = document.querySelector("[data-kaposts-panel-body]");
-  // A profile's Posts and Replies follow a sideways swipe (K 804cbcb7 ProfileTabSwipe).
-  if (panelBodyEl && !panelBodyEl.dataset.profileSwipe) {
-    panelBodyEl.dataset.profileSwipe = "1";
-    wireProfileTabSwipe(panelBodyEl);
-  }
   if (!initKaPosts.siteCardsWired) {
     initKaPosts.siteCardsWired = true;
     const siteCards = new MutationObserver((changes) => {
@@ -7261,11 +7088,15 @@ export function initKaPosts(dependencies) {
   window.setInterval(() => { if (!document.hidden) sendDueScheduled().catch(() => {}); }, 60_000);
   loadTranslationVerdicts();
 
-  // Feed tab switching: a tap on the tab bar, or a swipe across the feed (attachFeedPager).
-  tabsEl?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-kaposts-feed-tab]");
-    if (button) selectFeedTab(button.dataset.kapostsFeedTab);
-  });
+  // The feed button: each click fades to the next feed (K feedCycleButton). The phone header has
+  // the same button beside its title.
+  if (!initKaPosts.feedCycleWired) {
+    initKaPosts.feedCycleWired = true;
+    document.addEventListener("click", (event) => {
+      const button = event.target.closest?.("[data-kaposts-feed-cycle]");
+      if (button) selectFeedTab(button.dataset.cycleNext);
+    });
+  }
 
   document.querySelector("[data-kaposts-refresh]")?.addEventListener("click", () => loadFeed());
   feedEl?.addEventListener("click", (event) => {
@@ -7287,10 +7118,10 @@ export function initKaPosts(dependencies) {
       else openKaPostsSection(button.dataset.kapostsRail);
     });
   });
-  // Phone width: the hamburger header and its card instead of the rail, and the feeds swipe
-  // (iOS 865c9ab).
+  // Phone width: the hamburger header and its card instead of the rail (iOS 865c9ab), with the
+  // feed button beside the title (K 518fdc8c).
   mountPhoneBar();
-  attachFeedPager();
+  paintFeedCycle();
   syncRailBadge();
   panelBodyEl?.addEventListener("input", (event) => {
     if (!event.target.matches("[data-kaposts-search-input]") || activePanel?.type !== "search") return;
@@ -7301,7 +7132,12 @@ export function initKaPosts(dependencies) {
     const panel = activePanel;
     if (panel?.type !== "search") return;
     const scope = event.target.closest("[data-kaposts-search-scope]");
-    if (scope) { panel.scope = scope.dataset.kapostsSearchScope; renderSearchResults(panel); return; }
+    if (scope) {
+      panel.scope = scope.dataset.cycleNext === "people" ? "people" : "posts";
+      renderSearchResults(panel);
+      restartFade(panelBodyEl.querySelector("[data-kaposts-search-results]"));
+      return;
+    }
     if (event.target.closest("[data-kaposts-search-more]")) { loadMoreSearch(); return; }
     const postRow = event.target.closest("[data-kaposts-search-post]");
     if (postRow) {
@@ -7674,10 +7510,9 @@ export function initKaPosts(dependencies) {
       return;
     }
 
-    const profileTab = event.target.closest("[data-kaposts-profile-tab]");
+    const profileTab = event.target.closest("[data-kaposts-profile-cycle]");
     if (profileTab && activePanel?.type === "profile") {
-      // slides the same way a swipe does (K 804cbcb7)
-      showProfileTab(profileTab.dataset.kapostsProfileTab === "replies" ? "replies" : "posts");
+      showProfileTab(profileTab.dataset.cycleNext === "replies" ? "replies" : "posts");
       return;
     }
 

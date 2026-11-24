@@ -1,0 +1,45 @@
+/* The cycle button (ui/cycle-button.js, K 518fdc8c CycleCapsuleButton): a see-through capsule with
+   the accent as its border and a light accent fill. The circular arrows, the choice's title, and
+   dots (six choices or fewer) or "3/14". Every page switch inside a screen is this button. */
+
+.cycle-button {
+  display: inline-flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; max-width: 100%;
+  padding: 8px 14px; border: 1.5px solid var(--kaspa); border-radius: 999px;
+  background: rgba(112, 199, 186, .12); color: var(--kaspa-ink);
+  font: inherit; font-size: 14px; font-weight: 700; line-height: 1.2; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none;
+}
+.cycle-button:hover { background: rgba(112, 199, 186, .2); }
+.cycle-button:active { background: rgba(112, 199, 186, .26); }
+.cycle-button:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: 2px; }
+.cycle-button-icon {
+  flex: 0 0 auto; width: 16px; height: 16px;
+  fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+}
+.cycle-button-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cycle-button-dots { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; }
+.cycle-button-dots i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .3; }
+.cycle-button-dots i.on { opacity: 1; }
+.cycle-button-count { flex: 0 0 auto; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; opacity: .7; }
+
+/* Each click fades to the next choice: the title, and the page under the button. */
+.cycle-button.cycle-changed .cycle-button-title { animation: cycle-fade-in .25s ease-in-out; }
+.cycle-fade { animation: cycle-fade-in .25s ease-in-out; }
+@keyframes cycle-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .cycle-button.cycle-changed .cycle-button-title, .cycle-fade { animation: none; }
+}
+
+/* K PageCycleBar: the button on a row of its own, leading, right above what it switches. */
+.cycle-bar { display: flex; align-items: center; justify-content: flex-start; min-width: 0; padding: 4px 0; flex-shrink: 0; }
+
+/* The connection dot on the dock's Settings icon (K 518fdc8c SettingsDockIcon), in the left dock
+   and the phone bottom bar: green connected, orange connecting, red after 8 s disconnected. It sits
+   where a badge sits, with a ring in the bar's colour. The Settings bar has the other dot. */
+.sidebar-tab .sidebar-tab-badge.dock-connection-dot {
+  min-width: 9px; width: 9px; height: 9px; padding: 0; pointer-events: none;
+  box-shadow: 0 0 0 1.5px var(--bar-bg, var(--panel, #1c1c1e));
+}
+.sidebar-tab-badge.dock-connection-dot.ready { background: var(--ios-green); }
+.sidebar-tab-badge.dock-connection-dot.busy { background: var(--ios-orange); }
+.sidebar-tab-badge.dock-connection-dot.error { background: var(--ios-red); }

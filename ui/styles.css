@@ -4433,57 +4433,6 @@ body.session-logged-out [data-account-rename-modal] {
    well — 2050 keeps it under the send modal and the guide's own picker layers. */
 [data-chatting-address-screen] { z-index: 2050; }
 
-/* Chats / Group Chats underline tab bar, at the top of the sidebar. */
-.chats-tab-bar {
-  display: flex;
-  border-bottom: 1px solid var(--line);
-  flex: 0 0 auto;
-}
-
-.chats-tab-button {
-  flex: 1;
-  border: 0;
-  background: transparent;
-  padding: 14px 8px 0;
-  color: var(--muted);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.chats-tab-label-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.chats-tab-button.active { color: var(--kaspa-ink); }
-
-/* These had no focus style, so keyboard focus fell back to the browser's blue rectangle - the one
-   thing on the screen not drawn by this app. The same teal ring every other focusable control
-   here uses, and still only on :focus-visible, so it appears for keyboard users and not on a
-   click. */
-.chats-tab-button:focus-visible {
-  outline: 2px solid rgba(112,199,186,.72);
-  outline-offset: -3px;
-  border-radius: 12px;
-}
-
-.chats-tab-button::after {
-  content: "";
-  display: block;
-  width: 100%;
-  height: 2.5px;
-  border-radius: 999px;
-  background: transparent;
-  margin-top: 4px;
-}
-
-.chats-tab-button.active::after { background: var(--kaspa); }
-
 /* Select toggle row, directly above the search bar. */
 .chat-select-toggle,
 .chat-select-all {
@@ -5353,13 +5302,6 @@ body.session-logged-out [data-account-rename-modal] {
 .kaposts-icon-button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .kaposts-icon-button:hover { border-color: rgba(112,199,186,.3); }
 
-.kaposts-feed-tabs { display: flex; border-bottom: 1px solid var(--line); }
-.kaposts-feed-tab {
-  flex: 1; padding: 10px 0 12px; border: 0; background: transparent;
-  color: var(--muted); font-weight: 650; font-size: 14px; cursor: pointer;
-  border-bottom: 3px solid transparent;
-}
-.kaposts-feed-tab.active { color: var(--text); border-bottom-color: var(--kaspa); font-weight: 800; }
 
 .kaposts-feed-status { color: var(--muted); font-size: 13px; text-align: center; padding: 18px 0; }
 .kaposts-feed { display: flex; flex-direction: column; gap: 10px; }
@@ -5778,7 +5720,6 @@ body.session-logged-out [data-account-rename-modal] {
 .kaposts-scheduled-error { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
 .kaposts-scheduled-row .kaposts-draft-open { cursor: default; }
 .kaposts-scheduled-row .kaposts-draft-open:hover { background: transparent; }
-.kaposts-profile-tabs { margin-top: 2px; }
 
 .kaposts-notification-row {
   display: flex; align-items: flex-start; gap: 12px;
@@ -5870,12 +5811,6 @@ body.session-logged-out [data-account-rename-modal] {
 
 /* Search (iOS KaPostsSearchView) */
 .kaposts-search-root { display: flex; flex-direction: column; gap: 10px; }
-.kaposts-search-scope { display: flex; padding: 3px; border-radius: 10px; background: var(--surface-2); }
-.kaposts-search-scope button {
-  flex: 1; border: 0; border-radius: 8px; background: transparent; color: var(--muted);
-  font-weight: 700; font-size: 13px; padding: 7px 0; cursor: pointer;
-}
-.kaposts-search-scope button.active { background: var(--surface-1); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,.25); }
 .kaposts-search-input {
   width: 100%; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-1);
   color: var(--text); padding: 10px 14px; font: inherit; font-size: 14px;
@@ -8957,7 +8892,6 @@ html.standalone .ios-install-hint { display: none; }
 .chess-t-code b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .chess-t-board { width: min(480px, 52vh, calc(100% - 12px)); }
 .chess-t-error { color: var(--ios-red); }
-.chess-t-segment { margin: 4px 0 6px; }
 .chess-t-wl { display: inline-flex; gap: 10px; font-variant-numeric: tabular-nums; font-weight: 600; }
 .chess-t-wl .w { color: var(--ios-green); }
 .chess-t-wl .l { color: var(--ios-red); }
@@ -8982,7 +8916,6 @@ html.standalone .ios-install-hint { display: none; }
 .chess-t-game-card .chess-t-row-main small { white-space: normal; }
 .chess-t-game-card-icon { flex: 0 0 60px; width: 60px; height: 60px; border-radius: 16px; display: grid; place-items: center; background: var(--kaspa-ink); color: #06201c; }
 .chess-t-game-card-icon svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.chess-t-tabs { margin: 0 0 4px; }
 .chess-t-row.me { background: rgba(112,199,186,.12); }
 .chess-t-wl.stacked { flex-direction: column; align-items: flex-end; gap: 2px; font-size: 12px; }
 .chess-t-wl.stacked .chess-t-titles { font-size: 14px; }
@@ -10057,9 +9990,6 @@ button.chess-t-row { cursor: pointer; }
 .kaposts-chip:hover, .kaposts-draft-open:hover { background: var(--fill-tertiary); }
 .kaposts-poll-bar { background: var(--fill-tertiary); }
 .kaposts-mention-menu { background: var(--sheet-bg); }
-.kaposts-feed-tabs { border-bottom: .5px solid var(--line); }
-.kaposts-feed-tab { font-size: 15px; font-weight: 700; color: rgba(112,199,186,.5); border-bottom-width: 2px; padding: 10px 0 8px; }
-.kaposts-feed-tab.active { color: var(--kaspa-ink); border-bottom-color: var(--kaspa); font-weight: 700; }
 .kaposts-new-pill { font-size: 15px; font-weight: 600; color: var(--on-accent); box-shadow: 0 3px 16px rgba(0,0,0,.25); }
 .kaposts-rail-post { background: var(--glass-fill); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: .8px solid var(--glass-stroke); color: var(--kaspa-ink); box-shadow: var(--glass-shadow); }
@@ -10193,12 +10123,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 }
 .new-chat-fab:hover { filter: none; background: var(--material); }
 
-.chats-tab-button { padding: 12px 8px 0; gap: 8px; color: rgba(112,199,186,.5); }
-.chats-tab-button.active { color: var(--kaspa-ink); }
-.chats-tab-label-row { font-size: 14px; font-weight: 700; }      /* iOS 15 bold, one notch under */
-.chats-tab-button::after { height: 2.5px; border-radius: 0; margin-top: 0; }
-.chats-tab-button.active::after { background: var(--kaspa); }
-.chats-tab-bar { border-bottom: 1px solid var(--line); }        /* Divider(); already so */
 
 .search-wrap {
   margin: 10px 16px 8px; height: 36px; padding: 0 8px 0 30px; gap: 6px;
@@ -10734,13 +10658,6 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .domains-refresh[hidden] { display: flex !important; visibility: hidden; pointer-events: none; }
 .domains-screen .manage-address-actions:not(:has(> :not([hidden]))) { display: none; }
 
-/* The underline tab bar (Connection Settings, an address's views, KaChat Stats). */
-.domains-tabs { display: flex; border-bottom: .5px solid var(--line); margin: 0 16px; }
-.domains-tab {
-  flex: 1; background: none; border: 0; border-bottom: 2px solid transparent; cursor: pointer;
-  font: inherit; font-size: 15px; font-weight: 700; color: rgba(112,199,186,.5); padding: 10px 0 8px;
-}
-.domains-tab.active { color: var(--kaspa-ink); border-bottom-color: var(--kaspa); }
 .domains-kachat-placeholder {
   display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px;
   padding: 36px 20px; color: var(--muted);
@@ -10751,13 +10668,30 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .domains-kachat-mark svg { width: 100%; height: 100%; }
 .domains-inscribe-button[hidden] { display: none !important; }
 
-/* Connection Settings tabs (iOS ee01f81). */
-.connection-tabs { margin: 0 0 8px; }
+/* Connection Settings: a card per connection, each opening its own page (K ConnectionSettingsView's
+   cards: the accent symbol in a light circle, the name, what it is set to, a chevron). */
 .connection-settings-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.connection-settings-head[hidden] { display: none !important; }
 .connection-settings-head .settings-group-label { margin-bottom: 0; }
 .connection-save-button { padding: 6px 4px; color: var(--kaspa-ink); font-size: 16px; font-weight: 700; }
-.connection-tabs .domains-tab { font-size: 14px; }
 .connection-panel[hidden] { display: none !important; }
+.connection-cards { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 8px; }
+.connection-cards[hidden] { display: none !important; }
+.connection-card {
+  display: flex; align-items: center; gap: 14px; width: 100%; padding: 16px; text-align: left;
+  border: .8px solid rgba(255, 255, 255, .18); border-radius: 18px; background: var(--surface-1);
+  color: var(--text); font: inherit; cursor: pointer;
+}
+.connection-card:hover { background: var(--surface-2, rgba(255,255,255,.08)); }
+.connection-card:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: 2px; }
+.connection-card-icon {
+  flex: 0 0 40px; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(112, 199, 186, .15); color: var(--kaspa-ink);
+}
+.connection-card-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.connection-card-copy { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.connection-card-copy strong { font-size: 16px; }
+.connection-card-copy code { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .connection-readonly { display: flex; flex-direction: column; gap: 4px; }
 .connection-readonly span { color: var(--muted); font-size: 13px; }
 .connection-readonly code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); user-select: text; word-break: break-all; }
@@ -10847,8 +10781,9 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .nc-plain-file-copy small { color: var(--muted); font-size: 12px; }
 
 /* Address screens: History / UTXOs / .kachat on the underline tab bar (iOS b96d727, 718b88c). */
-.domains-tabs.address-tabs { margin: 4px 0 0; flex-shrink: 0; }
-.cold-detail-header ~ .address-tabs { margin: 4px 16px 0; }
+/* An address's History / UTXOs / Usernames: the cycle button, leading (K PageCycleBar). */
+.cycle-bar.address-cycle { margin: 4px 0 0; }
+.cold-detail-header ~ .cycle-bar { margin: 4px 16px 0; }
 .kachat-address-domains { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 24px 20px; }
 .kachat-address-domains strong { font-size: 17px; font-weight: 600; color: var(--text); }
 .kachat-address-domains p { margin: 0; font-size: 15px; line-height: 1.35; color: var(--muted); max-width: 320px; }
@@ -12651,9 +12586,6 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
   .conversation-header .back-button::before { content: ""; width: 11px; height: 11px; border-left: 2.4px solid currentColor; border-bottom: 2.4px solid currentColor; transform: translateX(2px) rotate(45deg); border-radius: 1px; }
 }
 /* The connection dot in a group chat's bar sits on the right, as a 1:1's call button does. */
-.conversation-header .group-chat-health { position: absolute; right: 10px; top: calc(var(--safe-top, 0px) + (100% - var(--safe-top, 0px)) / 2); transform: translateY(-50%); pointer-events: auto; }
-.mirror-health-button { width: 40px; height: 40px; flex: 0 0 40px; }
-.broadcast-room > .kaposts-thread-header > .mirror-health-button { margin-left: 6px; }
 .message-nextcloud-revoked { display: inline-flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--muted); font-size: 12px; }
 .message-nextcloud-revoked svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
 .group-refresh-rejections { width: 100%; text-align: left; font-size: 11px; color: var(--muted); display: grid; gap: 3px; margin-top: 2px; }
@@ -13035,13 +12967,9 @@ html.keyboard-open .chat-funding-gate { gap: 8px; margin-top: 8px; padding: 12px
 .conversation-header .conversation-call-button svg { width: 21px; height: 21px; }
 .conversation-header .back-button:hover,
 .conversation-header .conversation-call-button:hover { opacity: 1; filter: brightness(1.15); }
-/* Connection Settings: Save alone on the right (the bar already says "Connection Settings"); the
-   five tabs fit a phone - sized to the screen, scrolling sideways only if they still cannot; the
+/* Connection Settings: Save alone on the right of a connection's page (the bar says its name); the
    empty IP Address Book line sits inside its card like a row. */
 .connection-settings-head { justify-content: flex-end; }
-.connection-tabs { display: flex; flex-wrap: nowrap; gap: 2px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-.connection-tabs::-webkit-scrollbar { display: none; }
-.connection-tabs .domains-tab { flex: 1 0 auto; padding: 8px 6px; white-space: nowrap; font-size: min(15px, 3.6vw); letter-spacing: -0.01em; }
 .saved-node-empty { margin: 0; padding: 12px 16px; font-style: normal; font-size: 15px; color: var(--muted); }
 /* The chatting-address / receive QR sits in the middle of its white frame (the frame is as wide as
    the card on a phone, and the 240px code was flush left in it). */

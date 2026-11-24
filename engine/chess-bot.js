@@ -15,7 +15,7 @@ import {
   WHITE, BLACK, opposite, algebraic, promotionLetter, initialBoard, legalMoves, applyMove, isLegalMove,
   normalizingPromotion, isCheckmate, isStalemate, isInsufficientMaterial, pieceAt, squareEquals,
 } from "./chess.js";
-import { positionKey, periodSinceMs, isRetryableSendError, friendlySendErrorMessage, sendOutcomeUnknownTxid, SEND_OUTCOME_UNKNOWN_NOTE } from "./chess-tournament.js";
+import { positionKey, periodSinceMs, isRetryableSendError, friendlySendErrorMessage, sendOutcomeUnknownTxid, SEND_OUTCOME_UNKNOWN_NOTE, LEADERBOARD_PERIODS } from "./chess-tournament.js";
 
 // ---------------------------------------------------------------------------------------------
 // The bots (ChessBotModels.swift)
@@ -243,6 +243,25 @@ export function botBoardRows({ boards, level, period, wins, address, nowMs }) {
     else if (mine.moves < rows[index].moves) rows[index] = own;
   }
   return rows.sort((a, b) => (a.moves - b.moves) || (a.at - b.at) || (a.address < b.address ? -1 : a.address > b.address ? 1 : 0));
+}
+
+/** The chess screen's leaderboard stops, in K's order (K 518fdc8c ChessHomeView.boardChoices): 1v1,
+ *  Tournaments, then each bot by level, each for this month and then all time. Fourteen with five
+ *  bots, so its cycle button shows "3/14", not dots. `id` is "<kind>:<period>" ("bot3:all"). */
+export function chessBoardChoices(bots = CHESS_BOTS) {
+  const kinds = [
+    { kind: "duel", key: "duel", name: "1v1" },
+    { kind: "tournament", key: "tournament", name: "Tournaments" },
+    ...bots.map((bot) => ({ kind: "bot", key: `bot${bot.level}`, name: bot.name, level: bot.level })),
+  ];
+  const periodTitle = { month: "This month", all: "All time" };
+  return kinds.flatMap((k) => LEADERBOARD_PERIODS.map((period) => ({
+    id: `${k.key}:${period}`,
+    kind: k.kind,
+    level: k.level ?? null,
+    period,
+    title: `${k.name} · ${periodTitle[period]}`,
+  })));
 }
 
 /** Has anyone played this bot, as far as this device can tell? */

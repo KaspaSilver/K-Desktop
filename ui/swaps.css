@@ -18,8 +18,7 @@
 .swap-unavailable .secondary-button { margin-top: 6px; }
 
 /* Tabs: the Public Chats underline tabs (iOS swapTabBar). */
-.swap-tab-bar { margin: 0; }
-.swap-tab-bar .chats-tab-button { cursor: pointer; }
+.swap-root > .cycle-bar { margin: 0; }
 
 .swap-page { display: flex; flex-direction: column; gap: 12px; padding-bottom: 8px; }
 

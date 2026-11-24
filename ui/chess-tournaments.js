@@ -2,9 +2,9 @@
 // The `#chess-arena` room is read through the broadcast indexer and the live block scan,
 // reduced by engine/chess-tournament.js into the rooms every device agrees on, and every
 // action a player takes - join, leave, move, resign, claim - is one broadcast
-// transaction. Screens: home (choose 1v1 or Tournament), one screen per kind with four tabs
-// (play, Active games to watch, Finished games), the Leaderboard (KaPlay ddec987), the waiting room,
-// the tournament bracket, the game (board and clocks) and the result screen.
+// transaction. Screens: Chess's home (a Play card and the leaderboard, K 518fdc8c ChessHomeView), one
+// screen per kind with three pages on a cycle button (play, Active games to watch, Finished games),
+// the waiting room, the tournament bracket, the game (board and clocks) and the result screen.
 
 import * as T from "../engine/chess-tournament.js";
 import * as Chess from "../engine/chess.js";
@@ -17,8 +17,11 @@ import { isIndexerDown, onIndexerAvailabilityChange } from "../engine/indexer-he
 import { chainHistory } from "../engine/chain-history.js";
 import {
   initChessBots, openChessBots, renderChessBots, afterChessBotsRender, chessBotsClick, chessBotsMayLeave,
-  resetChessBotsForAccount, openChessBotBoards, openChessBotChallengeScreen, ICON_CPU, chessBotBoardUp,
+  resetChessBotsForAccount, openChessBotChallengeScreen, chessBotBoardUp,
+  chessBotBoardRows, refreshChessBotBoards, chessBotBoardsUnreachable,
 } from "./chess-bots.js";
+import { chessBoardChoices, chessBot } from "../engine/chess-bot.js";
+import { cycleButtonHtml, cycleBarHtml, cycleChanged } from "./cycle-button.js";
 import {
   initArcade, openArcadeGame, renderArcade, afterArcadeRender, arcadeClick, arcadeRoundOpen, pauseArcade, resetArcadeForAccount,
 } from "./arcade.js";
@@ -59,8 +62,8 @@ let boardsMonthStart = 0;
 let lastIndexerLeaderboardFetch = 0;
 let indexerLeaderboardSerial = 0;
 const INDEXER_LEADERBOARD_MIN_MS = 20_000;
-/** The Leaderboard's period picker; This month whenever it comes up (iOS @State). */
-let leaderboardPeriod = "month";
+/** The leaderboard's stop on Chess's screen (K ChessHomeView `board`): "<kind>:<period>". */
+let boardId = "duel:month";
 let active = false;            // the Chess screen is on
 let pollTimer = null;
 let fastPollTimer = null;
@@ -164,8 +167,8 @@ let joinFeeText = null;               // "0.0017 KAS" once estimated this sessio
 
 // Navigation. mode: "duel" | "tournament". tab: play | active | finished.
 // name "games": a card per game, where KaPlay opens (KaPlay 45f28d9). name "home": Chess.
-// name "leaderboard": the Leaderboard's squares (a card under Bots, K 428a797b); name "board": 1v1's or Tournaments' page, by `mode`.
-// name "bots": Play > Bots and Leaderboard > Bots (ui/chess-bots.js paints and drives its own screens).
+// name "home" is Chess's screen with its leaderboard (K 518fdc8c: the separate leaderboard screens are gone).
+// name "bots": Play > Bots (ui/chess-bots.js paints and drives its own screens).
 // name "arcade": Snake or 2048 (K 518fdc8c; ui/arcade.js paints and drives its own screens).
 let view = { name: "games", mode: "duel", tab: "play", tournamentId: null, gameId: null };
 let autoOpenedGameId = null;
@@ -1178,11 +1181,8 @@ const ICON_LOCK = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10
 const ICON_TROPHY = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path d="M7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4M12 14v3M8 20h8M9 17h6"/></svg>`;
 // person.2.fill / trophy.fill: the home screen's game cards draw their symbols filled (iOS gameCard).
 const ICON_TWO_FILLED = `<svg viewBox="0 0 24 24" aria-hidden="true" class="filled"><circle cx="8.5" cy="7.6" r="3.6"/><path d="M1.8 19.2c.5-4 3.2-6.3 6.7-6.3s6.2 2.3 6.7 6.3c.1.5-.3.8-.8.8H2.6c-.5 0-.9-.3-.8-.8Z"/><circle cx="17" cy="8.4" r="3"/><path d="M16.2 13.3c3.7-.3 5.7 2 6.1 5.4.1.6-.3 1.3-1 1.3h-4.5c.2-.5.2-1 .1-1.6-.2-1.9-.4-3.5-.7-5.1Z"/></svg>`;
-// Desktop's Leaderboard card: three steps of a podium. iOS has a dock tab for this instead of a card.
-const ICON_TROPHY_FILLED = `<svg viewBox="0 0 24 24" aria-hidden="true" class="filled"><path d="M6.5 3.5h11v5.8a5.5 5.5 0 0 1-11 0Z"/><path d="M6.6 5.3H3.8a.8.8 0 0 0-.8.9 4.6 4.6 0 0 0 3.9 4.1l.4-1.6a3 3 0 0 1-2.4-1.9h1.7ZM17.4 5.3h2.8c.5 0 .9.4.8.9a4.6 4.6 0 0 1-3.9 4.1l-.4-1.6a3 3 0 0 0 2.4-1.9h-1.7Z"/><path d="M10.8 14.4h2.4v3.1h-2.4Z"/><rect x="7.5" y="17.5" width="9" height="3" rx="1"/></svg>`;
 const ICON_BACK = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/></svg>`;
-// list.number (K 428a797b's Leaderboard card): 1, 2, 3 beside three lines.
-const ICON_LIST_NUMBER = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6h11M10 12h11M10 18h11"/><path d="M4 4.5 5.5 4v4M4 8h3M3.6 10.6c.4-.5 1-.7 1.6-.6.8.2 1.1 1 .6 1.7L3.6 14h3M3.7 16.3c.5-.4 1.2-.5 1.8-.2.8.4.7 1.5-.2 1.7.9.2 1.1 1.3.3 1.8-.6.4-1.5.3-2-.2"/></svg>`;
+const ICON_REFRESH = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 12.6A7.5 7.5 0 1 1 17 6.6"/><path d="M19.6 3.8v4.6H15"/></svg>`;
 const ICON_CHEVRON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>`;
 const ICON_EYE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>`;
 const ICON_KEY = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7.25" r="4.5"/><circle cx="12" cy="5.6" r="1"/><path d="M12 11.75v9l1.9-1.6-1.9-1.6 1.9-1.6-1.9-1.6"/></svg>`;
@@ -1204,8 +1204,6 @@ function render() {
     case "game": html = renderGame(); break;
     case "tournament": html = renderTournament(); break;
     case "kind": html = renderKind(); break;
-    case "leaderboard": html = renderLeaderboard(); break;
-    case "board": html = renderLeaderboardPage(); break;
     case "bots": html = renderChessBots(); break;
     case "arcade": html = renderArcade(); break;
     case "home": html = renderHome(); break;
@@ -1261,65 +1259,149 @@ function renderGames() {
     </div>`;
 }
 
-// --- Chess: choose your game (iOS e86868e) ---
+// --- Chess, laid out as the arcade games' homes (K 518fdc8c ChessHomeView): the Play card, then the
+// leaderboard, whose cycle button steps through every board. Play opens a half sheet to pick 1v1,
+// a tournament or the bots. If the player is already waiting or playing somewhere, that comes first.
+
+/** Your games won and lost online, all time (1v1s and tournament games alike); null before any. */
+function myRecord() {
+  const my = me();
+  const row = my ? leaderboardRows.find((r) => r.address === my) : null;
+  return row && row.wins + row.losses > 0 ? { wins: row.wins, losses: row.losses } : null;
+}
 
 function renderHome() {
   const mine = myActiveTournament();
   const waiting = mine && T.tournamentStatus(mine) === "open";
+  const record = myRecord();
   return `
     ${headerHtml("Chess", { back: true })}
-    <div class="chess-t-body chess-t-home">
-      <div class="chess-t-hero">
-        <span class="chess-t-hero-icon">${ICON_CHESS}</span>
-        <h2>Choose your game</h2>
-        <p>Online, five minutes a side and every move is a Kaspa transaction. Bot games stamp their result on Kaspa when they end.</p>
-      </div>
+    <div class="chess-t-body chess-t-home arcade-home">
       ${mine ? `
         <button class="chess-t-resume" type="button" data-chess-t-resume="${esc(mine.id)}">
           <span class="chess-t-row-icon">${waiting ? ICON_HOURGLASS : ICON_PLAY}</span>
           <span class="chess-t-row-main"><strong>${waiting ? "You're waiting in" : "You're playing in"} ${esc(mine.name)}</strong><small>Tap to go back to it</small></span>
           <span class="chess-t-row-chevron">${ICON_CHEVRON}</span>
         </button>` : ""}
-      <button class="chess-t-game-card" type="button" data-chess-t-mode="duel">
-        <span class="chess-t-game-card-icon">${ICON_TWO_FILLED}</span>
-        <span class="chess-t-row-main"><strong>1v1</strong><small>Play the next person who joins, or a friend by code. One game, winner takes the leaderboard point.</small></span>
-        <span class="chess-t-row-chevron">${ICON_CHEVRON}</span>
-      </button>
-      <button class="chess-t-game-card" type="button" data-chess-t-mode="tournament">
-        <span class="chess-t-game-card-icon">${ICON_TROPHY_FILLED}</span>
-        <span class="chess-t-row-main"><strong>Tournament</strong><small>Eight players, single elimination: quarterfinals, semifinals, final. Public rooms fill as players arrive; private ones by code.</small></span>
-        <span class="chess-t-row-chevron">${ICON_CHEVRON}</span>
-      </button>
-      <button class="chess-t-game-card" type="button" data-chess-t-bots>
-        <span class="chess-t-game-card-icon">${ICON_CPU}</span>
-        <span class="chess-t-row-main"><strong>Bots</strong><small>Five bots, level 1 to 5, from Kaspa Silver to Yonatan Sompolinsky. Beat one to unlock the next. The result goes on Kaspa.</small></span>
-        <span class="chess-t-row-chevron">${ICON_CHEVRON}</span>
-      </button>
-      ${/* Leaderboard is a card here again, not a dock item (K 428a797b ChessHomeView). */ ""}
-      <button class="chess-t-game-card" type="button" data-chess-t-leaderboard>
-        <span class="chess-t-game-card-icon">${ICON_LIST_NUMBER}</span>
-        <span class="chess-t-row-main"><strong>Leaderboard</strong><small>Who's on top in 1v1 and tournaments, this month or all time, and against each bot.</small></span>
-        <span class="chess-t-row-chevron">${ICON_CHEVRON}</span>
-      </button>
+      <div class="arcade-hero chess-t-play-card">
+        <span class="arcade-hero-icon chess-t-play-icon">${ICON_CHESS}</span>
+        <p>1v1, tournaments and five bots. Online moves and bot results go on Kaspa.</p>
+        ${record ? `<strong class="arcade-best">Your record: ${record.wins.toLocaleString()} won, ${record.losses.toLocaleString()} lost</strong>` : ""}
+        <button class="primary-button arcade-play-button" type="button" data-chess-t-play>Play</button>
+        <small>Online, five minutes a side and every move is a Kaspa transaction. Bot games stamp their result on Kaspa when they end.</small>
+      </div>
+      ${boardHtml()}
       ${errorHtml()}
     </div>`;
 }
 
+/** Play's half sheet (K playSheet): which kind of game. */
+async function openPlaySheet() {
+  const choice = await chooseDialog({
+    title: "Choose your game",
+    options: [
+      { id: "duel", title: "1v1", subtitle: "Play the next person who joins, or a friend by code." },
+      { id: "tournament", title: "Tournament", subtitle: "Eight players, single elimination." },
+      { id: "bots", title: "Bots", subtitle: "Five bots, level 1 to 5. Beat one to unlock the next." },
+    ],
+  }).catch(() => null);
+  if (!active || view.name !== "home") return;
+  playChess(choice);
+}
+
+/** What the Play sheet picked (K openPicked): 1v1's or Tournaments' screen, or the bots' ladder. */
+export function playChess(choice) {
+  if (choice === "duel" || choice === "tournament") openKind(choice);
+  else if (choice === "bots") openBots();
+}
+
+function openBots() {
+  view = { ...view, name: "bots", tournamentId: null, gameId: null };
+  selectedSquare = null;
+  pendingPromotion = null;
+  openChessBots();
+  render();
+}
+
+/** The chess screen came up: fresh boards asked for (at most every 20 s each). */
+function openChessHome() {
+  view = { ...view, name: "home", tournamentId: null, gameId: null };
+  refreshIndexerLeaderboards();
+  refreshChessBotBoards();
+  render();
+}
+
+// The leaderboard's stops (K boardChoices): 1v1, Tournaments, then each bot; each this month and
+// all time. Fourteen, so the button shows "3/14".
+const BOARD_CHOICES = chessBoardChoices();
+const boardChoice = () => BOARD_CHOICES.find((c) => c.id === boardId) || BOARD_CHOICES[0];
+
+/** "Counted from October 22, 2026." - the fresh-start cutoff in the long month format. */
+function leaderboardPeriodNote(period) {
+  if (period === "month") return "Resets on the 1st of every month (UTC).";
+  const day = new Date(T.LEADERBOARD_FRESH_FROM_MS).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+  return `Counted from ${day}.`;
+}
+
+function boardEmptyText(choice) {
+  const month = choice.period === "month";
+  if (choice.kind === "duel") return month ? "No finished 1v1 games this month yet." : "No finished 1v1 games yet.";
+  if (choice.kind === "tournament") return month ? "No finished tournaments this month yet." : "No finished tournaments yet.";
+  const name = chessBot(choice.level)?.name || "";
+  return month ? `Nobody has beaten ${name} this month yet.` : `Nobody has beaten ${name} yet.`;
+}
+
+/** The board on screen, top ten (K prefix(10)): the indexer's boards merged with what this device
+ *  has read; a bot's, the fewest moves to beat it. A row opens the player's User Info. */
+function boardHtml() {
+  const choice = boardChoice();
+  const my = me();
+  let rows;
+  if (choice.kind === "bot") {
+    rows = chessBotBoardRows(choice.level, choice.period).map((r) => ({ address: r.address, trailing: `<span class="chess-bot-board-moves">${r.moves} moves</span>` }));
+  } else {
+    const rowsOfPeriod = boardFor(choice.period);
+    rows = choice.kind === "duel"
+      ? T.duelLeaderboard(rowsOfPeriod).map((r) => ({ address: r.address, trailing: `<span class="chess-t-wl"><b class="w">${r.wins} W</b><b class="l">${r.losses} L</b></span>` }))
+      : T.tournamentLeaderboard(rowsOfPeriod).map((r) => ({ address: r.address, trailing: `<span class="chess-t-wl"><span class="chess-t-titles">${ICON_TROPHY}${r.tournamentsWon}</span><b class="l">${r.tournamentsLost} L</b></span>` }));
+  }
+  const down = choice.kind === "bot" ? chessBotBoardsUnreachable() : arenaServerDown();
+  const body = rows.length
+    ? `<div class="chess-t-list">${rows.slice(0, 10).map((r, i) => `
+        <button class="chess-t-row${r.address === my ? " me" : ""}" type="button" data-chess-t-user="${esc(r.address)}">
+          <span class="chess-t-rank${i < 3 ? " top" : ""}">${i + 1}</span>
+          ${avatarFor(r.address)}
+          <span class="chess-t-row-main"><strong>${esc(nameFor(r.address))}</strong></span>
+          ${r.trailing}
+        </button>`).join("")}</div>`
+    : `<p class="field-hint arcade-board-empty">${esc(down ? "Chess server unreachable. Showing what this device has." : boardEmptyText(choice))}</p>`;
+  return `
+    <div class="arcade-board-head">
+      <h2>Leaderboard</h2>
+      <button class="kaposts-icon-button" type="button" data-chess-t-board-refresh aria-label="Refresh" title="Refresh">${ICON_REFRESH}</button>
+    </div>
+    <div class="chess-t-board-switch">${cycleButtonHtml({ name: "chess-board", options: BOARD_CHOICES, value: choice.id, hint: "Switches to the next leaderboard", attrs: "data-chess-t-board-cycle" })}</div>
+    <p class="field-hint chess-t-period-note">${esc(leaderboardPeriodNote(choice.period))}</p>
+    <div class="chess-t-board-rows${cycleChanged("page:chess-board", choice.id) ? " cycle-fade" : ""}">${body}</div>`;
+}
+
 // --- One kind: play / Active / Finished (iOS 3e366a4, 8afa81a, 01f1c12) ---
+
+/** One kind's three pages, in the cycle button's order (K ChessTournamentsView tabs). */
+const kindPages = (duel) => [["play", duel ? "1v1" : "Tournaments"], ["active", "Active"], ["finished", "Finished"]];
 
 function renderKind() {
   const duel = modeIsDuel();
-  const tabs = [["play", duel ? "1v1" : "Tournaments"], ["active", "Active"], ["finished", "Finished"]];
   let body;
   if (view.tab === "active") body = renderActiveTab();
   else if (view.tab === "finished") body = renderFinishedTab();
   else body = renderPlayTab();
+  // One cycle button for the three pages (K 518fdc8c): each click fades to the next. No tabs.
+  const fade = cycleChanged(`page:chess-kind-${view.mode}`, view.tab) ? " cycle-fade" : "";
   return `
     ${headerHtml(modeTitle(), { back: true })}
-    <nav class="chats-tab-bar chess-t-tabs" role="tablist">
-      ${tabs.map(([id, label]) => `<button class="chats-tab-button${view.tab === id ? " active" : ""}" type="button" role="tab" aria-selected="${view.tab === id}" data-chess-t-tab="${id}"><span class="chats-tab-label-row"><span>${esc(label)}</span></span></button>`).join("")}
-    </nav>
-    <div class="chess-t-body">
+    ${cycleBarHtml({ name: `chess-kind-${view.mode}`, options: kindPages(duel), value: view.tab, attrs: "data-chess-t-tab" })}
+    <div class="chess-t-body${fade}">
       ${body}
       ${errorHtml()}
     </div>`;
@@ -1439,78 +1521,6 @@ function renderFinishedTab() {
   // Finished tournaments as a list; each opens its bracket - the champion at the end of it,
   // every game a click away to see the board as it was left.
   return `<p class="screen-kicker">Finished tournaments</p><div class="chess-t-list">${done.map((t) => tournamentRowHtml(t, T.champion(t) ? `Won by ${nameFor(T.champion(t))}` : "Finished")).join("")}</div>`;
-}
-
-/** "Counted from October 22, 2026." - the fresh-start cutoff in the long month format. */
-function leaderboardPeriodNote(period) {
-  if (period === "month") return "Resets on the 1st of every month (UTC).";
-  const day = new Date(T.LEADERBOARD_FRESH_FROM_MS).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
-  return `Counted from ${day}.`;
-}
-
-/** One kind's leaderboard (iOS 784208f), for this UTC month or all time (iOS 77d6038): the
- *  indexer's boards merged with what this device has read, both counted from
- *  T.LEADERBOARD_FRESH_FROM_MS. */
-function renderLeaderboardRows() {
-  const duel = modeIsDuel();
-  const period = leaderboardPeriod;
-  const rowsOfPeriod = boardFor(period);
-  const board = duel ? T.duelLeaderboard(rowsOfPeriod) : T.tournamentLeaderboard(rowsOfPeriod);
-  const my = me();
-  const month = period === "month";
-  const emptyText = duel
-    ? (month ? "No finished 1v1 games this month yet." : "No finished 1v1 games yet.")
-    : (month ? "No finished tournaments this month yet." : "No finished tournaments yet.");
-  const options = [["month", "This month"], ["all", "All time"]];
-  return `
-    <div class="settings-segmented full chess-t-segment" role="radiogroup" aria-label="Leaderboard period">
-      ${options.map(([id, label]) => `<button class="settings-segmented-option${period === id ? " active" : ""}" type="button" role="radio" aria-checked="${period === id}" data-chess-t-period="${id}">${esc(label)}</button>`).join("")}
-    </div>
-    <p class="field-hint chess-t-period-note">${esc(leaderboardPeriodNote(period))}</p>
-    <p class="screen-kicker">${duel ? "Games won and lost - 1v1s and tournament games alike" : "Tournaments won and lost"}</p>
-    ${board.length ? "" : `<p class="field-hint">${emptyText}</p>`}
-    <div class="chess-t-list">
-      ${board.map((r, i) => `
-        <button class="chess-t-row${r.address === my ? " me" : ""}" type="button" data-chess-t-user="${esc(r.address)}">
-          <span class="chess-t-rank">${i + 1}</span>
-          ${avatarFor(r.address)}
-          <span class="chess-t-row-main"><strong>${esc(nameFor(r.address))}</strong></span>
-          ${duel
-            ? `<span class="chess-t-wl"><b class="w">${r.wins} W</b><b class="l">${r.losses} L</b></span>`
-            : `<span class="chess-t-wl"><span class="chess-t-titles">${ICON_TROPHY}${r.tournamentsWon}</span><b class="l">${r.tournamentsLost} L</b></span>`}
-        </button>`).join("")}
-    </div>`;
-}
-
-// --- The Leaderboard (KaPlay ddec987, 45f28d9 ChessLeaderboardTabView): three squares, each opening
-// its own page. 1v1 and Tournaments their board; Bots a board per bot (ui/chess-bots.js). ---
-
-function squareHtml({ title, icon, attrs }) {
-  return `
-    <button class="chess-t-square" type="button" ${attrs}>
-      ${icon}<span>${esc(title)}</span>
-      <span class="chess-t-square-chevron">${ICON_CHEVRON}</span>
-    </button>`;
-}
-
-function renderLeaderboard() {
-  return `
-    ${headerHtml("Leaderboard", { back: true })}
-    <div class="chess-t-squares">
-      ${squareHtml({ title: "1v1", icon: ICON_TWO_FILLED, attrs: `data-chess-t-board="duel"` })}
-      ${squareHtml({ title: "Tournaments", icon: ICON_TROPHY_FILLED, attrs: `data-chess-t-board="tournament"` })}
-      ${squareHtml({ title: "Bots", icon: ICON_CPU, attrs: "data-chess-t-board-bots" })}
-    </div>
-    <div class="chess-t-body">${errorHtml()}</div>`;
-}
-
-function renderLeaderboardPage() {
-  return `
-    ${headerHtml(modeIsDuel() ? "1v1" : "Tournaments", { back: true })}
-    <div class="chess-t-body">
-      ${renderLeaderboardRows()}
-      ${errorHtml()}
-    </div>`;
 }
 
 // --- Waiting room (iOS 64aca7c) ---
@@ -1986,7 +1996,6 @@ function renderResult() {
 
 function openKind(mode) {
   view = { name: "kind", mode, tab: "play", tournamentId: null, gameId: null };
-  leaderboardPeriod = "month";
   render();
   showWaitingRoomIfSeated();
 }
@@ -2050,9 +2059,13 @@ function goBack() {
       ? { ...view, name: "tournament", gameId: null }
       : { ...view, name: "kind", tournamentId: null, gameId: null };
   } else if (view.name === "tournament" || view.name === "result") view = { ...view, name: "kind", tournamentId: null, gameId: null };
-  else if (view.name === "board") view = { ...view, name: "leaderboard" };
   else if (view.name === "home") view = { ...view, name: "games" };
-  else view = { ...view, name: "home", tournamentId: null, gameId: null };
+  else {
+    view = { ...view, name: "home", tournamentId: null, gameId: null };
+    // back on Chess's screen: its boards asked for again (each at most every 20 s)
+    refreshIndexerLeaderboards();
+    refreshChessBotBoards();
+  }
   selectedSquare = null;
   pendingPromotion = null;
   render();
@@ -2143,33 +2156,20 @@ function onClick(event) {
     render();
     return;
   }
-  if (event.target.closest("[data-chess-t-chess]")) {
-    view = { ...view, name: "home", tournamentId: null, gameId: null };
-    render();
-    return;
-  }
-  const board = event.target.closest("[data-chess-t-board]");
-  if (board) { view = { ...view, name: "board", mode: board.dataset.chessTBoard }; render(); return; }
-  if (event.target.closest("[data-chess-t-board-bots]")) {
-    view = { ...view, name: "bots" };
-    openChessBotBoards();
-    render();
-    return;
-  }
-  if (event.target.closest("[data-chess-t-leaderboard]")) {
-    // Comes up on This month, with fresh boards asked for.
-    view = { ...view, name: "leaderboard", tournamentId: null, gameId: null };
-    leaderboardPeriod = "month";
+  if (event.target.closest("[data-chess-t-chess]")) { openChessHome(); return; }
+  if (event.target.closest("[data-chess-t-play]")) { openPlaySheet().catch(() => {}); return; }
+  const boardCycle = event.target.closest("[data-chess-t-board-cycle]");
+  if (boardCycle) {
+    // The next board, with its boards asked for again (K onChange(of: board); 20 s apart at most).
+    boardId = BOARD_CHOICES.some((c) => c.id === boardCycle.dataset.cycleNext) ? boardCycle.dataset.cycleNext : BOARD_CHOICES[0].id;
     refreshIndexerLeaderboards();
+    refreshChessBotBoards();
     render();
     return;
   }
-  if (event.target.closest("[data-chess-t-bots]")) {
-    view = { ...view, name: "bots", tournamentId: null, gameId: null };
-    selectedSquare = null;
-    pendingPromotion = null;
-    openChessBots();
-    render();
+  if (event.target.closest("[data-chess-t-board-refresh]")) {
+    refreshIndexerLeaderboards({ force: true });
+    refreshChessBotBoards(true);
     return;
   }
   const withBusy = (task) => { if (busy) return; busy = true; render(); task().catch(() => {}).finally(() => { busy = false; render(); }); };
@@ -2185,17 +2185,11 @@ function onClick(event) {
     return;
   }
   if (event.target.closest("[data-chess-t-done]")) { view = { ...view, name: "kind", tournamentId: null, gameId: null }; render(); return; }
-  const mode = event.target.closest("[data-chess-t-mode]");
-  if (mode) { openKind(mode.dataset.chessTMode); return; }
   const tab = event.target.closest("[data-chess-t-tab]");
   if (tab) {
-    view = { ...view, tab: tab.dataset.chessTTab };
+    const next = tab.dataset.cycleNext;
+    view = { ...view, tab: next === "active" || next === "finished" ? next : "play" };
     render();
-    return;
-  }
-  const period = event.target.closest("[data-chess-t-period]");
-  if (period) {
-    if (period.dataset.chessTPeriod !== leaderboardPeriod) { leaderboardPeriod = period.dataset.chessTPeriod; refreshIndexerLeaderboards(); render(); }
     return;
   }
   // A leaderboard row: the same User Info sheet a public chat opens from View Profile.
@@ -2307,7 +2301,9 @@ export function initChessTournaments(dependencies) {
     deps,
     lookUpTransaction: lookUpArenaTransaction,
     render: () => { if (view.name === "bots") render(); },
-    exit: (to = "home") => { view = { ...view, name: to, tournamentId: null, gameId: null }; render(); },
+    exit: (to = "home") => { view = { ...view, name: to, tournamentId: null, gameId: null }; if (to === "home") refreshChessBotBoards(); render(); },
+    // The bots' boards landed: the chess screen's leaderboard repaints.
+    boardsChanged: () => { if (active && view.name === "home") render(); },
   });
   initArcade({
     deps,
@@ -2491,7 +2487,7 @@ export function resetChessTournamentsForAccount() {
   waitingLeftByChoice = false;
   paintedGameState = "";
   view = { name: "games", mode: "duel", tab: "play", tournamentId: null, gameId: null };
-  leaderboardPeriod = "month";
+  boardId = "duel:month";
   selectedSquare = null;
   pendingPromotion = null;
   endOverlayFor = null;

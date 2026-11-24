@@ -131,20 +131,16 @@
 }
 .chess-bot-challenge svg { flex: 0 0 22px; width: 22px; height: 22px; fill: none; stroke: var(--ios-orange); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
-/* The Leaderboard's squares (ChessLeaderboardSquare): switch the board under them, or open a screen. */
-.chess-t-squares { display: grid; grid-template-columns: repeat(3, minmax(0, 150px)); justify-content: center; gap: 12px; padding: 12px 0; flex-shrink: 0; }
-.chess-t-square {
-  position: relative; aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 6px; min-width: 0;
-  border: 1.5px solid transparent; border-radius: 16px; background: var(--surface-1, rgba(255,255,255,.04)); color: var(--text); font: inherit; cursor: pointer;
-}
-.chess-t-square:hover { background: var(--surface-2, rgba(255,255,255,.07)); }
-.chess-t-square > svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.chess-t-square > svg.filled { fill: currentColor; stroke: none; }
-.chess-t-square > span:not(.chess-t-square-chevron) { max-width: 100%; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* iOS minimumScaleFactor: "Tournaments" fits rather than cuts off on a phone. */
-@media (max-width: 420px) { .chess-t-square > span:not(.chess-t-square-chevron) { font-size: 13px; } }
-.chess-t-square-chevron { position: absolute; top: 10px; right: 10px; display: flex; }
-.chess-t-square-chevron svg { width: 12px; height: 12px; fill: none; stroke: var(--muted); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+/* Chess's screen as the arcade games' homes (K 518fdc8c ChessHomeView): the Play card (.arcade-hero)
+   with the chess mark in white on the accent tile, then the leaderboard and its 14-stop cycle button. */
+.chess-t-play-icon .chess-tab-glyph { font-size: 40px; color: #fff; }
+.chess-t-home.arcade-home { gap: 12px; }
+.chess-t-board-switch { display: flex; align-items: center; min-width: 0; }
+.chess-t-board-switch .cycle-button { max-width: 100%; }
+.chess-t-board-rows { display: flex; flex-direction: column; }
+
+/* One kind's Play / Active / Finished: the cycle button, leading, under the header. */
+[data-app-tab-screen="chess"] .chess-t-header + .cycle-bar { padding: 2px 16px 6px; }
 
 /* A board's "14 moves" (ChessBotLeaderboardView). */
 .chess-bot-board-moves { flex: 0 0 auto; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ios-green); }
