@@ -89,7 +89,7 @@ export const KUSDT_TEXT = Object.freeze({
   tipTitle: "Tip",
   tipQuestion: "What are you tipping in?",
   tipKusdtSubtitle: "Not counted on the post",
-  tipFootnote: "Set what Tip sends in Settings > KaPost > Tip In.",
+  tipFootnote: "Set what Tip sends in Settings > Customization > Tipping.",
 });
 
 /** A "Not confirmed" send from a chat is looked up this often, this many times: if it landed, the

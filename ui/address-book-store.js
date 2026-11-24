@@ -48,6 +48,13 @@ export function configureAddressBook(options = {}) {
   cache = null;
 }
 
+/** Signed out (K audit 2026-11-24 #17): nothing of the last account's book stays in memory, so no
+ *  photo you assigned shows while no one is signed in. Reads come back empty without an account
+ *  anyway (every key carries the wallet). No change is announced: nothing was edited. */
+export function forgetAddressBookCache() {
+  cache = null;
+}
+
 /** Called after every change (an edit here, a restore, a photo removal). */
 export function onAddressBookChange(listener) {
   if (typeof listener === "function") listeners.add(listener);

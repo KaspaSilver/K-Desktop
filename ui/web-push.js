@@ -524,6 +524,16 @@ export async function pushArrivedRecently(key, now = Date.now()) {
 }
 export const PUSH_ARRIVAL_WINDOW_MS = 30 * 60_000;
 
+/** The senders public/sw.js kept quiet for under Who Can Message You? ("account|sender"), handed
+ *  over once: the app files them with its own and rings when it learns their names. */
+export async function takeWorkerHiddenRequests() {
+  let list = null;
+  try { list = await kvGet("hiddenRequests"); } catch { return []; }
+  if (!Array.isArray(list) || !list.length) return [];
+  try { await kvSet("hiddenRequests", undefined); } catch { /* read again next time: filing dedupes */ }
+  return list.filter((item) => typeof item === "string");
+}
+
 /** A tap that had to open the app: handed over once, if it is fresh. */
 export async function takePendingNotificationClick() {
   let pending = null;

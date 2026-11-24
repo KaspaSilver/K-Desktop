@@ -13,7 +13,7 @@
   <!-- Too-old browsers (no WebAssembly / modern JS, e.g. iOS 10) get a clear message, not a blank layout. -->
   <script src="/browser-check.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=429" />
+  <link rel="stylesheet" href="./ui/styles.css?v=430" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (K's globe, dark only since K b0f0a4e6) is the tab icon too. -->
@@ -307,6 +307,12 @@
                   <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2"/><path d="M14.8 9.2c-.4-1-1.5-1.6-2.8-1.6-1.6 0-2.8.8-2.8 2.1 0 2.8 5.8 1.5 5.8 4.4 0 1.3-1.3 2.2-3 2.2-1.4 0-2.6-.7-3-1.8M12 6v1.6M12 16.3V18"/></svg></span>
                   <span class="composer-plus-copy"><strong>Send Dollars</strong><small>Send dollars (kUSDT) to this contact.</small></span>
                 </button>
+                <!-- K 518fdc8c Tip: what Settings > Customization > Tipping sets, as on a KaPost. Not in
+                     your own chat (nor a bot's, like every tile but Send Kaspa). -->
+                <button type="button" data-composer-tip title="Tip this contact, as set in Settings > Customization > Tipping." aria-description="Tip this contact, as set in Settings > Customization > Tipping.">
+                  <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="8" width="17" height="4.5" rx="1"/><path d="M5 12.5v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7M12 8v12.5"/><path d="M12 8c-1.2-2.6-4.6-3.6-5.4-1.6C6 8 9 8 12 8Zm0 0c1.2-2.6 4.6-3.6 5.4-1.6C18 8 15 8 12 8Z"/></svg></span>
+                  <span class="composer-plus-copy"><strong>Tip</strong><small>Tip this contact, as set in Settings > Customization > Tipping.</small></span>
+                </button>
                 <button type="button" data-composer-media="camera" title="Take a photo and send it." aria-description="Take a photo and send it.">
                   <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.2l1.1-1.6A1 1 0 0 1 9.6 4h4.8a1 1 0 0 1 .8.4L16.3 6h1.2A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.5" r="3.2"/></svg></span>
                   <span class="composer-plus-copy"><strong>Camera</strong><small>Take a photo and send it.</small></span>
@@ -436,11 +442,18 @@
                       <span class="pending-photo-meta" data-pending-photo-meta>Photo</span>
                       <button type="button" class="pending-photo-remove" data-pending-photo-remove aria-label="Remove photo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></button>
                     </div>
+                    <!-- K 518fdc8c pendingTipRow: the default tip waits here until Send; the trash takes it back. -->
+                    <div class="pending-photo-preview composer-field-row pending-tip-preview" data-pending-tip-preview hidden>
+                      <img class="pending-tip-logo" src="./ui/assets/kaspa-logo.png" alt="" />
+                      <span class="pending-photo-meta pending-tip-meta"><small>Tip</small><strong data-pending-tip-amount></strong><small data-pending-tip-fiat hidden></small></span>
+                      <span class="composer-field-spinner" data-pending-tip-spinner hidden aria-hidden="true"></span>
+                      <button type="button" class="pending-photo-remove" data-pending-tip-remove aria-label="Remove tip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></button>
+                    </div>
                     <div class="voice-recording-panel composer-field-row" data-voice-recording-panel hidden></div>
                     <span class="composer-declined-field" data-composer-declined hidden>Conversation declined</span>
                   </div>
                   <button class="composer-tool composer-plus" type="button" data-composer-plus aria-label="More options">+</button>
-                  <button class="composer-send" type="submit" aria-label="Send message">
+                  <button class="composer-send" type="submit" aria-label="Send">
                     <svg viewBox="0 0 24 24" aria-hidden="true" data-composer-send-icon><path d="M12 19V5m0 0-5.5 5.5M12 5l5.5 5.5"/></svg>
                   </button>
                 </form>
@@ -526,7 +539,7 @@
                     <div class="voice-recording-panel composer-field-row" data-group-voice-panel hidden></div>
                   </div>
                   <button class="composer-tool composer-plus" type="button" data-group-plus aria-label="More options">+</button>
-                  <button class="composer-send" type="submit" aria-label="Send message">
+                  <button class="composer-send" type="submit" aria-label="Send">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m0 0-5.5 5.5M12 5l5.5 5.5"/></svg>
                   </button>
                 </form>
@@ -1061,6 +1074,14 @@
               <div class="settings-toggle-row"><span><strong>Show .kachat Endings</strong></span><label class="switch-control"><input type="checkbox" data-pref-kachat-endings checked><span></span></label></div>
             </div>
             <p class="settings-group-footer field-hint">Turn off to show names like alice instead of alice.kachat. A name you gave someone yourself never has the ending.</p>
+            <!-- K 518fdc8c: what Tip sends, on a post and in a 1:1 chat's + (moved here from
+                 Settings > KaPost, which keeps the cool down). Per account: not on App Settings. -->
+            <div data-settings-tipping-card>
+              <div class="settings-list-card">
+                <button class="settings-list-row" type="button" data-settings-open-tipping><span class="settings-row-icon settings-row-icon-accent" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="8" width="17" height="4.5" rx="1"/><path d="M5 12.5v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7M12 8v12.5"/><path d="M12 8c-1.2-2.6-4.6-3.6-5.4-1.6C6 8 9 8 12 8Zm0 0c1.2-2.6 4.6-3.6 5.4-1.6C18 8 15 8 12 8Z"/></svg></span><span class="settings-row-copy"><strong>Tipping</strong></span><svg class="settings-dropdown-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+              </div>
+              <p class="settings-group-footer field-hint">What Tip sends, on a post and in a chat.</p>
+            </div>
           </section>
 
           <section class="settings-group">
@@ -1302,6 +1323,17 @@
           </section>
 
           <section class="settings-group">
+            <p class="settings-group-label" hidden>Chats</p>
+            <!-- K 518fdc8c WhoCanMessageRow: Anyone, or Only Users with a Username (one app setting).
+                 A menu picker like Customization's; the line under it follows the choice. -->
+            <div class="settings-list-card">
+              <label class="settings-list-row settings-menu-row">
+                <span class="settings-row-copy"><strong>Who Can Message You?</strong></span>
+                <span class="settings-menu-value"><span data-who-can-message-current>Anyone</span><svg class="settings-menu-updown" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 9.5 12 5.5l4 4M8 14.5l4 4 4-4"/></svg></span>
+                <select class="settings-menu-select" data-who-can-message aria-label="Who Can Message You?"></select>
+              </label>
+            </div>
+            <p class="settings-group-footer" data-who-can-message-footer>Anyone can send you a first message. It waits in Message Requests until you accept it.</p>
             <p class="settings-group-label">Chats</p>
             <div class="settings-list-card">
               <!-- iOS SettingsView chatsPage: Quick Reactions with its six emojis trailing. -->

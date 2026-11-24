@@ -163,6 +163,12 @@ import { validTokenPaymentNotice, encodeTokenPaymentNotice, tokenPaymentText, un
 // KaPost Settings > Tip In (KaPost iOS f954738).
 import { TIP_IN_OPTIONS, TIP_IN_ASK, TIP_IN_KASPA, TIP_IN_KUSDT, storedTipIn, effectiveTipIn, withTipIn, tipInLayout } from "./kaposts-tip-in.js";
 import { createTipResolver, tipNeedsLookup } from "./kapost-tip-ledger.js";
+// K 518fdc8c: Tip in a 1:1 chat (and the default tip's 10 KAS cap), Who Can Message You?, room pins.
+import { instantTipPlan, chatTipStep, INSTANT_TIP_LIMIT_NOTICE, INSTANT_TIP_LIMIT_FOOTER } from "./kaposts-tip-in.js";
+import { whoCanMessage, setWhoCanMessage, isHiddenRequest, noteHiddenRequest, mergeHiddenRequests, settleHiddenRequests, WHO_CAN_MESSAGE_OPTIONS, WHO_CAN_MESSAGE_FOOTERS, WHO_CAN_MESSAGE_USERNAMES } from "./who-can-message.js";
+import { ROOM_PINS_KEY, parseRoomPins, toggleRoomPin, dropRoomPin, pinnedRoomsInOrder } from "./room-pins.js";
+import { takeWorkerHiddenRequests } from "./web-push.js";
+import { forgetAddressBookCache } from "./address-book-store.js";
 
 // Step 25 shell:
 // - Keeps KaspaEngine modules intact.
@@ -4279,6 +4285,9 @@ function maybeNotifyIncoming(conversationEntry, contact, message) {
     const s = chatRequestState();
     const key = String(contact?.address || "").toLowerCase();
     if (!key || s.notified.has(key)) return;
+    // Who Can Message You? hides it (no .kachat name known): no ring, not counted as rung, and
+    // filed so it rings once their name lands (K 518fdc8c, audit 2026-11-24 #13).
+    if (isHiddenMessageRequest(conversationEntry)) { fileHiddenRequest(key); return; }
     s.notified.add(key);
     saveChatRequestState(s);
     // iOS wording (NotificationService "%@ wants to chat with you."); the tag is the one a closed-app
@@ -4666,6 +4675,12 @@ function nowId() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+/** "1 chat" / "3 chats": the whole text for each count, `{n}` standing for it - never an "s"
+ *  glued onto a word (K audit 2026-11-24 #34). */
+function countedText(count, one, many) {
+  const n = Number(count) || 0;
+  return n === 1 ? one : many.split("{n}").join(String(n));
+}
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -5250,10 +5265,153 @@ function grandfatherPreexistingChats() {
   appendEngineLog(`${preexisting.length} chat${preexisting.length === 1 ? "" : "s"} from before Message Requests kept as ordinary chats.`);
   return preexisting.length;
 }
+/** Message Requests, newest first, without the ones Who Can Message You? hides (K 518fdc8c): the
+ *  sheet, its count on the row and a tapped request push all read this. */
 function messageRequestConversations() {
-  return sortedConversations().filter((entry) => isMessageRequest(entry))
+  return sortedConversations().filter((entry) => isMessageRequest(entry) && !isHiddenMessageRequest(entry))
     .sort((a, b) => Number(lastMessageFor(b)?.createdAt || 0) - Number(lastMessageFor(a)?.createdAt || 0));
 }
+
+// --- Who Can Message You? (K 518fdc8c WhoCanMessage, audit 2026-11-24 #13) ------------------------
+// Settings > Chats: Anyone, or Only Users with a Username. With usernames only, a 1:1 request from a
+// sender with no .kachat name known is hidden (not deleted) and rings nothing; asking for the name
+// here queues its lookup. Such a sender is filed (per account, with the ones public/sw.js kept quiet
+// for), and once their name lands the request shows and rings once. Group invites and accepted
+// chats are never affected. One app setting (ui/who-can-message.js).
+const HIDDEN_REQUESTS_KEY = "kachat-hidden-requests-v1";
+/** A Message Request Who Can Message You? hides. Only meaningful for an actual request. */
+function isHiddenMessageRequest(conversationEntry) {
+  const setting = whoCanMessage();
+  if (setting !== WHO_CAN_MESSAGE_USERNAMES) return false;
+  const address = contactForConversation(conversationEntry)?.address;
+  if (!address) return false;
+  let label = null;
+  try { label = kachatCachedLabel(address); } catch { label = null; }
+  return isHiddenRequest({ setting, label });
+}
+function readHiddenRequests() {
+  try { return JSON.parse(localStorage.getItem(accountScopedKey(HIDDEN_REQUESTS_KEY)) || "[]") || []; } catch { return []; }
+}
+function saveHiddenRequests(list) {
+  try {
+    if (list.length) localStorage.setItem(accountScopedKey(HIDDEN_REQUESTS_KEY), JSON.stringify(list));
+    else localStorage.removeItem(accountScopedKey(HIDDEN_REQUESTS_KEY));
+  } catch { /* this session only */ }
+}
+/** The open app kept quiet for this sender: filed, to ring once their name is known. */
+function fileHiddenRequest(address) {
+  if (!engine.address || !address) return;
+  saveHiddenRequests(noteHiddenRequest(readHiddenRequests(), engine.address, address));
+  scheduleHiddenRequestAnnounce();
+}
+/** Names landing, the app coming back, a request arriving: shows and rings the hidden requests
+ *  whose senders now have a name (K ChatService.announceNamedHiddenRequests). At most every 2 s. */
+function scheduleHiddenRequestAnnounce(delayMs = 2000) {
+  if (scheduleHiddenRequestAnnounce.timer) return;
+  scheduleHiddenRequestAnnounce.timer = window.setTimeout(() => {
+    scheduleHiddenRequestAnnounce.timer = 0;
+    // A name that landed shows its request (and moves the count) even when nothing rings.
+    if (engine.address && whoCanMessage() === WHO_CAN_MESSAGE_USERNAMES) { try { renderChats(); renderMessageRequestsSheet(); } catch { /* not drawn yet */ } }
+    announceNamedHiddenRequests().catch(() => { /* next change asks again */ });
+  }, delayMs);
+}
+async function announceNamedHiddenRequests() {
+  const wallet = engine.address;
+  if (!wallet || whoCanMessage() !== WHO_CAN_MESSAGE_USERNAMES) return;
+  const fromWorker = await takeWorkerHiddenRequests().catch(() => []);
+  if (engine.address !== wallet) return;
+  const filed = readHiddenRequests();
+  const list = fromWorker.length ? mergeHiddenRequests(filed, fromWorker) : filed;
+  if (!list.length) return;
+  const entryFor = (address) => {
+    const contact = (state.contacts || []).find((entry) => String(entry.address || "").toLowerCase() === address);
+    return contact ? (state.conversations || []).find((entry) => entry.contactId === contact.id) || null : null;
+  };
+  const s = chatRequestState();
+  const { list: kept, announce } = settleHiddenRequests({
+    list, wallet, setting: whoCanMessage(),
+    requestState: (address) => { const entry = entryFor(address); return entry ? isMessageRequest(entry) : null; },
+    blocked: (address) => isChatBlocked(address),
+    labelOf: (address) => { try { return kachatCachedLabel(address); } catch { return null; } },
+    notified: s.notified,
+  });
+  if (kept.length !== filed.length || kept.some((item, index) => item !== filed[index])) saveHiddenRequests(kept);
+  if (!announce.length) return;
+  for (const address of announce) s.notified.add(address);
+  saveChatRequestState(s);
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  for (const address of announce) {
+    const conversationEntry = entryFor(address);
+    if (!conversationEntry) continue;
+    const mode = effectiveNotifyMode(address);
+    if (mode === "off") continue;
+    const name = kachatCachedDisplayLabel(address) || shortAddress(address);
+    showAppNotification({
+      title: "New message request",
+      body: `${name} wants to chat with you.`,
+      tag: `kachat-request-${address}`,
+      key: `hidden-request-${address}`,
+      silent: mode !== "sound",
+      route: { kind: "chat", conversationId: conversationEntry.id },
+      onClick: () => { setActiveAppTab("chats"); openConversation(conversationEntry.id); },
+    }).catch(() => { /* best-effort */ });
+  }
+}
+// Names land in batches; the app comes back with what the worker filed while it was closed.
+try { onKachatIdentityChange(() => { if (whoCanMessage() === WHO_CAN_MESSAGE_USERNAMES) scheduleHiddenRequestAnnounce(); }); } catch { /* names not started */ }
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && whoCanMessage() === WHO_CAN_MESSAGE_USERNAMES) scheduleHiddenRequestAnnounce(3000);
+});
+// A cold open: what the worker filed while the app was closed, once the account and its chats are in.
+window.setTimeout(() => { if (whoCanMessage() === WHO_CAN_MESSAGE_USERNAMES) scheduleHiddenRequestAnnounce(0); }, 15_000);
+/** What public/sw.js needs to keep quiet like the open app (sw-push.js): the choice, every current
+ *  requester (hidden ones too: they never ring), and whom it knows a .kachat name for. */
+function whoCanMessageMirror() {
+  const setting = whoCanMessage();
+  const requests = [];
+  const kachatNamed = [];
+  for (const entry of state.conversations || []) {
+    if (requests.length >= 500) break;
+    if (!isMessageRequest(entry)) continue;
+    const address = String(contactForConversation(entry)?.address || "").toLowerCase();
+    if (address) requests.push(address);
+  }
+  if (setting === WHO_CAN_MESSAGE_USERNAMES) {
+    for (const contact of state.contacts || []) {
+      if (kachatNamed.length >= 3000) break;
+      const address = String(contact?.address || "").toLowerCase();
+      let label = null;
+      try { label = address ? kachatCachedLabel(address) : null; } catch { label = null; }
+      if (label) kachatNamed.push(address);
+    }
+  }
+  return { whoCanMessage: setting, requests, kachatNamed };
+}
+/** Settings > Chats > Who Can Message You?: saved, and the list, the requests and the worker's
+ *  copy follow at once. */
+function applyWhoCanMessage(value) {
+  setWhoCanMessage(value);
+  try { renderChats(); renderMessageRequestsSheet(); } catch { /* not drawn yet */ }
+  try { scheduleWebPushSync({ delayMs: 300 }); } catch { /* push not started */ }
+  if (whoCanMessage() === WHO_CAN_MESSAGE_USERNAMES) scheduleHiddenRequestAnnounce();
+}
+function installWhoCanMessageRow() {
+  const select = document.querySelector("[data-who-can-message]");
+  if (!select || installWhoCanMessageRow.done) return;
+  installWhoCanMessageRow.done = true;
+  select.innerHTML = WHO_CAN_MESSAGE_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join("");
+  const paint = () => {
+    const value = whoCanMessage();
+    select.value = value;
+    const current = document.querySelector("[data-who-can-message-current]");
+    if (current) current.textContent = WHO_CAN_MESSAGE_OPTIONS.find((option) => option.value === value)?.label || "";
+    const footer = document.querySelector("[data-who-can-message-footer]");
+    if (footer) footer.textContent = WHO_CAN_MESSAGE_FOOTERS[value] || "";
+  };
+  select.addEventListener("change", () => { applyWhoCanMessage(select.value); paint(); });
+  paint();
+}
+installWhoCanMessageRow();
 
 /** Accept: the chat joins the chat list; nothing is sent on chain. Also what writing to (or
  *  paying) someone does - and it lifts a block, since messaging them is consent. */
@@ -6491,7 +6649,7 @@ function openDeleteSelectedConfirmation() {
   if (!selectedMessageIds.size || !deleteConfirmModal) return;
   const count = selectedMessageIds.size;
   const title = deleteConfirmModal.querySelector("h2");
-  if (title) title.textContent = `Delete ${count} Message${count === 1 ? "" : "s"}?`;
+  if (title) title.textContent = countedText(count, "Delete 1 Message?", "Delete {n} Messages?");
   if (deleteConfirmCopy) {
     deleteConfirmCopy.textContent = "This only deletes the message from this device - the recipient still has their own copy, and the encrypted transaction remains permanently on the Kaspa blockchain, visible to anyone but unreadable without your keys. This cannot be undone.";
   }
@@ -6521,7 +6679,7 @@ function deleteSelectedMessages() {
   persistState();
   closeDeleteSelectedConfirmation();
   exitMessageSelection();
-  setStatus(`${count} message${count === 1 ? "" : "s"} deleted locally`);
+  setStatus(countedText(count, "1 message deleted locally", "{n} messages deleted locally"));
 }
 
 function onchainAmountKas() {
@@ -13615,7 +13773,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 325;
+const APP_BUILD = 326;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -18470,13 +18628,16 @@ function visibleChatGroups() {
   return mgr.listGroups().filter((g) => (query ? groupMatchesChatSearch(g, query) : !pins.has(`g:${g.groupId}`)));
 }
 
-/** The public rooms in the list, by name while searching. Simple Mode hides them. */
+/** The public rooms in the list, by name while searching. Simple Mode hides them. A room pinned to
+ *  the top row is its circle instead, except while searching (K 518fdc8c displayedRooms). */
 function visibleChatRooms() {
   if (isChildModeEnabled()) return [];
   let rooms = [];
   try { rooms = chatListRooms(); } catch { rooms = []; }
   const query = String(searchInput?.value || "").trim().toLowerCase();
-  return query ? rooms.filter((room) => `#${room.name}`.toLowerCase().includes(query)) : rooms;
+  if (query) return rooms.filter((room) => `#${room.name}`.toLowerCase().includes(query));
+  const pinned = new Set(chatRoomPins());
+  return pinned.size ? rooms.filter((room) => !pinned.has(room.name)) : rooms;
 }
 
 function chatRoomsSignature() {
@@ -18510,7 +18671,8 @@ function groupRowHtml(g, { selecting = false, selected = false, active = false }
   const time = last ? formatChatListDate(last.createdAt) : "";
   const unread = groupDisplayUnread(g);
   const silenced = getGroupNotify(g.groupId) === "muted";
-  const preview = last ? groupRowPreview(last) : "";
+  // The edited text when the last message was edited (K audit 2026-11-24 #10: never the old one).
+  const preview = last ? groupRowPreview({ ...last, text: groupMessageContent(g.groupId, last) }) : "";
   const count = (g.members || []).length;
   return `
         <button class="chat-row group-row${selecting ? " selecting" : ""}${selected ? " selected" : ""}${active ? " active" : ""}" type="button" data-group-row="${escapeHtml(g.groupId)}" data-swipe-id="group:${escapeHtml(g.groupId)}">
@@ -18521,7 +18683,7 @@ function groupRowHtml(g, { selecting = false, selected = false, active = false }
             <strong>${escapeHtml(g.name || "Group")}${silenced ? `<svg class="group-row-silenced" viewBox="0 0 24 24" role="img" aria-label="Silenced"><path d="M9.5 19a2.5 2.5 0 0 0 5 0M6 8a6 6 0 0 1 9.6-4.8M18 8c0 5 2 7 2 7H8M4 15s2-2 2-7M3 3l18 18"/></svg>` : ""}</strong>
             ${preview
               ? `<span>${escapeHtml(preview)}</span>`
-              : `<span class="chat-row-none">${count} member${count === 1 ? "" : "s"}</span>`}
+              : `<span class="chat-row-none">${countedText(count, "1 member", "{n} members")}</span>`}
           </span>
           ${unread > 0 ? `<b class="unread-badge">${unread}</b>` : ``}
         </button>
@@ -18570,7 +18732,8 @@ function renderChats() {
   // No chats and no search: the empty state, under the circles and the requests row. A search
   // with no match shows nothing at all (iOS has no "no results" card).
   const anyPinnedGroup = chatCirclePins().some((id) => id.startsWith("g:") && getGroupManager()?.getGroup(id.slice(2)));
-  emptyState.hidden = !(noRows && !anyPinnedGroup && !searching);
+  const anyPinnedRoom = pinnedChatRooms().length > 0;
+  emptyState.hidden = !(noRows && !anyPinnedGroup && !anyPinnedRoom && !searching);
   chatList.hidden = !requestsRowHtml && noRows;
   if (noRows) {
     lastChatListHtml = null;
@@ -18602,7 +18765,7 @@ function renderChats() {
     }) })),
   ].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.at - a.at || a.order - b.order);
   // iOS: "{n} chat(s)" under the list.
-  const countLineHtml = `<p class="chat-list-count">${rows.length} chat${rows.length === 1 ? "" : "s"}</p>`;
+  const countLineHtml = `<p class="chat-list-count">${countedText(rows.length, "1 chat", "{n} chats")}</p>`;
   const listHtml = requestsRowHtml + rows.map((row) => row.html()).join("") + countLineHtml;
   if (listHtml !== lastChatListHtml) {
     chatList.innerHTML = listHtml;
@@ -19496,6 +19659,8 @@ function openConversation(conversationId) {
   if (conversationId !== activeConversationId) {
     cancelReply();
     try { clearPendingPhoto(); } catch { /* composer section not evaluated yet */ }
+    // so does a waiting tip (K's pendingTip is the chat screen's own state); one going out keeps on
+    if (!pendingChatTip.value?.sending) pendingChatTip.value = null;
     closeComposerEmojiPopover();
   }
 
@@ -19727,7 +19892,7 @@ function openChatInfoFor(contact, conversationEntry) {
       if (elapsed < 86_400_000) chatInfoLastMessage.textContent = formatRelativeTime(last.createdAt);
       else {
         const days = Math.max(1, Math.floor(elapsed / 86_400_000));
-        chatInfoLastMessage.textContent = `${days} day${days === 1 ? "" : "s"} ago`;
+        chatInfoLastMessage.textContent = countedText(days, "1 day ago", "{n} days ago");
       }
     }
   }
@@ -20410,7 +20575,7 @@ const TIP_FEE_MULTIPLIERS = { normal: 1n, fast: 2n, priority: 5n };
 // What From means for a post's tip (KaPost 071e901), on the From step and on Tips From.
 const TIP_COUNTED_NOTE = "From your Chatting Address the tip counts on the post, and you're listed as a tipper.";
 const TIP_PRIVATE_NOTE = "From another address the tip is private: the author gets it, and sees it in your chat, but it doesn't count on the post or name you as a tipper.";
-const TIPS_FROM_NOTE = "Tips from your Chatting Address count on the post, and you're listed as a tipper. From another address a tip is private: the author gets it, and sees it in your chat, but it doesn't count on the post or name you.";
+const TIPS_FROM_NOTE = "Tips from your Chatting Address count on the post, and you're listed as a tipper. From another address a tip is private: the author gets it, and sees it in your chat, but it doesn't count on the post or name you. A tip in a chat comes from here too.";
 const tipModal = document.querySelector("[data-tip-modal]");
 mountSendPieces(tipModal, {
   from: sendFromSectionHtml({ prefix: "tip" }),
@@ -20725,7 +20890,11 @@ const KAPOSTS_NOTIFY_TOGGLES = [
 // sends under it), and a Notifications row (bell) opening the "KaPost" page of six switches.
 const KAPOSTS_COOLDOWN_ON_FOOTER = "Posts, comments, likes, reposts, votes, edits and deletes wait 5 seconds, with an Undo, before they go on chain.";
 const KAPOSTS_COOLDOWN_OFF_FOOTER = "Posts, comments, likes, reposts, votes, edits and deletes go on chain at once, with no Undo.";
-function openKaPostsSettings() {
+// Since K 518fdc8c the same sheet is two pages: Settings > KaPost (`part` "kapost", the default:
+// the cool down and the notification switches) and Settings > Customization > Tipping ("tipping":
+// Tip In, the default tip and Tips From, for a post's Tip and a chat's alike).
+function openKaPostsSettings(options = null) {
+  const part = options?.part === "tipping" ? "tipping" : "kapost";
   // An earlier one closes with its own close(), so its Escape listener goes with it.
   const earlier = document.querySelector("[data-kaposts-settings-modal]");
   if (earlier) { if (typeof earlier.kapostsSettingsClose === "function") earlier.kapostsSettingsClose(); else earlier.remove(); }
@@ -20745,15 +20914,18 @@ function openKaPostsSettings() {
     <section class="contact-modal kaposts-settings-modal" role="dialog" aria-modal="true" aria-labelledby="kaposts-settings-title">
       <div data-kaposts-settings-page="main">
         <div class="modal-header">
-          <div><h2 id="kaposts-settings-title">KaPost Settings</h2></div>
+          <div><h2 id="kaposts-settings-title">${part === "tipping" ? "Tipping" : "KaPost Settings"}</h2></div>
           <button class="modal-close" type="button" data-kaposts-settings-close aria-label="Close">×</button>
         </div>
+        <div data-kaposts-part="kapost">
         <div class="settings-list-card">
           <div class="settings-page-form">
             <div class="settings-toggle-row"><span><strong>Cool down before post</strong></span><label class="switch-control"><input type="checkbox" data-kaposts-cooldown ${cooldown ? "checked" : ""}><span></span></label></div>
           </div>
         </div>
         <p class="settings-group-footer" data-kaposts-cooldown-footer>${escapeHtml(cooldown ? KAPOSTS_COOLDOWN_ON_FOOTER : KAPOSTS_COOLDOWN_OFF_FOOTER)}</p>
+        </div>
+        <div data-kaposts-part="tipping">
         <p class="settings-group-label">Tipping</p>
         <div class="settings-list-card">
           <label class="settings-list-row settings-menu-row" data-kaposts-tip-in-row>
@@ -20772,7 +20944,8 @@ function openKaPostsSettings() {
         <p class="settings-group-footer" data-kaposts-tip-in-footer hidden></p>
         <p class="settings-group-footer" data-kaposts-tip-footer ${current ? "" : "hidden"}></p>
         <p class="settings-group-footer kaposts-tip-too-small" data-kaposts-tip-too-small hidden></p>
-        <div class="settings-list-card kaposts-settings-notifications-card">
+        </div>
+        <div class="settings-list-card kaposts-settings-notifications-card" data-kaposts-part="kapost">
           <button class="settings-list-row" type="button" data-kaposts-open-notifications>${bell}<span class="settings-row-copy"><strong>Notifications</strong></span><svg class="settings-dropdown-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
         </div>
       </div>
@@ -20799,6 +20972,8 @@ function openKaPostsSettings() {
       </div>
     </section>`;
   document.body.append(backdrop);
+  // The other page's rows stay in the sheet, hidden, so everything below finds its elements.
+  for (const el of backdrop.querySelectorAll("[data-kaposts-part]")) el.hidden = el.getAttribute("data-kaposts-part") !== part;
   const pages = [...backdrop.querySelectorAll("[data-kaposts-settings-page]")];
   const pageShown = (name) => !backdrop.querySelector(`[data-kaposts-settings-page="${name}"]`).hidden;
   let tipsFromList = null;
@@ -20854,11 +21029,12 @@ function openKaPostsSettings() {
     unitButton.setAttribute("aria-label", tipInFiat ? `Tip in ${code}, switch to ${KAS_UNIT}` : `Tip in ${KAS_UNIT}, switch to ${selectedCurrency.toUpperCase()}`);
     // What a tip sends: in KAS, or the currency amount with what it comes to in KAS today.
     const typed = kapostsTipFieldAmount(amount.value);
-    footer.textContent = !tipInFiat
+    // ...and how far it goes without asking (K 518fdc8c: 10 KAS, on a post and in a chat).
+    footer.textContent = `${!tipInFiat
       ? "Tap the unit to set the tip in your currency instead."
       : typed && tipPrice
         ? `Each tip sends ${fiatAmountText(typed, tipCurrency)} worth of KAS at the price of the moment - about ${trimKas8(typed / tipPrice)} ${KAS_UNIT} now.`
-        : "Each tip sends this much worth of KAS at the price of the moment.";
+        : "Each tip sends this much worth of KAS at the price of the moment."} ${INSTANT_TIP_LIMIT_FOOTER}`;
   };
   // Nothing is saved while typing (KaPost b78fdb0): the field is read-only behind a pencil, and the
   // checkmark (or Return, or leaving the field) saves it. An amount under the network's smallest
@@ -21028,7 +21204,9 @@ const INSTANT_TIP_HOLD_MS = 2 * 60 * 1000;
 // `sourceIndex`: Tips From's spending address (KaPost 071e901), else null for the chatting address.
 // From a spending address the tip is private: a plain payment with the chat notice, no post named
 // (the caller passes no `tip`) and nothing counted.
-async function sendInstantTip(address, name, amountKasNumber, tip = null, fiatText = null, sourceIndex = null) {
+// `{ chat: true }`: a Tip from a 1:1 chat's + (K 518fdc8c), said on the app's toast, since KaPost's
+// toasts show only on KaPost.
+async function sendInstantTip(address, name, amountKasNumber, tip = null, fiatText = null, sourceIndex = null, { chat = false } = {}) {
   const clean = String(address || "").trim();
   if (!clean || !isValidKaspaAddressString(clean) || clean === engine.address) throw new Error("No one to tip.");
   const amountKas = trimKas8(Number(amountKasNumber));
@@ -21107,7 +21285,8 @@ async function sendInstantTip(address, name, amountKasNumber, tip = null, fiatTe
     const finalTxid = verifiedTxid || txid;
     // iOS sendDefaultTip: "Tipped 1.5 KAS to <name>" with View on the explorer.
     const amountText = fiatText ? `${amountKas} ${KAS_UNIT} (${fiatText})` : `${amountKas} ${KAS_UNIT}`;
-    showKaPostsActionToast(`Tipped ${amountText} to ${displayName || shortAddress(clean)}${sourceIndex != null ? " privately" : ""}`, finalTxid);
+    if (chat) showCopyToast(`Tipped ${amountText} to ${displayName || shortAddress(clean)}`);
+    else showKaPostsActionToast(`Tipped ${amountText} to ${displayName || shortAddress(clean)}${sourceIndex != null ? " privately" : ""}`, finalTxid);
     appendEngineLog(`Instant tip sent: ${explorerTxUrl(finalTxid)}`);
     return finalTxid;
   } catch (error) {
@@ -22645,7 +22824,12 @@ function setSettingsAppOnlyMode(appOnly) {
   if (balance) balance.hidden = appOnly;
   const feeRow = document.querySelector("[data-fee-estimate-row]");
   if (feeRow) feeRow.hidden = appOnly;
+  // Tipping is the account's (K 518fdc8c): not on App Settings.
+  const tippingCard = document.querySelector("[data-settings-tipping-card]");
+  if (tippingCard) tippingCard.hidden = appOnly;
 }
+// Settings > Customization > Tipping (K 518fdc8c): KaPost's tip settings, now for chats too.
+document.querySelector("[data-settings-open-tipping]")?.addEventListener("click", () => openKaPostsSettings({ part: "tipping" }));
 
 document.querySelector("[data-logged-out-settings]")?.addEventListener("click", () => {
   setSettingsAppOnlyMode(true);
@@ -22887,6 +23071,7 @@ function closeChatsForAccountSwitch() {
   // A staged photo / Nextcloud upload and a recording (or one still waiting on the mic prompt)
   // belong to the old account's chat; Send must not carry them into the new account.
   step(() => clearPendingPhoto());
+  step(() => { pendingChatTip.value = null; syncComposerSlots(); }); // a waiting tip too (K 518fdc8c)
   step(() => exitChatAudioMode());
   step(() => closeComposerEmojiPopover());
   // The old account's notification handlers point at its chats: a later tap goes by its route.
@@ -22997,9 +23182,11 @@ function openPublicChatsTab() {
 // (long-press on touch) opens its half sheet; in Select mode a click on a group selects it. Pinned
 // circles come first, newest pin first, then the rest by latest activity. Pins are saved per wallet
 // as "g:<groupId>", and a 1:1 chat pinned up into the row (Pin to Top Row, iOS 7abc06e8) as
-// "c:<address>". Public rooms are never here on Desktop: they are rows in the list, and a room pinned
-// before that ("r:<room>") is forgotten on the next save. Everything here reads the DOM and module
-// state at call time: the boot-time renderChats reaches it before the code below has run.
+// "c:<address>". Public rooms are rows in the list until pinned: since K 518fdc8c a pinned room is a
+// "#" circle after the pinned groups, its pins kept apart per account (ui/room-pins.js), and its
+// circle id "r:<room>". An old "r:<room>" left among these pins from before is forgotten on the next
+// save. Everything here reads the DOM and module state at call time: the boot-time renderChats
+// reaches it before the code below has run.
 const CHAT_CIRCLE_CHECK_SVG = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.1 10.1 3.1 3.1 6.7-7"/></svg>';
 const CHAT_CIRCLE_PIN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3.5 20.5 9l-2.2 1.1-3.6 3.6.4 4.6-1.6 1.6-3.9-3.9-4.8 4.8-.8-.8 4.8-4.8-3.9-3.9 1.6-1.6 4.6.4 3.6-3.6Z"/></svg>';
 
@@ -23023,6 +23210,36 @@ function toggleChatCirclePin(id) {
 }
 /** A 1:1 chat's id in the row's pins (iOS chatPinId). */
 function chatCirclePinId(address) { return `c:${String(address || "").toLowerCase()}`; }
+/** The public rooms pinned into the row, newest pin first (K kachat_room_pins_<wallet>). */
+function chatRoomPins() {
+  try { return parseRoomPins(localStorage.getItem(accountScopedKey(ROOM_PINS_KEY)) || "[]"); } catch { return []; }
+}
+function saveChatRoomPins(pins) {
+  try {
+    if (pins.length) localStorage.setItem(accountScopedKey(ROOM_PINS_KEY), JSON.stringify(pins));
+    else localStorage.removeItem(accountScopedKey(ROOM_PINS_KEY));
+  } catch { /* best-effort */ }
+}
+/** Pin to Top Row / Unpin for a room: it moves between the list and the row. */
+function toggleChatRoomPin(name) {
+  const { pins, pinned } = toggleRoomPin(chatRoomPins(), name);
+  saveChatRoomPins(pins);
+  showCopyToast(pinned ? "Pinned to the top row" : "Unpinned");
+  renderChats();
+}
+/** A room switched off or left loses its pin, so it comes back in the list, not the row
+ *  (ui/broadcasts.js calls this through onRoomRemoved). */
+function dropChatRoomPin(name) {
+  const { pins, changed } = dropRoomPin(chatRoomPins(), name);
+  if (changed) saveChatRoomPins(pins);
+}
+/** The pinned rooms still listed, in pin order. None in Simple Mode or while searching. */
+function pinnedChatRooms() {
+  if (isChildModeEnabled() || String(searchInput?.value || "").trim()) return [];
+  const pins = chatRoomPins();
+  if (!pins.length) return [];
+  try { return pinnedRoomsInOrder(pins, chatListRooms()); } catch { return []; }
+}
 /** A deleted group or room takes its pin with it. */
 function dropChatCirclePins(ids) {
   const gone = new Set(ids);
@@ -23085,7 +23302,10 @@ function visibleChatCircles() {
   const pinned = pinIds.map((id) => byId.get(id)).filter(Boolean).sort((a, b) => Number(b.kind === "group") - Number(a.kind === "group"));
   const pinnedIds = new Set(pinned.map((item) => item.id));
   const rest = items.filter((item) => !pinnedIds.has(item.id)).sort((a, b) => b.at - a.at);
-  return [...pinned, ...rest];
+  // Pinned public rooms right after the pinned groups (K 518fdc8c ChatCirclesStrip), in pin order.
+  const rooms = pinnedChatRooms().map((room) => ({ id: `r:${room.name}`, kind: "room", key: room.name, title: `#${room.name}`, unread: Number(room.unread || 0), at: Number(room.lastMessageAt || 0), room }));
+  const groupCount = pinned.filter((item) => item.kind === "group").length;
+  return [...pinned.slice(0, groupCount), ...rooms, ...pinned.slice(groupCount), ...rest];
 }
 
 // --- KaChat Bots in the circles row (iOS 5fcf755) -------------------------------------------------
@@ -23190,10 +23410,13 @@ function chatCirclesHtml(items, pins, selecting) {
     // A bot chat is deleted from its own sheet, not in Select mode (iOS 5fcf755).
     const isChat = item.kind === "bot" || item.kind === "chat";
     const selected = item.kind === "group" && selectedGroupIds.has(item.key);
-    const active = item.kind === "group" ? item.key === activeGroupId : isChat && item.key === activeConversationId;
-    const pinned = pins.has(item.id);
+    const active = item.kind === "group" ? item.key === activeGroupId : item.kind === "room" ? Boolean(item.room?.open) : isChat && item.key === activeConversationId;
+    // A room's pin is kept apart (chatRoomPins): it is in the row only because it is pinned.
+    const pinned = item.kind === "room" || pins.has(item.id);
     let avatar;
-    if (item.kind === "group") {
+    if (item.kind === "room") {
+      avatar = `<span class="chat-circle-glyph chat-circle-room">#</span>`;
+    } else if (item.kind === "group") {
       const url = chatCircleGroupPhotoUrl(item.group);
       avatar = url
         ? `<img class="chat-circle-photo" src="${escapeHtml(url)}" alt="" />`
@@ -23313,6 +23536,7 @@ async function runRoomRowChoice(name, choice) {
   if (!room) return;
   if (choice === "read") markBroadcastRooms([name], true);
   else if (choice === "unread") markBroadcastRooms([name], false);
+  else if (choice === "pin") toggleChatRoomPin(name);
   else if (choice === "silence") setBroadcastRoomNotify(name, !room.notify);
   else if (choice === "copy") copyBroadcastRoomLink(name);
   else if (choice === "delete" && room.indexed) removeBroadcastRooms([name]);
@@ -23326,8 +23550,8 @@ async function runRoomRowChoice(name, choice) {
   }
 }
 
-// Hold a room's row - right-click, or swipe on touch: Mark as Read / Unread, notifications on/off,
-// Copy Room Link, Delete. No pin: rooms never go in the row above the list.
+// Hold a room's row - right-click, or swipe on touch: Mark as Read / Unread, Pin to Top Row (K
+// 518fdc8c), notifications on/off, Copy Room Link, Delete.
 async function openRoomRowSheet(name) {
   const room = chatRoomNamed(name);
   if (!room) return;
@@ -23335,6 +23559,9 @@ async function openRoomRowSheet(name) {
     room.unread > 0
       ? { id: "read", title: "Mark as Read", subtitle: "Clears the unread badge on this room.", icon: ACTION_TILE_ICONS.envelopeOpen }
       : { id: "unread", title: "Mark as Unread", subtitle: "Puts the unread badge back so you come across it again.", icon: ACTION_TILE_ICONS.envelopeBadge },
+    chatRoomPins().includes(name)
+      ? { id: "pin", title: "Unpin", subtitle: "Moves it back into your chats.", icon: ACTION_TILE_ICONS.unpin }
+      : { id: "pin", title: "Pin to Top Row", subtitle: "Moves it into the row above your chats.", icon: ACTION_TILE_ICONS.pin },
     room.notify
       ? { id: "silence", title: "Turn Off Notifications", subtitle: "No notification for new messages in this room.", icon: ACTION_TILE_ICONS.bellSlash }
       : { id: "silence", title: "Turn On Notifications", subtitle: room.tracked ? "Notifies you of new messages, even when the app is closed." : "Notifies you of new messages while the app is open.", icon: ACTION_TILE_ICONS.bell },
@@ -23345,6 +23572,26 @@ async function openRoomRowSheet(name) {
   } else if (room.joined) {
     options.push({ id: "delete", title: "Delete", subtitle: "Removes this room and its messages from this device.", destructive: true, icon: ACTION_TILE_ICONS.trash });
   }
+  const choice = await chooseDialog({ title: `#${name}`, layout: "tiles", options });
+  if (choice) await runRoomRowChoice(name, choice);
+}
+
+// Hold a pinned room's circle (K 518fdc8c roomActionSheet): Mark as Read / Unread, Unpin, Mute /
+// Unmute and Delete - a default room is switched off, one you added is left after a confirmation;
+// either way its pin goes.
+async function openPinnedRoomSheet(name) {
+  const room = chatRoomNamed(name);
+  if (!room) return;
+  const options = [
+    room.unread > 0
+      ? { id: "read", title: "Mark as Read", subtitle: "Clears the unread badge on this public chat.", icon: ACTION_TILE_ICONS.envelopeOpen }
+      : { id: "unread", title: "Mark as Unread", subtitle: "Puts the unread badge back so you come across it again.", icon: ACTION_TILE_ICONS.envelopeBadge },
+    { id: "pin", title: "Unpin", subtitle: "Moves it back into your chats.", icon: ACTION_TILE_ICONS.unpin },
+    room.notify
+      ? { id: "silence", title: "Mute", subtitle: "No notifications from this public chat.", icon: ACTION_TILE_ICONS.bellSlash }
+      : { id: "silence", title: "Unmute", subtitle: "Notifications from this public chat resume.", icon: ACTION_TILE_ICONS.bell },
+  ];
+  if (room.indexed || room.joined) options.push({ id: "delete", title: "Delete", subtitle: "Removes this public chat from your chats.", destructive: true, icon: ACTION_TILE_ICONS.trash });
   const choice = await chooseDialog({ title: `#${name}`, layout: "tiles", options });
   if (choice) await runRoomRowChoice(name, choice);
 }
@@ -23400,15 +23647,18 @@ async function openBotCircleSheet(id, pinOption) {
     const key = id.slice(2);
     if (chatSelectionModeActive) {
       // A bot chat is deleted from its own sheet, not in Select mode (iOS 5fcf755); so is a chat
-      // pinned to the row.
-      if (id.startsWith("b:") || id.startsWith("c:")) return;
+      // or a room pinned to the row.
+      if (id.startsWith("b:") || id.startsWith("c:") || id.startsWith("r:")) return;
       if (selectedGroupIds.has(key)) selectedGroupIds.delete(key);
       else selectedGroupIds.add(key);
       renderChatCircles();
       updateChatSelectionBar();
       return;
     }
-    if (id.startsWith("g:")) {
+    if (id.startsWith("r:")) {
+      // A pinned room opens in the pane as its row would (K 518fdc8c onOpenRoom).
+      openRoomFromRow(key);
+    } else if (id.startsWith("g:")) {
       // Clicking the open group's circle again closes it, as with a chat row.
       if (key === activeGroupId) { closeGroupChat(); return; }
       openGroupChat(key);
@@ -23427,6 +23677,8 @@ async function openBotCircleSheet(id, pinOption) {
     event.preventDefault();
     // A pinned chat's hold is its chat row's own half sheet, with Unpin (iOS 7abc06e8).
     const circleId = circle.dataset.circleId || "";
+    // A pinned room's hold: Mark as Read, Unpin, Mute and Delete (K 518fdc8c roomActionSheet).
+    if (circleId.startsWith("r:")) { openPinnedRoomSheet(circleId.slice(2)); return; }
     if (circleId.startsWith("c:")) {
       const conversationEntry = state.conversations.find((entry) => entry.id === circle.dataset.conversationId);
       if (conversationEntry) openChatRowSheet(conversationEntry);
@@ -23474,7 +23726,9 @@ document.querySelector("[data-chat-mute-rooms]")?.addEventListener("click", () =
   const unmute = rooms.every((room) => !room.notify);
   try { setBroadcastRoomsNotify(rooms.map((room) => room.name), unmute); } catch { return; }
   setChatSelectionMode(false);
-  showCopyToast(unmute ? `Notifications on for ${rooms.length}` : `Notifications off for ${rooms.length}`);
+  showCopyToast(unmute
+    ? countedText(rooms.length, "Notifications on for 1 public chat", "Notifications on for {n} public chats")
+    : countedText(rooms.length, "Notifications off for 1 public chat", "Notifications off for {n} public chats"));
 });
 
 document.querySelector("[data-chat-delete-selected]")?.addEventListener("click", async () => {
@@ -23484,9 +23738,10 @@ document.querySelector("[data-chat-delete-selected]")?.addEventListener("click",
   const total = chats + groups + rooms;
   if (!total) return;
   let title;
-  if (!groups && !rooms) title = `Delete ${chats} Chat${chats === 1 ? "" : "s"}?`;
-  else if (!chats && !rooms) title = `Delete ${groups} Group${groups === 1 ? "" : "s"}?`;
-  else if (!chats && !groups) title = `Delete ${rooms} Public Chat${rooms === 1 ? "" : "s"}?`;
+  // One whole text per count, never an "s" glued on (K audit 2026-11-24 #34).
+  if (!groups && !rooms) title = countedText(chats, "Delete 1 Chat?", "Delete {n} Chats?");
+  else if (!chats && !rooms) title = countedText(groups, "Delete 1 Group?", "Delete {n} Groups?");
+  else if (!chats && !groups) title = countedText(rooms, "Delete 1 Public Chat?", "Delete {n} Public Chats?");
   else title = `Delete ${total} Selected?`;
   const parts = [];
   if (chats) parts.push("This permanently deletes every message in each selected chat from this device. This cannot be undone.");
@@ -23502,7 +23757,7 @@ document.querySelector("[data-chat-delete-selected]")?.addEventListener("click",
   if (roomNames.length) { try { removeBroadcastRooms(roomNames); } catch { /* rooms not started */ } }
   dropChatCirclePins(groupIds.map((id) => `g:${id}`));
   setChatSelectionMode(false);
-  if (groups) showCopyToast(groups === 1 ? "Group deleted." : `${groups} groups deleted.`);
+  if (groups) showCopyToast(countedText(groups, "Group deleted.", "{n} groups deleted."));
 });
 
 // Removes chats and their contacts from this device. Shared by the Select-mode bulk bar and the
@@ -23541,7 +23796,7 @@ function deleteConversationsByIds(ids, { quiet = false } = {}) {
   refreshSubscriptionAddresses({ restart: true });
   persistState();
   renderChats();
-  if (!quiet) showCopyToast(idsToDelete.size === 1 ? "Chat deleted." : `${idsToDelete.size} chats deleted.`);
+  if (!quiet) showCopyToast(countedText(idsToDelete.size, "Chat deleted.", "{n} chats deleted."));
 }
 
 // Right-click on a chat row: Read/Unread show contextually (the relevant one only, matching Mail)
@@ -23576,7 +23831,8 @@ chatRowSwipes = attachRowSwipes(chatList, {
     }
     if (id.startsWith("room:")) {
       const room = chatRoomNamed(id.slice(5));
-      return room && chatRowSwipeActions({ unread: room.unread, isSilent: !room.notify, canPin: false });
+      // Delete, Mute and Pin, as K's room row swipes (518fdc8c)
+      return room && chatRowSwipeActions({ unread: room.unread, isSilent: !room.notify, isPinned: chatRoomPins().includes(room.name) });
     }
     const conversationEntry = state.conversations.find((entry) => entry.id === id);
     const contact = contactForConversation(conversationEntry);
@@ -25598,6 +25854,8 @@ if (composerPlusButton && composerPlusMenu) {
     // A bot only takes text and Kaspa (iOS d1844582), so its sheet offers just the payment.
     const botChat = isKachatBot(contactForConversation(conversationEntry)?.address);
     composerPlusMenu.querySelectorAll("button").forEach((row) => { if (!row.hasAttribute("data-composer-pay")) row.hidden = botChat; });
+    // Tip: not in your own chat (K 518fdc8c).
+    composerPlusMenu.querySelectorAll("[data-composer-tip]").forEach((row) => { row.hidden = botChat || selfChat; });
     // Play Chess is always offered (iOS composerPlusOptions has no condition on it).
     composerPlusMenu.querySelectorAll("[data-composer-handshake]").forEach((row) => { row.hidden = botChat || selfChat || inboxSupportKnown() === true; });
     // File appears with a connected Nextcloud (nextcloud.js keeps it in step too).
@@ -25639,6 +25897,12 @@ composerDollarsMenu?.querySelector("[data-composer-dollars-back]")?.addEventList
 });
 composerDollarsMenu?.querySelector("[data-composer-dollars-token]")?.addEventListener("click", () => {
   closeComposerMenu();
+  openChatDollarSend();
+});
+/** The kUSDT send locked to this chat's contact, with its bubble and notice here (Send Dollars;
+ *  also a Tip when Tipping's Tip In is kUSDT, K 518fdc8c). */
+function openChatDollarSend() {
+  if (!kusdtWallet) return;
   const conversationEntry = state.conversations.find((entry) => entry.id === activeConversationId);
   const contact = contactForConversation(conversationEntry);
   const owner = engine.address;
@@ -25653,6 +25917,114 @@ composerDollarsMenu?.querySelector("[data-composer-dollars-token]")?.addEventLis
     // the bubble here, and the notice that puts it in their chat too (once per txid)
     onSent: (txid, index, amount) => recordTokenPayment({ owner, conversationId, contactAddress, txId: txid, index, amount }),
   });
+}
+
+// --- Tip in a 1:1 chat (K 518fdc8c ChatDetailView.tipFromChat) -----------------------------------
+// The + sheet's Tip does what Settings > Customization > Tipping says, as a KaPost's Tip does:
+// Tip In kUSDT is the chat's Send Dollars, Ask Each Time asks first, Kaspa follows the default tip.
+// A default (at most 10 KAS) waits in the composer as a Tip card until the send button (owner,
+// 2026-11-23: never straight from the +); the trash takes it back. It goes from Tips From as an
+// ordinary payment in this chat - no post, nothing counted - with no password, as plain sends go.
+// With no default (or one over the limit) the tip screen asks the amount. The card's amount is
+// fixed when it appears (K audit 2026-11-24: a currency default is priced then).
+/** The waiting tip `{ conversationId, address, name, sompi, fiatText, sending }`, kept on the
+ *  function (the composer reads it during boot). */
+function pendingChatTip() { return pendingChatTip.value || null; }
+/** The waiting tip of the chat on screen, else null. */
+function activeChatTip() {
+  const tip = pendingChatTip.value || null;
+  return tip && activeConversationId && tip.conversationId === activeConversationId ? tip : null;
+}
+function renderPendingChatTip() {
+  const tip = activeChatTip();
+  const row = document.querySelector("[data-pending-tip-preview]");
+  if (row && tip) {
+    const amount = row.querySelector("[data-pending-tip-amount]");
+    if (amount) amount.textContent = `${trimKas8(tip.sompi / 1e8)} ${KAS_UNIT}`;
+    const fiat = row.querySelector("[data-pending-tip-fiat]");
+    if (fiat) { fiat.textContent = tip.fiatText || ""; fiat.hidden = !tip.fiatText; }
+    const spinner = row.querySelector("[data-pending-tip-spinner]");
+    if (spinner) spinner.hidden = !tip.sending;
+    const trash = row.querySelector("[data-pending-tip-remove]");
+    if (trash) trash.hidden = Boolean(tip.sending);
+  }
+  syncComposerSlots();
+}
+document.querySelector("[data-pending-tip-remove]")?.addEventListener("click", () => {
+  if (pendingChatTip.value?.sending) return;
+  pendingChatTip.value = null;
+  renderPendingChatTip();
+});
+async function tipFromChat() {
+  const conversationEntry = state.conversations.find((entry) => entry.id === activeConversationId);
+  const contact = contactForConversation(conversationEntry);
+  if (!conversationEntry || !contact?.address || isSelfConversation(conversationEntry)) return;
+  if (activeChatTip()) return; // one is already waiting
+  if (pendingPhotoAttachment || chatAudioMode) { showCopyToast("Send or remove what's in the message field first."); return; }
+  const conversationId = conversationEntry.id;
+  const address = contact.address;
+  const name = displayNameForAddress(contact) || shortAddress(address);
+  const tipIn = kusdtWallet ? kaPostsTipInInUse() : TIP_IN_KASPA;
+  const defaultTip = tipIn === TIP_IN_KASPA ? kaPostsDefaultTip() : null;
+  const price = defaultTip?.fiat ? await fetchKasPrice(defaultTip.currency).catch(() => null) : null;
+  if (activeConversationId !== conversationId) return; // left the chat meanwhile
+  const step = chatTipStep({ tipIn, plan: instantTipPlan({ defaultTip, price }) });
+  if (step.step === "dollars") { openChatDollarSend(); return; }
+  if (step.step === "ask") {
+    const balanceSompi = currentBalanceKas == null ? null : sompiFromUserText(String(currentBalanceKas));
+    const choice = await openTipAssetChooser({ kaspaBalanceText: balanceSompi == null ? "--" : kusdtKasAmountText(balanceSompi, KAS_UNIT) });
+    if (activeConversationId !== conversationId) return;
+    if (choice === TIP_IN_KASPA) openTipModal({ address, name });
+    else if (choice === TIP_IN_KUSDT) openChatDollarSend();
+    return;
+  }
+  if (step.step === "sheet") { openTipModal({ address, name, error: step.notice || "" }); return; }
+  if (step.step === "error") {
+    const fiatText = defaultTip?.fiat ? fiatAmountText(defaultTip.fiat, defaultTip.currency) : "";
+    showCopyToast(step.reason === "noPrice"
+      ? `Tip didn't send: there is no recent KAS price to turn ${fiatText} into KAS.`
+      : `Tip didn't send: the smallest tip the network takes is ${trimKas8(KAPOSTS_TIP_MIN_SOMPI / 1e8)} ${KAS_UNIT}. Change your default tip in Settings > Customization > Tipping.`, { style: "error" });
+    return;
+  }
+  // "card": waits in the composer until Send
+  pendingChatTip.value = {
+    conversationId, address, name, sompi: step.sompi, sending: false,
+    fiatText: defaultTip?.fiat ? fiatAmountText(defaultTip.fiat, defaultTip.currency) : null,
+  };
+  renderPendingChatTip();
+}
+/** Send on a waiting tip: it goes out and the card leaves; a failure keeps it to try again or take
+ *  back; an unknown outcome takes it away too, so it can't be sent twice. */
+async function sendPendingChatTip() {
+  const tip = activeChatTip();
+  if (!tip || tip.sending) return;
+  // Tips From: one that can't be read must not quietly become a tip from somewhere else.
+  if (kaPostsTipSourceUnavailable()) {
+    showCopyToast("Tip didn't send: your Tips From address can't be read right now.", { style: "error" });
+    return;
+  }
+  tip.sending = true;
+  renderPendingChatTip();
+  let done = false;
+  try {
+    await sendInstantTip(tip.address, tip.name, tip.sompi / 1e8, null, tip.fiatText, kaPostsTipSourceIndex(), { chat: true });
+    done = true;
+  } catch (error) {
+    if (error?.code === "SEND_CANCELLED") { /* nothing went: the card stays */ }
+    else if (error?.code === SEND_OUTCOME_UNKNOWN) { done = true; showCopyToast(SEND_OUTCOME_UNKNOWN_MESSAGE, { style: "error" }); }
+    else {
+      const why = userFacingError(error);
+      showCopyToast(why ? `Tip didn't send: ${why}` : "Tip didn't send. Try again in a moment.", { style: "error" });
+    }
+  } finally {
+    tip.sending = false;
+    if (done && pendingChatTip.value === tip) pendingChatTip.value = null;
+    renderPendingChatTip();
+  }
+}
+composerPlusMenu?.querySelector("[data-composer-tip]")?.addEventListener("click", () => {
+  closeComposerMenu();
+  tipFromChat().catch((error) => showCopyToast(userFacingError(error) || "Couldn't open Tip.", { style: "error" }));
 });
 // Request Payment (iOS 6594936): a request for this contact, sent into this chat.
 composerPlusMenu?.querySelector("[data-composer-request-payment]")?.addEventListener("click", () => {
@@ -26668,7 +27040,7 @@ function setPendingPhoto(attachment) {
 }
 /** iOS canAcceptImageAttachment: not declined, not in audio mode, no photo already pending. */
 function canAcceptChatImageAttachment() {
-  if (!activeConversationId || pendingPhotoAttachment || pendingPhotoSending || chatAudioMode) return false;
+  if (!activeConversationId || pendingPhotoAttachment || pendingPhotoSending || chatAudioMode || activeChatTip()) return false;
   const conversationEntry = state.conversations.find((entry) => entry.id === activeConversationId);
   return contactForConversation(conversationEntry)?.relationshipState !== "declined";
 }
@@ -26701,16 +27073,21 @@ function syncComposerSlots() {
     const declined = contactForConversation(conversationEntry)?.relationshipState === "declined";
     const audio = !declined && chatAudioMode;
     const hasPhoto = !declined && Boolean(pendingPhotoAttachment);
+    // A default tip waiting for Send (K 518fdc8c) stands in the field, as a photo does.
+    const tip = !declined && !audio ? activeChatTip() : null;
+    const hasTip = Boolean(tip);
+    const tipRow = composer.querySelector("[data-pending-tip-preview]");
+    if (tipRow) tipRow.hidden = !hasTip;
     const voiceState = audio ? chatVoiceState() : "idle";
     const declinedEl = composer.querySelector("[data-composer-declined]");
     if (declinedEl) declinedEl.hidden = !declined;
     composer.classList.toggle("composer-declined", declined);
-    composer.classList.toggle("composer-field-replaced", declined || hasPhoto || audio);
+    composer.classList.toggle("composer-field-replaced", declined || hasPhoto || hasTip || audio);
     const hasText = /\S/.test(String(input?.value || ""));
-    composer.classList.toggle("composer-has-content", !declined && (audio || hasPhoto || hasText));
-    syncComposerPayPreview(document.querySelector("[data-composer-pay-preview]"), declined || audio ? "" : input?.value);
+    composer.classList.toggle("composer-has-content", !declined && (audio || hasPhoto || hasTip || hasText));
+    syncComposerPayPreview(document.querySelector("[data-composer-pay-preview]"), declined || audio || hasTip ? "" : input?.value);
     const emoji = composer.querySelector("[data-composer-emoji]");
-    if (emoji) emoji.hidden = declined || audio || hasPhoto;
+    if (emoji) emoji.hidden = declined || audio || hasPhoto || hasTip;
     const send = composer.querySelector(".composer-send");
     if (send) {
       const icon = audio ? (voiceState === "recording" ? "stop" : voiceState === "idle" ? "mic" : "send") : "send";
@@ -26721,9 +27098,10 @@ function syncComposerSlots() {
       // A photo can't be sent twice while it goes (iOS canSend), nor before its Nextcloud upload
       // is back (iOS 7abc06e8); nor a recording still encoding.
       const uploading = hasPhoto && nextcloudStaged?.phase === "uploading";
-      send.disabled = (hasPhoto && pendingPhotoSending) || uploading || voiceState === "encoding";
+      send.disabled = (hasPhoto && pendingPhotoSending) || uploading || voiceState === "encoding" || Boolean(tip?.sending);
       send.classList.toggle("composer-send-busy", uploading);
-      send.setAttribute("aria-label", icon === "stop" ? "Stop recording" : icon === "mic" ? "Record" : "Send message");
+      // What it does now, said (K audit 2026-11-24 #32): "Send", or "Send Tip" for a waiting tip.
+      send.setAttribute("aria-label", icon === "stop" ? "Stop recording" : icon === "mic" ? "Record" : hasTip ? "Send Tip" : "Send");
     }
   } catch { /* the composer section may not be evaluated yet */ }
 }
@@ -28918,6 +29296,8 @@ composer.addEventListener("submit", async (event) => {
   if (contactForConversation(state.conversations.find((entry) => entry.id === activeConversationId))?.relationshipState === "declined") return;
   // Audio mode: the button stops, sends, or records (iOS handleSend .audio).
   if (chatAudioMode) { handleChatAudioSend(); return; }
+  // A waiting tip goes on Send, and only then (K 518fdc8c sendPendingTip).
+  if (activeChatTip()) { sendPendingChatTip(); return; }
 
   if (pendingPhotoAttachment) {
     if (pendingPhotoSending) return;
@@ -31189,6 +31569,8 @@ async function performLogout({ fromAnotherTab = false } = {}) {
     try { await engine.disconnect?.(); } catch (error) { if (!fromAnotherTab) throw error; }
     engine.clearSession();
     lockKeyVault(); // with a password, signing back in asks for it again
+    // The Address Book's photos go with the account (K audit 2026-11-24 #17).
+    try { forgetAddressBookCache(); resetAddressBookForAccount(); } catch { /* not configured */ }
     setActiveConversationId(null);
     state = { contacts: [], conversations: [] };
     currentBalanceKas = "--";
@@ -31887,6 +32269,8 @@ function webPushMirror() {
     sound: (accountShellPrefs.notificationSound ?? true) !== false,
     childMode: isChildModeEnabled(),
     names, quiet, blocked, groups: groups.mirror, addressLabels,
+    // Who Can Message You? (K 518fdc8c): requests stay quiet, nameless first messages too.
+    ...whoCanMessageMirror(),
   };
 }
 
@@ -32230,12 +32614,17 @@ queueMicrotask(async () => {
         instantTipsInFlight.add(inFlightKey);
         try {
           const price = defaultTip.fiat ? await fetchKasPrice(defaultTip.currency).catch(() => null) : null;
-          const sompi = kapostsDefaultTipSompi(defaultTip, price);
-          if (!sompi) {
-            failure = `Tip didn't send: there is no recent KAS price to turn ${fiatText} into KAS.`;
-          } else if (sompi < KAPOSTS_TIP_MIN_SOMPI) {
+          // Up to 10 KAS goes at once; a bigger default opens the tip screen, saying why (K 518fdc8c
+          // KaPostsSettingsView.instantTip).
+          const plan = instantTipPlan({ defaultTip, price });
+          const sompi = plan.sompi;
+          if (plan.kind === "overLimit") {
+            openTipModal({ address, name, tip, onTipped, error: INSTANT_TIP_LIMIT_NOTICE });
+          } else if (plan.kind === "tooSmall") {
             // the network refuses a payment this small (its dust threshold, KaPost b78fdb0)
-            failure = `Tip didn't send: the smallest tip the network takes is ${trimKas8(KAPOSTS_TIP_MIN_SOMPI / 1e8)} ${KAS_UNIT}. Change your default tip in Settings > KaPost.`;
+            failure = `Tip didn't send: the smallest tip the network takes is ${trimKas8(KAPOSTS_TIP_MIN_SOMPI / 1e8)} ${KAS_UNIT}. Change your default tip in Settings > Customization > Tipping.`;
+          } else if (plan.kind !== "send" || !sompi) {
+            failure = `Tip didn't send: there is no recent KAS price to turn ${fiatText} into KAS.`;
           } else {
             // Tips From (KaPost 071e901): another address than the chatting one tips privately,
             // so the payment names no post and nothing is counted.
@@ -32376,6 +32765,8 @@ queueMicrotask(async () => {
       blockAccount: blockKaPostAccount,
       blockedAccounts: kaPostsBlockedAddresses,
       onUnreadChanged: () => updateChatsListTabBadges(),
+      // A room switched off or left takes its top-row pin with it (K 518fdc8c).
+      onRoomRemoved: (name) => dropChatRoomPin(name),
       readDraft, saveDraft,
       parseEditEnvelope, applyEditToContent, isEditableContent,
       isNextcloudShareLink,
@@ -34003,6 +34394,9 @@ function openGroupChat(groupId) {
     if (groupVoiceBusy() || groupVoiceStartToken) cancelGroupVoice(); // a recording belongs to its group
     cancelGroupReply(); groupDraftMentions.clear(); closeGroupMentions(); closeGroupPlusMenu(); clearGroupPendingPhoto();
     if (groupComposerInput) { groupComposerInput.value = readDraft(`group:${groupId}`); autoGrowGroupComposer(); }
+    // whose draft it is: leaving after an account switch must not file it under the new account
+    // (K audit 2026-11-24 #16)
+    openGroupChat.draftOwner = engine.address || "";
   } catch { /* composer wiring not ready during boot */ }
   // As in a 1:1: no keyboard on open on a phone, only a tap on the field raises it.
   if (switching && !isTouchDevice()) window.setTimeout(() => groupComposerInput?.focus(), 0);
@@ -34014,7 +34408,9 @@ function closeGroupChat({ keepDraft = true } = {}) {
   const wasOpen = Boolean(activeGroupId);
   if (wasOpen) releaseTypingFocus();
   if (wasOpen && groupComposerInput) {
-    if (keepDraft !== false) saveDraft(`group:${activeGroupId}`, groupComposerInput.value);
+    // Only into the account it was typed in (K audit 2026-11-24 #16).
+    const sameAccount = (openGroupChat.draftOwner ?? engine.address ?? "") === (engine.address || "");
+    if (keepDraft !== false && sameAccount) saveDraft(`group:${activeGroupId}`, groupComposerInput.value);
     else { groupComposerInput.value = ""; try { autoGrowGroupComposer(); } catch { /* fine */ } }
   }
   if (groupSelectionMode) { groupSelectionMode = false; selectedGroupMessageKeys.clear(); updateGroupSelectionUi(); }
@@ -34603,7 +34999,7 @@ document.querySelector("[data-group-delete-selected]")?.addEventListener("click"
   const count = selectedGroupMessageKeys.size;
   if (!count || !activeGroupId) return;
   const confirmed = await confirmDialog({
-    title: `Delete ${count} Message${count === 1 ? "" : "s"}?`,
+    title: countedText(count, "Delete 1 Message?", "Delete {n} Messages?"),
     message: "This only deletes the message from this device - other members still have their own copy, and the encrypted transaction remains permanently on the Kaspa blockchain, visible to anyone but unreadable without your keys. This cannot be undone.",
     confirmLabel: "Delete",
     destructive: true,
@@ -35409,7 +35805,7 @@ async function addSelectedGroupMembers() {
   const k = members.length;
   const finalOthers = groupOtherMemberCount(rec) + k;
   const fee = await groupOpFeeHint(groupId, { controlTx: k * (2 * finalOthers + 1), photoTx: rec.photoHex ? k * finalOthers : 0 });
-  if (!await confirmDialog({ title: "Add members", message: `Add ${k} member${k === 1 ? "" : "s"} to the group?${fee}`, confirmLabel: "Add" })) return;
+  if (!await confirmDialog({ title: "Add members", message: `${countedText(k, "Add 1 member to the group?", "Add {n} members to the group?")}${fee}`, confirmLabel: "Add" })) return;
   addMembersSheet.adding = true;
   renderAddMembersSheet();
   let failures = 0;
@@ -36208,12 +36604,12 @@ function renderGroupAddProgress() {
       <p class="field-hint">Please keep the app open. Each member added rotates the group key and sends it to everyone, which costs a small network fee per transaction.</p>`;
   } else if (r.phase === "success") {
     body.innerHTML = `<div class="progress-card-icon ok">✓</div><h2>Members Added</h2>
-      <p class="field-hint">Added ${r.added.length} member${r.added.length === 1 ? "" : "s"}. The group key was rotated and sent to everyone, so ${r.added.length === 1 ? "they" : "they"} can read messages from now on.</p>
+      <p class="field-hint">${countedText(r.added.length, "Added 1 member.", "Added {n} members.")} The group key was rotated and sent to everyone, so they can read messages from now on.</p>
       <div class="modal-actions"><button class="primary-button full" type="button" data-group-add-done>Done</button></div>`;
   } else {
     body.innerHTML = `<div class="progress-card-icon warn">⚠</div><h2>Add Members</h2>
-      <p class="field-hint">${r.failed.length} member${r.failed.length === 1 ? "" : "s"} could not be added. Please try again.${r.error ? `<br><small>${escapeHtml(r.error)}</small>` : ""}</p>
-      ${r.added.length ? `<p class="field-hint">${r.added.length} ${r.added.length === 1 ? "was" : "were"} added successfully.</p>` : ""}
+      <p class="field-hint">${countedText(r.failed.length, "1 member could not be added.", "{n} members could not be added.")} Please try again.${r.error ? `<br><small>${escapeHtml(r.error)}</small>` : ""}</p>
+      ${r.added.length ? `<p class="field-hint">${countedText(r.added.length, "1 was added successfully.", "{n} were added successfully.")}</p>` : ""}
       <div class="modal-actions stacked"><button class="primary-button full" type="button" data-group-add-retry>Try Again</button><button class="secondary-button full" type="button" data-group-add-done>Close</button></div>`;
   }
 }
@@ -36277,8 +36673,8 @@ groupCreateSubmit?.addEventListener("click", async () => {
       const rec = mgr.getGroup(groupModalTargetId);
       const finalOthers = groupOtherMemberCount(rec) + members.length;
       const hasPhoto = Boolean(rec?.photoHex);
-      if (!await confirmText(`Add ${members.length} member${members.length === 1 ? "" : "s"} to the group?${await groupOpFeeHint(groupModalTargetId, { controlTx: members.length * (2 * finalOthers + 1), photoTx: hasPhoto ? members.length * finalOthers : 0 })}`)) { updateGroupCreateSubmit(); return; }
-      setStatus("Adding member(s) to the group…");
+      if (!await confirmText(`${countedText(members.length, "Add 1 member to the group?", "Add {n} members to the group?")}${await groupOpFeeHint(groupModalTargetId, { controlTx: members.length * (2 * finalOthers + 1), photoTx: hasPhoto ? members.length * finalOthers : 0 })}`)) { updateGroupCreateSubmit(); return; }
+      setStatus(countedText(members.length, "Adding the member to the group…", "Adding {n} members to the group…"));
       closeGroupCreate();
       runGroupAddMembers(groupModalTargetId, members);
     } else {
@@ -36300,7 +36696,7 @@ groupCreateSubmit?.addEventListener("click", async () => {
           if (total > 0) feeLine = `\n\nEstimated network fee ≈ ${total.toFixed(6)} ${KAS_UNIT} across ${txCount} transaction${txCount === 1 ? "" : "s"}.`;
         } catch {}
         // iOS AddContactView's "Create group" alert: the question and fee, Cancel / Create.
-        if (!await confirmDialog({ title: "Create group", message: `Create "${name}" and invite ${members.length} member${members.length === 1 ? "" : "s"}?${feeLine}`, confirmLabel: "Create" })) { updateGroupCreateSubmit(); return; }
+        if (!await confirmDialog({ title: "Create group", message: `Create "${name}" and invite ${countedText(members.length, "1 member", "{n} members")}?${feeLine}`, confirmLabel: "Create" })) { updateGroupCreateSubmit(); return; }
       }
       setStatus("Creating group and inviting members…");
       const record = await mgr.createGroup({ name, memberAddresses: members });

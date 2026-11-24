@@ -11351,6 +11351,8 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .chat-circle-glyph { display: grid; place-items: center; }
 .chat-circle-glyph svg { width: 26px; height: 26px; display: block; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .chat-circle-glyph.chat-circle-bot svg { width: 24px; height: 24px; stroke-width: 1.8; } /* a bot's icon (iOS 5fcf755) */
+/* A pinned public room (K 518fdc8c): "#" on the accent tint, as its list row's avatar. */
+.chat-circle-glyph.chat-circle-room { font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif; font-size: 28px; font-weight: 700; line-height: 1; color: var(--kaspa-ink); }
 /* The whole name: a long one carries on underneath (up to three lines, centered) rather than being
    cut off, and every name reserves the three lines so the row has one height and the chat list
    below never covers a second or third line; the row is top-aligned, so the circles stay level
@@ -12434,6 +12436,13 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
 }
 .composer-field-row .pending-photo-meta { flex: 1 1 auto; color: var(--text); font-size: 15px; }
 .composer-field-row .pending-photo-meta.sending { color: var(--muted); }
+/* A default tip waiting for Send (K 518fdc8c pendingTipRow): the Kaspa logo, "Tip", the amount and
+   the currency amount it came from, and the trash. */
+.composer-field-row img.pending-tip-logo { width: 36px; height: 36px; border-radius: 50%; }
+.pending-tip-meta { display: flex; flex-direction: column; gap: 1px; line-height: 1.2; }
+.pending-tip-meta small { color: var(--muted); font-size: 12px; }
+.pending-tip-meta small:first-child { font-weight: 600; }
+.pending-tip-meta strong { color: var(--text); font-size: 16px; font-weight: 600; }
 .composer-field-row img { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; }
 .composer-field-row .pending-photo-remove,
 .composer-field-row .voice-field-trash { width: 30px; height: 30px; border: 0; padding: 0; border-radius: 50%; background: transparent; color: var(--ios-red); display: grid; place-items: center; cursor: pointer; }

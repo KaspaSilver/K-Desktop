@@ -334,6 +334,8 @@ function setCuratedChannel(name, shown) {
   if (!shown) {
     delete notifyByChannel[name];
     if (activeChannel === name) closeRoom();
+    // switched off: its pin in the Chats row goes too (K 518fdc8c dropRoomPin)
+    try { deps.onRoomRemoved?.(name); } catch { /* the app's pins */ }
   } else if (isJoined && FEATURED_BROADCAST_CHANNELS.includes(name)) {
     // As iOS setCuratedChannel does: a featured room switched back on notifies again.
     notifyByChannel[name] = true;
@@ -2620,6 +2622,8 @@ function leaveChannel(name) {
   deepBackfillResume.delete(name);
   roomNewestSeen.delete(name);
   if (activeChannel === name) closeRoom();
+  // left: its pin in the Chats row goes too (K 518fdc8c dropRoomPin)
+  try { deps.onRoomRemoved?.(name); } catch { /* the app's pins */ }
   syncScanWanted();
   renderChannelList();
 }

@@ -150,6 +150,10 @@ async function handlePush(event) {
     mapped = { title: String(payload.title || "K"), options: { body: String(payload.body || "New notification"), tag: "kachat-push", icon: iconUrl(), data: { route: { kind: "tab", tab: "chats" }, key: "", push: true } }, badge: null, suppress: false };
   }
   let suppress = Boolean(mapped.suppress) || switchedOff;
+  // Kept quiet by Who Can Message You?: filed for the app, which rings once it knows their name.
+  if (mapped.hiddenRequest && !switchedOff) {
+    try { await kvSet("hiddenRequests", self.KaChatPushMap.noteHiddenRequest(await kvGet("hiddenRequests"), mirror.account, mapped.hiddenRequest)); } catch { /* the app finds them on its own sync */ }
+  }
   // Every push is noted for half an hour (K b0f0a4e6 push_arrivals_v1): the open app never banners
   // a message whose push already came, the one clicked to open it above all; and the second of a
   // KaPost tip's two pushes (a payment and a "tipped your post", the same txid) is quiet.

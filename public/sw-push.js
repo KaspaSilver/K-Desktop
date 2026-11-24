@@ -225,9 +225,19 @@
 
     if (type === "contextual" || type === "payment" || type === "handshake" || type === "audio") {
       if (!sender || sender === account || otherNetwork(sender) || has(m.blocked, sender)) out.suppress = true;
+      // Someone the app holds as a Message Request was announced once already: their later
+      // messages are silent until accepted, as in the open app (K chat_request_addresses).
+      if (type !== "payment" && has(m.requests, sender)) out.suppress = true;
       // A message from someone you haven't accepted: one "New message request" per sender (a tag
       // per sender, so a second message replaces rather than adds). Payments ring as payments.
       if (p.inbox === "true" && type !== "payment") {
+        // Who Can Message You? set to usernames (K 518fdc8c): a first message from someone with no
+        // .kachat name the app knows rings nothing. The sender is filed (`hiddenRequest`, kept by
+        // public/sw.js) so the app can ring once when it learns their name (K audit 2026-11-24 #13).
+        if (m.whoCanMessage === "usernames" && !has(m.kachatNamed, sender)) {
+          out.suppress = true;
+          if (sender && !has(m.blocked, sender) && !has(m.requests, sender)) out.hiddenRequest = sender;
+        }
         out.title = "New message request";
         out.options.body = `${shortAddress(p.sender)} wants to chat with you.`;
         out.options.tag = `kachat-request-${sender}`;
@@ -412,5 +422,15 @@
     return String((payload || {}).type || "") === "payment" || Boolean(mapped?.options?.data?.tip);
   }
 
-  root.KaChatPushMap = { notificationFromPush, routeKey, shortAddress, kasFromSompi, partBurstKey, applyPartBurst, PART_BURST_MS, kaspaAddressFromXOnly, kapostsKind, noteArrival, recordPushArrival, isTipPush, PUSH_ARRIVAL_MS };
+  // Senders a push kept quiet for under Who Can Message You? (K chat_hidden_request_addresses):
+  // "account|sender", newest last, at most 500. The app takes them (ui/web-push.js).
+  function noteHiddenRequest(list, account, sender) {
+    const entry = lower(account) && lower(sender) ? `${lower(account)}|${lower(sender)}` : "";
+    const next = Array.isArray(list) ? list.filter((item) => typeof item === "string" && item) : [];
+    if (!entry || next.indexOf(entry) >= 0) return next;
+    next.push(entry);
+    return next.length > 500 ? next.slice(next.length - 500) : next;
+  }
+
+  root.KaChatPushMap = { noteHiddenRequest, notificationFromPush, routeKey, shortAddress, kasFromSompi, partBurstKey, applyPartBurst, PART_BURST_MS, kaspaAddressFromXOnly, kapostsKind, noteArrival, recordPushArrival, isTipPush, PUSH_ARRIVAL_MS };
 })(typeof self !== "undefined" ? self : globalThis);

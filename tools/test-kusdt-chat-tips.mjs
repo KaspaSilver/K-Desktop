@@ -316,7 +316,7 @@ await check("Tip In's layout: instant tip only for Kaspa, Tips From hidden for k
   assert.deepEqual(TI.TIP_IN_OPTIONS.map((o) => [o.value, o.label]), [["ask", "Ask Each Time"], ["kaspa", "Kaspa"], ["kusdt", "kUSDT"]]);
   assert.deepEqual(TI.tipInLayout("kaspa"), { instantTipRows: true, tipsFrom: true, footer: null, clearsInstantTip: false });
   assert.deepEqual(TI.tipInLayout("ask"), { instantTipRows: false, tipsFrom: true, footer: "Tip asks whether to send Kaspa or kUSDT each time.", clearsInstantTip: true });
-  assert.deepEqual(TI.tipInLayout("kusdt"), { instantTipRows: false, tipsFrom: false, footer: "Tip sends kUSDT to the poster's chatting address. kUSDT tips aren't counted on the post.", clearsInstantTip: true });
+  assert.deepEqual(TI.tipInLayout("kusdt"), { instantTipRows: false, tipsFrom: false, footer: "Tip sends kUSDT to their chatting address. kUSDT tips aren't counted on a post.", clearsInstantTip: true });
 });
 
 // MARK: - Exact strings and hooks (source)
@@ -330,7 +330,7 @@ await check("exact strings: Send Dollars, its From step, the tip chooser", () =>
     'sendDollarsTitle: "Send Dollars"', 'sendDollarsQuestion: "Which stablecoin are you sending?"',
     'fromNone: "None of your addresses holds kUSDT yet."', 'fromChecking: "Checking your addresses for kUSDT…"',
     'tipTitle: "Tip"', 'tipQuestion: "What are you tipping in?"', 'tipKusdtSubtitle: "Not counted on the post"',
-    'tipFootnote: "Set what Tip sends in Settings > KaPost > Tip In."',
+    'tipFootnote: "Set what Tip sends in Settings > Customization > Tipping."',
     'lockedChanged: "This send changed while the screen was open. Nothing was sent: check it again and swipe."',
     "<span>Swap Stablecoins</span>",
   ]) assert.ok(screens.includes(text), text);

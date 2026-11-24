@@ -51,9 +51,10 @@ await test("tips: 0.2 KAS at least, a saved smaller one reads as 0.2, failures a
   assert.equal(KAPOSTS_TIP_MIN_SOMPI, 20_000_000);
   assert.match(app, /return sompi > 0 \? \{ sompi: Math\.max\(sompi, KAPOSTS_TIP_MIN_SOMPI\) \} : null;/);
   assert.match(app, /The smallest tip the network takes is \$\{minimumText\}\./);
-  assert.match(app, /Tip didn't send: the smallest tip the network takes is \$\{trimKas8\(KAPOSTS_TIP_MIN_SOMPI \/ 1e8\)\} \$\{KAS_UNIT\}\. Change your default tip in Settings > KaPost\./);
+  assert.match(app, /Tip didn't send: the smallest tip the network takes is \$\{trimKas8\(KAPOSTS_TIP_MIN_SOMPI \/ 1e8\)\} \$\{KAS_UNIT\}\. Change your default tip in Settings > Customization > Tipping\./);
   assert.match(app, /if \(failure\) showKaPostsActionToast\(failure, null, \{ failure: true \}\);/);
-  assert.doesNotMatch(app, /openTipModal\(\{ address, name, tip, onTipped, error/);
+  // a failure is a red toast; only a default over 10 KAS opens the tip screen, saying so (K 518fdc8c)
+  assert.doesNotMatch(app, /openTipModal\(\{ address, name, tip, onTipped, error(?!: INSTANT_TIP_LIMIT_NOTICE \})/);
   assert.match(app, /"Tip didn't send\. Try again in a moment\."/);
 });
 await test("the tip field saves on its checkmark, not while typing", () => {
