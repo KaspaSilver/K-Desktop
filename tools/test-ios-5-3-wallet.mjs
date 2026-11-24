@@ -24,7 +24,7 @@ const T = await import("../engine/transactions.js");
 const Q = await import("../engine/qr.js");
 const U = await import("../engine/utils.js");
 const NS = await import("../engine/name-services.js");
-const KW = await import("../engine/kns-write.js");
+const KW = await import("../engine/kns-reveal-recovery.js");
 const kaspa = await import("../kaspa/kaspa.js");
 await kaspa.default({ module_or_path: readFileSync(join(repo, "kaspa/kaspa_bg.wasm")) });
 
@@ -144,36 +144,21 @@ await test("after a node's verdict its mempool doesn't make the send 'sent'", as
 });
 
 // MARK: name answers
-await test("a name service's address must be valid on this network; else the lookup failed", async () => {
-  const results = await NS.resolveEverywhere("alice.kas", { network: "mainnet", resolveKas: async () => "kaspa:notreal" });
-  const kas = results.find((r) => r.tld === "kas");
-  assert.equal(kas.state, "failed");
-  assert.equal(kas.address, null);
-  const good = (await NS.resolveEverywhere("alice.kas", { network: "mainnet", resolveKas: async () => schnorr.toUpperCase() })).find((r) => r.tld === "kas");
+await test("a name's address must be valid on this network; else the lookup failed", async () => {
+  const [bad] = await NS.resolveEverywhere("alice", { resolveKachat: async () => "kaspa:notreal" });
+  assert.equal(bad.state, "failed");
+  assert.equal(bad.address, null);
+  const [good] = await NS.resolveEverywhere("alice", { resolveKachat: async () => schnorr.toUpperCase() });
   assert.equal(good.state, "resolved");
   assert.equal(good.address, schnorr);
-  const testnet = (await NS.resolveEverywhere("alice.kas", { network: "mainnet", resolveKas: async () => N.reencodeAddress(schnorr, "kaspatest") })).find((r) => r.tld === "kas");
+  const [testnet] = await NS.resolveEverywhere("alice", { resolveKachat: async () => N.reencodeAddress(schnorr, "kaspatest") });
   assert.equal(testnet.state, "failed", "another network's address is no answer");
 });
 await test("a lookup that couldn't run says so, not 'not found'", async () => {
-  const results = await NS.resolveEverywhere("alice.kas", { network: "mainnet", resolveKas: async () => { throw new Error("down"); } });
-  assert.equal(NS.notFoundMessage("alice.kas", results), "Couldn't look up .kas right now.");
-  const none = await NS.resolveEverywhere("alice.kas", { network: "mainnet", resolveKas: async () => null });
-  assert.equal(NS.notFoundMessage("alice.kas", none), "No .kas domain found");
-});
-await test("strict KNS lookups throw on an outage, keep null for a free name", async () => {
-  const { resolveDomain } = await import("../engine/kns.js");
-  const saved = globalThis.fetch;
-  try {
-    globalThis.fetch = async () => new Response("down", { status: 503 });
-    await assert.rejects(resolveDomain("alice.kas", { baseUrl: "https://kns.test", strict: true }), /Couldn't look up alice\.kas/);
-    assert.equal(await resolveDomain("alice.kas", { baseUrl: "https://kns.test" }), null, "not strict: null as before");
-    globalThis.fetch = async () => new Response("", { status: 404 });
-    assert.equal(await resolveDomain("alice.kas", { baseUrl: "https://kns.test", strict: true }), null);
-    globalThis.fetch = async () => new Response(JSON.stringify({ success: true, data: { owner: schnorr, asset: "bob.kas" } }), { status: 200 });
-    await assert.rejects(resolveDomain("alice.kas", { baseUrl: "https://kns.test", strict: true }), /Couldn't look up/, "an answer about another domain");
-    assert.match(read("engine/index.js"), /resolveKnsDomain\(name, \{ strict: true \}\)/);
-  } finally { globalThis.fetch = saved; }
+  const results = await NS.resolveEverywhere("alice", { resolveKachat: async () => { throw new Error("down"); } });
+  assert.equal(NS.notFoundMessage("alice", results), "Couldn't look up alice.kachat right now. Try again in a moment.");
+  const none = await NS.resolveEverywhere("alice", { resolveKachat: async () => null });
+  assert.equal(NS.notFoundMessage("alice", none), "No username found");
 });
 
 // MARK: KNS reveal records
@@ -214,7 +199,7 @@ await test("a commit never seen is kept for 30 days, then dropped after two empt
   assert.equal(recordsNow().length, 0);
 });
 await test("the reveal rules are in place (source)", () => {
-  const src = read("engine/kns-write.js");
+  const src = read("engine/kns-reveal-recovery.js");
   assert.match(src, /KNS_REVEAL_MISSING_LIFETIME_MS = 30 \* 24 \* 60 \* 60 \* 1000/);
   assert.match(src, /record\.commitSeen === true \|\| old/);
   assert.match(src, /commitSeen: true, emptyChecks: 0/);

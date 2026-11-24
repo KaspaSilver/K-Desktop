@@ -4,7 +4,7 @@
 //
 // Two tabs (iOS 4924787): Transactions, a card per kind - its icon, name and what it counts, then
 // its 24 Hours / 7 Days / All Time figures side by side (a dash where the indexer keeps all-time
-// only), the five .kachat kinds being the one .kachat Domains card - and Fees, what .kachat
+// only), the five .kachat kinds being the one Usernames card - and Fees, what .kachat
 // registrations and renewals paid. The top number is every KaChat transaction, all time. Every
 // number has commas whatever the language, and from a million on reads 1M, 1.01M, 2.5B, rounded
 // down (iOS b6f55a5, 1df1bcb).
@@ -46,7 +46,7 @@ const ICONS = {
   renew: svg(`<circle cx="12" cy="12" r="9"/><path d="M16 12a4 4 0 1 1-1.2-2.85"/><path d="M15.2 6.9v2.5h-2.5"/>`),
   cart: svg(`<path d="M2.5 3.5h2.6l2.4 11.2a1.5 1.5 0 0 0 1.5 1.2h8.5a1.5 1.5 0 0 0 1.5-1.2l1.4-7.2H6.2"/><circle cx="9.6" cy="20" r="1.3"/><circle cx="17.4" cy="20" r="1.3"/>`),
   handRaised: svg(`<path d="M8 13.2V5.6a1.5 1.5 0 0 1 3 0V11M11 10.6V4.1a1.5 1.5 0 0 1 3 0v6.5M14 10.6V5.6a1.5 1.5 0 0 1 3 0v7.2M17 9.6a1.5 1.5 0 0 1 3 0V14a7 7 0 0 1-7 7h-1.2a6 6 0 0 1-4.6-2.2L4 14.7a1.6 1.6 0 0 1 2.4-2.1L8 14.2"/>`),
-  // .kachat Domains card (iOS f5d34f4: "at")
+  // Usernames card (iOS f5d34f4: "at")
   at: svg(`<circle cx="12" cy="12" r="3.6"/><path d="M15.6 8.6v4.6a2.4 2.4 0 0 0 4.8 0V12a8.4 8.4 0 1 0-3.3 6.7"/>`),
   tag: svg(`<path d="M3.5 12.2V4.6a1.1 1.1 0 0 1 1.1-1.1h7.6a1.1 1.1 0 0 1 .8.3l7.7 7.7a1.1 1.1 0 0 1 0 1.6l-7.6 7.6a1.1 1.1 0 0 1-1.6 0l-7.7-7.7a1.1 1.1 0 0 1-.3-.8Z"/><circle cx="8" cy="8" r="1.4"/>`),
 };
@@ -74,9 +74,9 @@ const CATEGORIES = [
   { key: "selfStash", title: "Saved Records", detail: "Chat keys and contact notes saved to your own account", icon: "tray", color: "gray" },
 ];
 const CATEGORY_KEYS = new Set(CATEGORIES.map((c) => c.key));
-/** One of the .kachat registry kinds - shown together as the .kachat Domains card (iOS isKachat). */
+/** One of the .kachat registry kinds - shown together as the Usernames card (iOS isKachat). */
 const isKachat = (category) => category.key.startsWith("kachat");
-/** The kinds with a card of their own. .kachat's five are one card, .kachat Domains. */
+/** The kinds with a card of their own. .kachat's five are one card, Usernames. */
 const CHAT_CATEGORIES = CATEGORIES.filter((c) => !isKachat(c));
 
 /** A card's three figures, side by side, in this order. */
@@ -223,7 +223,7 @@ async function refresh(force) {
   render();
 }
 
-/** The .kachat Domains card's numbers and fees (iOS 4924787 loadKachat): null where names aren't
+/** The Usernames card's numbers and fees (iOS 4924787 loadKachat): null where names aren't
  *  live; a failed read keeps the last ones. */
 async function loadKachat() {
   try {
@@ -244,7 +244,7 @@ function refreshAll(force) {
 // Numbers
 // ---------------------------------------------------------------------------------------------
 
-/** The .kachat Domains counts (iOS 4924787 kachatTotals): the registry's own, else the indexer's
+/** The Usernames counts (iOS 4924787 kachatTotals): the registry's own, else the indexer's
  *  five .kachat kinds added up. `{ last24h, last7d, total }` (BigInt) or null. */
 function kachatTotals() {
   if (kachatTransactions) return kachatTransactions;
@@ -340,7 +340,7 @@ function statCardHtml({ icon, color, title, detail }, values, redacted = false) 
     </div>`;
 }
 
-const KACHAT_CARD = { icon: "at", color: "mint", title: ".kachat Domains" };
+const KACHAT_CARD = { icon: "at", color: "mint", title: "Usernames" };
 const countText = (value) => (value === null || value === undefined ? null : statsCountText(value));
 const kasText = (sompi) => statsKasText(sompi, KAS_UNIT);
 
@@ -358,8 +358,8 @@ function unavailableHtml() {
     </div>`;
 }
 
-/** Every reported kind's card, else the unavailable card and every kind redacted; then .kachat
- *  Domains wherever its counts are known (iOS 4924787 transactionsPage). */
+/** Every reported kind's card, else the unavailable card and every kind redacted; then
+ *  Usernames wherever its counts are known (iOS 4924787 transactionsPage). */
 function transactionsPageHtml() {
   let html;
   if (snapshot) {
@@ -378,7 +378,7 @@ function transactionsPageHtml() {
   return html;
 }
 
-/** .kachat Domains fees, or a note that the indexer has none (iOS 4924787 feesPage). */
+/** Usernames fees, or a note that the indexer has none (iOS 4924787 feesPage). */
 function feesPageHtml() {
   const card = { ...KACHAT_CARD, detail: "Paid for registrations and renewals" };
   if (kachatFees) return statCardHtml(card, RANGES.map((r) => kasText(kachatFees[r.field] ?? 0n)));

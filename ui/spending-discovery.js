@@ -2,7 +2,7 @@
 // discoverSpendingAddresses). Pure: derivation, the activity lookup, balances and names are
 // passed in, so the walk itself can be tested without a node, a REST server or the WASM SDK.
 //
-// An address is worth surfacing when it HOLDS SOMETHING - a balance, or a domain - not when it
+// An address is worth surfacing when it HOLDS SOMETHING - a balance, or a username - not when it
 // merely has history. The walk always starts at index 0 (an address that was empty last month can
 // hold a balance today) and sweeps a floor of SPENDING_DEEP_SCAN_FLOOR indices whatever the gaps,
 // so a run of empty addresses can never end the scan early. `POST /addresses/active` answers
@@ -20,7 +20,7 @@ export const MAX_SPENDING_SCAN_INDEX = 5000;
 /** Addresses per bulk UTXO request in the fallback sweep. */
 export const SPENDING_SCAN_BATCH_SIZE = 100;
 /** Names have no bulk endpoint, so ownership is only probed this far in. */
-export const SPENDING_KNS_PROBE_DEPTH = 200;
+export const SPENDING_NAME_PROBE_DEPTH = 200;
 /** Past the floor, the fallback sweep stops after this many consecutive misses. */
 export const SPENDING_DISCOVERY_GAP_LIMIT = 60;
 /** iOS AddressActivityService: 250 addresses per request, two requests in flight. */
@@ -315,7 +315,7 @@ export async function discoverSpendingMatches({ derive, activity, fundedAmong, o
     }
     report(touched.length ? touched[touched.length - 1][0] : 0, funded.size);
     const nameOwners = await owners(touched
-      .filter(([i, address]) => i < SPENDING_KNS_PROBE_DEPTH && !funded.has(address))
+      .filter(([i, address]) => i < SPENDING_NAME_PROBE_DEPTH && !funded.has(address))
       .map(([, address]) => address));
     for (const [i, address] of touched) {
       if (!funded.has(address) && !nameOwners.has(address)) continue;
@@ -342,7 +342,7 @@ export async function discoverSpendingMatches({ derive, activity, fundedAmong, o
       let funded;
       try { funded = (await fundedAmong(batch.map(([, address]) => address))) || new Set(); } catch { break; }
       const nameOwners = await owners(batch
-        .filter(([i, address]) => i < SPENDING_KNS_PROBE_DEPTH && !funded.has(address))
+        .filter(([i, address]) => i < SPENDING_NAME_PROBE_DEPTH && !funded.has(address))
         .map(([, address]) => address));
       for (let i = index; i < upper; i += 1) {
         const address = derived.get(i);

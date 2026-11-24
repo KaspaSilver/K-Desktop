@@ -7,7 +7,7 @@
 // passthrough:
 //   - Nextcloud WebDAV/OCS          (ui/nextcloud.js: Basic auth, PROPFIND/PUT/MKCOL/DELETE/POST)
 //   - Nextcloud Talk                 (ui/talk.js: Basic auth, or a guest session in a cookie jar)
-//   - KNS name resolution            (engine/kns.js)
+//   - KNS name resolution            (removed from the app with KNS, K 518fdc8c; the soft 404 stays for older builds)
 //   - link previews + preview images (ui/app.js, ui/kachat-names-live.js: x-preview, x-preview-image)
 //   - indexers, api.kaspa.org, node seeds ...  (engine/endpoints.js fetch wrapper)
 //   - ChangeNOW Swap                 (ui/swap-quote.js: quotes, minimum, create, status)

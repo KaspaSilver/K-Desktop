@@ -208,8 +208,6 @@ async function main() {
     r.eq(Q.spendingChangeIndex({ purpose: "withdraw", sourceIndex: 2, primaryIndex: 2, qMaxIndex: 4 }), fresh, "change: the legacy primary rotates onto a fresh quantum slot");
     r.eq(Q.spendingChangeIndex({ purpose: "withdraw", sourceIndex: 3, primaryIndex: 2, qMaxIndex: 4 }), null, "change: a legacy non-primary keeps same-address change, as before");
     r.eq(Q.spendingChangeIndex({ purpose: "withdraw", sourceIndex: B + 1, primaryIndex: B + 1, qMaxIndex: 4, selfSend: true }), null, "change: Compound (a self-send) consolidates into the address");
-    r.eq(Q.spendingChangeIndex({ purpose: "kns", sourceIndex: 2, primaryIndex: 2, qMaxIndex: 4 }), fresh, "change: a KNS transfer from the primary rotates onto a fresh quantum slot");
-    r.eq(Q.spendingChangeIndex({ purpose: "kns", sourceIndex: 3, primaryIndex: 2, qMaxIndex: 4 }), null, "change: a KNS transfer from another address keeps its change");
   }
 
   // MARK: Mass and fee for the bigger input
@@ -524,7 +522,6 @@ async function main() {
     r.eq(rule({ purpose: "withdraw", sourceIndex: 0 }), false, "no-change-to-source: the legacy primary keeps its fallback");
     r.eq(rule({ purpose: "withdraw", sourceIndex: 3 }), false, "no-change-to-source: a legacy non-primary keeps same-address change");
     r.eq(rule({ purpose: "withdraw", sourceIndex: B + 2, selfSend: true }), false, "no-change-to-source: Compound (a self-send) still consolidates in place");
-    r.eq(rule({ purpose: "kns", sourceIndex: B + 2, primaryIndex: B + 2 }), false, "no-change-to-source: a KNS transfer is unchanged");
     // The app's change helpers (ui/app.js freshChangeForSpendingIndex / freshSpendingChangeAddress),
     // replayed on the pure parts: derivation fails -> a quantum source throws, a legacy one returns null.
     const pick = async ({ purpose, sourceIndex, derivable }) => {

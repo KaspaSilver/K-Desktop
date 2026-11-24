@@ -182,7 +182,7 @@ let resultRevealTimer = null;
 
 const me = () => deps?.engine?.address || "";
 const esc = (v) => deps.escapeHtml(String(v ?? ""));
-/** Contact name, then KNS domain, then the shortened address - the app's rule, and the same
+/** Contact name, then .kachat name, then the shortened address - the app's rule, and the same
  *  for the player themselves (never "You"; iOS 30d0cca). */
 const nameFor = (address) => (address ? deps.displayNameFor(address) : "unknown");
 const avatarFor = (address, cls = "chess-t-avatar") => deps.avatarHtmlFor?.(address, cls) || "";

@@ -95,7 +95,6 @@ function balanceHarness({ switchDuring = null } = {}) {
     networkIndicator: null, networkStatus: null, networkBadge: null,
     refreshSubscriptionAddresses: () => log.push("subscriptions"),
     appendEngineLog: () => {},
-    offerPendingKnsTransferResume: async () => { log.push("kns-offer"); },
   };
   const source = between("async function connectAndRefresh(", "/// A conversation just became real");
   const api = build(source, env, "{ connectAndRefresh, refreshBalanceOnly, balance: () => currentBalanceKas }",
@@ -122,12 +121,12 @@ test("connect-and-refresh drops a balance read for the account that was left", a
     const { api, log } = balanceHarness({ switchDuring: when });
     await api.connectAndRefresh({ quiet: true });
     assert.equal(api.balance(), "--", `switch during ${when}`);
-    assert.ok(!log.includes("remember") && !log.includes("kns-offer"), `switch during ${when}`);
+    assert.ok(!log.includes("remember"), `switch during ${when}`);
   }
   const { api, log } = balanceHarness();
   await api.connectAndRefresh({ quiet: true });
   assert.equal(api.balance(), "12.5");
-  assert.ok(log.includes("remember") && log.includes("kns-offer"));
+  assert.ok(log.includes("remember"));
 });
 
 // --- Address Activity across an account switch -----------------------------------------------

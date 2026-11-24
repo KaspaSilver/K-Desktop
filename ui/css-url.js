@@ -1,4 +1,4 @@
-// A URL that is going into CSS `url("...")` (DSK-016). Profile banners/avatars come from KNS and
+// A URL that is going into CSS `url("...")` (DSK-016). Profile banners/avatars come from
 // .kachat profiles - data anyone can write - so only image-safe schemes pass, and the characters
 // that could end the string or the url() token are percent-encoded.
 //

@@ -1,13 +1,13 @@
 // The live .kachat screens (iOS KachatNamesLiveViews.swift, 5df42b4): the hub's
 // search, the claims in progress (their progress sheet and the claims list), Marketplace / Available /
 // Activity, the name detail with its
-// actions, every transaction sheet, the Your Domains > .kachat tab, the address profile editor and
+// actions, every transaction sheet, the Your Usernames list, the address profile editor and
 // the profile hero's .kachat pictures, bio and Linktree link (kachatHeroProfile), looked up from the
 // profile's social links on this device (engine/kachat-names/social-image-resolver.js).
 // The screens are on for EVERY network (iOS 7227d69, kachatNamesUiEnabled); the registry behind them
 // is live only where it is launched (testnet-10, and mainnet since 2026-10-09, iOS ef6b21e;
 // kachatNamesLaunched - the runtime `kachatNames()` exists only there). On a network without a
-// registry the hub pages, Your Domains and each address's .kachat tab render empty under "Coming
+// registry the hub pages, Your Usernames and each address's .kachat tab render empty under "Coming
 // soon", and nothing reads or writes a registry. Address profiles are not registry data (iOS
 // d36fc42, `kachatProfiles()`): Edit KaChat Profile saves on every network (the primary name shows
 // "Coming soon" where there is no registry), and the identity cache and the profile hero read
@@ -44,7 +44,7 @@ import { normalize, p2pkScript, bytesEqual, hex, utf8, unhex32, yearMs, tier } f
 import { isRegistryUpgrading, registryUpgradingMessage } from "../engine/kachat-names/service.js";
 import {
   feeControlsHtml, feeControls, infoPillHtml, recipientCardHtml, recipientStatusHtml, refreshRecipientAddressBook,
-  otherDomainsHtml, pickOtherDomain, createSwipeUpScreen, SWIPE_UP_LABELS, NOT_CONFIRMED_ON_DEVICE, swipeBarIsTapped,
+  createSwipeUpScreen, SWIPE_UP_LABELS, NOT_CONFIRMED_ON_DEVICE, swipeBarIsTapped,
 } from "./send-kaspa-components.js";
 import {
   createStepFlow, createFeeEditorStep, keypadHtml, wireKeypad, applyKeypadKey, keypadAmountTextHtml, paintKeypadAmount,
@@ -431,7 +431,7 @@ function statusPill(status) {
 function testnetBadge() { return NETWORK === "testnet" ? `<span class="kl-testnet-badge">Testnet</span>` : ""; }
 
 /** The transfer sheet's recipient placeholder for this network (iOS ef6b21e). */
-function transferPlaceholder() { return NETWORK === "mainnet" ? "kaspa:qr... or domain" : "kaspatest:... or domain"; }
+function transferPlaceholder() { return NETWORK === "mainnet" ? "kaspa:qr... or username" : "kaspatest:... or username"; }
 
 // (the marketplace's name rows became tiles - kachatNameTileHtml, iOS 27a4f39)
 
@@ -2435,8 +2435,8 @@ function openDelistSheet(info, owner) {
 }
 
 /** KachatTransferSheet (KaPay 05db583): "Who gets the name?" on the Send screens' recipient card -
- *  an address or a domain on any service, .kachat first (iOS 6ac48a7), the resolved address shown
- *  with Other domains under it; Paste, Scan QR (a ?query is dropped) and Contacts beside the
+ *  an address or a username (K 518fdc8c: .kachat only), the resolved address shown under it;
+ *  Paste, Scan QR (a ?query is dropped) and Contacts beside the
  *  field, and the saved name under it when the address is in your contacts (iOS bfe7ef9) - then
  *  the review and swipe up to transfer. */
 function openTransferSheet(info, owner) {
@@ -2446,19 +2446,17 @@ function openTransferSheet(info, owner) {
   let resolving = false;
   let timer = null;
   let seq = 0;
-  // A typed name: what it resolved as and every service's answer (iOS 6ac48a7).
+  // A typed name: what it resolved as.
   let resolvedName = null;
-  let nameResolutions = [];
-  let selectedTld = null;
   const statusHtml = () => {
     // nothing until the lookup has had its say (while typing, before the 400 ms)
-    if (!resolving && !resolved && !resolveError) return otherDomainsHtml({ resolutions: nameResolutions, selectedTld });
+    if (!resolving && !resolved && !resolveError) return "";
     return recipientStatusHtml({
       input, resolving, error: resolveError, resolvedAddress: resolvedName ? resolved?.address ?? null : null, resolvedName,
-      valid: Boolean(resolved), nameResolutions, selectedTld,
+      valid: Boolean(resolved),
     });
   };
-  /** Takes one service's answer as the new owner: its address must be a Schnorr key, the only kind
+  /** Takes the name's answer as the new owner: its address must be a Schnorr key, the only kind
    *  a name can be locked to. False when it isn't. */
   const use = (resolution) => {
     const address = String(resolution?.address || "").toLowerCase();
@@ -2467,7 +2465,6 @@ function openTransferSheet(info, owner) {
     try { validateKey(key, ""); } catch { return false; }
     resolved = { address, key };
     resolvedName = resolution.name || null;
-    selectedTld = resolution.tld || null;
     resolveError = null;
     return true;
   };
@@ -2482,8 +2479,6 @@ function openTransferSheet(info, owner) {
     resolved = null;
     resolveError = null;
     resolvedName = null;
-    nameResolutions = [];
-    selectedTld = null;
     const t = input.trim().toLowerCase();
     if (!t) { showStatus(sheet); sheet.update(); return; }
     if (t.startsWith("kaspatest:") || t.startsWith("kaspa:")) {
@@ -2496,10 +2491,10 @@ function openTransferSheet(info, owner) {
       sheet.update();
       return;
     }
-    // a name on any service, .kachat first (the ending typed, else .kachat, .kas, .k, .kaspa) - a
-    // .kachat name in grace still points to its owner, like everywhere else it resolves (f7c371a)
+    // a .kachat username - one in grace still points to its owner, like everywhere else it
+    // resolves (f7c371a)
     if (!looksLikeName(t)) {
-      resolveError = "Enter an address or a domain.";
+      resolveError = "Enter an address or a username.";
       showStatus(sheet);
       sheet.update();
       return;
@@ -2510,11 +2505,10 @@ function openTransferSheet(info, owner) {
     try {
       const { results, resolution } = await kachatNames().engine.lookUpName(t);
       if (mySeq !== seq) return;
-      nameResolutions = results || [];
       if (resolution) {
-        if (!use({ address: resolution.ownerAddress, name: resolution.domain, tld: resolution.tld })) resolveError = "That name's address can't own a .kachat name.";
+        if (!use({ address: resolution.ownerAddress, name: resolution.domain })) resolveError = "That name's address can't own a .kachat name.";
       } else {
-        resolveError = notFoundMessage(t, nameResolutions);
+        resolveError = notFoundMessage(t, results || []);
       }
     } catch {
       if (mySeq !== seq) return;
@@ -2545,7 +2539,7 @@ function openTransferSheet(info, owner) {
       question: "Who gets the name?",
       html: `
         ${recipientCardHtml({ prefix: "kltr", label: "New owner", placeholder: transferPlaceholder() })}
-        <p class="sk-caption kl-entry-caption">An address or a domain - .kachat names are looked up first, and it's resolved to the address shown.</p>`,
+        <p class="sk-caption kl-entry-caption">An address or a username - it's resolved to the address shown.</p>`,
       canContinue,
       mount(body, sheet) {
         body.addEventListener("keydown", (event) => {
@@ -2573,21 +2567,11 @@ function openTransferSheet(info, owner) {
       resolved = null;
       resolveError = null;
       resolvedName = null;
-      nameResolutions = [];
-      selectedTld = null;
       showStatus(sheet);
       sheet.update();
       timer = setTimeout(() => resolve(sheet), 400);
     },
     async onClick(event, sheet) {
-      // A pick under Other domains: that service's answer becomes the new owner (iOS 6ac48a7).
-      const otherDomain = pickOtherDomain(event, nameResolutions);
-      if (otherDomain) {
-        if (!use(otherDomain)) resolveError = "That name's address can't own a .kachat name.";
-        showStatus(sheet);
-        sheet.update();
-        return;
-      }
       if (event.target.closest("[data-kltr-paste]")) {
         let text = null;
         try { text = await navigator.clipboard?.readText?.(); } catch { text = null; }
@@ -2600,7 +2584,7 @@ function openTransferSheet(info, owner) {
           scanned = await scanKaspaAddress({
             title: "Scan QR",
             hint: "Point the camera at the new owner's address QR code.",
-            manualLabel: "Address or domain",
+            manualLabel: "Address or username",
             manualPlaceholder: transferPlaceholder(),
           });
         } catch { scanned = null; }
@@ -3624,7 +3608,7 @@ export function createNameDetail(initial, { mode = "market", owner = "market", h
   return d;
 }
 
-/** The name detail as a full sheet over whatever screen asked (Your Domains). */
+/** The name detail as a full sheet over whatever screen asked (Your Usernames). */
 /** A free name's card (iOS: the detail's nameCard when free, and KachatNameRouteView.freeName):
  *  the art, "Free to claim" with Available. */
 function freeNameCardHtml(display) {
@@ -3729,7 +3713,7 @@ export function openNameDetailLayer(info, owner = "domains") {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Your Domains > .kachat (KachatLiveDomainsTab)
+// Your Usernames (KachatLiveDomainsTab)
 // ---------------------------------------------------------------------------------------------
 
 let domainsSeq = 0;
@@ -3738,7 +3722,7 @@ const domainsRenders = new WeakMap();
 /** lowercased address -> the names last shown for it, so a re-rendered tab (Cold Storage repaints
  *  its whole screen) shows them at once and reloads behind them instead of flashing a spinner. */
 const domainsShown = new Map();
-/** Your Domains' saved list per wallet address and network (iOS f4f5c0f KachatOwnedNamesCache,
+/** Your Usernames' saved list per wallet address and network (iOS f4f5c0f KachatOwnedNamesCache,
  *  engine/kachat-names/owned-names-cache.js): shown at once, minus lapsed names, while the registry
  *  read runs behind it; only an answer replaces it. Made on first use. */
 let ownedNamesCacheInstance = null;
@@ -3747,8 +3731,8 @@ function ownedNamesCache() {
   return ownedNamesCacheInstance;
 }
 
-/** How many .kachat names Your Domains' saved list holds for `walletAddress` (iOS f4f5c0f: the
- *  Profile count and the Your Domains card start from it; the read corrects them when it answers).
+/** How many .kachat names Your Usernames' saved list holds for `walletAddress` (iOS f4f5c0f: the
+ *  Profile count and the Your Usernames card start from it; the read corrects them when it answers).
  *  null where the registry isn't launched or nothing is saved for the address. */
 export function kachatCachedOwnedNameCount(walletAddress) {
   if (!kachatNames() || !walletAddress) return null;
@@ -3766,7 +3750,7 @@ function domainBadge(n) {
   }
 }
 
-/** The card's bottom-right corner in Your Domains (iOS 72b7dc7 KachatLiveDomainsTab.expiryLine):
+/** The card's bottom-right corner in Your Usernames (iOS 72b7dc7 KachatLiveDomainsTab.expiryLine):
  *  when the name expires - or, once it has, when its grace period ends (renew before then). */
 function domainExpiryLine(n) {
   const grace = graceMs();
@@ -3786,21 +3770,21 @@ function domainCardsHtml(names, { footnote = false } = {}) {
   }).join("");
 }
 
-/** "No .kachat names yet" (Your Domains) or, for one address's tab, iOS KachatAddressLiveNamesList's
- *  "No .kachat names on this address". */
+/** "No usernames yet" (Your Usernames, K audit 2026-11-24 #36) or, for one address's tab, iOS KachatAddressLiveNamesList's
+ *  "No usernames on this address". */
 function domainsEmptyHtml(variant) {
   if (variant === "address") {
     return `
       <div class="kachat-address-domains">
         <span class="kachat-address-domains-mark" aria-hidden="true">${kit.wordmark || kit.ICON.atCircle}</span>
-        <strong>No .kachat names on this address</strong>
+        <strong>No usernames on this address</strong>
         <p>Names this address owns show here.</p>
       </div>`;
   }
   return `
     <div class="kl-domains-empty">
       <span class="kmkt-empty-icon">${kit.ICON.atCircle}</span>
-      <strong>No .kachat names yet</strong>
+      <strong>No usernames yet</strong>
     </div>`;
 }
 
@@ -3808,9 +3792,9 @@ function domainsEmptyHtml(variant) {
  * Renders an address's .kachat names into `containerEl` (iOS KachatLiveDomainsTab and, with
  * `variant: "address"`, KachatAddressLiveNamesList - the .kachat tab of Manage Addresses, the
  * chatting address and KasSigner, 881ada6): a spinner, then the address's names as domain cards, or
- * the empty note - Your Domains and an address's tab list the names still held (active, and expired
+ * the empty note - Your Usernames and an address's tab list the names still held (active, and expired
  * in grace; one past grace is no longer theirs - it's Available to anyone in the marketplace, iOS
- * e26562e / eea52b2), Your Domains with My Offers under them (iOS 0765ce0). A card opens the name's live detail as a sheet,
+ * e26562e / eea52b2), Your Usernames with My Offers under them (iOS 0765ce0). A card opens the name's live detail as a sheet,
  * which knows which of your addresses holds it (owner actions, or read-only for KasSigner). It
  * reloads by itself when the registry changes, for as long as this render is the one in the
  * container. Where the registry isn't launched (mainnet) it renders the empty note and reads
@@ -3839,9 +3823,9 @@ function scheduleLapse(key, names, fn) {
   lapseTimers.set(key, setTimeout(() => { lapseTimers.delete(key); fn(); }, wait));
 }
 
-/** How many .kachat names `walletAddress` still holds - the set Your Domains lists: active ones and
+/** How many .kachat names `walletAddress` still holds - the set Your Usernames lists: active ones and
  *  expired ones in grace, never lapsed ones (iOS heldNames, e26562e / aa36d2a) - for the Profile's
- *  Your Domains count (iOS 10e4a1a). `onLapse` (optional) is called once the next of them lapses,
+ *  Your Usernames count (iOS 10e4a1a). `onLapse` (optional) is called once the next of them lapses,
  *  so the count can drop right then. 0 where the registry isn't launched; throws when the registry
  *  can't be read (callers keep the last count). */
 export async function kachatOwnedNameCount(walletAddress, { onLapse = null } = {}) {
@@ -3902,7 +3886,7 @@ export function renderKachatLiveDomainsTab(containerEl, walletAddress, { variant
     try { onLoaded?.(loadedState); } catch { /* caller's */ }
     return true;
   }
-  // Your Domains: the names this wallet had last time, straight away - they rarely change - minus
+  // Your Usernames: the names this wallet had last time, straight away - they rarely change - minus
   // any that lapsed since; load() then checks the registry and replaces them when it answers (iOS
   // f4f5c0f showCachedIfNeeded). Not while the registry is being upgraded: load() says "Setting up".
   const cached = variant === "domains" && !(rt.service.registryUpgrading || rt.registry.registryUpgrading)
@@ -3915,7 +3899,7 @@ export function renderKachatLiveDomainsTab(containerEl, walletAddress, { variant
   if (!containerEl.dataset.klDomainsBound) {
     containerEl.dataset.klDomainsBound = "1";
     containerEl.addEventListener("click", (event) => {
-      // My Offers (Your Domains only): a tile opens the offer's half sheet - Withdraw, or Refund
+      // My Offers (Your Usernames only): a tile opens the offer's half sheet - Withdraw, or Refund
       // once expired (iOS 7f50e84)
       const offerOpen = event.target.closest("[data-kl-offer-open]");
       if (offerOpen && containerEl.contains(offerOpen)) {
@@ -3948,7 +3932,7 @@ export function renderKachatLiveDomainsTab(containerEl, walletAddress, { variant
     root.innerHTML = cards + offers;
   };
 
-  /** The list has its answer (iOS KachatLiveDomainsTab `loaded`): Your Domains' Inscribe shows
+  /** The list has its answer (iOS KachatLiveDomainsTab `loaded`): Your Usernames' Inscribe shows
    *  only from then on, and not while the registry is being upgraded. */
   const loaded = (state) => {
     const entry = domainsRenders.get(containerEl);
@@ -3971,7 +3955,7 @@ export function renderKachatLiveDomainsTab(containerEl, walletAddress, { variant
             if (rt.registry.refreshedAt == null) await rt.registry.refresh();
           } catch { /* each read below says so */ }
           // A name past grace is no longer theirs - it's Available to anyone in the marketplace
-          // (and the bell says so); expired names in grace stay, to be renewed. Your Domains and
+          // (and the bell says so); expired names in grace stay, to be renewed. Your Usernames and
           // each address's tab alike (iOS e26562e / aa36d2a / eea52b2).
           // Your own list (the chatting address's) holds the names and offers on every address of
           // this wallet - one an earlier build's Buy From claimed too, on any device restored from the seed
@@ -4012,7 +3996,7 @@ export function renderKachatLiveDomainsTab(containerEl, walletAddress, { variant
         const root = current();
         if (!root) return;
         // The manifest is for the previous registry (v1): calm, no error (iOS d2e0673) - "Setting
-        // up" on Your Domains; an address's tab just shows its empty note (iOS
+        // up" on Your Usernames; an address's tab just shows its empty note (iOS
         // KachatAddressLiveNamesList).
         if (rt.service.registryUpgrading || rt.registry.registryUpgrading) {
           root.innerHTML = variant === "domains" ? `
@@ -4073,20 +4057,8 @@ export function renderKachatLiveDomainsTab(containerEl, walletAddress, { variant
   return true;
 }
 
-/** The .kachat names `address` holds (active or in grace), as display names, for an address's
- *  Domains tab (iOS fe52376); [] where the registry isn't launched, null when the lookup failed. */
-export async function kachatHeldNamesOf(address) {
-  const rt = kachatNames();
-  const key = address ? keyOf(address) : null;
-  if (!rt || !key) return [];
-  try {
-    if (rt.registry.refreshedAt == null) await rt.registry.refresh();
-    return (await rt.registry.heldNames(key)).map((n) => n.display || `${n.name}.kachat`);
-  } catch { return null; }
-}
-
 /** Which of `addresses` own a .kachat name (iOS KachatNamesRegistry.ownersOfNames, 881ada6): the
- *  "Contains domain" tag and funded-first sort on Manage Addresses and KasSigner. An empty Set where
+ *  "Contains username" tag and funded-first sort on Manage Addresses and KasSigner. An empty Set where
  *  the registry isn't launched (mainnet) - nothing is read there. -> Promise<Set<string>> */
 export async function kachatOwnersOfNames(addresses) {
   const rt = kachatNames();
@@ -4680,14 +4652,15 @@ export function kachatCachedLabel(address) {
   return label ? `${label}.kachat` : null;
 }
 
-// Settings > Customization > Show .kachat Endings (iOS 94ed3a35 KachatNameLabel), on by default:
-// off shows .kachat names bare ("alice") wherever one is displayed. Display only: copying a name,
-// a mention and anything sent keep the ending. One app setting, as on iOS.
+// Settings > Customization > Show .kachat Endings (iOS 94ed3a35 KachatNameLabel). Off by default
+// (owner's call 2026-11-23, K 518fdc8c: .kachat is the only name service): names show bare
+// ("alice") wherever one is displayed, the marketplace included; on writes the ending out. Display
+// only: copying a name, a mention and anything sent keep the ending. One app setting, as on iOS.
 const SHOW_ENDINGS_KEY = "kachat-show-name-endings-v1";
 let showEndingsCache = null;
 export function kachatShowsEndings() {
   if (showEndingsCache == null) {
-    try { showEndingsCache = localStorage.getItem(SHOW_ENDINGS_KEY) !== "0"; } catch { showEndingsCache = true; }
+    try { showEndingsCache = localStorage.getItem(SHOW_ENDINGS_KEY) === "1"; } catch { showEndingsCache = false; }
   }
   return showEndingsCache;
 }

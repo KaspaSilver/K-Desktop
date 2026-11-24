@@ -62,8 +62,8 @@ await test("no relay on this site: the direct error stands", async () => {
 });
 await test("the indexer and the Kaspa APIs are direct-first; the rest stay relayed", () => {
   const re = new RegExp(/const DIRECT_FIRST_HOST_RE = \/(.+)\/i;/.exec(source)[1], "i");
-  for (const host of ["indexer.kachat.app", "api.kaspa.org", "api-tn10.kaspa.org", "api.gateio.ws", "api.dotk.name"]) assert.ok(re.test(host), host);
-  for (const host of ["kaspaname.com", "adam.kaspa.green", "finance.yahoo.com", "indexer.kasia.wtf"]) assert.ok(!re.test(host), host);
+  for (const host of ["indexer.kachat.app", "api.kaspa.org", "api-tn10.kaspa.org", "api.gateio.ws"]) assert.ok(re.test(host), host);
+  for (const host of ["api.dotk.name", "kaspaname.com", "adam.kaspa.green", "finance.yahoo.com", "indexer.kasia.wtf"]) assert.ok(!re.test(host), host);
   assert.match(source, /if \(DIRECT_FIRST_HOST_RE\.test\(parsed\.hostname\)\) \{/);
 });
 

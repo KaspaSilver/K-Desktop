@@ -1,7 +1,7 @@
 // Wallet's list below Send/Receive/Request/Swap, as K iOS WalletView has it: Chatting Address and
-// Your Domains, rows alike (Swap Stablecoins went in K 5.4), and no Manage Addresses tile (the Kaspa balance
-// card's Tap to Manage opens it). Your Domains' count is read again since the old Profile screen
-// went (Build 310 left refreshOwnKnsProfile waiting for that screen's rows).
+// Your Usernames, rows alike (Swap Stablecoins went in K 5.4), and no Manage Addresses tile (the Kaspa
+// balance card's Tap to Manage opens it). Your Usernames' count is read again since the old Profile
+// screen went (Build 310 left the count waiting for that screen's rows).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -25,7 +25,7 @@ test("the rows alike, in K's order, after the actions (K 5.4: Swap Stablecoins w
     .map((m) => [m[1], m[2]]);
   assert.deepEqual(rows, [
     ["data-open-chatting-address", "Chatting Address"],
-    ["data-open-domains-screen", "Your Domains"],
+    ["data-open-domains-screen", "Your Usernames"],
   ]);
   assert.ok(wallet.indexOf("data-wallet-request") < wallet.indexOf("data-wallet-swap-action"), "Swap beside Send / Receive / Request");
   assert.ok(wallet.indexOf("data-wallet-swap-action") < wallet.indexOf("data-open-chatting-address"));
@@ -42,12 +42,12 @@ test("no Manage Addresses tile; Tap to Manage on the Kaspa card opens it", () =>
   assert.match(read("ui", "kusdt-screens.js"), /\[data-wallet-kaspa-card\]"\)\?\.addEventListener\("click"/);
 });
 
-test("Your Domains' count is read on Wallet, without the old Profile screen's rows", () => {
-  const start = app.indexOf("async function refreshOwnKnsProfile(");
+test("Your Usernames' count is read on Wallet, without the old Profile screen's rows", () => {
+  const start = app.indexOf("function refreshOwnProfileSummary(");
   const body = app.slice(start, app.indexOf("\n}\n", start));
   assert.match(body, /if \(!engine\.address\) return;/);
-  assert.doesNotMatch(body, /!profileKnsOwned|!profileKnsEmptyCta/);
-  assert.match(app, /if \(screenTab === "profile" \|\| screenTab === "wallet"\) refreshOwnKnsProfile\(\);/);
+  assert.match(body, /refreshKachatOwnedCount\(\);/);
+  assert.match(app, /if \(screenTab === "profile" \|\| screenTab === "wallet"\) refreshOwnProfileSummary\(\);/);
 });
 
 console.log(`${passed}/3 passed`);

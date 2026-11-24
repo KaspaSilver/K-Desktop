@@ -1347,10 +1347,10 @@ function replyQuoteDisplay(channel, reply) {
 function senderName(address) {
   if (!address) return "unknown";
   if (address === deps.engine.address) return "You";
-  // A .kas name is no one's identity (iOS 509c0fe): the name you gave them, else the address.
+  // The name you gave them, else their .kachat name, else the address.
   const contactName = deps.contactNameFor?.(address);
   if (contactName) return contactName;
-  // Testnet (iOS e52357d): their .kachat name when you haven't named them (null elsewhere).
+  // Their .kachat name when you haven't named them (iOS e52357d).
   const identityName = deps.identityNameFor?.(address);
   if (identityName) return identityName;
   // No name: the app's one short form, kaspa:xxxx....xxxx (iOS a80d271).
@@ -2119,27 +2119,6 @@ function renderRoom() {
     }
     lastRenderedNewestKey = newestKey;
     lastRenderedCount = messages.length;
-  }
-  refreshVisibleSenderNames(messages);
-}
-
-let knsInFlight = false;
-async function refreshVisibleSenderNames(messages) {
-  if (knsInFlight || !deps.engine.knsNamesAsIdentity) return;
-  knsInFlight = true;
-  try {
-    const addresses = [...new Set(messages.slice(-30).map((m) => m.senderAddress))]
-      .filter((a) => a && a !== deps.engine.address);
-    let changed = false;
-    for (const address of addresses) {
-      const before = deps.engine.peekKnsAddressInfo?.(address)?.explicitPrimaryDomain || null;
-      await deps.engine.fetchKnsAddressInfo?.(address).catch(() => null);
-      const after = deps.engine.peekKnsAddressInfo?.(address)?.explicitPrimaryDomain || null;
-      if (before !== after) changed = true;
-    }
-    if (changed && activeChannel) renderRoom();
-  } finally {
-    knsInFlight = false;
   }
 }
 

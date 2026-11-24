@@ -2,8 +2,7 @@ import { originMigrationGate } from "./origin-migration.js";
 import { shortenLogAddresses, shortenLogTxIds } from "./log-addresses.js";
 import { KaspaEngine } from "../engine/index.js";
 import { SEND_ACCOUNT_CHANGED } from "../engine/messages.js";
-import { fitBackgroundBanner, installBannerImageFit } from "./banner-fit.js";
-import { safeCssUrl } from "./css-url.js";
+import { installBannerImageFit } from "./banner-fit.js";
 import { installGroupedAmountInputs } from "./grouped-amount.js";
 import { contractPurgePlan, contractSuppressionRecovery } from "./contract-purge.js";
 import { RAIL_ORDER, dockLayoutFor } from "./dock-arrangement.js";
@@ -41,7 +40,7 @@ import { parseArcadeChallengeLink, arcadeChallengeFromLaunchSearch } from "../en
 import { initKachatNamesRuntime, kachatNames, kachatNamesUiEnabled, kachatNamesLaunched, kachatProfiles, kachatVerifiedLabel, kachatLabelChecking, verifyKachatLabel } from "./kachat-names-runtime.js";
 import { PHOTO_UNLOCK_DELAY_MS, photosUnlockTime, photosAreHidden } from "./photo-unlock.js";
 import { createProfileRescans } from "./profile-rescan.js";
-import { kachatHeroProfile, kachatCachedOwnedNameCount, onKachatSocialChange, kachatCachedIdentity, kachatCachedLabel, kachatCachedDisplayLabel, kachatNameDisplay, kachatShowsEndings, setKachatShowsEndings, kachatCachedAvatarUrl, kachatCachedProfilePieces, onKachatIdentityChange, kachatRetryImage, kachatOwnersOfNames, kachatHeldNamesOf, kachatRescanProfile, kachatOwnedNameCount, onKachatRegistryChange, kachatClearProfileCache, kachatExpiredNames, startKachatUnnamedIdentitySweep, setKachatSocialLookupGate, kachatProfileOpened } from "./kachat-names-live.js";
+import { kachatHeroProfile, kachatCachedOwnedNameCount, onKachatSocialChange, kachatCachedIdentity, kachatCachedLabel, kachatCachedDisplayLabel, kachatNameDisplay, kachatShowsEndings, setKachatShowsEndings, kachatCachedAvatarUrl, kachatCachedProfilePieces, onKachatIdentityChange, kachatRetryImage, kachatOwnersOfNames, kachatRescanProfile, kachatOwnedNameCount, onKachatRegistryChange, kachatClearProfileCache, kachatExpiredNames, startKachatUnnamedIdentitySweep, setKachatSocialLookupGate, kachatProfileOpened } from "./kachat-names-live.js";
 import { startKachatNamesNotifier, openKachatNameFromNotification as openKachatNameFromBell, removeKachatNameReminders } from "./kachat-names-notifier.js";
 import { initKachatMarket, showKachatMarket, hideKachatMarket, openKachatProfileEditor, openKachatSetupGuide, KACHAT_WORDMARK_SVG, kachatAddressDomainsHtml, renderKachatLiveDomainsTab, openKachatMarketSheet } from "./kachat-market.js";
 import { initKachatStats, showKachatStats, hideKachatStats } from "./kachat-stats.js";
@@ -72,7 +71,6 @@ import {
   initAddressBook, showAddressBook, hideAddressBook, resetAddressBookForAccount, openAddressBookEditor, refreshAddressBookEditorNameTools,
   pickFromAddressBook, pickManyFromAddressBook, refreshAddressBookStorageRow, ADDRESS_BOOK_ICONS,
 } from "./address-book.js";
-import { NAME_SERVICES } from "../engine/name-services.js";
 import { initPortfolio, refreshPortfolio, resetPortfolioForAccount, portfolioBackupSync, importPortfolioSync, portfolioArchive, importPortfolioArchive, portfolioAmountsHidden } from "./portfolio.js";
 import { initColdStorage, refreshColdStorage, refreshColdStorageOnActivity, resetColdStorageForAccount, listColdWatchedAddresses, openColdAccountForAddress, openColdAddressHistory, openTransactionActionsSheet } from "./coldstorage.js";
 import { scanKaspaAddress } from "./qr-scan.js";
@@ -81,7 +79,7 @@ import {
   sanitizeAmountText, availablePillInnerHtml, infoPillHtml, feeControlsHtml, feeControls,
   mountOwnAddressList,
   sendFromSectionHtml, sendFromControls, selectablePillHtml, setSelectedPill,
-  otherDomainsHtml, pickOtherDomain, nameNotFoundText,
+  nameNotFoundText,
   configureSendAddressBook, refreshRecipientAddressBook, coinControlSummaryText, openCoinControlPicker, closeCoinControlPicker, formatSompiPlain, utxoEntryKey, utxoEntrySompi,
   openSentConfirmation, closeSentConfirmation,
   createSwipeUpScreen, NOT_CONFIRMED_ON_DEVICE,
@@ -122,7 +120,6 @@ import {
   insertMessageByTime,
   statusLabel as engineStatusLabel,
 } from "../engine/conversations.js";
-import { KNSProfileLinkBuilder, safeExternalHref, clearAllKnsCache } from "../engine/kns.js";
 import { onIndexerAvailabilityChange, indexerKey, isIndexerDown, INDEXER_RECOVERY_MARGIN_MS } from "../engine/indexer-health.js";
 import { getEndpoint, getEndpoints, getEndpointOverride, setEndpoint, ENDPOINT_DEFAULTS, DEFAULT_TRUSTED_NODE, DEFAULT_MAINNET_INDEXER, setVerboseApiLogging, isProxyAvailable, proxiedUrl } from "../engine/endpoints.js";
 import { isBip39Word, bip39Matches } from "./bip39-english.js";
@@ -133,8 +130,6 @@ import { ownedNamesStorageKey } from "../engine/kachat-names/owned-names-cache.j
 import { marketAddressesStorageKey } from "../engine/kachat-names/actions.js";
 import { ownProfileStorageKey } from "../engine/kachat-names/registry.js";
 import * as Chess from "../engine/chess.js";
-import { registrationAmounts as knsRegistrationAmounts, PROFILE_FIELD_EDIT_ORDER as KNS_PROFILE_FIELD_EDIT_ORDER, KNS_TRANSFER_MAX_FEE_SOMPI } from "../engine/kns-write.js";
-import { normalizeDomainLabel, isKnsEntryFresh } from "../engine/kns.js";
 // Imported, not written as string paths: Vite only rewrites and emits the assets it can SEE, and
 // a path inside a string is invisible to it - so these 404'd on the built site (a broken-image
 // icon in the notification and on the KAS mark).
@@ -221,8 +216,8 @@ labelStaticAmountUnits();
 installBannerImageFit();
 // Amount fields show thousands commas as you type; the value read stays plain (iOS 40c5258).
 installGroupedAmountInputs();
-// .kas profiles saved before they stopped loading are dropped (iOS d6ded9d).
-engine.dropKnsProfileCache?.();
+// KNS left on 2026-11-23 (.kachat only, K 518fdc8c): the .kas name and profile caches it kept go.
+for (const key of ["kachat-kns-domain-cache-v1", "kachat-kns-profile-cache-v1"]) { try { localStorage.removeItem(key); } catch { /* storage blocked */ } }
 engine.onConnectionState?.(() => {
   updateServiceSummary();
 });
@@ -710,21 +705,14 @@ async function withVaultTarget(address, fn) {
   try { return await fn(); } finally { vaultTargetOverride = previous; }
 }
 configureKeyVault({ canonicalize: canonicalAccountAddress, target: currentVaultTarget });
-// The sends that still ask first: Send Domain, and Delete Account with its own wording (iOS
-// bfe9f022) - Face ID where it is set up (the prompt's "Use Face ID"), else the account's password.
-// Plain Kaspa sends, chat payments, tips and .kas registration/profile saves no longer ask (owner,
-// 2026-11-17, iOS 5.3 "no Face ID on sends"); .kachat transactions ask through deviceLock, and
-// showing keys or words asks on its own.
-async function authorizeKasSpend({ to = "", amountKas = null, max = false, amountSompi = null, domain = "", confirm = null } = {}) {
+// Delete Account asks first, with its own wording (iOS bfe9f022) - Face ID where it is set up (the
+// prompt's "Use Face ID"), else the account's password. Plain Kaspa sends, chat payments and tips
+// no longer ask (owner, 2026-11-17, iOS 5.3 "no Face ID on sends"); .kachat transactions ask
+// through deviceLock, and showing keys or words asks on its own.
+async function authorizeKasSpend({ confirm }) {
   if (!hasAppPassword()) return true; // nothing to confirm with (every account sets one at creation)
-  if (confirm) return requestPassword({ mode: "verify", title: confirm.title, message: confirm.message });
-  let what;
-  if (domain) what = `${domain} to ${shortAddress(to)}`;
-  else if (max) what = amountSompi != null ? `${trimKas8(Number(amountSompi) / 1e8)} ${KAS_UNIT} (Max) to ${shortAddress(to)}` : `your full balance to ${shortAddress(to)}`;
-  else what = `${trimKas8(Number(amountKas))} ${KAS_UNIT} to ${shortAddress(to)}`;
-  return requestPassword({ mode: "verify", title: "Confirm Send", message: `Confirm sending ${what}.` });
+  return requestPassword({ mode: "verify", title: confirm.title, message: confirm.message });
 }
-engine.authorizeSpend = authorizeKasSpend;
 unlockKeyVaultFromSession(); // only after KaChat's own reload (reloadKaChat's 15 s one-time hand-off)
 // Signed in until Log Out, as the iOS app is (owner, 2026-10-22): the account that was open opens
 // again at launch with no password or Face ID; picking another saved account, and showing a seed
@@ -1782,8 +1770,8 @@ function removeAccountScopedLocalData(address, { spendingAddresses = [], keepCoi
     // TokenWallet.forgetLocalData, engine/kusdt-store.js forgetAccount), and the figures in memory.
     if (encoded) { try { kusdtWallet ? kusdtWallet.forgetAccount(encoded) : forgetKusdtStorage(localStorage, encoded); } catch { /* not stored */ } }
     // What this device remembers of its .kachat names, filed by address outside the account prefix.
-    // A pending registration or transfer stays: its record is what finishes or recovers funds
-    // already committed, if the seed comes back (engine/kns-write.js clearPendingKnsTransfer).
+    // An unfinished KNS reveal or transfer stays: its record is what returns coins already
+    // committed, if the seed comes back (engine/kns-reveal-recovery.js).
     if (encoded) {
       for (const key of [ownedNamesStorageKey(encoded), marketAddressesStorageKey(encoded), ownProfileStorageKey(encoded)]) {
         try { localStorage.removeItem(key); } catch { /* not stored */ }
@@ -1929,7 +1917,6 @@ function removeSavedAccountFromDevice(account, context = null) {
   // The profile caches go with it (KaChat iOS 5b7c772c audit #15, CacheManager.clearAll): avatars,
   // banners, bios and name records it loaded, which can tie it to the people it saw.
   try { kachatClearProfileCache().catch(() => {}); } catch { /* not loaded yet */ }
-  try { clearAllKnsCache(); } catch { /* not loaded yet */ }
   // Its own password and Face ID record protect nothing now, whether or not other accounts remain;
   // the shared one goes once no account is left in it.
   if (releaseAppPasswordIfUnused()) refreshPasswordStatus();
@@ -2309,7 +2296,7 @@ function buildInternalLinkCard(link) {
   const title = isPost
     ? (entry?.authorName || "A post on KaPost")
     : isProfile
-      ? (knsDomainForAddress(link.address) || (profileContact ? displayNameForAddress(profileContact) : (kachatNamesUiEnabled() ? identityNameForAddress(link.address) : shortAddress(link.address))))
+      ? (profileContact ? displayNameForAddress(profileContact) : (kachatNamesUiEnabled() ? identityNameForAddress(link.address) : shortAddress(link.address)))
       : `#${link.channel}`;
   const subtitle = isPost
     ? (entry?.snippet || (entry?.action === "quote" ? "Reposted a post." : "Tap to open it in KaPost."))
@@ -2370,7 +2357,7 @@ function isOwnPaymentRequest(request) {
 /** The name a request's maker goes by here (iOS ContactsManager.displayName(for:)). */
 function paymentRequestPersonName(address) {
   const contact = state.contacts.find((entry) => String(entry.address || "").toLowerCase() === String(address || "").toLowerCase());
-  return knsDomainForAddress(address) || (contact ? displayNameForAddress(contact) : (kachatNamesUiEnabled() ? identityNameForAddress(address) : defaultAliasFor(address)));
+  return contact ? displayNameForAddress(contact) : (kachatNamesUiEnabled() ? identityNameForAddress(address) : defaultAliasFor(address));
 }
 
 // The request's card in a message (iOS KaChatInternalLinkCardView .paymentRequest): the amount,
@@ -3333,12 +3320,8 @@ function renderTextWithLinks(container, text) {
 // iOS/Android encode without braces, so we accept both for cross-platform interop.
 const CHAT_MENTION_TOKEN_RE = /@\{?(kaspa(?:test)?:[a-z0-9]{20,})\}?/gi;
 
-// Display label for a mention: the person's KNS domain when known (what the user asked to see),
-// otherwise their contact name / short address. Read from the synchronous KNS cache.
+// Display label for a mention: "You", their contact name, their .kachat name, or the short address.
 function mentionDisplayLabel(address) {
-  const info = engine.knsNamesAsIdentity ? engine.peekKnsAddressInfo?.(address) : null;
-  const domain = info?.explicitPrimaryDomain || info?.primaryDomain || "";
-  if (domain) return domain; // includes the .kas suffix
   if (address === engine.address) return "You";
   const contact = (state.contacts || []).find((c) => c.address === address);
   if (contact) return displayNameForAddress(contact);
@@ -3347,14 +3330,13 @@ function mentionDisplayLabel(address) {
 }
 
 // Render message text that may contain @mention tokens AND URLs into `container`. Each mention
-// becomes a clickable span showing the KNS domain (a delegated handler opens a 1:1 chat with that
+// becomes a clickable span showing who it is (a delegated handler opens a 1:1 chat with that
 // address); non-mention runs fall through to the URL linkifier. Returns the aggregated URL list so
 // link-preview cards keep working. Mirrors KaPosts' clickable mentions, but opens a chat, not a profile.
 function renderTextWithMentions(container, rawText) {
   const source = String(rawText ?? "");
   CHAT_MENTION_TOKEN_RE.lastIndex = 0;
   const urls = [];
-  const warm = [];
   let last = 0;
   for (const match of source.matchAll(CHAT_MENTION_TOKEN_RE)) {
     const address = match[1];
@@ -3371,12 +3353,9 @@ function renderTextWithMentions(container, rawText) {
       });
     }
     container.append(span);
-    warm.push(address);
     last = match.index + match[0].length;
   }
   if (last < source.length) urls.push(...renderTextWithLinks(container, source.slice(last)));
-  // Warm the KNS cache for any unresolved addresses so the domain fills in on the next render.
-  if (warm.length) { try { engine.refreshKnsIfNeeded?.(warm); } catch {} }
   return urls;
 }
 
@@ -3920,7 +3899,7 @@ const conversationBio = document.querySelector("[data-conversation-bio]");
 
 /// The chat header shows a face and a name, and nothing else.
 ///
-/// It used to carry the contact's KNS bio under the name. A bio is a paragraph - it ran the width
+/// It used to carry the contact's bio under the name. A bio is a paragraph - it ran the width
 /// of the thread, wrapped to a second line for anyone with more to say, and pushed the header down
 /// over the messages it floats above. It is still on the contact's profile, which is where a
 /// paragraph belongs; this keeps it out of a bar that has to stay small.
@@ -3930,20 +3909,13 @@ function updateConversationBio() {
   conversationBio.hidden = true;
 }
 
-// Shared by the conversation header and (via avatarHtmlFor) the sidebar row
-// template: shows the contact's KNS avatarUrl when the profile cache already
-// has one, otherwise falls back to initials. Synchronous/cache-only — callers
-// that need to react to a KNS fetch landing later re-invoke this themselves.
-// Same cache-only avatar logic as updateAvatarElement, but as an HTML string
-// for the sidebar row template (which re-renders via innerHTML, not live DOM
-// nodes it can update in place).
 /// iOS draws a person.fill glyph, in the accent on a 20% accent circle, for anyone without a
-/// photo or KNS avatar (KNSAvatarView.fallbackAvatar) - never initials.
+/// photo or avatar (KNSAvatarView.fallbackAvatar) - never initials.
 function personGlyphSvg() {
   return '<svg class="avatar-person-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12.2a4.6 4.6 0 1 0 0-9.2 4.6 4.6 0 0 0 0 9.2Zm0 1.9c-4.6 0-8.3 2.5-8.3 5.6V21h16.6v-1.3c0-3.1-3.7-5.6-8.3-5.6Z"/></svg>';
 }
-/// Testnet (iOS e52357d, KNSAvatarView): an address's avatar is its .kachat one - the profile's
-/// avatar social link, resolved on this device - never the KNS picture. An <img> for an avatar
+/// An address's avatar is its .kachat one (iOS e52357d, KNSAvatarView) - the profile's avatar
+/// social link, resolved on this device. An <img> for an avatar
 /// span, or "" while none is known (the cache fills in the background and the visible screens
 /// repaint on onKachatIdentityChange). A failed load retries once through the relay, then shows
 /// the glyph (handleKachatImageError).
@@ -3999,31 +3971,21 @@ function assignedPhotoSpanHtml(address, className) {
   return photo ? `<span class="${className}"><img src="${escapeHtml(photo)}" alt="" /></span>` : "";
 }
 function avatarHtmlFor(contact, className = "chat-avatar") {
-  // Your Contacts photo, then their KNS / .kachat avatar, then the photo carried in the chat
-  // backup (contact.photo holds only that), then the glyph.
+  // Your Contacts photo, then their .kachat avatar, then the photo carried in the chat backup
+  // (contact.photo holds only that), then the glyph.
   const assigned = assignedPhotoSpanHtml(contact?.address, className);
   if (assigned) return assigned;
   const backup = contact?.photo ? `<span class="${className}"><img src="${escapeHtml(contact.photo)}" alt="" /></span>` : "";
-  // Testnet: the .kachat face, never the KNS one.
-  if (kachatNamesUiEnabled()) return kachatAvatarImgHtml(contact?.address) || !backup ? kachatAvatarSpanHtml(contact?.address, className) : backup;
-  const avatarUrl = engine.peekKnsAddressProfile?.(contact.address)?.profile?.avatarUrl;
-  if (avatarUrl) return `<span class="${className}"><img src="${escapeHtml(avatarUrl)}" alt="" /></span>`;
-  return backup || `<span class="${className} avatar-fallback">${personGlyphSvg()}</span>`;
+  return kachatAvatarImgHtml(contact?.address) || !backup ? kachatAvatarSpanHtml(contact?.address, className) : backup;
 }
 
-// Same idea as avatarHtmlFor, but for the active wallet's own messages —
-// shows your own KNS avatar if you've set one, otherwise your account name's
-// initials. There's always something to show, even with no KNS profile at all.
+// Same idea as avatarHtmlFor, for the active wallet's own messages: your Contacts photo, else your
+// .kachat face (your own saved profile first), else the glyph.
 function selfAvatarHtml(className = "chat-avatar") {
   if (!engine.address) return `<span class="${className}">?</span>`;
   const assigned = assignedPhotoSpanHtml(engine.address, className);
   if (assigned) return assigned;
-  // Testnet: your .kachat face (your own saved profile first), never the KNS one.
-  if (kachatNamesUiEnabled()) return kachatAvatarSpanHtml(engine.address, className);
-  const avatarUrl = engine.peekKnsAddressProfile?.(engine.address)?.profile?.avatarUrl;
-  if (avatarUrl) return `<span class="${className}"><img src="${escapeHtml(avatarUrl)}" alt="" /></span>`;
-  const name = activeAccountMetadata()?.name || shortAddress(engine.address);
-  return `<span class="${className} avatar-fallback">${personGlyphSvg()}</span>`;
+  return kachatAvatarSpanHtml(engine.address, className);
 }
 
 /** The Profile dock item wears your own picture (owner, 2026-11-12), the person glyph while you have
@@ -4067,26 +4029,15 @@ function updateAvatarElement(initialsEl, imageEl, contact) {
   }
   // Your Contacts photo, then their avatar, then the backup photo (iOS bfe9f022).
   const assignedPhoto = contact?.address ? addressBookPhoto(contact.address) : null;
-  // Their .kachat face - never the KNS one (every network, iOS 7227d69).
-  if (kachatNamesUiEnabled()) {
-    const kachatSrc = assignedPhoto ? "" : (kachatCachedAvatarUrl(contact?.address) || "");
-    const next = assignedPhoto || kachatSrc || contact?.photo || "";
-    if (next) {
-      if (kachatSrc) { imageEl.referrerPolicy = "no-referrer"; imageEl.dataset.kachatImg = "element"; } else delete imageEl.dataset.kachatImg;
-      if (imageEl.getAttribute("src") !== next) imageEl.src = next;
-      showImage(true);
-    } else {
-      delete imageEl.dataset.kachatImg;
-      showImage(false);
-      imageEl.src = "";
-    }
-    return;
-  }
-  const src = assignedPhoto || engine.peekKnsAddressProfile?.(contact.address)?.profile?.avatarUrl || contact?.photo;
-  if (src) {
-    imageEl.src = src;
+  // Their .kachat face (every network, iOS 7227d69).
+  const kachatSrc = assignedPhoto ? "" : (kachatCachedAvatarUrl(contact?.address) || "");
+  const next = assignedPhoto || kachatSrc || contact?.photo || "";
+  if (next) {
+    if (kachatSrc) { imageEl.referrerPolicy = "no-referrer"; imageEl.dataset.kachatImg = "element"; } else delete imageEl.dataset.kachatImg;
+    if (imageEl.getAttribute("src") !== next) imageEl.src = next;
     showImage(true);
   } else {
+    delete imageEl.dataset.kachatImg;
     showImage(false);
     imageEl.src = "";
   }
@@ -4105,10 +4056,7 @@ const chatInfoChess = document.querySelector("[data-chat-info-chess]");
 const chatInfoSent = document.querySelector("[data-chat-info-sent]");
 const chatInfoReceived = document.querySelector("[data-chat-info-received]");
 const chatInfoTotal = document.querySelector("[data-chat-info-total]");
-const chatInfoMore = document.querySelector("[data-chat-info-more]");
 const chatInfoBio = document.querySelector("[data-chat-info-bio]");
-const chatInfoSocialLinks = document.querySelector("[data-chat-info-social-links]");
-let chatInfoRequestToken = 0;
 let chatInfoContactId = null;
 let chatInfoContactAddress = null;
 const chatInfoNotifyToggle = document.querySelector("[data-chat-info-notify]");
@@ -4760,22 +4708,9 @@ function isPlaceholderContactName(contact) {
   return !name || /^[0-9a-f]{12}$/i.test(name) || name === shortAddress(contact.address) || name === "Unnamed";
 }
 
-// Matches iOS/Android's KNS alias behavior: shows the address's resolved KNS
-// primary domain when one is cached, falling back to the shortened address —
-// unlike an arbitrary hand-typed name, a verified on-chain domain is treated
-// as trustworthy enough to replace the raw address in the chat list/header.
-// Reads the cache synchronously (no network wait); refreshKnsIfNeeded keeps
-// it populated in the background.
-// Contacts must show the domain the address actually set as its on-chain
-// primary — not just whichever domain it owns most recently, which is what
-// primaryDomain falls back to when no explicit primary is set (matches
-// iOS's own-profile fallback behavior, but that fallback would misrepresent
-// which domain a contact actually chose to identify themselves with).
-//
-// A name the user explicitly typed (at Add Contact time, or via Chat Info's
-// rename field) always wins over anything KNS-derived — auto-naming only
-// fills in contact.name itself (see applyKnsPrimaryDomainToContact) when no
-// custom name has been set, so this just reads contact.name normally.
+// Who a contact is: a name the user explicitly typed (at Add Contact time, or via Chat Info's
+// rename field) always wins; then the Address Book name; then their .kachat name (read from the
+// cache synchronously); then the stored default, their short address.
 function displayNameForAddress(contact) {
   if (!contact) return "";
   // Your own chatting address goes by who you are on chain (iOS 7d11735).
@@ -4785,17 +4720,15 @@ function displayNameForAddress(contact) {
   // it is on chain.
   const savedName = addressBookName(contact.address);
   if (savedName) return savedName;
-  // Testnet (iOS e52357d, ContactsManager.displayName): your name for them, else their .kachat
-  // name, else the stored default (their short address) - KNS is never consulted there.
-  // Every network since iOS 7227d69 (mainnet has no registry yet, so its .kachat label is null there).
+  // iOS e52357d, ContactsManager.displayName: your name for them, else their .kachat name, else the
+  // stored default (their short address). Every network since iOS 7227d69.
   const storedName = isPlaceholderContactName(contact) ? "" : contact.name;
-  if (kachatNamesUiEnabled()) return kachatCachedDisplayLabel(contact.address) || storedName || defaultAliasFor(contact.address);
-  return knsDomainForAddress(contact.address) || storedName || defaultAliasFor(contact.address);
+  return kachatCachedDisplayLabel(contact.address) || storedName || defaultAliasFor(contact.address);
 }
 
-/// Who an address is when you haven't named it (iOS ContactsManager.identityName, e52357d): on
-/// testnet its .kachat name, elsewhere its KNS domain (when .kas names are identity), else the
-/// short address. For an address with no contact record; with one, use displayNameForAddress.
+/// Who an address is when you haven't named it (iOS ContactsManager.identityName, e52357d): its
+/// .kachat name, else the short address. For an address with no contact record; with one, use
+/// displayNameForAddress.
 function identityNameForAddress(address) {
   if (isOwnChattingAddress(address)) return onChainNameForAddress(address);
   // With no contact record, the Address Book name comes first (iOS displayName(for: address)).
@@ -4804,11 +4737,10 @@ function identityNameForAddress(address) {
   return onChainNameForAddress(address);
 }
 
-/// Who an address is on chain: its .kachat name (else its KNS domain where .kachat names are not
-/// the identity), else the short address (iOS ContactsManager.identityName).
+/// Who an address is on chain: its .kachat name, else the short address (iOS
+/// ContactsManager.identityName).
 function onChainNameForAddress(address) {
-  if (kachatNamesUiEnabled()) return kachatCachedDisplayLabel(address) || defaultAliasFor(address);
-  return knsDomainForAddress(address) || defaultAliasFor(address);
+  return kachatCachedDisplayLabel(address) || defaultAliasFor(address);
 }
 
 /// Your own chatting address goes by who you are on chain - your .kachat domain, else the short
@@ -4818,34 +4750,6 @@ function isOwnChattingAddress(address) {
   return Boolean(address && engine.address) && String(address).toLowerCase() === String(engine.address).toLowerCase();
 }
 
-/// The KNS name to show for an address, matching iOS's ContactsManager.displayName.
-///
-/// Two caches answer "who is this": the domain cache, which knows the explicit on-chain primary,
-/// and the profile cache, which knows which domain actually represents the address and carries its
-/// avatar. This read only ever consulted the first, so an address that owns domains but never set
-/// an explicit primary got no name at all - while its avatar, fetched from the second cache,
-/// rendered perfectly. Faces with no names beside them.
-///
-/// iOS reads the profile cache alone, and the profile cache is where the avatar comes from, so
-/// falling through to it is what keeps the name and the face describing the same domain. The
-/// explicit primary still wins when it exists: it is the domain the address deliberately chose.
-///
-/// Deliberately NOT `primaryDomain`, which falls back to whichever domain was created most
-/// recently. The profile cache already picks better than that - the first owned domain with any
-/// profile content - and "most recently created" would misrepresent who someone is.
-function knsDomainForAddress(address) {
-  // A .kas name is no one's identity in KaChat (iOS 509c0fe): with no .kachat name, people read as
-  // the name you gave them, else their address. On testnet identity is .kachat only (iOS e52357d).
-  if (!address || kachatNamesUiEnabled() || !engine.knsNamesAsIdentity) return null;
-  const info = engine.peekKnsAddressInfo?.(address);
-  if (info?.explicitPrimaryDomain) return info.explicitPrimaryDomain;
-  return engine.peekKnsAddressProfile?.(address)?.domainName || null;
-}
-
-// Called after any KNS info refresh: if this contact has no user-set custom
-// name and its address has an explicit on-chain primary domain, adopt it as
-// contact.name so it becomes the single source of truth everywhere (sidebar,
-// header, Chat Info) instead of being recomputed separately in each place.
 /** A bare .kas domain ("bob.kas"): since 5.2 never anyone's name in the app - a person is the name
  *  you gave them, their .kachat name or their address. Names like that came from KNS, set by old
  *  builds or other platforms (iOS Contact.isKasDomainName, ce0b636). */
@@ -4857,9 +4761,9 @@ function isKasDomainName(name) {
 /// Every load, not once (iOS ce0b636; was once per account, iOS 509c0fe): a contact named with a
 /// bare .kas domain goes back to unnamed, so it reads as its .kachat name or address. A .kas name
 /// can come back later - from a chat archive another platform exported, or by an older
-/// build - and it must not stay.
+/// build - and it must not stay (kept after KNS left, K 518fdc8c ContactsManager.clearKasDomainAliases).
 function revertDomainContactNames() {
-  if (!engine.address || engine.knsNamesAsIdentity) return;
+  if (!engine.address) return;
   let changed = 0;
   for (const contact of state.contacts || []) {
     // A random 12-hex chat alias stored as a name by older builds goes too (iOS a80d271).
@@ -4878,16 +4782,6 @@ function revertDomainContactNames() {
     changed += 1;
   }
   if (changed) { schedulePersistState(); try { renderChats(); } catch { /* not ready */ } }
-}
-function applyKnsPrimaryDomainToContact(contact) {
-  if (!contact || contact.nameIsCustom) return false;
-  const domain = knsDomainForAddress(contact.address);
-  if (domain && contact.name !== domain) {
-    contact.name = domain;
-    contact.updatedAt = Date.now();
-    return true;
-  }
-  return false;
 }
 
 /** A name a service resolved, as it is shown: a .kachat name follows Show .kachat Endings. */
@@ -5128,7 +5022,7 @@ function normalizeContact(contact) {
     nameIsCustom: Boolean(contact?.nameIsCustom),
     address: String(contact?.address || contact?.kaspaAddress || "").trim(),
     avatar: String(contact?.avatar || initialsFor(name)),
-    // A user-assigned photo (compressed data URL) for contacts without a KNS avatar.
+    // A user-assigned photo (compressed data URL) for contacts without an avatar of their own.
     // Lives on the contact, so it rides along in the desktopState backup automatically.
     photo: String(contact?.photo || ""),
     // When photos from this person start to show (photosUnlockAtFor). Absent until known.
@@ -6468,8 +6362,9 @@ function activateWalletDataScope(address, { migrateLegacy = true } = {}) {
   // An imported or switched-to wallet's own profile comes from the chain (iOS 5d4ce87): a fresh
   // import has no local copy, so the one saved on iOS / Android / another desktop is adopted.
   try { window.setTimeout(() => { try { syncOwnKachatProfile(); } catch { /* not ready */ } }, 0); } catch { /* not yet initialized */ }
-  // A .kas commit whose reveal never went out is finished now (iOS 4f8e14bb KNSRevealRecovery).
-  try { window.setTimeout(() => { engine.resumePendingKnsReveals?.().catch(() => {}); }, 3000); } catch { /* not yet initialized */ }
+  // A KNS commit whose reveal never went out is finished now, returning its coins (K 518fdc8c
+  // KNSRevealRecovery, audit 2026-11-24 #4).
+  try { window.setTimeout(() => { resumeKnsRevealRecovery(); }, 3000); } catch { /* not yet initialized */ }
   // Switched during an outage: the new account's first contacts are watched for too.
   try { window.setTimeout(() => { try { startInboxBlockScanIfDown(); } catch { /* not ready */ } }, 0); } catch { /* not yet initialized */ }
   const clean = String(address || "").trim();
@@ -7130,8 +7025,6 @@ async function connectAndRefresh({ quiet = false } = {}) {
     updateServiceSummary();
     if (!quiet) setStatus("Ready");
     appendEngineLog(`Balance: ${currentBalanceKas} KAS / UTXOs: ${balance.entries.length}`);
-    // Wallet open: offer to finish a .kas transfer interrupted between commit and reveal (EXT-005).
-    offerPendingKnsTransferResume().catch(() => {});
   } catch (error) {
     setService(networkIndicator, networkStatus, "error", "Connection needs attention");
     if (!quiet) setStatus("Network unavailable");
@@ -7839,7 +7732,7 @@ function saveStrangerPaymentState(store) {
   try { localStorage.setItem(accountScopedKey(STRANGER_PAYMENT_STATE_KEY), JSON.stringify(store)); } catch {}
 }
 
-// Your own contact carries no invented name: it reads as your KNS domain when you have one and
+// Your own contact carries no invented name: it reads as your .kachat name when you have one and
 // as your address otherwise, the same as everyone else (the chat list, chess seats, calls).
 // Older accounts that were given "My Address" are renamed on sight.
 function normalizeSelfContact(contact) {
@@ -8411,6 +8304,18 @@ function startAutomaticRefresh() {
 let indexerAvailabilityHooked = false;
 let lastKnsRevealCheckAt = 0;
 const KNS_REVEAL_CHECK_MS = 5 * 60 * 1000;
+/// Unfinished KNS reveals and transfers (from before .kachat only, 2026-11-23) are finished on
+/// wallet load and now and then while the app is in use, which returns the coins locked at their
+/// commit addresses (K 518fdc8c KNSRevealRecovery, audit 2026-11-24 #4). It starts nothing new and
+/// does nothing once no record is left. A transfer signed by a spending address needs the seed.
+function resumeKnsRevealRecovery() {
+  if (!engine.address) return;
+  engine.resumeKnsRevealRecovery({
+    mnemonic: activeAccountMnemonic() || null,
+    passphrase: activeAccountPassphrase(),
+    passphraseForm: activeAccountPassphraseForm(),
+  }).catch((error) => appendEngineLog(`KNS recovery: ${error?.message || error}`));
+}
 function startSweepLoop() {
   if (!indexerAvailabilityHooked) { indexerAvailabilityHooked = true; onIndexerAvailabilityChange(handleIndexerAvailability); }
   if (sweepLoopRunning) return;
@@ -8428,7 +8333,7 @@ function startSweepLoop() {
       await refreshAllConversations({ quiet: true });
       if (Date.now() - lastKnsRevealCheckAt >= KNS_REVEAL_CHECK_MS) {
         lastKnsRevealCheckAt = Date.now();
-        engine.resumePendingKnsReveals?.().catch(() => {});
+        resumeKnsRevealRecovery();
       }
       if (lastSweepFailed) {
         const next = Math.min(interval * 2, MESSAGE_REFRESH_MAX_MS);
@@ -8760,41 +8665,16 @@ function currentSavedNodeMode() {
 const sidebarTabButtons = document.querySelectorAll("[data-app-tab]");
 const appTabScreens = document.querySelectorAll("[data-app-tab-screen]");
 
-// Own-account version of the Chat Info Domains/Profile display: shows the
-// resolved KNS domain + bio/links for the active wallet's own address when it
-// owns one, otherwise shows the "Create KNS Profile" CTA that opens the
-// registration wizard. This lookup itself is read-only.
-let ownKnsAssetId = null;
-let ownKnsProfileFields = null;
-// The .kas domain the profile editor is open for (iOS 09e0403: Your Domains > domain > Customize
-// Profile). Its own copy, so a background refresh of your profile can never retarget a save.
-let knsEditorTarget = null; // { assetId, name, fields }
-// The name service whose screen Your Domains has pushed (iOS debd6fd: a card per service), null
-// on the cards themselves. Declared up here because the profile refresh reads it early.
-let activeDomainsService = null;
-let otherServiceNames = { k: null, kaspa: null }; // { state, names: [{ name, display, settling }] }
-let otherServiceNamesFor = "";
-let otherServiceNamesAt = 0;
-// The address whose KNS lookup has answered, so Your Domains' count can say "0" (iOS shows a
-// number once anything answered).
-let ownKnsDomainsFor = "";
-// Your Domains > .kachat's list state (iOS KachatLiveDomainsTab `loaded`): its Inscribe button
+// Your Usernames' list state (iOS KachatLiveDomainsTab `loaded`): its Claim a Username button
 // shows only once the list has its answer, and not while the registry is being upgraded.
 let kachatDomainsListState = null; // { address, upgrading }
-// A refresh in flight from Your Domains' refresh button (the platform's pull-to-refresh).
+// A refresh in flight from Your Usernames' refresh button (the platform's pull-to-refresh).
 let domainsRefreshing = false;
-// The account's .kachat names for the Your Domains count (iOS 10e4a1a): the set its .kachat tab
-// lists - active and in grace, never lapsed (iOS aa36d2a); 0 where the registry isn't launched.
+// The account's .kachat names for the Your Usernames count (iOS 10e4a1a): the set its list shows -
+// active and in grace, never lapsed (iOS aa36d2a); 0 where the registry isn't launched.
 let kachatOwnedCount = 0;
 let kachatOwnedCountFor = "";
 let kachatOwnedCountUnsubscribe = null;
-// Unfinished .kas transfers (commit sent, reveal not accepted; audit EXT-005) this account
-// started, for Your Domains' Finish transfer, and the wallet the open-time offer was made for.
-let pendingKnsTransfers = [];
-let pendingKnsTransfersFor = "";
-let knsTransferResumeOfferedFor = "";
-function knsEditAssetId() { return knsEditorTarget?.assetId || ownKnsAssetId; }
-function knsEditFields() { return knsEditorTarget ? knsEditorTarget.fields : ownKnsProfileFields; }
 
 /** Reads this wallet's .kachat identity and repaints the hero name and profile. Testnet: from the
  *  shared registry (label + profile); mainnet: profile-only (no label, iOS d36fc42). State lives
@@ -8918,69 +8798,14 @@ function updateProfileHero() {
   }
 }
 
-// Paints first from the persisted KNS cache, so the profile is on screen the moment the tab
-// opens, and only goes to the indexer when the cache is missing, older than the debounce
-// window, or a write just cleared it (`force` for callers that know the data changed).
-async function refreshOwnKnsProfile({ force = false } = {}) {
-  // Not tied to the old Profile screen's KNS rows any more (gone since KaChat iOS 148a5331, Build
-  // 310): Wallet's Your Domains count and the dock's picture are read from here too.
+/// What the Wallet and the dock show of your own account on opening those screens: Your Usernames'
+/// count (iOS 10e4a1a, reloaded whenever the registry moves), the profile hero and the dock's
+/// picture.
+function refreshOwnProfileSummary() {
   if (!engine.address) return;
-  const address = engine.address;
-  // The Profile's Your Domains count includes the .k and .kaspa names (iOS 09e0403).
-  if (otherServiceNamesFor !== address || Date.now() - otherServiceNamesAt > 5 * 60_000) {
-    otherServiceNamesAt = Date.now();
-    refreshOtherServiceNames();
-  }
-  // ...and the .kachat names (iOS 10e4a1a), reloaded whenever the registry moves.
   refreshKachatOwnedCount();
-  const cachedInfo = engine.peekKnsAddressInfo(address);
-  const cachedProfile = engine.peekKnsAddressProfile(address);
-  if (cachedInfo) applyOwnKnsProfile(cachedInfo, cachedProfile);
-  if (!force && isKnsEntryFresh(cachedInfo) && isKnsEntryFresh(cachedProfile)) return;
-  const [info, profileInfo] = await Promise.all([
-    engine.fetchKnsAddressInfo(address).catch(() => cachedInfo),
-    engine.fetchKnsAddressProfile(address).catch(() => cachedProfile),
-  ]);
-  if (engine.address !== address) return; // account switched mid-fetch
-  applyOwnKnsProfile(info, profileInfo);
-}
-
-function applyOwnKnsProfile(info, profileInfo) {
   updateProfileHero();
   try { refreshDockProfileAvatar(); } catch { /* not started */ }
-  // Before the primary-domain branch below: Your Domains lists everything this account owns, and
-  // an account with domains but no primary set still owns them (iOS yourDomainsSection).
-  setProfileDomains(info);
-
-  if (!info?.primaryDomain) {
-    ownKnsAssetId = null;
-    ownKnsProfileFields = null;
-    return;
-  }
-
-  ownKnsAssetId = info.primaryInscriptionId || null;
-  ownKnsProfileFields = profileInfo?.profile || null;
-}
-
-// The KNS indexer can lag a few seconds behind a freshly revealed domain, so a
-// single refresh right after registration may still report "no domain" and
-// leave the row reading "Create KNS Profile". Re-check a handful of times (with
-// the cache cleared each round) so the row flips to the edit variant on its own,
-// no reload needed. A newer call, or an account switch, cancels the poll.
-let ownKnsProfileRefreshToken = 0;
-async function refreshOwnKnsProfileUntilResolved({ attempts = 6, delayMs = 5000 } = {}) {
-  const token = ++ownKnsProfileRefreshToken;
-  const address = engine.address;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if (attempt > 0) {
-      await new Promise((resolve) => window.setTimeout(resolve, delayMs));
-      if (token !== ownKnsProfileRefreshToken || engine.address !== address) return;
-      engine.clearKnsCache?.(address);
-    }
-    await refreshOwnKnsProfile();
-    if (token !== ownKnsProfileRefreshToken || engine.address !== address) return;
-    if (ownKnsAssetId) return; // the domain is live
-  }
 }
 
 // --- Spending addresses (m/44'/111111'/1'/0/N). A second BIP44 account branch
@@ -9218,8 +9043,7 @@ async function verifiedFreshQuantumIndexFor(account) {
 /// fb2323e verifiedFreshQuantumSlot, IOS-109): for change outputs, whose address must come from the
 /// same account the probe checked - a spend that started on that account keeps its change there
 /// even if another account is active by the time the probe returns. Null when the seed is
-/// unavailable. Used by chat payments, Manage Addresses sends, KNS change and Request Payment's
-/// preview.
+/// unavailable. Used by chat payments, Manage Addresses sends and Request Payment's preview.
 /// `account`: one a send captured at its start (iOS ca09dd0), so its change slot comes from the
 /// same account its keys and its later writes do.
 async function verifiedFreshQuantumSlot(account = captureActiveSpendingAccount()) {
@@ -9246,13 +9070,12 @@ async function verifiedFreshQuantumSlot(account = captureActiveSpendingAccount()
 // a brand-new quantum-safe slot (engine/quantum.js spendingChangeIndex). A quantum source ALWAYS
 // rotates - its spend reveals its key, and change back to it would park funds on a revealed
 // address - and the legacy primary rotates as before; a legacy non-primary keeps same-address
-// change. `purpose` "kns": a KNS transfer, which rotates only the primary (iOS
-// KNSDomainTransferService).
+// change.
 //
 // iOS da2c8e2: the fresh slot is checked on chain first (verifiedFreshQuantumSlot, IOS-101), and a
 // quantum source whose fresh change slot can't be derived throws QUANTUM_CHANGE_UNAVAILABLE instead
 // of parking change on the key the spend reveals (IOS-104; engine/quantum.js freshChangeRequired). A
-// legacy source keeps its fallback to itself; a KNS transfer is unchanged.
+// legacy source keeps its fallback to itself.
 // `account`: the account the send started on (spendingSendAccount, iOS ca09dd0): the rule reads
 // its state and the slot comes from its seed, whichever account is active by now.
 async function freshChangeForSpendingIndex(index, { purpose = "withdraw", destination = null, account = captureActiveSpendingAccount() } = {}) {
@@ -10913,7 +10736,7 @@ function spendingRowHtml(index, address, state, balanceText, used, hasDomain = f
     : used === false
       ? '<span class="spending-address-usage unused">Unused</span>'
       : '<span class="spending-address-usage checking">Checking</span>';
-  const domainTag = hasDomain ? '<span class="spending-address-domain-tag">Contains domain</span>' : "";
+  const domainTag = hasDomain ? '<span class="spending-address-domain-tag">Contains username</span>' : "";
   // Any address can be hidden, funded ones too (iOS 245a5d2): it comes back from Address Visibility.
   const menuItems = [
     `<button type="button" role="menuitem" class="spending-row-menu-item" data-spending-action="rename" data-index="${index}">Rename Address</button>`,
@@ -10942,8 +10765,8 @@ function spendingRowHtml(index, address, state, balanceText, used, hasDomain = f
 // screen (history, UTXOs, Domains, Send / Receive), the one Profile's Chatting row used to.
 function chattingAddressRowHtml(hasDomain = false) {
   const address = engine.address || "";
-  // Contains domain beside Used when it owns a KNS or .kachat name (K 428a797b ManageAddressesView).
-  const domainTag = hasDomain ? '<span class="spending-address-domain-tag">Contains domain</span>' : "";
+  // Contains username beside Used when it holds a .kachat name (K 428a797b ManageAddressesView).
+  const domainTag = hasDomain ? '<span class="spending-address-domain-tag">Contains username</span>' : "";
   const balanceText = currentBalanceKas != null && currentBalanceKas !== "" ? `${formatKasExact(currentBalanceKas)} ${KAS_UNIT}` : `-- ${KAS_UNIT}`;
   return `
     <div class="spending-address-row chatting-address-row">
@@ -10992,7 +10815,7 @@ function updateSpendingTotalBalance(entries) {
 async function renderSpendingList() {
   if (!spendingListEl) return;
   // what's cached already; the full list below asks again
-  const chattingRow = engine.address ? chattingAddressRowHtml(Boolean(engine.peekKnsAddressInfo?.(engine.address)?.allDomains?.length)) : "";
+  const chattingRow = engine.address ? chattingAddressRowHtml(Boolean(kachatCachedOwnedNameCount(engine.address))) : "";
   if (!activeAccountMnemonic()) {
     spendingListEl.innerHTML = `${chattingRow}<p class="spending-address-empty">This account has no 12 or 24 words, so spending addresses aren't available.</p>`;
     updateSpendingTotalBalance([]);
@@ -11055,21 +10878,11 @@ async function renderSpendingList() {
   }
   saveSpendingBalCacheEntries(cacheUpdates);
   if (token !== spendingListToken) return;
-  // Batched, cached KNS assets-by-owner lookups drive the "Contains domain" tag (iOS parity). The
-  // refresh is debounced/backed-off inside engine/kns.js, so reopening the screen is normally
-  // cache-only.
-  // The chatting address is asked about first, then the spending ones (K 428a797b).
+  // The "Contains username" tag: the addresses holding a .kachat name (iOS 881ada6 ownersOfNames;
+  // empty where the registry isn't launched). The chatting address is asked about first, then the
+  // spending ones (K 428a797b).
   const domainLookup = [...(engine.address ? [engine.address] : []), ...enriched.map((e) => e.address)];
-  let domainOwning = new Set();
-  try {
-    await engine.refreshKnsIfNeeded?.(domainLookup);
-  } catch { /* tags fall back to whatever is cached */ }
-  for (const address of domainLookup) {
-    const info = engine.peekKnsAddressInfo?.(address);
-    if (info?.allDomains?.length) domainOwning.add(address);
-  }
-  // .kachat names count too (iOS 881ada6 ownersOfNames; empty where the registry isn't launched).
-  for (const address of await kachatOwnersOfNames(domainLookup)) domainOwning.add(address);
+  const domainOwning = new Set(await kachatOwnersOfNames(domainLookup));
   if (token !== spendingListToken) return;
   // Unused ones first, newest first - so a freshly generated address lands right under the
   // Chatting Address - then the used ones in number order (iOS 7abc06e8 / KaPay 59593af, owner's
@@ -11584,16 +11397,14 @@ const spendingDetailUtxoList = document.querySelector("[data-spending-detail-utx
 let spendingDetailIndex = 0;
 let spendingDetailAddress = null;
 
-// Plain tab names - History, UTXOs, Domains - with no counts (iOS 718b88c, fe52376). The Domains
-// tab is a card per name service; until an address is known it holds the .kachat note.
+// Plain tab names - History, UTXOs, Usernames - with no counts (iOS 718b88c, fe52376, K 518fdc8c).
+// The Usernames tab lists the address's .kachat names; until an address is known it holds the
+// .kachat note.
 document.querySelectorAll("[data-kachat-address-domains]").forEach((el) => { el.innerHTML = kachatAddressDomainsHtml(); });
 initAddressDomainsTab({
-  engine,
   renderKachat: (el, address) => renderKachatLiveDomainsTab(el, address, { variant: "address" }),
-  kachatNames: (address) => kachatHeldNamesOf(address),
   // the .kachat list's refresh (iOS KachatAddressLiveNamesList: registry.refresh)
   refreshKachat: async () => { await kachatNames()?.registry?.refresh?.(); },
-  escapeHtml,
 });
 
 // --- kUSDT (KaPay iOS 3d126db; ui/kusdt-wallet.js, ui/kusdt-screens.js) ---
@@ -11771,7 +11582,7 @@ function initKusdt() {
     explorerTxUrl, explorerAddressUrl,
     addressCardHtml: (address, opts) => addressResolutionCardHtml(address, opts),
     addressBookName: (address) => addressBookEntry(address)?.name || null,
-    // Send Kaspa's own recipient lookup (address or name on every service, Other domains), no balance.
+    // Send Kaspa's own recipient lookup (an address or a .kachat name), no balance.
     makeRecipientController: (els, { onRecipientChange }) => makeSendController(els, { slideToSend: true, onRecipientChange, getBalance: async () => ({}) }),
     pickFromAddressBook: () => pickFromAddressBook(),
     drawQr: (canvas, address) => engine.drawQrFor(canvas, address, { dark: "#06110f", light: "#ffffff" }),
@@ -11820,460 +11631,6 @@ function initKusdt() {
     log: appendEngineLog,
   });
 }
-
-// --- Send Domain (iOS ContactsView.swift KNSDomainSendView) ---
-// The recipient takes an address or a domain on any service, .kachat first, with Other domains
-// under the resolved name; the fee is the reveal's priority fee: 0.02 KAS x Normal 1 / Fast 2 /
-// Priority 5, or a custom one (click the amount). Send is in the bar; the transfer's progress is
-// its own sheet; it ends on the shared Sent sheet with the reveal's txid.
-const knsTransferModal = document.querySelector("[data-kns-transfer-modal]");
-const knsTransferDomainEl = document.querySelector("[data-kns-transfer-domain]");
-const knsTransferAssetEl = document.querySelector("[data-kns-transfer-asset]");
-const knsTransferRecipientInput = document.querySelector("[data-kns-transfer-recipient]");
-const knsTransferErrorEl = document.querySelector("[data-kns-transfer-error]");
-const knsTransferErrorCard = document.querySelector("[data-kns-transfer-error-card]");
-const knsTransferStatusEl = document.querySelector("[data-kns-transfer-status]");
-const knsTransferSendBtn = document.querySelector("[data-kns-transfer-send]");
-const knsTransferSpinner = document.querySelector("[data-kns-transfer-spinner]");
-const knsTransferCardEl = document.querySelector("[data-kns-transfer-card]");
-const knsTransferProgressEl = document.querySelector("[data-kns-transfer-progress]");
-let knsTransferContext = null;
-let knsTransferInFlight = false;
-const knsTransferResolutionEl = document.querySelector("[data-kns-transfer-resolution]");
-const knsTransferName = { token: 0, typed: "", address: null, name: null, tld: null, results: [], resolving: false, error: null, valid: false };
-// The fee (iOS priorityFeeSompi): the tier's multiple of 0.02 KAS, or the custom one typed.
-const KNS_TRANSFER_BASE_FEE_SOMPI = 2_000_000n;
-const KNS_TRANSFER_FEE_MULTIPLIERS = { normal: 1n, fast: 2n, priority: 5n };
-const knsTransferFee = { tier: "normal", customSompi: null, editing: false };
-function knsTransferFeeSompi() {
-  return knsTransferFee.customSompi != null ? knsTransferFee.customSompi : KNS_TRANSFER_BASE_FEE_SOMPI * (KNS_TRANSFER_FEE_MULTIPLIERS[knsTransferFee.tier] || 1n);
-}
-function renderKnsTransferFee() {
-  knsTransferModal?.querySelectorAll("[data-kns-transfer-fee]").forEach((button) => {
-    const on = button.dataset.knsTransferFee === knsTransferFee.tier;
-    button.classList.toggle("active", on);
-    button.setAttribute("aria-pressed", on ? "true" : "false");
-  });
-  const summary = knsTransferModal?.querySelector("[data-kns-transfer-fee-summary]");
-  if (summary) summary.textContent = `${formatSompiPlain(knsTransferFeeSompi())} ${KAS_UNIT}`;
-  const editor = knsTransferModal?.querySelector("[data-kns-transfer-fee-editor]");
-  const edit = knsTransferModal?.querySelector("[data-kns-transfer-fee-edit]");
-  if (editor) editor.hidden = !knsTransferFee.editing;
-  if (edit) edit.hidden = knsTransferFee.editing;
-}
-// The usable recipient (iOS hasValidRecipient / effectiveAddress): a resolved name's address, or a
-// valid address once nothing is being looked up.
-function knsTransferRecipient() {
-  const raw = lowercasedKaspaAddress(String(knsTransferRecipientInput?.value || "").trim());
-  if (knsTransferName.typed !== raw) return null;
-  if (knsTransferName.address) return knsTransferName.address;
-  return knsTransferName.valid && !knsTransferName.resolving ? raw : null;
-}
-function refreshKnsTransferSend() {
-  const resume = Boolean(knsTransferContext?.resume);
-  if (knsTransferSendBtn) {
-    knsTransferSendBtn.hidden = knsTransferInFlight;
-    knsTransferSendBtn.disabled = knsTransferInFlight || (!resume && !knsTransferRecipient());
-  }
-  if (knsTransferSpinner) knsTransferSpinner.hidden = !knsTransferInFlight;
-}
-function setKnsTransferError(message) {
-  if (knsTransferErrorEl) knsTransferErrorEl.textContent = message || "";
-  if (knsTransferErrorCard) knsTransferErrorCard.hidden = !message;
-}
-// The lookup line under the field (iOS: Looking up domain... / the not-found reason / Resolved: +
-// the address / Valid address or why not), Other domains under it, and who the address is.
-function renderKnsTransferRecipient() {
-  const raw = lowercasedKaspaAddress(String(knsTransferRecipientInput?.value || "").trim());
-  if (knsTransferResolutionEl) {
-    knsTransferResolutionEl.innerHTML = recipientStatusHtml({
-      input: raw,
-      resolving: knsTransferName.resolving,
-      error: knsTransferName.error,
-      resolvedAddress: knsTransferName.address,
-      resolvedName: knsTransferName.name,
-      valid: knsTransferName.valid,
-      nameResolutions: knsTransferName.resolving ? [] : knsTransferName.results,
-      selectedTld: knsTransferName.tld,
-    });
-  }
-  const shown = knsTransferName.address || (knsTransferName.valid ? raw : null);
-  if (knsTransferCardEl) {
-    knsTransferCardEl.hidden = !shown;
-    knsTransferCardEl.innerHTML = shown
-      ? addressResolutionCardHtml(shown, { domain: knsTransferName.name, onLoaded: (loaded) => { if (loaded === (knsTransferName.address || (knsTransferName.valid ? String(knsTransferRecipientInput?.value || "").trim() : null))) renderKnsTransferRecipient(); } })
-      : "";
-  }
-  refreshKnsTransferSend();
-}
-function useKnsTransferResolution(address, name, tld) {
-  Object.assign(knsTransferName, { address, name, tld: tld || null, error: null });
-  renderKnsTransferRecipient();
-}
-function updateKnsTransferRecipient() {
-  const raw = lowercasedKaspaAddress(String(knsTransferRecipientInput?.value || "").trim());
-  const token = ++knsTransferName.token;
-  Object.assign(knsTransferName, { typed: raw, address: null, name: null, tld: null, results: [], resolving: false, error: null, valid: false });
-  if (!raw) { renderKnsTransferRecipient(); return; }
-  if (/^kaspa(test)?:/i.test(raw)) {
-    // The other network's address is the same key on another chain: refused (iOS isValidOnActiveNetwork).
-    try { validateContactAddress(raw); knsTransferName.valid = true; } catch { knsTransferName.valid = false; }
-    renderKnsTransferRecipient();
-    return;
-  }
-  if (!engine.looksLikeName(raw)) { renderKnsTransferRecipient(); return; }
-  knsTransferName.resolving = true;
-  renderKnsTransferRecipient();
-  window.setTimeout(async () => {
-    if (token !== knsTransferName.token) return;
-    try {
-      const { results, resolution } = await engine.lookUpName(raw);
-      if (token !== knsTransferName.token) return;
-      knsTransferName.resolving = false;
-      knsTransferName.results = results || [];
-      if (resolution?.ownerAddress) {
-        useKnsTransferResolution(resolution.ownerAddress, resolution.domain || raw, resolution.tld);
-      } else {
-        knsTransferName.error = nameNotFoundText(raw, knsTransferName.results);
-        renderKnsTransferRecipient();
-      }
-    } catch {
-      if (token !== knsTransferName.token) return;
-      knsTransferName.resolving = false;
-      knsTransferName.error = nameNotFoundText(raw);
-      renderKnsTransferRecipient();
-    }
-  }, 300);
-}
-knsTransferRecipientInput?.addEventListener("input", updateKnsTransferRecipient);
-knsTransferResolutionEl?.addEventListener("click", (event) => {
-  const entry = pickOtherDomain(event, knsTransferName.results);
-  if (entry) useKnsTransferResolution(entry.address, entry.name, entry.tld);
-});
-function setKnsTransferRecipientValue(value) {
-  if (!knsTransferRecipientInput || knsTransferRecipientInput.readOnly) return;
-  knsTransferRecipientInput.value = value;
-  updateKnsTransferRecipient();
-}
-knsTransferModal?.querySelector("[data-kns-transfer-paste]")?.addEventListener("click", async () => {
-  try {
-    const text = await navigator.clipboard.readText();
-    if (text) setKnsTransferRecipientValue(text.trim());
-  } catch { showCopyToast("Clipboard unavailable. Paste manually."); }
-});
-knsTransferModal?.querySelector("[data-kns-transfer-scan]")?.addEventListener("click", async () => {
-  const scanned = await scanKaspaAddress({
-    title: "Scan a recipient code",
-    hint: "Point the camera at the address QR code you want to send to.",
-  });
-  // A kaspa: URI goes in without its ?query (iOS handleScannedQRCode).
-  if (scanned) setKnsTransferRecipientValue(String(scanned).trim().replace(/^(kaspa(test)?:[^?]*)\?.*$/i, "$1"));
-});
-knsTransferModal?.querySelectorAll("[data-kns-transfer-fee]").forEach((button) => button.addEventListener("click", () => {
-  if (knsTransferInFlight) return;
-  knsTransferFee.tier = button.dataset.knsTransferFee;
-  knsTransferFee.customSompi = null;
-  knsTransferFee.editing = false;
-  renderKnsTransferFee();
-}));
-const knsTransferFeeInput = knsTransferModal?.querySelector("[data-kns-transfer-fee-custom]");
-knsTransferModal?.querySelector("[data-kns-transfer-fee-edit]")?.addEventListener("click", () => {
-  if (knsTransferInFlight) return;
-  knsTransferFee.editing = true;
-  if (knsTransferFeeInput) knsTransferFeeInput.value = formatSompiPlain(knsTransferFeeSompi());
-  renderKnsTransferFee();
-  knsTransferFeeInput?.focus();
-  knsTransferFeeInput?.select?.();
-});
-// iOS commitCustomFee: whatever reads as an amount is the fee, 1 KAS at most (iOS 4f8e14bb);
-// otherwise nothing changes.
-function commitKnsTransferCustomFee() {
-  const sompi = sompiFromUserText(String(knsTransferFeeInput?.value || ""));
-  if (sompi != null) knsTransferFee.customSompi = sompi > KNS_TRANSFER_MAX_FEE_SOMPI ? KNS_TRANSFER_MAX_FEE_SOMPI : sompi;
-  knsTransferFee.editing = false;
-  renderKnsTransferFee();
-}
-knsTransferModal?.querySelector("[data-kns-transfer-fee-commit]")?.addEventListener("click", commitKnsTransferCustomFee);
-knsTransferFeeInput?.addEventListener("input", () => {
-  const sanitized = sanitizeAmountText(knsTransferFeeInput.value, 8);
-  if (sanitized !== knsTransferFeeInput.value) knsTransferFeeInput.value = sanitized;
-});
-knsTransferFeeInput?.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); commitKnsTransferCustomFee(); return; }
-  if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); knsTransferFee.editing = false; renderKnsTransferFee(); }
-});
-
-// Opens Send Domain. A domain with an unfinished transfer (EXT-005) opens in resume mode instead:
-// the recipient is fixed to the recorded one and Send finishes that transfer (no new commit).
-// `pending` passes the record when the caller already has it.
-function openKnsTransferModal({ domain, assetId, spendingIndex = null, pending = null }) {
-  if (!knsTransferModal) return;
-  closeSentConfirmation();
-  knsTransferContext = { domain, assetId, spendingIndex, resume: null };
-  if (knsTransferDomainEl) knsTransferDomainEl.textContent = domain;
-  if (knsTransferAssetEl) { knsTransferAssetEl.textContent = assetId || ""; knsTransferAssetEl.title = assetId || ""; knsTransferAssetEl.hidden = !assetId; }
-  if (knsTransferRecipientInput) { knsTransferRecipientInput.value = ""; knsTransferRecipientInput.readOnly = false; }
-  Object.assign(knsTransferFee, { tier: "normal", customSompi: null, editing: false });
-  renderKnsTransferFee();
-  setKnsTransferError("");
-  if (knsTransferStatusEl) knsTransferStatusEl.hidden = true;
-  if (knsTransferSendBtn) knsTransferSendBtn.textContent = "Send";
-  updateKnsTransferRecipient();
-  const known = pending || pendingKnsTransferFor(assetId);
-  if (known) setKnsTransferResumeMode(known);
-  knsTransferModal.hidden = false;
-  knsTransferRecipientInput?.focus();
-  // The cached list can lag (another window, a fresh load): ask storage directly too.
-  if (!known && assetId) {
-    const context = knsTransferContext;
-    engine.getPendingKnsTransfer(assetId).then((record) => {
-      if (record && knsTransferContext === context && !knsTransferInFlight && knsTransferBelongsToAccount(record, engine.address)) setKnsTransferResumeMode(record);
-    }).catch(() => {});
-  }
-}
-
-function setKnsTransferResumeMode(record) {
-  if (!knsTransferContext || !record) return;
-  knsTransferContext.resume = record;
-  if (knsTransferRecipientInput) { knsTransferRecipientInput.value = record.recipient || ""; knsTransferRecipientInput.readOnly = true; }
-  updateKnsTransferRecipient();
-  if (knsTransferSendBtn) knsTransferSendBtn.textContent = record.status === "reveal-failed" ? "Retry reveal" : "Finish transfer";
-  if (knsTransferStatusEl) {
-    knsTransferStatusEl.textContent = `A transfer of ${record.domain || "this domain"} to ${shortAddress(record.recipient || "")} was started but not finished. Finishing it reveals the commit already sent; no new 2 KAS commit is made.`;
-    knsTransferStatusEl.hidden = false;
-  }
-  refreshKnsTransferSend();
-}
-
-function pendingKnsTransferFor(assetId) {
-  if (!assetId || pendingKnsTransfersFor !== engine.address) return null;
-  return pendingKnsTransfers.find((record) => record.assetId === assetId) || null;
-}
-
-/** A pending transfer belongs to this account when it was started from the chatting address or
- *  from one of this account's spending addresses. */
-function knsTransferBelongsToAccount(record, address) {
-  const from = record?.source?.address;
-  if (!from || !address) return false;
-  if (from === address) return true;
-  if (record.source?.kind === "spending" && record.source.index != null) {
-    try { return deriveSpendingAddressAt(Number(record.source.index)) === from; } catch { return false; }
-  }
-  return false;
-}
-
-async function refreshPendingKnsTransfers() {
-  const address = engine.address;
-  if (!address) return [];
-  let list = [];
-  try { list = await engine.listPendingKnsTransfers(); } catch { list = []; }
-  if (engine.address !== address) return [];
-  pendingKnsTransfers = list.filter((record) => knsTransferBelongsToAccount(record, address));
-  pendingKnsTransfersFor = address;
-  renderProfileDomains();
-  return pendingKnsTransfers;
-}
-
-/** Once per wallet per session (on wallet open): offer to finish an interrupted transfer. */
-async function offerPendingKnsTransferResume() {
-  const address = engine.address;
-  if (!address || knsTransferResumeOfferedFor === address) return;
-  knsTransferResumeOfferedFor = address;
-  const mine = await refreshPendingKnsTransfers();
-  if (!mine.length || engine.address !== address || knsTransferInFlight) return;
-  const first = mine[0];
-  const more = mine.length - 1;
-  const ok = await confirmDialog({
-    title: "Finish domain transfer?",
-    message: `Sending ${first.domain} to ${shortAddress(first.recipient || "")} was interrupted after its commit was sent.${more ? `\n${more} more domain transfer${more === 1 ? " is" : "s are"} unfinished too.` : ""}\nFinish it now? You can also do it later from Your Domains.`,
-    confirmLabel: "Finish transfer",
-  });
-  if (!ok || engine.address !== address) return;
-  openKnsTransferModal({ domain: first.domain, assetId: first.assetId, pending: first });
-}
-
-function closeKnsTransferModal() {
-  if (knsTransferInFlight) return; // don't abandon a running inscription mid-flight
-  if (knsTransferModal) knsTransferModal.hidden = true;
-  knsTransferContext = null;
-}
-
-// The progress sheet's stages (iOS KNSDomainTransferService.TransferStage title / fraction), from
-// the engine's statuses.
-const KNS_TRANSFER_STAGES = {
-  preparing: ["Preparing transfer", 0.1],
-  submittingCommit: ["Submitting commit transaction", 0.3],
-  waitingForCommit: ["Waiting for the commit to settle", 0.55],
-  submittingReveal: ["Submitting reveal transaction", 0.8],
-  verifying: ["Confirming the new owner", 0.95],
-};
-const KNS_TRANSFER_STATUS_STAGES = {
-  "resolving-recipient": "preparing",
-  "verifying-ownership": "preparing",
-  "locating-commit": "preparing",
-  "committing": "submittingCommit",
-  "committed": "waitingForCommit",
-  "revealing": "submittingReveal",
-  "revealed": "verifying",
-  "verifying": "verifying",
-};
-function showKnsTransferProgress(stage) {
-  if (!knsTransferProgressEl) return;
-  if (!stage) { knsTransferProgressEl.hidden = true; return; }
-  const [title, fraction] = KNS_TRANSFER_STAGES[stage] || KNS_TRANSFER_STAGES.preparing;
-  const heading = knsTransferProgressEl.querySelector("[data-kns-transfer-progress-title]");
-  if (heading) heading.textContent = `Sending ${knsTransferContext?.domain || ""}`.trim();
-  const fill = knsTransferProgressEl.querySelector("[data-kns-transfer-progress-fill]");
-  if (fill) fill.style.width = `${Math.round(fraction * 100)}%`;
-  const stageEl = knsTransferProgressEl.querySelector("[data-kns-transfer-progress-stage]");
-  if (stageEl) stageEl.textContent = title;
-  knsTransferProgressEl.hidden = false;
-}
-function showKnsTransferStatus(patch) {
-  const stage = KNS_TRANSFER_STATUS_STAGES[patch?.status];
-  if (stage && knsTransferInFlight) showKnsTransferProgress(stage);
-}
-function setKnsTransferBusy(busy) {
-  knsTransferInFlight = Boolean(busy);
-  if (knsTransferRecipientInput && !knsTransferContext?.resume) knsTransferRecipientInput.readOnly = knsTransferInFlight;
-  refreshKnsTransferSend();
-}
-
-// Done on the Sent sheet (iOS onTransferComplete): the domain's page closes, Your Domains reloads,
-// and a toast says whether the indexer already shows the new owner.
-function finishKnsTransferFlow(result, domain) {
-  closeKnsTransferModal();
-  if (domainDetailTarget) closeDomainDetail();
-  showCopyToast(result?.verified
-    ? `${domain} transferred to ${result.recipientAddress}.`
-    : `Transfer submitted for ${domain}.`);
-  Promise.resolve().then(() => refreshYourDomains()).catch(() => {});
-}
-function showKnsTransferSent(result, domain) {
-  const txid = String(result?.revealTxid || "").trim();
-  if (!txid) { finishKnsTransferFlow(result, domain); return; }
-  // Only the reveal's txid: a transfer moves a name, not an amount (iOS SentTransaction(txId:)).
-  openSentConfirmation({
-    txid,
-    explorerUrl: explorerTxUrl(txid),
-    kasUnit: KAS_UNIT,
-    onDone: () => finishKnsTransferFlow(result, domain),
-  });
-}
-
-// Finish transfer / Retry reveal: reveals the commit an earlier attempt already sent.
-async function finishKnsTransfer() {
-  const context = knsTransferContext;
-  const record = context?.resume;
-  if (!record || knsTransferInFlight) return;
-  setKnsTransferBusy(true);
-  setKnsTransferError("");
-  showKnsTransferProgress("preparing");
-  const fromSpending = record.source?.kind === "spending";
-  try {
-    const result = await engine.resumeKnsTransfer({
-      assetId: record.assetId,
-      mnemonic: fromSpending ? activeAccountMnemonic() : null,
-      passphrase: fromSpending ? activeAccountPassphrase() : "",
-      passphraseForm: activeAccountPassphraseForm(),
-      onStatus: showKnsTransferStatus,
-    });
-    setKnsTransferBusy(false);
-    showKnsTransferProgress(null);
-    if (result.status === "no-commit") {
-      // No commit on chain and none recorded: it never went out, or it is too fresh to show.
-      if (Date.now() - Number(record.createdAt || 0) < 10 * 60_000) {
-        setKnsTransferError("The commit has not shown up on chain yet. Try again in a minute.");
-        return;
-      }
-      const discard = await confirmDialog({
-        title: "Discard unfinished transfer?",
-        message: `No commit for ${record.domain} was found on chain, so it was never sent and no KAS were spent on it.\nDiscard it so the domain can be sent again?`,
-        confirmLabel: "Discard",
-      });
-      if (!discard) return;
-      await engine.clearPendingKnsTransfer(record.assetId);
-      await refreshPendingKnsTransfers();
-      closeKnsTransferModal();
-      showCopyToast(`Unfinished transfer of ${record.domain} discarded.`);
-      return;
-    }
-    await refreshPendingKnsTransfers();
-    showKnsTransferSent({ ...result, recipientAddress: result.recipientAddress || record.recipient }, record.domain);
-  } catch (error) {
-    setKnsTransferBusy(false);
-    showKnsTransferProgress(null);
-    if (error?.pendingTransfer && knsTransferContext === context) setKnsTransferResumeMode(error.pendingTransfer);
-    setKnsTransferError(userFacingError(error) || error?.message || "Transfer failed.");
-    refreshPendingKnsTransfers();
-  }
-}
-
-async function submitKnsTransfer() {
-  if (!knsTransferContext || knsTransferInFlight) return;
-  if (knsTransferContext.resume) { finishKnsTransfer(); return; }
-  // A typed domain goes out as the address it resolved to (.kachat first, or the Other domains pick).
-  const recipient = knsTransferRecipient();
-  if (!recipient) return;
-  setKnsTransferBusy(true);
-  setKnsTransferError("");
-  showKnsTransferProgress("preparing");
-  const context = knsTransferContext;
-  const { domain, assetId, spendingIndex } = context;
-  const revealPriorityFeeSompi = knsTransferFeeSompi();
-  let committed = false;
-  try {
-    // From a spending address: the account the transfer starts on signs, and the primary it
-    // rotates after the commit is that account's, even if another is active by then (iOS ca09dd0
-    // accountAddress, IOS-109).
-    const account = spendingIndex != null ? spendingSendAccount() : null;
-    // The primary's change rotates onto a fresh quantum-safe slot (iOS bba1b1e KNSService).
-    const fresh = spendingIndex != null ? await freshChangeForSpendingIndex(spendingIndex, { purpose: "kns", account }) : null;
-    const result = await engine.transferKnsDomain({
-      domain,
-      assetId,
-      toAddress: recipient,
-      mnemonic: account ? account.mnemonic : null,
-      spendingIndex,
-      passphrase: account ? account.passphrase : "",
-      passphraseForm: account ? account.passphraseForm : activeAccountPassphraseForm(),
-      changeAddress: fresh?.address || null,
-      revealPriorityFeeSompi,
-      onStatus: (patch) => {
-        showKnsTransferStatus(patch);
-        // The primary moves once the node has accepted the commit (the reveal's change follows it).
-        if (patch?.status === "committed") {
-          committed = true;
-          if (fresh) rotatePrimarySpendingTo(fresh, account.owner);
-        }
-      },
-    });
-    setKnsTransferBusy(false);
-    showKnsTransferProgress(null);
-    refreshPendingKnsTransfers();
-    showKnsTransferSent(result, domain);
-  } catch (error) {
-    setKnsTransferBusy(false);
-    showKnsTransferProgress(null);
-    if (error?.code === "SEND_CANCELLED") return; // asked before anything was built: nothing sent
-    // Once a commit is out (or one from an earlier attempt is unfinished), Send must not come
-    // back: pressing it would commit another 2 KAS. The button becomes Retry reveal (EXT-005).
-    // A commit whose broadcast ended unclear (a timeout) also left a record: Finish transfer
-    // then looks it up on chain.
-    const record = error?.pendingTransfer || await engine.getPendingKnsTransfer(assetId).catch(() => null);
-    if (committed || record) {
-      if (record && knsTransferContext === context) setKnsTransferResumeMode(record);
-      refreshPendingKnsTransfers();
-    }
-    setKnsTransferError(userFacingError(error) || error?.message || "Transfer failed.");
-  }
-}
-
-knsTransferSendBtn?.addEventListener("click", submitKnsTransfer);
-document.querySelector("[data-kns-transfer-cancel]")?.addEventListener("click", closeKnsTransferModal);
-knsTransferModal?.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") { event.preventDefault(); closeKnsTransferModal(); }
-});
 
 // iOS SpendingAddressTransactionHistoryView utxosList: Compound UTXOs (more than one) with its
 // footer, then each coin - icon (a cube for coinbase), its label, amount and outpoint, a
@@ -12357,10 +11714,9 @@ function setSpendingDetailTab(tab) {
   if (tab === "kachat") paintKachatAddressDomains("[data-spending-detail-panel=\"kachat\"]", spendingDetailAddress);
 }
 
-/// An address screen's Domains tab (iOS fe52376): a card per name service with this address's
-/// count; .kachat opens that address's own names (iOS KachatAddressLiveNamesList, 881ada6), the
-/// same cards and name detail as Your Domains. A spending address's names get owner actions signed
-/// by its own key.
+/// An address screen's Usernames tab (iOS fe52376, K 518fdc8c .kachat only): that address's own
+/// .kachat names (iOS KachatAddressLiveNamesList, 881ada6), the same cards and name detail as Your
+/// Usernames. A spending address's names get owner actions signed by its own key.
 function paintKachatAddressDomains(panelSelector, address) {
   const el = document.querySelector(`${panelSelector} [data-kachat-address-domains]`);
   if (el && address) renderAddressDomainsTab(el, address);
@@ -12490,7 +11846,7 @@ async function openSpendingActionsSheet(summary = "") {
         // Two kinds, made on purpose (KaPay 3d126db / KaChat 5b7c772c): Receive gives regular ones.
         { id: "generate-regular", title: "Generate Non-Quantum Address", subtitle: "A regular address, like Receive gives you. Works with everything, kUSDT included." },
         { id: "generate", title: "Generate Quantum-Resistant Address", subtitle: "Keeps its key hidden until it spends. For Kaspa only: kUSDT can't be traded from it." },
-        { id: "discover", title: "Discover Addresses", subtitle: "Finds addresses holding a balance or a domain." },
+        { id: "discover", title: "Discover Addresses", subtitle: "Finds addresses holding a balance or a username." },
         { id: "visibility", title: "Address Visibility", subtitle: "Check off every address you want on the list, in one sitting." },
       ],
       footer: summary,
@@ -12506,7 +11862,7 @@ async function openSpendingActionsSheet(summary = "") {
   if (spendingActionsSheet?.token === token) spendingActionsSheet = null;
 }
 function spendingDiscoveryFoundText(foundCount) {
-  return foundCount === 0 ? "No addresses with a balance or domain yet" : `${foundCount} found so far`;
+  return foundCount === 0 ? "No addresses with a balance or username yet" : `${foundCount} found so far`;
 }
 spendingActionsToggle?.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -12648,7 +12004,7 @@ async function revealNextSpendingAddress({ toast = true, quantum = true } = {}) 
 let spendingDiscovering = false;
 let spendingDiscoveryProgress = null;
 /// The whole Discover Addresses sweep for `wallet` - the legacy chain, then the quantum-safe one -
-/// written to that account's stored state. Returns how many addresses hold a balance or a domain.
+/// written to that account's stored state. Returns how many addresses hold a balance or a username.
 /// Shared by the Discover button and a typed-in recovery phrase's background run (iOS da2c8e2
 /// importWallet(phrase:)).
 async function discoverSpendingAddressesFor(wallet, { onProgress = null, newOnly = false } = {}) {
@@ -12692,7 +12048,7 @@ async function discoverSpendingAddressesFor(wallet, { onProgress = null, newOnly
   if (engine.address !== wallet) return matchCount;
   if (spendingManageScreen && !spendingManageScreen.hidden) renderSpendingList();
   refreshSpendingSummary();
-  // The count is addresses that hold a balance or a domain, every one, not only new ones.
+  // The count is addresses that hold a balance or a username, every one, not only new ones.
   return matchCount;
 }
 spendingScanBtn?.addEventListener("click", async () => {
@@ -12716,8 +12072,8 @@ spendingScanBtn?.addEventListener("click", async () => {
       },
     });
     summary = matchCount === 0
-      ? "No addresses with a balance or domain found."
-      : `Found ${matchCount} address${matchCount === 1 ? "" : "es"} with a balance or domain.`;
+      ? "No addresses with a balance or username found."
+      : `Found ${matchCount} address${matchCount === 1 ? "" : "es"} with a balance or username.`;
   } catch (error) {
     appendEngineLog(`Spending discovery failed: ${error?.message || error}`);
     summary = userFacingError(error);
@@ -12842,8 +12198,8 @@ function setActiveAppTab(tab) {
   }
   updateDetailActiveClass();
   try { markOpenChatsRead(); } catch { /* not started */ }
-  // Wallet's Your Domains count reads it too, since the old Profile screen went (Build 310).
-  if (screenTab === "profile" || screenTab === "wallet") refreshOwnKnsProfile();
+  // Wallet's Your Usernames count reads it too, since the old Profile screen went (Build 310).
+  if (screenTab === "profile" || screenTab === "wallet") refreshOwnProfileSummary();
   try { if (screenTab === "wallet") { renderProfileAccountTotal(); refreshSpendingSummaryOnShow(); warmReceiveAddressOnShow(); kusdtWallet?.refreshIfStale().catch(() => {}); } } catch { /* not started */ }
   if (screenTab === "kaposts") { try { setKaPostsRootMode("feed"); } catch { /* not started */ } refreshKaPostsFeed(); }
   else {
@@ -12913,7 +12269,7 @@ sidebarTabButtons.forEach((button) => {
 // ---------------------------------------------------------------------------
 
 /** Full names, used in the More grid where a dock label is too short. */
-const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "Swap", chess: "KaPlay", "kachat-names": ".kachat Domains", "kachat-stats": "KaChat Stats" };
+const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "Swap", chess: "KaPlay", "kachat-names": "Usernames", "kachat-stats": "KaChat Stats" };
 
 function tabFullName(tab) {
   if (TAB_FULL_NAMES[tab]) return TAB_FULL_NAMES[tab];
@@ -13134,7 +12490,7 @@ applyDockLayout();
 // --- Dock guide (opened from Help, never on its own) -----------------------
 // Step 104 — Profile screen mockup wiring. QR buttons reveal the existing
 // real QR card; address dropdowns expand/collapse. The list of unimplemented
-// stubs this comment used to carry is long gone: KNS, spending addresses,
+// stubs this comment used to carry is long gone: usernames, spending addresses,
 // withdraw, transaction history and Manage Addresses are all built. The gift
 // program stays mobile-only by design.
 // "Receive Kaspa" opens the same full-screen QR view as Chatting Address (and the
@@ -13150,7 +12506,7 @@ const RECEIVE_INDEX_KEY = "kachat-receive-address-index-v1";
 // Receive is for everything except chatting and domains; the chatting address caption below is the
 // other half (iOS 492aa53). Wallet's Receive says it in its notes now (KaPay 3d126db), so its old
 // "This is a fresh address, never used before." subtitle is gone.
-const CHATTING_ADDRESS_SUBTITLE = "Use for chatting and acquiring .kachat domains.";
+const CHATTING_ADDRESS_SUBTITLE = "Use for chatting and acquiring usernames.";
 async function freshReceiveAddress({ revealing = true } = {}) {
   if (!activeAccountMnemonic()) return null;
   // The QR is for the account active now: an answer that comes back after a switch belongs to the
@@ -13403,65 +12759,12 @@ const helpScreenEl = document.querySelector("[data-help-screen]");
 document.querySelector("[data-close-help-screen]")?.addEventListener("click", () => {
   if (helpScreenEl) helpScreenEl.hidden = true;
 });
-// Your Domains, following the same overlay pattern. READ-ONLY on desktop: iOS's list also offers
-// set-primary, inscribe and transfer, and desktop has no set-primary path at all (kns-write.js
-// builds create and transfer payloads only), so this shows what the account owns rather than
-// offering actions that would fail.
+// Your Usernames (K 518fdc8c: .kachat is the only name service, and the screen and the Wallet card
+// are called Usernames), following the same overlay pattern: the account's .kachat names - claim,
+// renew, list, set as primary - live from the registry (kachat-names-live.js, iOS
+// KachatLiveDomainsTab).
 const domainsScreenEl = document.querySelector("[data-domains-screen]");
-let ownKnsDomains = [];
-let ownKnsPrimaryDomain = "";
 
-function setProfileDomains(info) {
-  ownKnsDomains = Array.isArray(info?.allDomains) ? info.allDomains : [];
-  ownKnsPrimaryDomain = info?.explicitPrimaryDomain || info?.primaryDomain || "";
-  if (info) ownKnsDomainsFor = engine.address || "";
-  renderProfileDomains();
-}
-
-function isOwnPrimaryDomain(domain) {
-  return Boolean(ownKnsPrimaryDomain) && String(domain.fullName || "").toLowerCase() === String(ownKnsPrimaryDomain).toLowerCase();
-}
-
-function knsDomainCardHtml(domain, { clickable = true } = {}) {
-  return `<${clickable ? "button type=\"button\"" : "div"} class="kns-domain-card${clickable ? "" : " static"}" ${clickable ? `data-domain-open="${escapeHtml(domain.inscriptionId || domain.fullName)}"` : ""}>
-    ${escapeHtml(domain.fullName)}
-    ${isOwnPrimaryDomain(domain) ? `<span class="kns-domain-primary">Primary</span>` : ""}
-  </${clickable ? "button" : "div"}>`;
-}
-
-// Your Domains: a card per name service (iOS debd6fd, formerly tabs, df23b6f), each pushing that
-// service's own screen. .kas lists the KNS domains with their detail; .k and .kaspa list the names
-// this address owns there (read-only); .kachat lists KaChat's own names.
-async function refreshOtherServiceNames() {
-  const address = engine.address;
-  if (!address) return;
-  let result = null;
-  try { result = await engine.listOtherServiceNames(address); } catch { result = null; }
-  if (engine.address !== address || !result) return;
-  for (const tld of ["k", "kaspa"]) {
-    const fresh = result[tld];
-    // A service that could not be reached keeps the names it gave last time (iOS NameServicesClient).
-    if (fresh?.state === "unreachable" && otherServiceNamesFor === address && otherServiceNames[tld]?.names?.length) {
-      otherServiceNames[tld] = { ...otherServiceNames[tld], state: "unreachable" };
-    } else {
-      otherServiceNames[tld] = fresh;
-    }
-  }
-  otherServiceNamesFor = address;
-  renderProfileDomains();
-}
-// Unfinished .kas transfers (EXT-005), pinned above the .kas list until they are finished.
-function pendingKnsTransfersHtml() {
-  if (pendingKnsTransfersFor !== engine.address || !pendingKnsTransfers.length) return "";
-  return pendingKnsTransfers.map((record) => `
-    <div class="kns-pending-transfer">
-      <p class="field-hint">Sending <strong>${escapeHtml(record.domain || "a domain")}</strong> to ${escapeHtml(shortAddress(record.recipient || ""))} is not finished: its commit was sent but the reveal was not accepted yet.</p>
-      <button type="button" class="primary-button" data-kns-finish-transfer="${escapeHtml(record.assetId)}">${record.status === "reveal-failed" ? "Retry reveal" : "Finish transfer"}</button>
-    </div>`).join("");
-}
-function domainNameCardHtml(name, badge = "") {
-  return `<div class="kns-domain-card static">${escapeHtml(name)}${badge ? `<span class="kns-domain-primary">${escapeHtml(badge)}</span>` : ""}</div>`;
-}
 async function refreshKachatOwnedCount() {
   const address = engine.address;
   if (!address) return;
@@ -13478,7 +12781,7 @@ async function refreshKachatOwnedCount() {
     }
   }
   try {
-    // the names Your Domains lists (no lapsed ones); one that lapses meanwhile comes off the count
+    // the names Your Usernames lists (no lapsed ones); one that lapses meanwhile comes off the count
     // right then (iOS aa36d2a)
     const count = await kachatOwnedNameCount(address, { onLapse: () => refreshKachatOwnedCount() });
     if (engine.address !== address) return; // account switched meanwhile
@@ -13527,7 +12830,7 @@ function renderKachatExpiredBanner() {
   const visible = kachatExpiredVisible();
   const n = visible[0];
   if (!n) { el.hidden = true; el.innerHTML = ""; return; }
-  const title = visible.length === 1 ? "One of your .kachat domains expired" : `${visible.length} of your .kachat domains expired`;
+  const title = visible.length === 1 ? "One of your usernames expired" : `${visible.length} of your usernames expired`;
   const body = visible.length === 1
     ? `Renew ${n.display} before its grace period ends on ${n.graceEndsText} to keep it.`
     : "Renew them before their grace periods end to keep them.";
@@ -13557,258 +12860,61 @@ document.querySelector("[data-kachat-expired-banner]")?.addEventListener("click"
   renderKachatExpiredBanner();
 });
 
-/** Your Domains' pinned button: .kachat's Inscribe, only once the .kachat list has loaded and not
- *  while the registry is being upgraded (iOS KachatLiveDomainsTab: `loaded && !registryUpgrading`).
- *  None on a domain's detail, and none for the outside services (iOS 4314e17e). */
+/** Your Usernames' pinned Claim a Username, only once the list has loaded and not while the
+ *  registry is being upgraded (iOS KachatLiveDomainsTab: `loaded && !registryUpgrading`). */
 function syncDomainsGetButton() {
   const getButton = document.querySelector("[data-domains-inscribe]");
   if (!getButton) return;
-  const detailEl = document.querySelector("[data-domain-detail]");
-  // .kachat: a pinned Inscribe button that opens the .kachat marketplace over Your Domains (iOS
-  // e4da63d), on every network (iOS 7227d69).
-  const kachatInscribe = activeDomainsService === "kachat" && kachatNamesUiEnabled()
-    && kachatDomainsListState?.address === engine.address && !kachatDomainsListState.upgrading;
-  getButton.hidden = !kachatInscribe || Boolean(detailEl && !detailEl.hidden);
+  getButton.hidden = !(kachatDomainsListState?.address === engine.address && !kachatDomainsListState.upgrading);
 }
 
+/** The Wallet card's count and, while the screen is open, its list. */
 function renderProfileDomains() {
   const countEl = document.querySelector("[data-profile-domains-count]");
-  // Blank until a lookup has actually answered, then a number - "0" included (iOS). The count
-  // includes .k and .kaspa, and the .kachat names (iOS 10e4a1a).
+  // Blank until the .kachat count has answered, then a number - "0" included (iOS 10e4a1a).
   const address = engine.address || "";
-  const otherCount = (otherServiceNamesFor === address)
-    ? (otherServiceNames.k?.names?.length || 0) + (otherServiceNames.kaspa?.names?.length || 0) : 0;
-  const kachatCount = kachatOwnedCountFor === address ? kachatOwnedCount : 0;
-  const knsCount = ownKnsDomainsFor === address ? ownKnsDomains.length : 0;
-  const total = knsCount + otherCount + kachatCount;
-  const answered = Boolean(address) && (ownKnsDomainsFor === address || otherServiceNamesFor === address || kachatOwnedCountFor === address);
-  if (countEl) countEl.textContent = answered ? String(total) : "";
-  // Each card says how many names you hold there, 0 included; a dash until that answer is in
-  // (first load, or the service unreachable) - iOS 2ee667c ownedCount.
-  const tileCounts = {
-    kas: ownKnsDomainsFor === address ? ownKnsDomains.length : null,
-    kachat: kachatOwnedCountFor === address ? kachatOwnedCount : null,
-  };
-  for (const tld of ["k", "kaspa"]) {
-    const owned = otherServiceNamesFor === address ? otherServiceNames[tld] : null;
-    tileCounts[tld] = owned && owned.state !== "unreachable" ? (owned.names?.length || 0) : null;
-  }
-  document.querySelectorAll("[data-domains-count]").forEach((el) => {
-    const value = tileCounts[el.dataset.domainsCount];
-    el.textContent = value == null ? "\u2013" : String(value);
-  });
-  const listEl = document.querySelector("[data-profile-domains-list]");
-  const detailEl = document.querySelector("[data-domain-detail]");
-  if (!listEl) return;
-  // The cards, or one service's screen pushed from them (iOS debd6fd): no refresh on the cards
-  // (iOS: the grid has no pull-to-refresh, each service's list does).
-  const gridEl = document.querySelector("[data-domains-services]");
-  if (gridEl) gridEl.hidden = Boolean(activeDomainsService);
-  const refreshEl = document.querySelector("[data-domains-refresh]");
-  if (refreshEl) refreshEl.hidden = !activeDomainsService;
-  // another screen replaces the .kachat list: coming back, it loads (and earns Inscribe) again
-  if (activeDomainsService !== "kachat") kachatDomainsListState = null;
+  if (countEl) countEl.textContent = address && kachatOwnedCountFor === address ? String(kachatOwnedCount) : "";
   syncDomainsGetButton();
-  const service = NAME_SERVICES[activeDomainsService];
-  if (detailEl && !detailEl.hidden && domainDetailTarget) {
-    renderDomainDetail(domainDetailTarget);
-    return;
-  }
-  const title = document.querySelector("[data-domains-screen] .chatting-address-balance");
-  if (title) title.textContent = service ? service.suffix : "Your Domains";
-  listEl.hidden = !service;
-  if (!service) { listEl.innerHTML = ""; return; }
-  if (activeDomainsService === "kachat") {
-    // Testnet: your .kachat names, live from the registry (iOS KachatLiveDomainsTab). Inscribe
-    // waits for the list's answer.
-    const kachatFor = engine.address;
-    const onLoaded = (state) => {
-      if (engine.address !== kachatFor || activeDomainsService !== "kachat") return;
-      kachatDomainsListState = { address: kachatFor, upgrading: Boolean(state?.upgrading) };
-      syncDomainsGetButton();
-    };
-    if (renderKachatLiveDomainsTab(listEl, engine.address, { onLoaded })) return;
-    listEl.innerHTML = `
-      <div class="domains-kachat-placeholder">
-        <span class="domains-kachat-mark" aria-hidden="true">${KACHAT_WORDMARK_SVG}</span>
-        <strong>.kachat names are coming</strong>
-        <p>K's own names will live here: claim one, set it as your name in chats, and share it as your profile link.</p>
-      </div>`;
-    return;
-  }
-  if (activeDomainsService === "kas") {
-    listEl.innerHTML = pendingKnsTransfersHtml() + (ownKnsDomains.length
-      ? ownKnsDomains.map((domain) => knsDomainCardHtml(domain)).join("")
-      : '<p class="spending-address-empty">No domains yet.</p>');
-    return;
-  }
-  const owned = otherServiceNamesFor === engine.address ? otherServiceNames[activeDomainsService] : null;
-  const names = owned?.names || [];
-  // iOS serviceNameList: the names; with none, a spinner while the first lookup runs, else
-  // "Couldn't reach" (the refresh button stands in for pull-to-refresh) or "No .k names yet."
-  const notice = names.length ? ""
-    : !owned ? '<div class="domains-loading"><span class="addr-domains-spinner" role="status" aria-label="Loading"></span></div>'
-      : owned.state === "unreachable"
-        ? `<p class="spending-address-empty">Couldn't reach ${escapeHtml(service.serviceName)}. Refresh to try again.</p>`
-        : `<p class="spending-address-empty">No ${escapeHtml(service.suffix || `.${activeDomainsService}`)} names yet.</p>`;
-  listEl.innerHTML = names.map((entry) => domainNameCardHtml(entry.display || entry.name, entry.settling ? "Settling" : "")).join("") + notice;
-}
-
-// One owned domain (iOS KNSDomainDetailView): the card, its asset id, primary or Set as Primary,
-// "Listed" when it is up for sale, and Send at the bottom.
-let domainDetailTarget = null;
-let settingPrimaryAssetId = null;
-let setPrimaryError = "";
-function renderDomainDetail(domain) {
   const listEl = document.querySelector("[data-profile-domains-list]");
-  const detailEl = document.querySelector("[data-domain-detail]");
-  const inscribe = document.querySelector("[data-domains-inscribe]");
-  const title = document.querySelector("[data-domains-screen] .chatting-address-balance");
-  if (!detailEl) return;
-  domainDetailTarget = domain;
-  const isPrimary = isOwnPrimaryDomain(domain);
-  const assetId = String(domain.inscriptionId || "").trim();
-  const listed = String(domain.status || "").trim().toLowerCase() === "listed";
-  const canSend = Boolean(assetId) && !listed;
-  // An unfinished transfer (EXT-005) blocks a new Send until it is finished.
-  const pendingTransfer = pendingKnsTransferFor(assetId);
-  const busy = settingPrimaryAssetId === assetId;
-  if (listEl) listEl.hidden = true;
-  if (inscribe) inscribe.hidden = true;
-  if (title) title.textContent = domain.fullName;
-  detailEl.hidden = false;
-  detailEl.innerHTML = `
-    ${knsDomainCardHtml(domain, { clickable: false })}
-    <div class="profile-domain-detail-rows">
-      <div class="profile-domain-detail-row"><span>Asset ID</span><span class="kns-asset-id" title="${escapeHtml(assetId)}">${escapeHtml(assetId)}</span></div>
-      ${assetId ? `<button type="button" class="profile-domain-detail-row actionable" data-domain-customize="${escapeHtml(assetId)}"><span>Customize Profile</span><span class="star">◉</span></button>` : ""}
-      ${isPrimary
-        ? `<div class="profile-domain-detail-row"><span>Primary Domain</span><span class="star">★</span></div>`
-        : assetId
-          ? `<button type="button" class="profile-domain-detail-row actionable" data-domain-set-primary="${escapeHtml(assetId)}" ${busy || settingPrimaryAssetId ? "disabled" : ""}><span>Set as Primary</span><span class="star">${busy ? "…" : "☆"}</span></button>`
-          : ""}
-      ${!isPrimary && setPrimaryError && !settingPrimaryAssetId ? `<p class="profile-domain-detail-error">${escapeHtml(setPrimaryError)}</p>` : ""}
-      ${listed ? `<div class="profile-domain-detail-row"><span>Status</span><span>Listed</span></div>` : ""}
-      ${pendingTransfer ? `<p class="field-hint">A transfer of this domain to ${escapeHtml(shortAddress(pendingTransfer.recipient || ""))} is not finished. Finish it before sending it anywhere else.</p>` : ""}
-    </div>
-    ${pendingTransfer
-      ? `<button type="button" class="chatting-address-copy domains-inscribe-button primary-button" data-kns-finish-transfer="${escapeHtml(assetId)}">${pendingTransfer.status === "reveal-failed" ? "Retry reveal" : "Finish transfer"}</button>`
-      : `<button type="button" class="chatting-address-copy domains-inscribe-button primary-button" data-domain-send="${escapeHtml(assetId)}" ${canSend ? "" : "disabled"}>Send</button>`}`;
-}
-
-function closeDomainDetail() {
-  const detailEl = document.querySelector("[data-domain-detail]");
-  domainDetailTarget = null;
-  setPrimaryError = "";
-  if (detailEl) { detailEl.hidden = true; detailEl.innerHTML = ""; }
-  // back to the service's own screen: its list, titled by its ending
-  renderProfileDomains();
-}
-
-/** Your Domains' screens (iOS debd6fd): the four cards (`null`), or one service's own screen,
- *  titled by its ending, holding the list its tab used to show. */
-function showDomainsService(tld) {
-  activeDomainsService = NAME_SERVICES[tld] ? tld : null;
-  if (domainDetailTarget) closeDomainDetail(); else renderProfileDomains();
-  document.querySelector("[data-domains-screen] .manage-address-body")?.scrollTo?.(0, 0);
-}
-
-// iOS setPrimaryDomain: no message on success - the star moves the moment the write lands,
-// plus a toast; a failure shows in place under the row.
-async function setPrimaryDomain(domain) {
-  const assetId = String(domain.inscriptionId || "").trim();
-  if (!assetId || settingPrimaryAssetId) return;
-  settingPrimaryAssetId = assetId;
-  setPrimaryError = "";
-  renderDomainDetail(domain);
-  const owner = engine.address;
-  // The write takes a while: what is drawn again is the detail on screen NOW, in the same account
-  // - Back (or another domain) must not have this one pop up over the list.
-  const shownDetail = () => (engine.address === owner && domainDetailTarget && !document.querySelector("[data-domain-detail]")?.hidden ? domainDetailTarget : null);
-  try {
-    await engine.setKnsPrimaryDomain(assetId);
-    settingPrimaryAssetId = null;
-    if (engine.address !== owner) return;
-    ownKnsPrimaryDomain = domain.fullName;
-    showCopyToast(`Primary domain set to ${domain.fullName}.`);
-    const shown = shownDetail();
-    if (shown) renderDomainDetail(shown);
-    await refreshOwnKnsProfileUntilResolved({ attempts: 3, delayMs: 3000 });
-  } catch (error) {
-    settingPrimaryAssetId = null;
-    const shown = shownDetail();
-    if (!shown) return;
-    // The error belongs under this domain's row only.
-    if (String(shown.inscriptionId || "").trim() === assetId) setPrimaryError = error?.message || "Setting the primary domain failed.";
-    renderDomainDetail(shown);
-  }
+  if (!listEl || !domainsScreenEl || domainsScreenEl.hidden) return;
+  // Claim a Username waits for the list's answer.
+  const kachatFor = engine.address;
+  const onLoaded = (state) => {
+    if (engine.address !== kachatFor) return;
+    kachatDomainsListState = { address: kachatFor, upgrading: Boolean(state?.upgrading) };
+    syncDomainsGetButton();
+  };
+  if (renderKachatLiveDomainsTab(listEl, engine.address, { onLoaded })) return;
+  listEl.innerHTML = `
+    <div class="domains-kachat-placeholder">
+      <span class="domains-kachat-mark" aria-hidden="true">${KACHAT_WORDMARK_SVG}</span>
+      <strong>Usernames are coming</strong>
+      <p>K's own names will live here: claim one, set it as your name in chats, and share it as your profile link.</p>
+    </div>`;
 }
 
 document.querySelector("[data-domains-screen]")?.addEventListener("click", (event) => {
-  const open = event.target.closest("[data-domain-open]");
-  if (open) {
-    const key = open.dataset.domainOpen;
-    const domain = ownKnsDomains.find((d) => (d.inscriptionId || d.fullName) === key);
-    if (domain) renderDomainDetail(domain);
-    return;
-  }
-  const setPrimary = event.target.closest("[data-domain-set-primary]");
-  if (setPrimary && domainDetailTarget) { setPrimaryDomain(domainDetailTarget); return; }
-  // KaChat no longer SHOWS .kas profiles, but a domain's own profile can still be customized
-  // here, loaded fresh for that domain (iOS onCustomizeProfile).
-  const customize = event.target.closest("[data-domain-customize]");
-  if (customize && domainDetailTarget) {
-    const domain = domainDetailTarget;
-    const assetId = String(domain.inscriptionId || "").trim();
-    customize.disabled = true;
-    engine.fetchKnsDomainProfileForEditing(assetId)
-      .then((profile) => openKnsEditor({ assetId, name: domain.fullName, fields: profile || {} }))
-      .catch(() => openKnsEditor({ assetId, name: domain.fullName, fields: {} }))
-      .finally(() => { customize.disabled = false; });
-    return;
-  }
-  const card = event.target.closest("[data-domains-service]");
-  if (card) { showDomainsService(card.dataset.domainsService); return; }
-  const finish = event.target.closest("[data-kns-finish-transfer]");
-  if (finish) {
-    const record = pendingKnsTransferFor(finish.dataset.knsFinishTransfer);
-    if (record) openKnsTransferModal({ domain: record.domain, assetId: record.assetId, pending: record });
-    return;
-  }
-  const send = event.target.closest("[data-domain-send]");
-  if (send && domainDetailTarget && !send.disabled) {
-    openKnsTransferModal({ domain: domainDetailTarget.fullName, assetId: domainDetailTarget.inscriptionId });
-    return;
-  }
   if (event.target.closest("[data-domains-refresh]")) { refreshYourDomains(); return; }
   if (event.target.closest("[data-domains-inscribe]")) {
-    // .kachat: the marketplace as a sheet over Your Domains, whether or not it is in the dock or
-    // Kaspa Hub; closing it comes back here and refreshes the registry, so a new name lands in the
-    // list (iOS KachatLiveDomainsTab showMarketplace, onDismiss registry.refresh()).
-    if (activeDomainsService === "kachat" && kachatNamesUiEnabled()) {
-      openKachatMarketSheet({
-        onClose: () => {
-          Promise.resolve().then(() => kachatNames()?.registry?.refresh?.()).catch(() => { /* the list keeps what it has */ });
-          renderProfileDomains();
-        },
-      });
-    }
+    // The marketplace as a sheet over Your Usernames, whether or not it is in the dock; closing it
+    // comes back here and refreshes the registry, so a new name lands in the list (iOS
+    // KachatLiveDomainsTab showMarketplace, onDismiss registry.refresh()).
+    openKachatMarketSheet({
+      onClose: () => {
+        Promise.resolve().then(() => kachatNames()?.registry?.refresh?.()).catch(() => { /* the list keeps what it has */ });
+        renderProfileDomains();
+      },
+    });
   }
 });
 
-/** Your Domains' refresh button, the platform's stand-in for iOS's pull-to-refresh on each
- *  service's screen: .kachat re-reads the registry, .kas the KNS domains (iOS
- *  refreshKNSDomainsOnly), .k and .kaspa their services (NameServicesClient.refresh). */
+/** Your Usernames' refresh button, the platform's stand-in for iOS's pull-to-refresh: the
+ *  registry is read again. */
 async function refreshYourDomains() {
   if (domainsRefreshing) return;
-  const tab = activeDomainsService;
   domainsRefreshing = true;
   paintDomainsRefresh();
-  try {
-    if (tab === "kachat") await kachatNames()?.registry?.refresh?.();
-    else if (tab === "kas") await refreshOwnKnsProfile({ force: true });
-    else await refreshOtherServiceNames();
-  } catch { /* each list says what it could read */ }
+  try { await kachatNames()?.registry?.refresh?.(); } catch { /* the list says what it could read */ }
   domainsRefreshing = false;
   paintDomainsRefresh();
   renderProfileDomains();
@@ -13820,27 +12926,24 @@ function paintDomainsRefresh() {
   button.disabled = domainsRefreshing;
 }
 
-document.querySelector("[data-open-domains-screen]")?.addEventListener("click", () => {
-  // A fresh screen every time, on the cards (iOS debd6fd: the screen opens on the grid).
-  activeDomainsService = null;
-  if (domainDetailTarget) closeDomainDetail();
-  renderProfileDomains();
-  refreshOtherServiceNames();
-  refreshPendingKnsTransfers(); // Finish transfer for an interrupted .kas transfer (EXT-005)
-  if (domainsScreenEl) domainsScreenEl.hidden = false;
-});
-document.querySelector("[data-close-domains-screen]")?.addEventListener("click", () => {
-  // Back steps out one screen: a domain's detail, then its service's screen, then Your Domains.
-  if (domainDetailTarget) { closeDomainDetail(); return; }
-  if (activeDomainsService) { showDomainsService(null); return; }
+function closeDomainsScreen() {
   if (domainsScreenEl) domainsScreenEl.hidden = true;
+  // coming back, the list loads (and earns Claim a Username) again
+  kachatDomainsListState = null;
+}
+document.querySelector("[data-open-domains-screen]")?.addEventListener("click", () => {
+  kachatDomainsListState = null;
+  if (domainsScreenEl) domainsScreenEl.hidden = false;
+  renderProfileDomains();
+  document.querySelector("[data-domains-screen] .manage-address-body")?.scrollTo?.(0, 0);
 });
+document.querySelector("[data-close-domains-screen]")?.addEventListener("click", closeDomainsScreen);
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   // a guide or dialog over Help takes the Escape, not Help under it
   else if (helpScreenEl && !helpScreenEl.hidden) { if (!document.querySelector(".modal-backdrop:not([hidden])")) helpScreenEl.hidden = true; }
-  else if (domainsScreenEl && !domainsScreenEl.hidden) domainsScreenEl.hidden = true;
+  else if (domainsScreenEl && !domainsScreenEl.hidden) closeDomainsScreen();
 });
 
 // Help stays open under a guide it starts (the guides' modal band is above the overlays), so
@@ -13858,7 +12961,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 327;
+const APP_BUILD = 328;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -13901,7 +13004,7 @@ async function shareOwnProfile() {
   // The link and nothing else (iOS 7ce35ef): it previews with your name and avatar on its own.
   const url = profileUniversalLink(engine.address);
   if (typeof navigator.share === "function") {
-    try { await navigator.share({ title: knsDomainForAddress(engine.address) || "My KaChat profile", url }); return; }
+    try { await navigator.share({ title: "My KaChat profile", url }); return; }
     catch (error) { if (error?.name === "AbortError") return; }
   }
   try { await navigator.clipboard.writeText(url); showCopyToast("Profile link copied"); }
@@ -13925,7 +13028,7 @@ document.querySelector("[data-profile-licenses]")?.addEventListener("click", () 
 // recipient + amount + send; fee tiers/QR-scan/coin-control are follow-ups) ---
 
 // Send-Kaspa flow, factored into a reusable controller so the same logic
-// (balance check, KNS/address resolution, validation, broadcast) drives both
+// (balance check, name/address resolution, validation, broadcast) drives both
 // the standalone modal (profile > Send Kaspa) and the in-card Send screen
 // inside the Manage Address popup. `els` is a set of field elements; `onOpen`/
 // `onClose` show/hide whichever container hosts them.
@@ -13992,57 +13095,30 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
     try { onRecipientChange?.(validRecipient); } catch { /* the screen's extras never block a send */ }
   }
   let resolveToken = 0;
-  // Every service's answer for a typed name and the one in use (iOS 6ac48a7): the rest go under
-  // "Other domains", where picking one switches the recipient.
+  // A typed name's .kachat answer (one at most, K 518fdc8c) and the text it was for.
   let nameResults = [];
-  let selectedTld = null;
   let typedName = "";
-  // The screens without the shared status line (the older resolvedHint ones) get the dropdown in
-  // its own spot under the hint.
-  function otherDomainsHost() {
-    if (els.statusEl || !els.resolvedHint) return null;
-    let host = els.resolvedHint.parentElement?.querySelector("[data-send-other-domains]");
-    if (!host) {
-      host = document.createElement("div");
-      host.dataset.sendOtherDomains = "";
-      els.resolvedHint.insertAdjacentElement("afterend", host);
-    }
-    return host;
-  }
-  function renderOtherDomains(show) {
-    const host = otherDomainsHost();
-    if (host) host.innerHTML = show ? otherDomainsHtml({ resolutions: nameResults, selectedTld }) : "";
-  }
-  function onOtherDomainClick(event) {
-    const entry = pickOtherDomain(event, nameResults);
-    if (!entry) return;
-    useResolution({ ownerAddress: entry.address, domain: entry.name, tld: entry.tld });
-  }
-  els.statusEl?.addEventListener("click", onOtherDomainClick);
-  els.resolvedHint?.parentElement?.addEventListener("click", (event) => { if (!els.statusEl) onOtherDomainClick(event); });
-  // Use one service's answer (the priority one, or a pick from Other domains).
+  // Use the name's answer.
   function useResolution(resolution) {
     const raw = lowercasedKaspaAddress(String(els.recipient?.value || "").trim());
     const amountValid = (sompiFromUserText(String(els.amount?.value || "")) ?? 0n) > 0n;
     resolvedAddress = resolution.ownerAddress;
     resolvedDomain = resolution.domain || raw || null;
-    selectedTld = resolution.tld || null;
     setValidRecipient(resolution.ownerAddress);
-    // a .kachat name as Show .kachat Endings says (KaPost 369794e); other services keep their ending
+    // a .kachat name as Show .kachat Endings says (KaPost 369794e)
     const shownName = resolvedNameShown(resolution.domain || raw, resolution.tld);
-    setRecipientStatus({ input: raw, resolvedAddress: resolution.ownerAddress, resolvedName: shownName, nameResolutions: nameResults, selectedTld });
+    setRecipientStatus({ input: raw, resolvedAddress: resolution.ownerAddress, resolvedName: shownName });
     if (els.resolvedHint) {
-      // Show the domain AND the full resolved address below it, matching iOS's WithdrawKaspaView.
+      // Show the name AND the full resolved address below it, matching iOS's WithdrawKaspaView.
       els.resolvedHint.innerHTML = `Resolved: ${escapeHtml(shownName)}<br><span class="send-resolved-address">${escapeHtml(resolution.ownerAddress || "")}</span>`;
       els.resolvedHint.hidden = false;
     }
-    renderOtherDomains(true);
     if (els.checkEl) els.checkEl.hidden = false; // resolved -> green check
     if (els.submit) els.submit.disabled = !amountValid;
     showResolutionCard(resolution.ownerAddress, resolution.domain || raw);
   }
   // The shared recipient card's status line (send-kaspa-components recipientStatusHtml), when
-  // the screen has one: "Looking up domain…", "Resolved: …", "Valid address", "Invalid…".
+  // the screen has one: "Looking up username…", "Resolved: …", "Valid address", "Invalid…".
   function setRecipientStatus(status) {
     if (els.statusEl) els.statusEl.innerHTML = recipientStatusHtml(status || {});
     // The card's Address Book button and the saved name for what it resolved to (iOS 00767a4).
@@ -14076,8 +13152,6 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
     setValidRecipient(null);
     typedName = "";
     nameResults = [];
-    selectedTld = null;
-    renderOtherDomains(false);
     setRecipientStatus(null);
     showResolutionCard(null);
     if (els.checkEl) els.checkEl.hidden = true;
@@ -14122,7 +13196,7 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
     const token = ++resolveToken;
     const raw = lowercasedKaspaAddress(String(els.recipient?.value || "").trim());
     const amountValid = (sompiFromUserText(String(els.amount?.value || "")) ?? 0n) > 0n;
-    // An amount keystroke keeps the name already resolved (and its Other domains pick).
+    // An amount keystroke keeps the name already resolved.
     if (raw && raw === typedName && engine.looksLikeName(raw) && (resolvedAddress || nameResults.length)) {
       if (els.submit) els.submit.disabled = !resolvedAddress || !amountValid;
       return;
@@ -14134,8 +13208,6 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
     // every amount change send the screen "no recipient" and then the same address again, and the
     // "no recipient" wiped the fee Max had just put in: Review showed "--" with Total spinning.
     nameResults = [];
-    selectedTld = null;
-    renderOtherDomains(false);
     if (els.resolvedHint) els.resolvedHint.hidden = true;
     if (els.checkEl) els.checkEl.hidden = true;
     if (els.error) els.error.hidden = true;
@@ -14160,17 +13232,12 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
       if (els.submit) els.submit.disabled = true;
       setRecipientStatus({ input: raw, resolving: true });
       try {
-        // Every name service, in priority: the ending typed, else .kachat, .kas, .k, .kaspa. The
-        // resolved line names which one answered; the others are offered under Other domains.
+        // A .kachat name: one answer (K 518fdc8c).
         const { results, resolution } = await engine.lookUpName(raw);
         if (token !== resolveToken) return; // a newer keystroke superseded this lookup
         nameResults = results || [];
-        if (resolution) {
-          useResolution(resolution);
-        } else {
-          setRecipientStatus({ input: raw, error: nameNotFoundText(raw, nameResults), nameResolutions: nameResults });
-          renderOtherDomains(true);
-        }
+        if (resolution) useResolution(resolution);
+        else setRecipientStatus({ input: raw, error: nameNotFoundText(raw, nameResults) });
       } catch {
         // leave disabled; submit surfaces a clearer error if attempted anyway
         if (token === resolveToken) setRecipientStatus({ input: raw, error: nameNotFoundText(raw) });
@@ -14257,7 +13324,7 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
 }
 
 // Send Kaspa (Chats > + > Send Kaspa, Donate, the Address Book, an address's Send, paying a payment
-// request, and Compound UTXOs). Matches iOS WithdrawKaspaView: From (iOS 6333dd3), KNS resolution +
+// request, and Compound UTXOs). Matches iOS WithdrawKaspaView: From (iOS 6333dd3), name resolution +
 // Paste, fiat/KAS toggle + conversion, Max, Network Fee tiers (Normal/Priority/Custom), and Coin
 // Control (UTXO selection).
 const sendKaspaModal = document.querySelector("[data-send-kaspa-modal]");
@@ -16716,7 +15783,7 @@ function refreshLanguageUi() {
 applyLanguage();
 refreshLanguageUi();
 
-// Connectivity endpoint fields (Kaspa REST API, KNS API, Push Indexer, Trusted
+// Connectivity endpoint fields (Kaspa REST API, KaChat Names Indexer, Push Indexer, Trusted
 // Node) persist through the endpoint registry. Blank = default; Trusted Node
 // blank = KaChat's own node. Takes effect on the next request/reconnect.
 function loadEndpointInputs() {
@@ -16731,8 +15798,6 @@ function endpointFieldError(key, message) {
   el.textContent = message || "";
   el.hidden = !message;
 }
-// Settings > Connection Settings > Domains: the .kas API as text (iOS knsBaseURL).
-document.querySelectorAll("[data-kns-url]").forEach((el) => { el.textContent = getEndpoint("knsApi"); });
 const HTTPS_REQUIRED_ERROR = "Use https. Unencrypted connections are not supported.";
 document.querySelectorAll("[data-endpoint]").forEach((input) => {
   if (input.readOnly || input.dataset.endpoint === "trustedNode") return;
@@ -17170,809 +16235,6 @@ function renderConnectionStatus() {
   // No Backup Node row and no Recent Auto-Reconnects list: iOS shows neither.
 }
 
-// --- KNS registration wizard --------------------------------------------------
-// Real, on-chain domain registration (commit+reveal) followed by an optional
-// profile-details save. Every step here spends real KAS once "Register
-// Domain" or "Save Profile" is pressed — see engine/kns-write.js.
-
-const knsRegisterModal = document.querySelector("[data-kns-register-modal]");
-// ---------------------------------------------------------------------------
-// Create KNS Profile wizard (iOS KNSCreateProfileFlowView): a fork first - do you already have
-// a domain? - then either bring one over or buy one, then banner, avatar, details, done. Every
-// step ends with the same Previous / Next bar. `existing` is set when re-entering on a profile
-// that already has a domain, so the steps show what is inscribed and only new writes are paid.
-// ---------------------------------------------------------------------------
-const KNS_WIZARD_MIN_FUNDING_KAS = 50;
-const knsWizardBodyEl = document.querySelector("[data-kns-wizard-body]");
-let knsWizard = null;
-
-function knsStatusMessage(status) {
-  return {
-    "checking-availability": "Checking availability…",
-    "fetching-fees": "Fetching current fee rates…",
-    committing: "Broadcasting commit transaction…",
-    committed: "Commit confirmed. Preparing reveal…",
-    revealing: "Broadcasting reveal transaction…",
-    revealed: "Reveal broadcast. Verifying…",
-    verifying: "Verifying on the KNS indexer…",
-    confirmed: "Confirmed!",
-    "pending-confirmation": "Broadcast, but not showing on the indexer yet. It may still land shortly.",
-  }[status] || status;
-}
-
-function formatKnsKas(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return String(value ?? "");
-  return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
-}
-
-function closeKnsRegisterModal() {
-  if (knsRegisterModal) knsRegisterModal.hidden = true;
-  const wrote = Boolean(knsWizard?.wroteSomething);
-  knsWizard = null;
-  if (wrote) { engine.clearKnsCache(engine.address); refreshOwnKnsProfileUntilResolved(); }
-}
-
-function openKnsProfileWizard({ startAt = null } = {}) {
-  if (!knsRegisterModal || !knsWizardBodyEl) return;
-  if (!engine.address) { showCopyToast("Generate or import a wallet first."); return; }
-  const existing = ownKnsAssetId ? {
-    assetId: ownKnsAssetId,
-    domainName: ownKnsPrimaryDomain || null,
-    profile: ownKnsProfileFields || {},
-  } : null;
-  knsWizard = {
-    step: startAt || "haveDomain",
-    existing,
-    assetId: existing?.assetId || null,
-    domainName: existing?.domainName || null,
-    wroteSomething: false,
-    foundDomains: [],
-    scanning: false,
-    balanceKas: null,
-    fundingError: "",
-    domain: { input: "", feeTiers: null, availability: null, checking: false, submitting: false, checkError: "", feeError: "", submitError: "", progress: "", timer: null },
-    image: { blob: null, dataUrl: null, submitting: false, error: "" },
-    details: { values: null, statuses: {}, submitting: false, progress: "", error: "" },
-  };
-  knsRegisterModal.hidden = false;
-  renderKnsWizard();
-  if (knsWizard.step === "domain") loadKnsWizardFeeTiers();
-}
-
-function setKnsWizardStep(step) {
-  if (!knsWizard) return;
-  knsWizard.step = step;
-  knsWizard.image = { blob: null, dataUrl: null, submitting: false, error: "" };
-  renderKnsWizard();
-  if (step === "domain") loadKnsWizardFeeTiers();
-}
-
-// Where Previous goes (iOS Step.previous).
-function knsWizardPrevious() {
-  const w = knsWizard;
-  if (!w) return null;
-  return {
-    needsFunding: "haveDomain", domain: "haveDomain", transferExistingDomain: "haveDomain",
-    pickDomain: "transferExistingDomain", domainConfirmed: "pickDomain",
-    banner: "domainConfirmed", avatar: "banner", details: "avatar",
-  }[w.step] || null;
-}
-
-function knsWizardBar({ nextTitle = "Next", nextEnabled = true, backEnabled = true } = {}) {
-  const previous = knsWizardPrevious();
-  return `<div class="setup-guide-nav kns-wizard-nav">
-    <button type="button" class="secondary-button setup-guide-back" data-kns-wizard-back ${previous && backEnabled ? "" : "disabled"}>Previous</button>
-    <button type="button" class="primary-button setup-guide-next" data-kns-wizard-next ${nextEnabled ? "" : "disabled"}>${escapeHtml(nextTitle)}</button>
-  </div>`;
-}
-
-function renderKnsWizard() {
-  const w = knsWizard;
-  if (!w || !knsWizardBodyEl) return;
-  const address = engine.address || "";
-  let html = "";
-  switch (w.step) {
-    case "haveDomain":
-      html = `<div class="kns-wizard-center">
-        <div class="kns-wizard-icon">@</div>
-        <h3>Do you already have a domain?</h3>
-        <p class="field-hint">A KNS domain is your name on Kaspa. If you own one already, you can bring it here instead of buying another.</p>
-        <div class="kns-wizard-choices">
-          <button type="button" class="primary-button full" data-kns-wizard-action="have-yes">Yes, I have one</button>
-          <button type="button" class="secondary-button full accent" data-kns-wizard-action="have-no">No, I need one</button>
-        </div>
-      </div>`;
-      break;
-    case "checkingFunds":
-      html = `<div class="kns-wizard-center"><span class="kaposts-spinner" aria-hidden="true"></span><p class="field-hint">Checking your chatting address balance...</p></div>`;
-      break;
-    case "needsFunding":
-      html = `<div class="kns-wizard-center">
-        <div class="kns-wizard-icon warn">⚠</div>
-        <h3>Please fund your chatting address with at least ${KNS_WIZARD_MIN_FUNDING_KAS} Kaspa to continue.</h3>
-        <p class="kns-wizard-label">Current balance</p>
-        <p class="kns-wizard-balance">${escapeHtml(formatKnsKas(w.balanceKas ?? 0))} ${KAS_UNIT}</p>
-        <p class="kns-wizard-label">Chatting address</p>
-        <button type="button" class="kns-wizard-address" data-kns-wizard-action="copy-address">${escapeHtml(address)}</button>
-        <button type="button" class="linklike-button" data-kns-wizard-action="show-qr">Show QR Code</button>
-        ${w.fundingError ? `<p class="field-error">${escapeHtml(w.fundingError)}</p>` : ""}
-        <div class="kns-wizard-choices">
-          <button type="button" class="primary-button full" data-kns-wizard-action="check-again">Check Again</button>
-          <button type="button" class="linklike-button muted" data-kns-wizard-action="have-yes">It's ok, I already have a domain</button>
-        </div>
-      </div>`;
-      break;
-    case "domain": {
-      const d = w.domain;
-      const label = normalizeDomainLabel(d.input);
-      const full = label ? `${label}.kas` : "";
-      let fee = null;
-      if (label && d.feeTiers) {
-        try { fee = d.availability?.isReservedDomain ? 0 : Number(knsRegistrationAmounts(label, d.feeTiers, { isReservedDomain: false }).revealAmountKas); } catch { fee = null; }
-      }
-      const canSubmit = !d.submitting && !d.checking && label && d.availability?.available === true && fee != null;
-      let status = "";
-      if (d.checking) status = `<p class="field-hint"><span class="kaposts-spinner small" aria-hidden="true"></span> Checking availability...</p>`;
-      else if (d.checkError) status = `<p class="field-error">${escapeHtml(d.checkError)}</p>`;
-      else if (d.availability) status = `<p class="field-hint ${d.availability.available ? "ok" : "bad"}">${d.availability.available ? `${escapeHtml(d.availability.domain)} can be inscribed.` : "This domain is not available."}</p>`;
-      html = `<div class="kns-wizard-form">
-        <h3>First let's create your identity with a domain name</h3>
-        <button type="button" class="linklike-button" data-kns-wizard-action="transfer-existing">I already have a domain somewhere else</button>
-        <input class="field-input" type="text" data-kns-wizard-domain placeholder="name" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="63" value="${escapeHtml(d.input)}" ${d.submitting ? "disabled" : ""} />
-        <p class="field-hint">${full ? escapeHtml(full) : "Use lowercase letters, numbers, and hyphen."}</p>
-        ${status}
-        ${fee != null ? `<div class="kns-wizard-row"><span>Service fee</span><span>${escapeHtml(formatKnsKas(fee))} ${KAS_UNIT}</span></div>` : ""}
-        ${d.feeError ? `<p class="field-error">${escapeHtml(d.feeError)}</p>` : ""}
-        ${d.submitting ? `<p class="field-hint"><span class="kaposts-spinner small" aria-hidden="true"></span> ${escapeHtml(d.progress || "Submitting inscription... this could take a few minutes while it confirms on-chain.")}</p>` : ""}
-        ${d.submitError ? `<p class="field-error">${escapeHtml(d.submitError)}</p>` : ""}
-        <button type="button" class="primary-button full" data-kns-wizard-action="inscribe-domain" ${canSubmit ? "" : "disabled"}>Inscribe Domain</button>
-        ${w.existing?.domainName ? `<button type="button" class="linklike-button muted" data-kns-wizard-action="skip-domain" ${d.submitting ? "disabled" : ""}>Skip - Continue with ${escapeHtml(w.existing.domainName)}</button>` : ""}
-      </div>`;
-      break;
-    }
-    case "transferExistingDomain": {
-      const n = w.foundDomains.length;
-      html = `<div class="kns-wizard-center">
-        <h3>Send your domain here</h3>
-        <p class="field-hint">Transfer your domain to this address so your identity is connected to K.</p>
-        <canvas class="kns-wizard-qr" data-kns-wizard-qr width="220" height="220"></canvas>
-        <p class="kns-wizard-label">Chatting address</p>
-        <button type="button" class="kns-wizard-address" data-kns-wizard-action="copy-address">${escapeHtml(address)}</button>
-        <button type="button" class="linklike-button" data-kns-wizard-action="refresh-domains" ${w.scanning ? "disabled" : ""}>${w.scanning ? "Checking..." : "↻ Refresh"}</button>
-        <p class="field-hint">${n ? `${n} domain${n === 1 ? "" : "s"} found on this address.` : "No domains on this address yet."}</p>
-        ${knsWizardBar()}
-      </div>`;
-      break;
-    }
-    case "pickDomain":
-      html = `<div class="kns-wizard-form">
-        <h3 class="centered">Which domain should this profile use?</h3>
-        ${w.foundDomains.length
-          ? `<div class="kns-wizard-list">${w.foundDomains.map((d) => `<button type="button" class="kns-wizard-list-row" data-kns-wizard-pick="${escapeHtml(d.inscriptionId || d.fullName)}"><strong>${escapeHtml(d.fullName)}</strong><span>›</span></button>`).join("")}</div>`
-          : `<div class="kns-wizard-center"><div class="kns-wizard-icon muted">⌕</div><strong>No domains on this address yet</strong><p class="field-hint">Go back and use Refresh once the transfer lands.</p></div>`}
-        ${knsWizardBar({ nextEnabled: false })}
-      </div>`;
-      break;
-    case "domainConfirmed":
-      html = `<div class="kns-wizard-center">
-        <div class="kns-wizard-icon ok">✓</div>
-        <h3>You are now known as ${escapeHtml(w.domainName || "")}</h3>
-        ${knsWizardBar()}
-      </div>`;
-      break;
-    case "banner":
-    case "avatar": {
-      const isBanner = w.step === "banner";
-      const img = w.image;
-      const existingUrl = isBanner ? w.existing?.profile?.bannerUrl : w.existing?.profile?.avatarUrl;
-      const preview = img.dataUrl || existingUrl || "";
-      html = `<div class="kns-wizard-center">
-        <h3>${isBanner ? "Let's set up a profile banner" : "Let's inscribe your avatar photo"}</h3>
-        <p class="field-hint">${isBanner ? "Add a banner image to your profile, or skip for now." : "Add a profile photo, or skip for now."}</p>
-        <button type="button" class="kns-wizard-photo ${isBanner ? "banner" : "avatar"}" data-kns-wizard-action="choose-photo" ${img.submitting ? "disabled" : ""}>
-          ${preview ? `<img src="${escapeHtml(preview)}" alt="" />` : `<span class="kns-wizard-photo-placeholder">＋<small>Choose Photo</small></span>`}
-        </button>
-        <input type="file" accept="image/*" hidden data-kns-wizard-file />
-        ${img.error ? `<p class="field-error">${escapeHtml(img.error)}</p>` : ""}
-        ${img.submitting ? `<p class="field-hint">This could take a few minutes while it confirms on-chain.</p>` : ""}
-        <button type="button" class="primary-button full" data-kns-wizard-action="inscribe-image" ${img.blob && !img.submitting ? "" : "disabled"}>${img.submitting ? "Inscribing…" : "Inscribe"}</button>
-        ${knsWizardBar({ nextEnabled: !img.submitting, backEnabled: !img.submitting })}
-      </div>`;
-      break;
-    }
-    case "details": {
-      const d = w.details;
-      if (!d.values) {
-        const p = w.existing?.profile || {};
-        d.values = { bio: p.bio || "", website: p.website || "", x: p.x || "", telegram: p.telegram || "", discord: p.discord || "", github: p.github || "", contactEmail: p.contactEmail || "" };
-        d.original = { ...d.values };
-      }
-      const field = (label, key, multiline = false) => {
-        const st = d.statuses[key];
-        const mark = st === "submitting" ? `<span class="kaposts-spinner small" aria-hidden="true"></span>` : st === "done" ? `<span class="kns-wizard-done">✓</span>` : "";
-        const control = multiline
-          ? `<textarea class="field-input" rows="3" data-kns-wizard-field="${key}" ${d.submitting ? "disabled" : ""}>${escapeHtml(d.values[key])}</textarea>`
-          : `<input class="field-input" type="text" data-kns-wizard-field="${key}" value="${escapeHtml(d.values[key])}" ${d.submitting ? "disabled" : ""} />`;
-        return `<label class="field-label compact kns-wizard-field"><span class="kns-wizard-field-head">${label} ${mark}</span>${control}</label>`;
-      };
-      html = `<div class="kns-wizard-form">
-        <h3>Let's add more details about yourself</h3>
-        <p class="field-hint">You need at least 2 ${KAS_UNIT} to fill in all fields.</p>
-        ${field("Bio", "bio", true)}${field("Website", "website")}${field("X (Twitter)", "x")}${field("Telegram", "telegram")}${field("Discord", "discord")}${field("GitHub", "github")}${field("Contact Email", "contactEmail")}
-        ${d.submitting ? `<p class="field-hint"><span class="kaposts-spinner small" aria-hidden="true"></span> ${escapeHtml(d.progress)}<br>This could take a few minutes while it confirms on-chain.</p>` : ""}
-        ${d.error ? `<p class="field-error">${escapeHtml(d.error)}</p>` : ""}
-        ${knsWizardBar({ nextEnabled: !d.submitting, backEnabled: !d.submitting })}
-      </div>`;
-      break;
-    }
-    case "finished":
-      html = `<div class="kns-wizard-center">
-        <div class="kns-wizard-icon">🎉</div>
-        <h3>You have now finished your KNS profile creation!</h3>
-        <button type="button" class="primary-button full" data-kns-wizard-action="done">Done</button>
-      </div>`;
-      break;
-  }
-  knsWizardBodyEl.innerHTML = html;
-  const qr = knsWizardBodyEl.querySelector("[data-kns-wizard-qr]");
-  if (qr && address) engine.drawQrFor(qr, address, { dark: "#06110f", light: "#ffffff" }).catch(() => {});
-  if (w.step === "domain") knsWizardBodyEl.querySelector("[data-kns-wizard-domain]")?.focus();
-}
-
-async function knsWizardCheckFunding() {
-  const w = knsWizard;
-  if (!w) return;
-  setKnsWizardStep("checkingFunds");
-  try {
-    await ensureRuntimes({ quiet: true });
-    const balance = await engine.balance();
-    const kas = Number(balance.totalKas);
-    if (!knsWizard || knsWizard !== w) return;
-    w.balanceKas = kas;
-    w.fundingError = "";
-    setKnsWizardStep(Number.isFinite(kas) && kas >= KNS_WIZARD_MIN_FUNDING_KAS ? "domain" : "needsFunding");
-  } catch (error) {
-    if (!knsWizard || knsWizard !== w) return;
-    w.balanceKas = 0;
-    w.fundingError = error?.message || "Could not check your balance.";
-    setKnsWizardStep("needsFunding");
-  }
-}
-
-// Re-reads the domains on the chatting address, past the cache: the point of Refresh is to see
-// a transfer that just landed.
-async function knsWizardScanDomains() {
-  const w = knsWizard;
-  if (!w || w.scanning) return;
-  w.scanning = true;
-  renderKnsWizard();
-  try {
-    engine.clearKnsCache(engine.address);
-    const info = await engine.fetchKnsAddressInfo(engine.address);
-    if (knsWizard !== w) return;
-    w.foundDomains = info?.allDomains || [];
-  } catch { if (knsWizard === w) w.foundDomains = []; }
-  if (knsWizard !== w) return;
-  w.scanning = false;
-  renderKnsWizard();
-}
-
-async function loadKnsWizardFeeTiers() {
-  const w = knsWizard;
-  if (!w || w.domain.feeTiers) return;
-  try {
-    const tiers = await engine.fetchKnsFeeTiers();
-    if (knsWizard !== w) return;
-    w.domain.feeTiers = tiers;
-    w.domain.feeError = "";
-  } catch (error) {
-    if (knsWizard !== w) return;
-    w.domain.feeError = error?.message || "Could not load fees.";
-  }
-  if (w.step === "domain") renderKnsWizard();
-}
-
-function scheduleKnsWizardAvailability() {
-  const w = knsWizard;
-  if (!w) return;
-  const d = w.domain;
-  if (d.timer) clearTimeout(d.timer);
-  d.submitError = "";
-  d.availability = null;
-  const raw = d.input.trim();
-  if (!raw) { d.checkError = ""; d.checking = false; renderKnsWizardDomainStatus(); return; }
-  const label = normalizeDomainLabel(raw);
-  if (!label) { d.checkError = "Use lowercase letters, numbers, and hyphen."; d.checking = false; renderKnsWizardDomainStatus(); return; }
-  d.checkError = "";
-  d.checking = true;
-  renderKnsWizardDomainStatus();
-  d.timer = window.setTimeout(async () => {
-    try {
-      const result = await engine.checkKnsDomainAvailability(`${label}.kas`);
-      if (knsWizard !== w || d.input.trim() !== raw) return;
-      d.availability = result;
-      d.checkError = "";
-    } catch (error) {
-      if (knsWizard !== w || d.input.trim() !== raw) return;
-      d.availability = null;
-      d.checkError = error?.message || "Could not check availability.";
-    }
-    d.checking = false;
-    renderKnsWizardDomainStatus();
-  }, 350);
-}
-// The domain step re-renders around the input rather than replacing it, so typing is never
-// interrupted: the field keeps focus and its caret.
-function renderKnsWizardDomainStatus() {
-  const input = knsWizardBodyEl?.querySelector("[data-kns-wizard-domain]");
-  const caret = input ? input.selectionStart : null;
-  renderKnsWizard();
-  const next = knsWizardBodyEl?.querySelector("[data-kns-wizard-domain]");
-  if (next && caret != null) { next.focus(); try { next.setSelectionRange(caret, caret); } catch {} }
-}
-
-async function knsWizardInscribeDomain() {
-  const w = knsWizard;
-  if (!w) return;
-  const d = w.domain;
-  const label = normalizeDomainLabel(d.input);
-  if (!label) { d.submitError = "Invalid domain label"; renderKnsWizard(); return; }
-  d.submitting = true;
-  d.submitError = "";
-  d.progress = "";
-  renderKnsWizard();
-  try {
-    const result = await engine.inscribeKnsDomain(label, {
-      onStatus: (event) => { if (knsWizard === w) { d.progress = knsStatusMessage(event.status); renderKnsWizard(); } },
-    });
-    if (knsWizard !== w) return;
-    w.wroteSomething = true;
-    w.domainName = result.domain;
-    w.assetId = result.assetId || null;
-    d.submitting = false;
-    engine.clearKnsCache(engine.address);
-    if (!w.assetId) {
-      try { const info = await engine.fetchKnsAddressInfo(engine.address); w.assetId = info?.allDomains?.find((x) => x.fullName === result.domain)?.inscriptionId || info?.primaryInscriptionId || null; } catch {}
-    }
-    setKnsWizardStep("domainConfirmed");
-  } catch (error) {
-    if (knsWizard !== w) return;
-    d.submitting = false;
-    d.submitError = error?.message || "Registration failed.";
-    renderKnsWizard();
-  }
-}
-
-async function knsWizardInscribeImage() {
-  const w = knsWizard;
-  if (!w || !w.image.blob || w.image.submitting) return;
-  const isBanner = w.step === "banner";
-  const img = w.image;
-  if (!w.assetId) { img.error = "Domain isn't confirmed yet. Try again shortly."; renderKnsWizard(); return; }
-  img.submitting = true;
-  img.error = "";
-  renderKnsWizard();
-  try {
-    const { imageUrl } = await engine.uploadKnsProfileImage(w.assetId, isBanner ? "banner" : "avatar", img.blob);
-    await engine.submitKnsProfileField(w.assetId, isBanner ? "bannerUrl" : "avatarUrl", imageUrl);
-    if (knsWizard !== w) return;
-    w.wroteSomething = true;
-    if (w.existing) { w.existing.profile = { ...(w.existing.profile || {}), [isBanner ? "bannerUrl" : "avatarUrl"]: imageUrl }; }
-    img.submitting = false;
-    img.blob = null;
-    setKnsWizardStep(isBanner ? "avatar" : "details");
-  } catch (error) {
-    if (knsWizard !== w) return;
-    img.submitting = false;
-    img.error = error?.message || "Inscribing the image failed.";
-    renderKnsWizard();
-  }
-}
-
-const KNS_WIZARD_FIELD_NAMES = { bio: "Bio", website: "Website", x: "X", telegram: "Telegram", discord: "Discord", github: "GitHub", contactEmail: "Email" };
-async function knsWizardSubmitDetails() {
-  const w = knsWizard;
-  if (!w) return;
-  const d = w.details;
-  if (!w.assetId) { setKnsWizardStep("finished"); return; }
-  const toSubmit = Object.entries(d.values || {})
-    .filter(([key, value]) => d.statuses[key] !== "done" && value.trim() !== (d.original?.[key] || ""))
-    .map(([key, value]) => [key, value.trim()]);
-  if (!toSubmit.length) { setKnsWizardStep("finished"); return; }
-  try { engine.validateKnsProfileFields(Object.fromEntries(toSubmit)); }
-  catch (error) { d.error = error.message; renderKnsWizard(); return; }
-  // One confirmation for every field, as every send asks first; cancelled, nothing is written.
-  try { await engine.confirmKnsProfileUpdate(toSubmit.length); }
-  catch (error) { if (error?.code !== "SEND_CANCELLED") { d.error = error?.message || "Could not confirm."; renderKnsWizard(); } return; }
-  if (knsWizard !== w) return;
-  d.submitting = true;
-  d.error = "";
-  renderKnsWizard();
-  for (const [key, value] of toSubmit) {
-    d.statuses[key] = "submitting";
-    d.progress = `Inscribing ${KNS_WIZARD_FIELD_NAMES[key] || key}...`;
-    renderKnsWizard();
-    try {
-      await engine.submitKnsProfileField(w.assetId, key, value, { confirmed: true });
-      if (knsWizard !== w) return;
-      d.statuses[key] = "done";
-      w.wroteSomething = true;
-    } catch (error) {
-      if (knsWizard !== w) return;
-      d.submitting = false;
-      delete d.statuses[key];
-      d.error = `Failed to inscribe ${KNS_WIZARD_FIELD_NAMES[key] || key}: ${error?.message || "unknown error"}`;
-      renderKnsWizard();
-      return;
-    }
-  }
-  d.submitting = false;
-  setKnsWizardStep("finished");
-}
-
-knsWizardBodyEl?.addEventListener("input", (event) => {
-  const w = knsWizard;
-  if (!w) return;
-  const domainInput = event.target.closest("[data-kns-wizard-domain]");
-  if (domainInput) { w.domain.input = domainInput.value; scheduleKnsWizardAvailability(); return; }
-  const field = event.target.closest("[data-kns-wizard-field]");
-  if (field && w.details.values) w.details.values[field.dataset.knsWizardField] = field.value;
-});
-knsWizardBodyEl?.addEventListener("change", async (event) => {
-  const w = knsWizard;
-  const fileInput = event.target.closest("[data-kns-wizard-file]");
-  if (!w || !fileInput) return;
-  const file = fileInput.files?.[0];
-  fileInput.value = "";
-  if (!file) return;
-  const picked = await readKnsImageFile(file, null);
-  if (knsWizard !== w || !picked) return;
-  w.image.blob = picked.blob;
-  w.image.dataUrl = picked.dataUrl;
-  w.image.error = "";
-  renderKnsWizard();
-});
-knsWizardBodyEl?.addEventListener("click", async (event) => {
-  const w = knsWizard;
-  if (!w) return;
-  const pick = event.target.closest("[data-kns-wizard-pick]");
-  if (pick) {
-    const domain = w.foundDomains.find((d) => (d.inscriptionId || d.fullName) === pick.dataset.knsWizardPick);
-    if (domain) { w.assetId = domain.inscriptionId || null; w.domainName = domain.fullName; setKnsWizardStep("domainConfirmed"); }
-    return;
-  }
-  if (event.target.closest("[data-kns-wizard-back]")) {
-    const previous = knsWizardPrevious();
-    if (previous) setKnsWizardStep(previous);
-    return;
-  }
-  if (event.target.closest("[data-kns-wizard-next]")) {
-    if (w.step === "transferExistingDomain") setKnsWizardStep("pickDomain");
-    else if (w.step === "domainConfirmed") setKnsWizardStep("banner");
-    else if (w.step === "banner") setKnsWizardStep("avatar");
-    else if (w.step === "avatar") setKnsWizardStep("details");
-    else if (w.step === "details") knsWizardSubmitDetails();
-    return;
-  }
-  const action = event.target.closest("[data-kns-wizard-action]")?.dataset.knsWizardAction;
-  if (!action) return;
-  switch (action) {
-    case "have-yes": case "transfer-existing": setKnsWizardStep("transferExistingDomain"); knsWizardScanDomains(); break;
-    case "have-no": case "check-again": knsWizardCheckFunding(); break;
-    case "copy-address":
-      try { await copyTextToClipboard(engine.address); showCopyToast(addressCopiedToastText(engine.address)); } catch {}
-      break;
-    case "show-qr":
-      openChattingAddressScreen({ address: engine.address, balanceText: `${formatKnsKas(w.balanceKas ?? 0)} ${KAS_UNIT}`, subtitle: `Send around ${KNS_WIZARD_MIN_FUNDING_KAS} Kaspa to this address to have enough for full KNS profile creation and chatting for a while` });
-      break;
-    case "refresh-domains": knsWizardScanDomains(); break;
-    case "inscribe-domain": knsWizardInscribeDomain(); break;
-    case "skip-domain":
-      if (w.existing?.domainName) { w.domainName = w.existing.domainName; w.assetId = w.existing.assetId; setKnsWizardStep("domainConfirmed"); }
-      break;
-    case "choose-photo": knsWizardBodyEl.querySelector("[data-kns-wizard-file]")?.click(); break;
-    case "inscribe-image": knsWizardInscribeImage(); break;
-    case "done": w.wroteSomething = true; closeKnsRegisterModal(); break;
-  }
-});
-
-document.querySelectorAll("[data-close-kns-register]").forEach((button) => button.addEventListener("click", closeKnsRegisterModal));
-
-// --- KNS profile editor (for an already-registered domain) -------------------
-
-const knsEditorModal = document.querySelector("[data-kns-editor-modal]");
-
-// Pending image choices for the editor: null = untouched, "remove" = clear the field, or
-// { blob, dataUrl } = upload this on Save.
-let knsEditorAvatar = null;
-let knsEditorBanner = null;
-const KNS_FIELD_LABELS = {
-  avatarUrl: "Avatar", bannerUrl: "Banner", bio: "Bio", x: "X", website: "Website", telegram: "Telegram",
-  discord: "Discord", contactEmail: "Email", github: "GitHub", redirectUrl: "Redirect",
-};
-
-function knsEditorPendingChanges() {
-  const changes = [];
-  if (knsEditorAvatar === "remove") changes.push({ key: "avatarUrl", label: "Avatar (removed)" });
-  else if (knsEditorAvatar) changes.push({ key: "avatarUrl", label: "Avatar" });
-  if (knsEditorBanner === "remove") changes.push({ key: "bannerUrl", label: "Banner (removed)" });
-  else if (knsEditorBanner) changes.push({ key: "bannerUrl", label: "Banner" });
-  document.querySelectorAll("[data-kns-editor-field]").forEach((el) => {
-    const key = el.dataset.knsEditorField;
-    const current = String(knsEditFields()?.[key] || "").trim();
-    if (el.value.trim() !== current) changes.push({ key, label: KNS_FIELD_LABELS[key] || key, value: el.value });
-  });
-  return changes;
-}
-
-function updateKnsEditorSaveState() {
-  const saveBtn = document.querySelector("[data-kns-editor-save]");
-  if (saveBtn) saveBtn.disabled = knsEditorPendingChanges().length === 0;
-}
-
-function renderKnsEditorImages() {
-  const avatarPreview = document.querySelector("[data-kns-avatar-preview]");
-  const bannerPreview = document.querySelector("[data-kns-banner-preview]");
-  const removeAvatar = document.querySelector("[data-kns-remove-avatar]");
-  const removeBanner = document.querySelector("[data-kns-remove-banner]");
-  const currentAvatar = knsEditorAvatar === "remove" ? "" : (knsEditorAvatar?.dataUrl || knsEditFields()?.avatarUrl || "");
-  const currentBanner = knsEditorBanner === "remove" ? "" : (knsEditorBanner?.dataUrl || knsEditFields()?.bannerUrl || "");
-  if (avatarPreview) {
-    avatarPreview.innerHTML = currentAvatar
-      ? `<img src="${escapeHtml(currentAvatar)}" alt="" />`
-      : `<svg viewBox="0 0 24 24"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.118a7.5 7.5 0 0 1 15 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.5-1.632Z"/></svg>`;
-  }
-  if (bannerPreview) {
-    bannerPreview.hidden = !currentBanner;
-    // DSK-016: a picked picture is a data: URL; the saved one is a remote KNS URL.
-    const safeBanner = safeCssUrl(currentBanner, { allowLocal: true });
-    bannerPreview.style.backgroundImage = safeBanner ? `url("${safeBanner}")` : "";
-    fitBackgroundBanner(bannerPreview, safeBanner);
-  }
-  if (removeAvatar) removeAvatar.hidden = !currentAvatar;
-  if (removeBanner) removeBanner.hidden = !currentBanner;
-  updateKnsEditorSaveState();
-}
-
-// target: { assetId, name, fields } for one domain's own profile; none edits the primary.
-function openKnsEditor(target = null) {
-  knsEditorTarget = target;
-  if (!knsEditorModal || !knsEditAssetId()) {
-    showCopyToast("Your domain isn't confirmed yet. Try again shortly.");
-    return;
-  }
-  document.querySelector("[data-kns-editor-error]").hidden = true;
-  document.querySelector("[data-kns-editor-progress]").hidden = true;
-  document.querySelectorAll("[data-kns-editor-field]").forEach((el) => {
-    el.value = knsEditFields()?.[el.dataset.knsEditorField] || "";
-  });
-  knsEditorAvatar = null;
-  knsEditorBanner = null;
-  const nameEl = document.querySelector("[data-kns-editor-domain-name]");
-  const assetEl = document.querySelector("[data-kns-editor-asset-id]");
-  if (nameEl) nameEl.textContent = knsEditorTarget?.name || ownKnsPrimaryDomain || "KNS Profile";
-  if (assetEl) { assetEl.textContent = knsEditAssetId() || "--"; assetEl.title = knsEditAssetId() || ""; }
-  renderKnsEditorImages();
-  knsEditorModal.hidden = false;
-}
-document.querySelectorAll("[data-kns-editor-field]").forEach((el) => el.addEventListener("input", updateKnsEditorSaveState));
-
-async function readKnsImageFile(file, statusEl) {
-  if (!file) return null;
-  if (statusEl) statusEl.hidden = false;
-  try {
-    const dataUrl = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-    return { blob: file, dataUrl };
-  } finally {
-    if (statusEl) statusEl.hidden = true;
-  }
-}
-document.querySelector("[data-kns-choose-avatar]")?.addEventListener("click", () => document.querySelector("[data-kns-avatar-file]")?.click());
-document.querySelector("[data-kns-choose-banner]")?.addEventListener("click", () => document.querySelector("[data-kns-banner-file]")?.click());
-document.querySelector("[data-kns-avatar-file]")?.addEventListener("change", async (event) => {
-  const file = event.target.files?.[0];
-  event.target.value = "";
-  const picked = await readKnsImageFile(file, document.querySelector("[data-kns-avatar-status]"));
-  if (picked) { knsEditorAvatar = picked; renderKnsEditorImages(); }
-});
-document.querySelector("[data-kns-banner-file]")?.addEventListener("change", async (event) => {
-  const file = event.target.files?.[0];
-  event.target.value = "";
-  const picked = await readKnsImageFile(file, document.querySelector("[data-kns-banner-status]"));
-  if (picked) { knsEditorBanner = picked; renderKnsEditorImages(); }
-});
-document.querySelector("[data-kns-remove-avatar]")?.addEventListener("click", () => {
-  knsEditorAvatar = knsEditFields()?.avatarUrl ? "remove" : null;
-  renderKnsEditorImages();
-});
-document.querySelector("[data-kns-remove-banner]")?.addEventListener("click", () => {
-  knsEditorBanner = knsEditFields()?.bannerUrl ? "remove" : null;
-  renderKnsEditorImages();
-});
-
-// The persistent save banner (iOS): "Preparing profile update..." through each
-// "Updating X (n/m)..." until the save finishes, then a red banner with Retry if anything failed.
-let knsSaveBannerEl = null;
-let failedKnsUpdates = {};
-// The domain and account those failed writes were for: Retry writes them there or nowhere, never
-// to whichever domain the editor (or a switched-to account) has open by then.
-let failedKnsUpdatesTarget = null;
-function showKnsSaveBanner(text) {
-  if (!knsSaveBannerEl) {
-    knsSaveBannerEl = document.createElement("div");
-    knsSaveBannerEl.className = "kns-save-banner";
-    document.body.appendChild(knsSaveBannerEl);
-  }
-  knsSaveBannerEl.className = "kns-save-banner";
-  knsSaveBannerEl.innerHTML = `<span class="kaposts-spinner" aria-hidden="true"></span><span>${escapeHtml(text)}</span>`;
-  knsSaveBannerEl.hidden = false;
-}
-function showKnsFailedBanner() {
-  const count = Object.keys(failedKnsUpdates).length;
-  if (!count) { hideKnsSaveBanner(); return; }
-  if (!knsSaveBannerEl) showKnsSaveBanner("");
-  knsSaveBannerEl.className = "kns-save-banner failed";
-  knsSaveBannerEl.innerHTML = `<span>⚠</span><span>${count} profile update${count === 1 ? "" : "s"} failed</span>
-    <button type="button" data-kns-retry-failed>Retry</button><button type="button" class="dismiss" data-kns-dismiss-failed aria-label="Dismiss">×</button>`;
-  knsSaveBannerEl.hidden = false;
-}
-function hideKnsSaveBanner() { if (knsSaveBannerEl) knsSaveBannerEl.hidden = true; }
-document.addEventListener("click", (event) => {
-  if (event.target.closest("[data-kns-dismiss-failed]")) { failedKnsUpdates = {}; hideKnsSaveBanner(); return; }
-  if (event.target.closest("[data-kns-retry-failed]")) retryFailedKnsUpdates();
-});
-
-async function runKnsProfileWrites(assetId, fields) {
-  const keys = Object.keys(fields);
-  const results = [];
-  // Failures kept from another domain or account are not this run's to retry.
-  const owner = engine.address || "";
-  if (failedKnsUpdatesTarget?.assetId !== assetId || failedKnsUpdatesTarget?.owner !== owner) failedKnsUpdates = {};
-  failedKnsUpdatesTarget = { assetId, owner };
-  // One confirmation for the whole save, as every send asks first. Cancelled: nothing written,
-  // and nothing marked failed (there is nothing to retry).
-  if (keys.length) {
-    try { await engine.confirmKnsProfileUpdate(keys.length); }
-    catch (error) {
-      if (error?.code === "SEND_CANCELLED") { hideKnsSaveBanner(); return Object.assign([], { cancelled: true }); }
-      throw error;
-    }
-  }
-  for (let i = 0; i < keys.length; i += 1) {
-    const key = keys[i];
-    showKnsSaveBanner(`Updating ${KNS_FIELD_LABELS[key] || key} (${i + 1}/${keys.length})...`);
-    try {
-      await engine.submitKnsProfileField(assetId, key, fields[key], { confirmed: true });
-      results.push({ key, ok: true });
-      delete failedKnsUpdates[key];
-    } catch (error) {
-      results.push({ key, ok: false, error: error?.message || "" });
-      failedKnsUpdates[key] = fields[key];
-    }
-  }
-  return results;
-}
-
-async function retryFailedKnsUpdates() {
-  const fields = { ...failedKnsUpdates };
-  const target = failedKnsUpdatesTarget;
-  if (!Object.keys(fields).length || !target?.assetId) return;
-  if (target.owner !== (engine.address || "")) {
-    // Another account is open now: its key must not write the old account's profile anywhere.
-    failedKnsUpdates = {};
-    failedKnsUpdatesTarget = null;
-    hideKnsSaveBanner();
-    showCopyToast("Those profile updates were for another account, so they were not retried.");
-    return;
-  }
-  const results = await runKnsProfileWrites(target.assetId, fields);
-  if (results.cancelled) { showKnsFailedBanner(); return; } // the failures stay for the next Retry
-  engine.clearKnsCache(engine.address);
-  await refreshOwnKnsProfile();
-  const failed = results.filter((r) => !r.ok);
-  if (failed.length) { showKnsFailedBanner(); showCopyToast(`Retry failed: ${failed[0].error || KNS_FIELD_LABELS[failed[0].key]}`); }
-  else { hideKnsSaveBanner(); showCopyToast(results.length === 1 ? `${KNS_FIELD_LABELS[results[0].key]} updated.` : "KNS profile updated."); }
-}
-
-document.querySelectorAll("[data-close-kns-editor]").forEach((button) => {
-  button.addEventListener("click", () => { if (knsEditorModal) knsEditorModal.hidden = true; });
-});
-
-// iOS-style "setup guide" — an in-app walkthrough opened from the editor (stacks on top of it).
-document.querySelector("[data-open-kns-guide]")?.addEventListener("click", () => {
-  if (knsEditorModal) knsEditorModal.hidden = true;
-  openKnsProfileWizard();
-});
-
-document.querySelector("[data-kns-editor-save]")?.addEventListener("click", async () => {
-  const errorEl = document.querySelector("[data-kns-editor-error]");
-  const saveBtn = document.querySelector("[data-kns-editor-save]");
-  if (errorEl) errorEl.hidden = true;
-  if (!knsEditAssetId()) {
-    if (errorEl) { errorEl.textContent = "Your domain isn't confirmed yet."; errorEl.hidden = false; }
-    return;
-  }
-  const changes = knsEditorPendingChanges();
-  if (!changes.length) { showCopyToast("No KNS profile changes detected."); return; }
-
-  // Text fields are checked before anything is spent.
-  const textFields = {};
-  for (const change of changes) if (change.value !== undefined) textFields[change.key] = change.value;
-  let validated = {};
-  try {
-    validated = engine.validateKnsProfileFields(textFields);
-  } catch (error) {
-    if (errorEl) { errorEl.textContent = error.message; errorEl.hidden = false; }
-    return;
-  }
-
-  // iOS "Confirm Changes": what will be written, and what each write costs.
-  const confirmed = await confirmDialog({
-    title: "Confirm Changes",
-    message: `${changes.length} change${changes.length === 1 ? "" : "s"}. Each is submitted as its own on-chain transaction from your chatting address:\n${changes.map((c) => `• ${c.label}`).join("\n")}\nEach transaction temporarily uses ~2 ${KAS_UNIT}; ~1 ${KAS_UNIT} returns immediately as change, so only the small network fee is a real cost.`,
-    confirmLabel: "Confirm",
-  });
-  if (!confirmed) return;
-
-  if (saveBtn) saveBtn.disabled = true;
-  if (knsEditorModal) knsEditorModal.hidden = true;
-  const assetId = knsEditAssetId();
-  const hadPrimary = Boolean(ownKnsPrimaryDomain);
-  try {
-    showKnsSaveBanner("Preparing profile update...");
-    // Images first: the upload hands back the URL that the profile field then carries.
-    const fields = { ...validated };
-    if (knsEditorAvatar === "remove") fields.avatarUrl = "";
-    else if (knsEditorAvatar) {
-      showKnsSaveBanner("Processing avatar...");
-      fields.avatarUrl = (await engine.uploadKnsProfileImage(assetId, "avatar", knsEditorAvatar.blob)).imageUrl;
-    }
-    if (knsEditorBanner === "remove") fields.bannerUrl = "";
-    else if (knsEditorBanner) {
-      showKnsSaveBanner("Processing banner...");
-      fields.bannerUrl = (await engine.uploadKnsProfileImage(assetId, "banner", knsEditorBanner.blob)).imageUrl;
-    }
-    const ordered = {};
-    for (const key of KNS_PROFILE_FIELD_EDIT_ORDER) if (key in fields) ordered[key] = fields[key];
-    const results = await runKnsProfileWrites(assetId, ordered);
-    if (results.cancelled) return; // nothing written; the editor keeps what was typed
-    const okCount = results.filter((r) => r.ok).length;
-    let primaryFailure = "";
-    if (okCount > 0 && !hadPrimary) {
-      // The edited domain becomes the primary when none is set, so the profile just written
-      // is the one everyone resolves (iOS promoteEditedDomainToPrimaryIfNeeded).
-      try { await engine.setKnsPrimaryDomain(assetId); } catch (error) { primaryFailure = error?.message || "unknown error"; }
-    }
-    engine.clearKnsCache(engine.address);
-    await refreshOwnKnsProfile();
-    knsEditorAvatar = null;
-    knsEditorBanner = null;
-    const failed = results.filter((r) => !r.ok);
-    if (!failed.length) {
-      hideKnsSaveBanner();
-      showCopyToast(primaryFailure ? `Set primary failed: ${primaryFailure}` : "KNS profile updated.");
-    } else if (okCount > 0) {
-      showKnsFailedBanner();
-      const reason = failed[0].error ? ` ${failed[0].error}` : "";
-      showCopyToast(`Updated ${okCount}/${results.length}. Failed: ${failed.map((f) => KNS_FIELD_LABELS[f.key] || f.key).join(", ")}.${reason}`);
-    } else {
-      showKnsFailedBanner();
-      showCopyToast(failed[0].error ? `KNS profile update failed: ${failed[0].error}` : "KNS profile update failed.");
-    }
-  } catch (error) {
-    hideKnsSaveBanner();
-    showCopyToast(`KNS profile update failed: ${error?.message || "unknown error"}`);
-  } finally {
-    if (saveBtn) saveBtn.disabled = false;
-  }
-});
-
 // No "Recover Conversations from Blockchain" in Settings > Chat History (owner, iOS
 // chatHistoryPage has only Export and Import).
 
@@ -18195,29 +16457,15 @@ function setCreateChatError(message = "") {
 }
 
 // Live validity feedback under the Create Chat address field, matching iOS's
-// "Valid address" / "Resolved: name.kas" / "Invalid address format" states.
+// "Valid address" / "Resolved: name.kachat" / "Invalid address format" states.
 let createChatResolveToken = 0;
 
-// "Other domains" (iOS a0dbc15, the shared dropdown since 6ac48a7): what the same name points to
-// on the other services, and the one the new chat will use. Picking another switches the chat to it.
-let createChatNameResults = [];
+// The .kachat name the new chat will use (K 518fdc8c: one answer).
 let createChatPickedName = "";
-let createChatPickedTld = null;
 function createChatResolvedStatusHtml(picked) {
   return `<span class="create-chat-status-good">✓ Resolved: ${escapeHtml(picked.name)}</span>`
-    + `<span class="create-chat-status-mono">${escapeHtml(picked.address)}</span>`
-    + otherDomainsHtml({ resolutions: createChatNameResults, selectedTld: picked.tld ?? null });
+    + `<span class="create-chat-status-mono">${escapeHtml(picked.address)}</span>`;
 }
-document.querySelector("[data-create-chat-status]")?.addEventListener("click", (event) => {
-  const entry = pickOtherDomain(event, createChatNameResults);
-  if (!entry) return;
-  createChatPickedName = entry.name;
-  createChatPickedTld = entry.tld;
-  createChatResolvedAddress = entry.address;
-  renderCreateChatStatus(createChatResolvedStatusHtml(entry));
-  if (createChatAddButton) createChatAddButton.disabled = false;
-  renderCreateChatPreview();
-});
 function renderCreateChatStatus(html) {
   const statusEl = document.querySelector("[data-create-chat-status]");
   if (!statusEl) return;
@@ -18229,9 +16477,7 @@ function updateCreateChatAddState() {
   if (!createChatAddButton || !contactAddressInput) return;
   const raw = lowercasedKaspaAddress(String(contactAddressInput.value || "").trim());
   const token = ++createChatResolveToken;
-  createChatNameResults = [];
   createChatPickedName = "";
-  createChatPickedTld = null;
 
   if (!raw) {
     renderCreateChatStatus("");
@@ -18258,9 +16504,8 @@ function updateCreateChatAddState() {
   }
 
   if (engine.looksLikeName(raw)) {
-    // A name on any service, .kachat first: the ending typed, else .kachat, .kas, .k, .kaspa
-    // (iOS 6ac48a7). Debounced live resolution so Add only enables for a name that exists.
-    renderCreateChatStatus('<span class="create-chat-status-muted">Looking up domain…</span>');
+    // A .kachat name. Debounced live resolution so Add only enables for a name that exists.
+    renderCreateChatStatus('<span class="create-chat-status-muted">Looking up username…</span>');
     createChatAddButton.disabled = true;
     createChatResolvedAddress = "";
     renderCreateChatPreview();
@@ -18269,18 +16514,14 @@ function updateCreateChatAddState() {
       try {
         const { results, resolution } = await engine.lookUpName(raw);
         if (token !== createChatResolveToken) return;
-        createChatNameResults = results || [];
         if (resolution?.ownerAddress) {
           createChatPickedName = resolution.domain || raw;
-          createChatPickedTld = resolution.tld || null;
-          renderCreateChatStatus(createChatResolvedStatusHtml({ name: createChatPickedName, address: resolution.ownerAddress, tld: createChatPickedTld }));
+          renderCreateChatStatus(createChatResolvedStatusHtml({ name: createChatPickedName, address: resolution.ownerAddress }));
           createChatAddButton.disabled = false;
           createChatResolvedAddress = resolution.ownerAddress;
           renderCreateChatPreview();
         } else {
-          // Nothing for the ending typed, but another service may have it (Other domains opens).
-          renderCreateChatStatus(`<span class="create-chat-status-bad">✕ ${escapeHtml(nameNotFoundText(raw, createChatNameResults))}</span>`
-            + otherDomainsHtml({ resolutions: createChatNameResults }));
+          renderCreateChatStatus(`<span class="create-chat-status-bad">✕ ${escapeHtml(nameNotFoundText(raw, results || []))}</span>`);
         }
       } catch {
         if (token !== createChatResolveToken) return;
@@ -18300,7 +16541,7 @@ function updateCreateChatAddState() {
 // Create Chat: who you are about to add, and who you could pick instead
 // ---------------------------------------------------------------------------
 
-// The address the modal will actually use: a KNS domain's resolved owner, or the typed address
+// The address the modal will actually use: a .kachat name's resolved owner, or the typed address
 // once it validates. Empty until one of those is true, so nothing downstream ever renders a
 // half-typed address as though it were a person.
 let createChatResolvedAddress = "";
@@ -18315,48 +16556,35 @@ function createChatEffectiveAddress() {
 /// A raw address tells you nothing about whether you typed the right one; a face and a domain do.
 /// Only ever shown for an address the app is confident about - a card flickering through wrong
 /// faces while you type would be worse than no card at all.
-/// The name a resolution card shows (iOS 6ac48a7 AddressResolutionCard.displayName): the domain
-/// that was typed, else the address's own .kachat name, else what KNS knows of it. When the .kachat
-/// answer is still on its way, `onLabel(address)` repaints once one lands (latest card per
-/// address; state lives on the function object, this can run before later declarations init).
+/// The name a resolution card shows (iOS 6ac48a7 AddressResolutionCard.displayName): the name that
+/// was typed, else the address's own .kachat name. When the .kachat answer is still on its way,
+/// `onLabel(address)` repaints once one lands.
 function resolutionCardName(address, domain = null, onLabel = null) {
   if (domain) return domain;
-  if (kachatNamesUiEnabled()) {
-    // Only a label the chain confirmed (KaPost iOS f954738 AddressResolutionCard): the indexer's
-    // word alone never names who you pay. The card is drawn again once the check is in.
-    const label = kachatVerifiedLabel(address);
-    if (label) return kachatNameDisplay(label);
-    const checking = verifyKachatLabel(address);
-    // Drawn again once a check that is running now ends (never for an answer already in, which
-    // would draw forever); each caller's repaint checks the address is still the one it shows.
-    if (typeof onLabel === "function" && kachatLabelChecking(address)) {
-      checking.then(() => { try { onLabel(address); } catch { /* cosmetic */ } });
-    }
+  // Only a label the chain confirmed (KaPost iOS f954738 AddressResolutionCard): the indexer's
+  // word alone never names who you pay. The card is drawn again once the check is in.
+  const label = kachatVerifiedLabel(address);
+  if (label) return kachatNameDisplay(label);
+  const checking = verifyKachatLabel(address);
+  // Drawn again once a check that is running now ends (never for an answer already in, which
+  // would draw forever); each caller's repaint checks the address is still the one it shows.
+  if (typeof onLabel === "function" && kachatLabelChecking(address)) {
+    checking.then(() => { try { onLabel(address); } catch { /* cosmetic */ } });
   }
-  const info = engine.peekKnsAddressInfo?.(address);
-  return info?.explicitPrimaryDomain || engine.peekKnsAddressProfile?.(address)?.domainName || null;
+  return null;
 }
 
-/// Whether a resolution card still waits on its lookup (iOS 6c8e75a, IOS-074): never for an
-/// invalid address or one already answered, and not once its lookup ended - a failed one too,
-/// which caches nothing, so "Looking up…" used to stay and every repaint fetched again. Ended
-/// lookups count for a minute (state on the function object, as resolutionCardName's).
+/// Whether a resolution card still waits on its lookup (iOS 6c8e75a, IOS-074): only while the
+/// address's .kachat label is being confirmed on the chain (KaPost iOS f954738); never for an
+/// invalid address, and not once the check ended, whatever its answer.
 function resolutionCardLooking(address) {
   if (!address || !isValidKaspaAddressString(address)) return false;
-  // a .kachat label still being confirmed on the chain (KaPost iOS f954738)
-  if (kachatLabelChecking(address)) return true;
-  if (engine.peekKnsAddressProfile?.(address) || engine.peekKnsAddressInfo?.(address)) return false;
-  const endedAt = resolutionCardLooking.ended?.get(address);
-  return !(endedAt && Date.now() - endedAt < 60_000);
+  return kachatLabelChecking(address);
 }
 
 /// A resolution card's lookup; settles once it ended, whatever the answer (iOS 6c8e75a).
 function resolutionCardLookUp(address) {
-  return Promise.allSettled([engine.getKnsAddressProfile?.(address), engine.getKnsAddressInfo?.(address)]).then(() => {
-    const ended = resolutionCardLooking.ended || (resolutionCardLooking.ended = new Map());
-    if (ended.size > 500) ended.clear();
-    ended.set(address, Date.now());
-  });
+  return Promise.resolve(verifyKachatLabel(address)).then(() => {}, () => {});
 }
 
 /// Which of this wallet's own addresses `address` is: "Chatting Address", or a spending address's
@@ -18386,10 +16614,10 @@ function ownAddressLabelFor(address) {
 }
 const OWN_ADDRESS_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="8" r="3.4"/><path d="M3.8 19c.9-3.3 3.3-5 6.2-5 1.4 0 2.6.4 3.6 1"/><path d="m15 17.5 2 2 4-4.5"/></svg>';
 
-/// The create-chat card, for every other place an address or a domain goes in (iOS ac0ef19):
+/// The create-chat card, for every other place an address or a username goes in (iOS ac0ef19):
 /// withdrawals, sends from an address, the portfolio, a group invite. The SCREEN does the
-/// resolving (.kachat first); this takes the outcome and shows the face, the name (the domain
-/// typed, else the address's own .kachat name, iOS 6ac48a7) and the address. Nil address, no
+/// resolving; this takes the outcome and shows the face, the name (the name typed, else the
+/// address's own .kachat name, iOS 6ac48a7) and the address. Nil address, no
 /// card. Fetches the profile once and calls `onLoaded` so the caller repaints.
 function addressResolutionCardHtml(address, { domain = null, onLoaded = null } = {}) {
   if (!address) return "";
@@ -18419,13 +16647,11 @@ function addressResolutionCardHtml(address, { domain = null, onLoaded = null } =
 
 /// The face on a resolution card (Create Chat, a group invite, and every send/withdraw field):
 /// the address's .kachat avatar - the picture its profile shows, through the same cache and relay
-/// retry as everywhere else - and the old KNS picture only where .kachat isn't the identity.
+/// retry as everywhere else.
 function resolutionAvatarInnerHtml(address) {
   const assigned = addressBookPhoto(address);
   if (assigned) return `<img src="${escapeHtml(assigned)}" alt="" />`;
-  if (kachatNamesUiEnabled()) return kachatAvatarImgHtml(address) || personGlyphSvg();
-  const avatarUrl = engine.peekKnsAddressProfile?.(address)?.profile?.avatarUrl || "";
-  return avatarUrl ? `<img src="${escapeHtml(avatarUrl)}" alt="" />` : personGlyphSvg();
+  return kachatAvatarImgHtml(address) || personGlyphSvg();
 }
 function resolutionAvatarHtml(address) {
   return `<span class="create-chat-preview-avatar" data-resolution-avatar="${escapeHtml(address)}">${resolutionAvatarInnerHtml(address)}</span>`;
@@ -18458,8 +16684,7 @@ function renderCreateChatPreview() {
     return;
   }
 
-  // The domain typed (or picked under Other domains), else the address's own .kachat name (iOS
-  // 6ac48a7 AddressResolutionCard).
+  // The name typed, else the address's own .kachat name (iOS 6ac48a7 AddressResolutionCard).
   const domain = resolutionCardName(address, createChatPickedName || null, (a) => { if (createChatEffectiveAddress() === a) renderCreateChatPreview(); });
   const known = (state.contacts || []).find((contact) => contact.address === address);
   // The domain the resolver already found beats waiting on a profile fetch: if you typed one,
@@ -18856,48 +17081,6 @@ function renderChats() {
     chatList.innerHTML = listHtml;
     lastChatListHtml = listHtml;
     chatRowSwipes?.refresh();
-  }
-
-  refreshVisibleKnsNames(visibleConversations);
-}
-
-// Background KNS refresh for the chat list: peek-rendered synchronously above
-// (possibly stale/absent), then quietly re-fetch and re-render once real data
-// lands. refreshKnsIfNeeded's own debounce/backoff keeps this cheap even
-// though renderChats() runs often.
-let knsChatListRefreshInFlight = false;
-async function refreshVisibleKnsNames(visibleConversations) {
-  // The contact KNS sweep only ever named people; with .kas names off as identity it has nothing to do.
-  if (knsChatListRefreshInFlight || !engine.address || !engine.knsNamesAsIdentity) return;
-  const contacts = visibleConversations
-    .map((entry) => contactForConversation(entry))
-    .filter((contact) => contact?.address);
-  if (!contacts.length) return;
-  knsChatListRefreshInFlight = true;
-  try {
-    const attempted = await engine.refreshKnsIfNeeded(contacts.map((contact) => contact.address));
-    let changed = false;
-    for (const contact of contacts) {
-      if (applyKnsPrimaryDomainToContact(contact)) changed = true;
-    }
-    if (changed) schedulePersistState();
-    if (attempted > 0 || changed) {
-      renderChats();
-      if (activeConversationId) {
-        const activeEntry = state.conversations.find((entry) => entry.id === activeConversationId);
-        const activeContact = activeEntry ? contactForConversation(activeEntry) : null;
-        if (activeContact) {
-          conversationName.textContent = displayNameForAddress(activeContact);
-          updateAvatarElement(conversationAvatarInitials, conversationAvatarImage, activeContact);
-          updateConversationBio(activeContact);
-          renderMessages(activeEntry);
-        }
-      }
-    }
-  } catch {
-    // best-effort background refresh; failures just leave the peeked cache as-is
-  } finally {
-    knsChatListRefreshInFlight = false;
   }
 }
 
@@ -19776,7 +17959,6 @@ function openConversation(conversationId) {
   // those two change; rebuilding the whole list on every open was a good part of its cost.
   if (!markChatRowOpened(conversationId)) renderChats();
   setActiveConversationId(conversationId);
-  if (applyKnsPrimaryDomainToContact(contact)) { persistState(); renderChats(); }
   conversationName.textContent = displayNameForAddress(contact);
   updateAvatarElement(conversationAvatarInitials, conversationAvatarImage, contact);
   updateConversationBio(contact);
@@ -19792,29 +17974,7 @@ function openConversation(conversationId) {
   // Ready to type on a computer. On a phone the keyboard waits for a tap on the field, as in the
   // iOS app: focusing here raised it over the thread on every open.
   if (!isTouchDevice()) window.setTimeout(() => composer.elements.message?.focus(), 0);
-
-  // The header name above is a synchronous cache-peek and may render before
-  // KNS data has ever been fetched for this address — refresh in the
-  // background and update it once real data lands, same idea as the chat
-  // list's own background refresh.
-  // Testnet: identity is .kachat (the header repaints on onKachatIdentityChange); KNS isn't asked.
-  if (!kachatNamesUiEnabled() && !engine.peekKnsAddressInfo(contact.address)) {
-    engine.fetchKnsAddressInfo(contact.address).then(() => {
-      const nameChanged = applyKnsPrimaryDomainToContact(contact);
-      if (nameChanged) { persistState(); renderChats(); }
-      if (activeConversationId === conversationId) conversationName.textContent = displayNameForAddress(contact);
-    }).catch(() => {});
-  }
-  if (!kachatNamesUiEnabled() && !engine.peekKnsAddressProfile(contact.address)) {
-    engine.fetchKnsAddressProfile(contact.address).then(() => {
-      if (activeConversationId === conversationId) {
-        updateAvatarElement(conversationAvatarInitials, conversationAvatarImage, contact);
-        updateConversationBio(contact);
-        renderMessages(conversationEntry);
-      }
-      renderChats();
-    }).catch(() => {});
-  }
+  // The header repaints on onKachatIdentityChange once the .kachat name or face lands.
 }
 
 // Matches iOS's ChatInfoView: opened from the conversation header (desktop
@@ -19844,10 +18004,10 @@ function openChatInfo() {
 function openChatInfoForAddress(address) {
   if (!address) return;
   let contact = state.contacts.find((entry) => entry.address === address);
-  // Your own User Info (iOS 95f50ca): who you are - name, avatar, KNS profile, address, domains,
+  // Your own User Info (iOS 95f50ca): who you are - name, avatar, profile, address, usernames,
   // share - and none of the per-contact rows. You are never added as your own contact.
   if (!contact && engine.address && address === engine.address) {
-    const name = knsDomainForAddress(address) || defaultAliasFor(address);
+    const name = defaultAliasFor(address);
     const createdAt = Date.now();
     contact = { id: "self-transient", name, nameIsCustom: false, address, avatar: initialsFor(name), createdAt, updatedAt: createdAt, relationshipState: "self", handshakeTxid: "" };
     openChatInfoFor(contact, null);
@@ -20003,57 +18163,10 @@ function openChatInfoFor(contact, conversationEntry) {
     });
   }
 
-  // Cleared to the address line until the KNS lookup answers, so the previous contact's bio
-  // never sits under this contact's name for the moment before the fetch lands.
-  renderChatInfoProfile(contact, null, [], null);
-  refreshChatInfoKnsSections(contact);
+  // Identity is .kachat (iOS e52357d): the banner, avatar, bio and names from the cached identity.
+  paintChatInfoKachat(contact);
 
   chatInfoOverlay.hidden = false;
-}
-
-// Chat Info always force-refreshes KNS info/profile on open (bypassing the
-// passive debounce the chat list uses) so domain selection is anchored to the
-// latest primary-domain metadata — matches iOS's ChatInfoView.task.
-async function refreshChatInfoKnsSections(contact) {
-  const token = ++chatInfoRequestToken;
-  // Testnet (iOS e52357d): identity is .kachat - no KNS profile fetch, pictures, bio or domains.
-  if (kachatNamesUiEnabled()) { paintChatInfoKachat(contact); return; }
-  const [info, profileInfo] = await Promise.all([
-    engine.fetchKnsAddressInfo(contact.address).catch(() => null),
-    engine.fetchKnsAddressProfile(contact.address).catch(() => null),
-  ]);
-  if (token !== chatInfoRequestToken || chatInfoContactId !== contact.id) return;
-
-  renderChatInfoDomains(info);
-  const banner = document.querySelector("[data-chat-info-banner]");
-  const bannerUrl = safeCssUrl(profileInfo?.profile?.bannerUrl); // DSK-016: remote KNS URL, http(s) only
-  if (banner) {
-    banner.hidden = !bannerUrl;
-    banner.style.backgroundImage = bannerUrl ? `url("${bannerUrl}")` : "";
-    fitBackgroundBanner(banner, bannerUrl);
-  }
-
-  const profile = profileInfo?.profile;
-  // A photo you assigned in Contacts overrides KNS, so never let a late KNS fetch replace it. The
-  // backup photo comes after the profile's avatar.
-  if (chatInfoAvatarImage && chatInfoAvatarInitials && !addressBookPhoto(contact.address)) {
-    const avatarSrc = profile?.avatarUrl || contact.photo;
-    if (avatarSrc) {
-      chatInfoAvatarImage.src = avatarSrc;
-      chatInfoAvatarImage.hidden = false;
-      chatInfoAvatarInitials.hidden = true;
-    } else {
-      chatInfoAvatarImage.hidden = true;
-      chatInfoAvatarImage.src = "";
-      chatInfoAvatarInitials.hidden = false;
-    }
-  }
-  renderChatInfoProfile(
-    contact,
-    profile,
-    Array.isArray(info?.allDomains) ? info.allDomains : [],
-    profileInfo?.domainName || info?.primaryDomain || null,
-  );
 }
 
 /// Testnet User Info (iOS e52357d, ChatInfoView): the .kachat banner, avatar, bio (click to expand,
@@ -20146,9 +18259,6 @@ function paintChatInfoKachat(contact) {
     if (text) text.textContent = url ? url.replace(/^https:\/\//, "") : "";
   }
 
-  if (chatInfoMore) { chatInfoMore.hidden = true; chatInfoMore.open = false; }
-  const domainsRow = document.querySelector("[data-chat-info-domains-row]");
-  if (domainsRow) domainsRow.hidden = true;
   const namesRow = document.querySelector("[data-chat-info-kachat-names-row]");
   if (namesRow) { namesRow.hidden = false; namesRow.disabled = names.length === 0; }
   const namesList = document.querySelector("[data-chat-info-kachat-names]");
@@ -20179,80 +18289,6 @@ function paintChatInfoKachat(contact) {
   }
 }
 
-/// The profile's links, in iOS's order, as label + value rows behind "More Info".
-const CHAT_INFO_PROFILE_LINKS = [
-  ["x", "X", (value) => KNSProfileLinkBuilder.xUrl(value)],
-  ["website", "Website", (value) => KNSProfileLinkBuilder.websiteUrl(value)],
-  ["telegram", "Telegram", (value) => KNSProfileLinkBuilder.telegramUrl(value)],
-  ["discord", "Discord", (value) => KNSProfileLinkBuilder.discordUrl(value)],
-  ["contactEmail", "Email", (value) => KNSProfileLinkBuilder.emailUrl(value)],
-  ["github", "GitHub", (value) => KNSProfileLinkBuilder.githubUrl(value)],
-  ["redirectUrl", "Redirect", (value) => KNSProfileLinkBuilder.websiteUrl(value)],
-];
-
-/// The one line under the contact's name, plus the "More Info" disclosure.
-///
-/// iOS shows exactly ONE of three things there: the address while the contact owns no KNS
-/// domain, their bio once they have one, and otherwise a short note saying whether there is any
-/// on-chain profile data at all. The links sit behind the disclosure rather than in a row of
-/// chips, so each one keeps the label that says what it is.
-function renderChatInfoProfile(contact, profile, domains, domainName = null) {
-  const bioText = String(profile?.bio || "").trim();
-  const links = CHAT_INFO_PROFILE_LINKS.filter(([field]) => Boolean(profile?.[field]));
-  // Owning a KNS identity is NOT the same as /assets returning a domain list. The reverse lookup
-  // can name the contact's domain while the asset list comes back empty - /assets keeps only
-  // VERIFIED domains, and a throttled request returns nothing at all - so trust either signal.
-  const hasKnsIdentity = domains.length > 0 || Boolean(domainName);
-
-  if (chatInfoAddressCaption && chatInfoBio) {
-    // The bio wins whenever there IS one. Gating it on the domain list meant a contact with a
-    // perfectly good profile showed their raw address instead: their name resolves through the
-    // reverse lookup, but an empty /assets list said "no domains" and sent this straight to the
-    // address branch. That is exactly what Chat Info looked like for a .kas contact.
-    if (bioText) {
-      chatInfoBio.textContent = bioText;
-      chatInfoBio.classList.remove("expanded");
-      chatInfoBio.hidden = false;
-      chatInfoAddressCaption.hidden = true;
-    } else if (!hasKnsIdentity) {
-      chatInfoAddressCaption.textContent = shortAddress(contact.address);
-      chatInfoAddressCaption.hidden = false;
-      chatInfoBio.hidden = true;
-    } else {
-      chatInfoAddressCaption.textContent = links.length
-        ? "On-chain profile data available."
-        : "No on-chain profile data yet.";
-      chatInfoAddressCaption.hidden = false;
-      chatInfoBio.hidden = true;
-    }
-  }
-
-  if (!chatInfoMore || !chatInfoSocialLinks) return;
-  chatInfoSocialLinks.replaceChildren();
-  for (const [field, label, builder] of links) {
-    const raw = profile[field];
-    const href = safeExternalHref(builder(raw));
-    const row = document.createElement("div");
-    row.className = "chat-info-more-row";
-    const name = document.createElement("strong");
-    name.textContent = label;
-    row.appendChild(name);
-    // A field KNS stored as something unlinkable still shows its value - iOS falls back to
-    // plain text there rather than dropping the row, so you can still read what is set.
-    const value = document.createElement(href ? "a" : "span");
-    if (href) {
-      value.href = href;
-      value.target = "_blank";
-      value.rel = "noopener noreferrer";
-    }
-    value.textContent = raw;
-    row.appendChild(value);
-    chatInfoSocialLinks.appendChild(row);
-  }
-  chatInfoMore.hidden = links.length === 0;
-  if (!links.length) chatInfoMore.open = false;
-}
-
 function closeChatInfo() {
   if (chatInfoOverlay) chatInfoOverlay.hidden = true;
   chatInfoContactId = null;
@@ -20266,14 +18302,12 @@ function saveChatInfo() {
   if (contact) {
     delete contact.viewedOnly; // saved on purpose: a contact now
     const trimmed = String(chatInfoNameInput?.value || "").trim();
-    // A non-empty typed value is always a deliberate override; clearing the
-    // field back to nothing reverts to auto-naming (KNS primary domain, or
-    // the shortened address if none is set).
-    // Testnet: an empty field on a contact you never named keeps its stored default as it was.
+    // A non-empty typed value is always a deliberate override; clearing the field back to nothing
+    // reverts to auto-naming (their .kachat name, or the shortened address). An empty field on a
+    // contact you never named keeps its stored default as it was.
     const keepsDefaultName = kachatNamesUiEnabled() && !trimmed && !contact.nameIsCustom && Boolean(contact.name);
     contact.nameIsCustom = Boolean(trimmed);
     contact.name = trimmed || (keepsDefaultName ? contact.name : defaultAliasFor(contact.address));
-    if (!contact.nameIsCustom) applyKnsPrimaryDomainToContact(contact);
     contact.updatedAt = Date.now();
     persistState();
     // One name per person (iOS 2831fab): the Address Book entry, if there is one, takes the same
@@ -20305,7 +18339,6 @@ const chatInfoSheetTitle = document.querySelector("[data-chat-info-sheet-title]"
 const chatInfoExplorerLink = document.querySelector("[data-chat-info-explorer-link]");
 const CHAT_INFO_SHEET_TITLES = {
   address: "Address",
-  domains: "KNS Domains",
   "kachat-names": ".kachat Names",
   aliases: "Aliases",
   notifications: "Notifications",
@@ -20336,7 +18369,7 @@ function closeChatInfoSheet() {
   if (chatInfoSheetOverlay) chatInfoSheetOverlay.hidden = true;
 }
 
-// Delegated: the rows live inside the overlay and a disabled row (no KNS domains) must not open
+// Delegated: the rows live inside the overlay and a disabled row (no .kachat names) must not open
 // anything, which is what the `disabled` check is for.
 chatInfoOverlay?.addEventListener("click", (event) => {
   const row = event.target.closest("[data-chat-info-sheet]");
@@ -20350,7 +18383,7 @@ document.querySelector("[data-chat-info-share]")?.addEventListener("click", asyn
   if (!address) return;
   const url = profileUniversalLink(address);
   const contact = state.contacts.find((entry) => entry.address === address);
-  const name = knsDomainForAddress(address) || (contact ? displayNameForAddress(contact) : (kachatNamesUiEnabled() ? identityNameForAddress(address) : defaultAliasFor(address)));
+  const name = contact ? displayNameForAddress(contact) : (kachatNamesUiEnabled() ? identityNameForAddress(address) : defaultAliasFor(address));
   if (typeof navigator.share === "function") {
     try { await navigator.share({ title: name, url }); return; }
     catch (error) { if (error?.name === "AbortError") return; }
@@ -20361,10 +18394,6 @@ document.querySelector("[data-chat-info-share]")?.addEventListener("click", asyn
 // Everything a person's profile shows, looked up again (iOS bc95d17 / d1844582 rescanProfile).
 async function rescanProfileOf(address) {
   await kachatRescanProfile(address);
-  // Where .kas profiles are shown (KNS as identity), theirs is fetched again too.
-  if (!kachatNamesUiEnabled() && engine.fetchKnsAddressProfile) {
-    try { await engine.fetchKnsAddressProfile(address, { force: true }); } catch { /* the old one stays */ }
-  }
 }
 // While the app is open and visible, everyone's profile is looked up again once an hour, so a new
 // name, avatar, banner or bio shows without anyone asking for it (iOS d1844582
@@ -20405,7 +18434,7 @@ document.querySelector("[data-chat-info-address-book]")?.addEventListener("click
   const contact = state.contacts.find((entry) => entry.address === address);
   // What is in the name field, when it is a name you gave them (KaChat 413f6d6d): a default name
   // (their .kachat name or the address) never becomes the contact's name, so the editor opens
-  // empty and offers Use Their Domain Name instead.
+  // empty and offers Use Their Username instead.
   const typed = String(chatInfoNameInput?.value || "").trim();
   const isDefault = contact && !contact.nameIsCustom && !addressBookName(address) && typed === String(contact.name || "").trim();
   const result = await openAddressBookEditor({ address, presetName: typed && !isDefault ? typed : null });
@@ -20448,67 +18477,6 @@ if (kachatNamesUiEnabled()) {
   });
 }
 
-
-/// Bare, lowercased domain key (".kas" stripped) - `/primary-name` and `/assets` do not agree on
-/// whether the suffix is present, so compare without it (iOS normalizedDomainKey).
-function normalizedDomainKey(raw) {
-  const trimmed = String(raw || "").trim().toLowerCase();
-  if (!trimmed) return null;
-  return trimmed.endsWith(".kas") ? trimmed.slice(0, -4) : trimmed;
-}
-
-/// Which domain wears the Primary badge. Prefers the inscription id the reverse lookup returns -
-/// an exact on-chain asset id - and falls back to name matching (iOS isPrimaryDomain).
-///
-/// This used to compare raw names, which badged nothing at all whenever the two KNS endpoints
-/// disagreed about the ".kas" suffix: the contact's actual primary then looked like any other
-/// domain in the list.
-function isPrimaryChatInfoDomain(domain, info) {
-  const inscriptionId = String(info?.primaryInscriptionId || "").trim();
-  if (inscriptionId) return domain.inscriptionId === inscriptionId;
-  const primaryKey = normalizedDomainKey(info?.explicitPrimaryDomain || info?.primaryDomain);
-  if (!primaryKey) return false;
-  return normalizedDomainKey(domain.fullName) === primaryKey;
-}
-
-/// The contact's KNS domains, primary first then alphabetical - a stable order that does not
-/// jump around as the cache refreshes (iOS sortedKNSDomains). Copy-on-click, the same idiom the
-/// Address and Aliases rows already use.
-function renderChatInfoDomains(info) {
-  const row = document.querySelector("[data-chat-info-domains-row]");
-  const list = document.querySelector("[data-chat-info-domains]");
-  if (!list) return;
-  const domains = Array.isArray(info?.allDomains) ? [...info.allDomains] : [];
-  // iOS DISABLES its KNS Domains row at zero domains rather than hiding it, so the screen keeps
-  // the same shape for every contact instead of resizing as lookups land.
-  if (row) row.disabled = domains.length === 0;
-  // User Info drops its KNS Domains card (iOS 509c0fe): a .kas name says nothing about who this is.
-  if (row) row.hidden = !engine.knsNamesAsIdentity;
-  if (!domains.length) {
-    list.replaceChildren();
-    return;
-  }
-  domains.sort((a, b) => {
-    const aPrimary = isPrimaryChatInfoDomain(a, info);
-    const bPrimary = isPrimaryChatInfoDomain(b, info);
-    if (aPrimary !== bPrimary) return aPrimary ? -1 : 1;
-    return String(a.fullName).toLowerCase().localeCompare(String(b.fullName).toLowerCase());
-  });
-  list.innerHTML = domains.map((domain) => {
-    const primary = isPrimaryChatInfoDomain(domain, info);
-    const icon = primary
-      ? `<path d="m12 3 2.6 5.6 6.4.8-4.7 4.3 1.2 6.3L12 17l-5.5 3 1.2-6.3L3 9.4l6.4-.8z"/>`
-      : `<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 5 -2.2A9 9 0 1 0 17.5 19"/>`;
-    return `
-      <button type="button" class="chat-info-domain-row" data-chat-info-copy-domain="${escapeHtml(domain.fullName)}" title="Copy domain">
-        <svg class="chat-info-domain-icon${primary ? " primary" : ""}" viewBox="0 0 24 24" aria-hidden="true">${icon}</svg>
-        <strong>${escapeHtml(domain.fullName)}</strong>
-        ${domain.isVerified ? `<svg class="chat-info-domain-verified" viewBox="0 0 24 24" role="img" aria-label="Verified"><path d="m12 2.2 2.3 2 3.1-.4 1 3 2.7 1.5-1.2 2.9 1.2 2.9-2.7 1.5-1 3-3.1-.4-2.3 2-2.3-2-3.1.4-1-3-2.7-1.5L4.1 11 2.9 8.3l2.7-1.5 1-3 3.1.4z"/><path class="check" d="m8.7 12.1 2.2 2.2 4.4-4.6"/></svg>` : ``}
-        ${primary ? `<span class="profile-domain-primary">Primary</span>` : ``}
-      </button>`;
-  }).join("");
-}
-
 // Tapping the avatar opens it full screen (iOS KNSAvatarFullscreenView): the photo when there is
 // one, else the same person glyph, large, on black, under the person's name.
 document.querySelector("[data-chat-info-avatar-preview]")?.addEventListener("click", () => {
@@ -20546,7 +18514,7 @@ document.querySelector("[data-chat-info-name-edit]")?.addEventListener("click", 
   chatInfoNameInput?.select();
 });
 
-// Delegated once on the overlay: the domain rows are re-rendered on every KNS refresh, and a
+// Delegated once on the overlay: the name rows are re-rendered on every .kachat answer, and a
 // listener per render would stack up.
 chatInfoOverlay?.addEventListener("click", async (event) => {
   const setName = event.target.closest("[data-chat-info-set-name]");
@@ -20609,7 +18577,7 @@ async function openChatWithAddressForKaspa({ address, name } = {}) {
 }
 
 // Open (creating if needed) the 1:1 conversation with `address`, the way iOS's KaPosts
-// startChat does: the contact is auto-added without a custom name so KNS keeps naming them.
+// startChat does: the contact is auto-added without a custom name so their .kachat name names them.
 async function openChatWithAddress({ address, name, paymentMode = false } = {}) {
   const clean = String(address || "").trim();
   if (!clean || !isValidKaspaAddressString(clean)) { showCopyToast("This poster has no valid Kaspa address."); return; }
@@ -22671,8 +20639,7 @@ document.querySelector("[data-testnet-reload]")?.addEventListener("click", () =>
 renderTestnetToggle();
 
 // On testnet the Connection Settings fields say what testnet has (iOS indexerPlaceholder): KaChat's
-// indexers are blank on purpose, the REST API and KNS are the testnet-10 ones, and of the other
-// name services only .k has a testnet API.
+// indexers are blank on purpose, and the REST API is the testnet-10 one.
 if (IS_TESTNET) {
   // The testnet-10 indexer is the default for chat, push, KaPosts and public chats (iOS 5463ab7).
   for (const key of ["kasiaIndexer", "kapostIndexer", "broadcastIndexer", "pushIndexer", "kachatNamesIndexer"]) {
@@ -22681,9 +20648,6 @@ if (IS_TESTNET) {
   // Translation is the same service on both networks (iOS 2ca41aa).
   document.querySelectorAll('[data-endpoint="translationService"]').forEach((input) => { input.placeholder = ENDPOINT_DEFAULTS.translationService; });
   document.querySelectorAll('[data-endpoint="kaspaApi"]').forEach((input) => { input.placeholder = ENDPOINT_DEFAULTS.kaspaApi; });
-  const readonly = document.querySelectorAll(".connection-readonly code:not([data-kns-url])");
-  if (readonly[0]) readonly[0].textContent = "https://api-tn10.dotk.name/v1";
-  if (readonly[1]) { const em = document.createElement("em"); em.textContent = "Not available on this network"; readonly[1].replaceWith(em); }
 }
 
 // Connection Settings: one tab per kind of connection (iOS ee01f81). Every field saves as it
@@ -22789,13 +20753,13 @@ document.querySelector("[data-connection-open-settings]")?.addEventListener("cli
 function cacheCategoryDefs() { return [
   // Profiles first, as iOS CacheManager.Category lists it.
   // iOS 5e408f7: one Profiles cache on every network - the identities (who has which avatar, banner,
-  // bio and Linktree; this network's 1000 most recent, loaded stale at launch), the avatar, banner
-  // and bio looked up from each social link (and their pre-2026-10-07 keys), and the .kas name
-  // lookups. Clearing it resets them in memory too. This device's own saved profile record
+  // bio and Linktree; this network's 1000 most recent, loaded stale at launch) and the avatar, banner
+  // and bio looked up from each social link (and their pre-2026-10-07 keys). Clearing it resets them
+  // in memory too. This device's own saved profile record
   // ("kachat-names-profile-<network>-v1:<address>") is not cache and never matches here.
   { id: "profiles", title: "Profiles", detail: "Avatars, banners and bios of your profile and of the people you see. Loaded again when you next see them.",
-    match: (k) => k.startsWith("kachat-profile-cache-v1:") || k.startsWith("kachat-social-image-v1:") || (k.startsWith("kachat-kns-") && k.includes("cache")),
-    clear: () => { kachatClearProfileCache().catch(() => {}); try { clearAllKnsCache(); } catch {} } },
+    match: (k) => k.startsWith("kachat-profile-cache-v1:") || k.startsWith("kachat-social-image-v1:"),
+    clear: () => { kachatClearProfileCache().catch(() => {}); } },
   { id: "broadcasts", title: "Public Chats History", detail: "Messages and reactions from Public Chats.", match: (k) => k.startsWith("kachat-broadcast-") && k.includes("cache") },
   { id: "prices", title: "Price Data", detail: "KAS prices and chart history in your currency.", match: (k) => k.startsWith("kachat-kas-price") || k.startsWith("kachat-kas-daily-price") },
   { id: "balances", title: "Balance Snapshots", detail: "Last-known balances of your spending and cold storage addresses.", match: (k) => k.includes("kachat-spending-balcache") || k.includes("kachat-cold-cache") },
@@ -22965,7 +20929,7 @@ contactScanButton?.addEventListener("click", async () => {
   });
   if (!scanned || !contactAddressInput) return;
   contactAddressInput.value = scanned;
-  // Same path typing takes, so KNS resolution and validation still run.
+  // Same path typing takes, so name resolution and validation still run.
   contactAddressInput.dispatchEvent(new Event("input", { bubbles: true }));
   contactAddressInput.focus();
 });
@@ -22988,17 +20952,14 @@ contactForm.addEventListener("submit", async (event) => {
     if (!engine.address) throw new Error("Generate or import a wallet before starting a new conversation.");
 
     let address;
-    let resolvedDomain = null;
     if (engine.looksLikeName(rawAddress) && !/^kaspa(test)?:/i.test(rawAddress) && createChatResolvedAddress && createChatPickedName) {
-      // The name already resolved in the field, or the one picked under Other domains.
+      // The name already resolved in the field.
       address = validateContactAddress(createChatResolvedAddress);
-      resolvedDomain = createChatPickedName;
     } else if (engine.looksLikeName(rawAddress) && !/^kaspa(test)?:/i.test(rawAddress)) {
-      setCreateChatError("Looking up domain…");
+      setCreateChatError("Looking up username…");
       const resolution = await engine.resolveName(rawAddress);
-      if (!resolution) throw new Error(`No domain found for ${rawAddress}. Check the name and try again.`);
+      if (!resolution) throw new Error(`No username found for ${rawAddress}. Check the name and try again.`);
       address = validateContactAddress(resolution.ownerAddress);
-      resolvedDomain = resolution.domain;
       setCreateChatError("");
     } else {
       address = validateContactAddress(rawAddress);
@@ -23010,9 +20971,9 @@ contactForm.addEventListener("submit", async (event) => {
     // Starting a chat accepts it; Private also keeps it from ever carrying the inbox tag.
     if (formData.get("privateChat")) setPrivateChat(address, true);
     else acceptChat(address);
-    // A domain finds the address; it does not name the person (iOS 509c0fe). No name is typed
+    // A username finds the address; it does not name the person (iOS 509c0fe). No name is typed
     // here: one is only ever given later, in User Info.
-    const displayName = (engine.knsNamesAsIdentity ? resolvedDomain : "") || shortAddress(address);
+    const displayName = shortAddress(address);
     const existing = state.contacts.find((contact) => contact.address === address);
     if (existing) {
       // A known contact opens its chat, which is made if it has none yet (iOS
@@ -30210,7 +28171,7 @@ function renderSetupExtra(kind) {
     // No gift row: desktop deliberately has no free-gift program (mobile-only).
     wrap.append(addrBtn, qrBtn);
     // INITIAL IMPORT ONBOARDING RUNS ONLY, never Help replays: an imported
-    // seed may hold its real identity — KNS domains, a funded chatting
+    // seed may hold its real identity — .kachat names, a funded chatting
     // balance — at a nonzero derivation index. Opens the batched scanner;
     // after a switch this step re-renders with the new address.
     if (setupGuideIsOnboardingRun && setupGuideIsImportRun && activeAccountMnemonic()) {
@@ -30503,9 +28464,8 @@ setupGuideModal?.addEventListener("click", (event) => { if (event.target === set
 // Scans the identity chain of the account's own source family (standard,
 // legacy-972, OneKey) in batches of 50, deriving each batch off a single master
 // key, then checking the whole batch for KAS balance (ONE pooled
-// getUtxosByAddresses call) and KNS domains (engine/kns.js's cached, paced
-// batch helper — never 50 raw requests). Only interesting slots are listed:
-// a balance, at least one domain, index 0, or the current index.
+// getUtxosByAddresses call) and .kachat names (NameServicesClient.kachatNames(of:)).
+// Only interesting slots are listed: a balance, at least one name, index 0, or the current index.
 const CHATTING_PICKER_BATCH = 50;
 const chattingPickerScreen = document.querySelector("[data-chatting-picker-screen]");
 const chattingPickerListEl = document.querySelector("[data-chatting-picker-list]");
@@ -30541,14 +28501,13 @@ function visibleChattingPickerCandidates() {
     entry.balanceSompi > 0n || chattingPickerNameCount(entry) > 0 || entry.index === 0 || entry.index === current);
 }
 
-// Names on every service: .kachat names (listed first, iOS 6ac48a7), KNS .kas domains plus .k /
-// .kaspa names (iOS nameCount / onlyName).
+// The .kachat names it holds (iOS nameCount / onlyName; .kachat only since K 518fdc8c).
 function chattingPickerNameCount(entry) {
-  return (entry.kachatNames?.length || 0) + (entry.domains?.length || 0) + (entry.otherNames?.length || 0);
+  return entry.kachatNames?.length || 0;
 }
 function chattingPickerOnlyName(entry) {
   if (chattingPickerNameCount(entry) !== 1) return null;
-  return entry.kachatNames?.[0]?.display || entry.domains?.[0]?.fullName || entry.otherNames?.[0]?.display || null;
+  return entry.kachatNames?.[0]?.display || null;
 }
 
 function renderChattingPickerFooter() {
@@ -30579,7 +28538,7 @@ function renderChattingPickerList() {
   if (!rows.length) {
     chattingPickerListEl.innerHTML = chattingPickerScanning
       ? ""
-      : '<div class="manage-address-empty">No addresses with a balance or domains on these words yet.</div>';
+      : '<div class="manage-address-empty">No addresses with a balance or usernames on these words yet.</div>';
     renderChattingPickerFooter();
     return;
   }
@@ -30646,27 +28605,18 @@ async function scanChattingAddressBatch() {
       }
     } catch { /* balances stay at zero for this batch */ }
 
-    try { await engine.refreshKnsIfNeeded?.(addresses); } catch { /* fall back to whatever is cached */ }
     if (token !== chattingPickerToken) return;
-    // .k and .kaspa too: an identity can live at an address whose only trace is a name on one of
-    // them (iOS ownedNames(of:), six addresses at a time).
-    let otherNamesByAddress = new Map();
-    try { otherNamesByAddress = await engine.otherServiceNamesFor(addresses); } catch { /* none counted */ }
-    if (token !== chattingPickerToken) return;
-    // .kachat names (active or in grace) where the registry is live, listed first (iOS 6ac48a7).
+    // .kachat names (active or in grace) where the registry is live: an identity can live at an
+    // address whose only trace is a name (iOS 6ac48a7).
     let kachatNamesByAddress = new Map();
     try { kachatNamesByAddress = await engine.kachatNamesFor(addresses); } catch { /* none counted */ }
     if (token !== chattingPickerToken) return;
 
     for (const entry of derived) {
-      const info = engine.peekKnsAddressInfo?.(entry.address) || null;
       chattingPickerCandidates.push({
         index: entry.index,
         address: entry.address,
         balanceSompi: balances.get(entry.address) || 0n,
-        domains: Array.isArray(info?.allDomains) ? info.allDomains : [],
-        primaryDomain: info?.primaryDomain || null,
-        otherNames: otherNamesByAddress.get(entry.address) || [],
         kachatNames: kachatNamesByAddress.get(entry.address) || [],
       });
     }
@@ -30714,27 +28664,10 @@ function renderChattingPickerDetail() {
   const candidate = chattingPickerCandidateAt(chattingPickerDetailIndex);
   if (!candidate) { chattingPickerDetailBody.replaceChildren(); return; }
   const isCurrent = candidate.index === activeChattingIndex();
-  const domains = candidate.domains;
-  const otherNames = candidate.otherNames || [];
   const kachatNames = candidate.kachatNames || [];
   const kachatNamesHtml = kachatNames.length
     ? `<div class="chatting-picker-detail-domains"><strong>.kachat Names (${escapeHtml(String(kachatNames.length))})</strong>`
       + kachatNames.map((name) => `<div class="chatting-picker-detail-domain"><span>${escapeHtml(name.display)}</span></div>`).join("")
-      + `</div>`
-    : "";
-  const otherNamesHtml = otherNames.length
-    ? `<div class="chatting-picker-detail-domains"><strong>.k and .kaspa Names (${escapeHtml(String(otherNames.length))})</strong>`
-      + otherNames.map((name) =>
-        `<div class="chatting-picker-detail-domain"><span>${escapeHtml(name.display)}</span>${name.settling ? "<em>Settling</em>" : ""}</div>`).join("")
-      + `</div>`
-    : "";
-  const domainsHtml = domains.length
-    ? `<div class="chatting-picker-detail-domains"><strong>.kas Names (${escapeHtml(String(domains.length))})</strong>`
-      + domains.map((domain) => {
-        const isPrimary = candidate.primaryDomain
-          && String(domain.fullName).toLowerCase() === String(candidate.primaryDomain).toLowerCase();
-        return `<div class="chatting-picker-detail-domain"><span>${escapeHtml(domain.fullName)}</span>${isPrimary ? "<em>Primary</em>" : ""}</div>`;
-      }).join("")
       + `</div>`
     : "";
   chattingPickerDetailBody.innerHTML = `
@@ -30743,8 +28676,6 @@ function renderChattingPickerDetail() {
     <p class="chatting-picker-detail-hint" data-chatting-picker-copy-hint>Tap the address to copy it</p>
     <div class="chatting-picker-detail-stat"><span>Balance</span><span>${escapeHtml(formatSompiForNotification(candidate.balanceSompi))} ${KAS_UNIT}</span></div>
     ${kachatNamesHtml}
-    ${otherNamesHtml}
-    ${domainsHtml}
     ${chattingPickerDetailError ? `<p class="field-error chatting-picker-detail-error">${escapeHtml(chattingPickerDetailError)}</p>` : ""}`;
   if (chattingPickerSetBtn) {
     chattingPickerSetBtn.disabled = isCurrent || chattingPickerSwitching;
@@ -31401,7 +29332,7 @@ async function commitImport(passphrase) {
     const restoredWallet = imported?.address || engine.address;
     if (restoredWallet) {
       void discoverSpendingAddressesFor(restoredWallet)
-        .then((count) => appendEngineLog(`Restore: Discover Addresses found ${count} address${count === 1 ? "" : "es"} with a balance or domain.`))
+        .then((count) => appendEngineLog(`Restore: Discover Addresses found ${count} address${count === 1 ? "" : "es"} with a balance or username.`))
         .catch((error) => appendEngineLog(`Restore: Discover Addresses failed: ${error?.message || error}`));
     }
     if (importAccountModal) importAccountModal.hidden = true;
@@ -32749,9 +30680,8 @@ queueMicrotask(async () => {
       }),
       openKaPostsSettings,
       startChat: (address, name) => openChatWithAddress({ address, name }),
-      // Routes to the Profile tab's KNS editor rather than a second copy of it.
-      // KaPosts' profile button edits your .kachat profile too (iOS 09e0403).
-      editKnsProfile: () => openKachatProfileEditor(),
+      // KaPosts' profile button edits your .kachat profile (iOS 09e0403).
+      editProfile: () => openKachatProfileEditor(),
       // The Profile tab (KaChat iOS 148a5331): Share Profile and Log Out under your name, and the
       // wallet's notifications in the bell's one list.
       shareProfile: () => shareOwnProfile(),
@@ -32783,8 +30713,8 @@ queueMicrotask(async () => {
       },
       // Feed the global notification center (top-bar bell) from the KaPosts notification stream.
       recordGlobalNotification: (item) => recordGlobalNotification(item),
-      // Your saved name for a contact wins over their KNS domain everywhere a poster is named
-      // (matches iOS: alias -> domain -> short address).
+      // Your saved name for a contact wins over their .kachat name everywhere a poster is named
+      // (matches iOS: alias -> name -> short address).
       // Only a name you gave them: an automatic one (your own chat's, a new contact's
       // "kaspa:xxxx....xxxx", a handshake alias) is not a saved name, and putting it first showed
       // the address over the poster's .kachat name - your own posts and profile included.
@@ -32794,25 +30724,6 @@ queueMicrotask(async () => {
         if (!name || contact.nameIsCustom === false) return null;
         if (isPlaceholderContactName(contact) || name === defaultAliasFor(address) || name === address) return null;
         return name;
-      },
-      // @mention autocomplete source: your 1:1 chat contacts that have a KNS domain. Returns
-      // [{ domain (bare, no .kas), address, name }]. Only these people can be @-mentioned.
-      getMentionCandidates: () => {
-        const out = [];
-        const seen = new Set();
-        for (const contact of state.contacts || []) {
-          const info = engine.peekKnsAddressInfo?.(contact.address);
-          const domain = String(info?.explicitPrimaryDomain || info?.primaryDomain || "").trim();
-          if (!domain) continue;
-          const bare = domain.replace(/\.kas$/i, "").toLowerCase();
-          if (!bare || seen.has(bare)) continue;
-          // Need the compressed KaPost pubkey to notify them; skip if we can't derive it.
-          const pubkey = engine.kapostPubkeyForAddress?.(contact.address);
-          if (!pubkey) continue;
-          seen.add(bare);
-          out.push({ domain: bare, address: contact.address, name: (contact.name || "").trim() || bare, pubkey });
-        }
-        return out;
       },
       // Contacts' .kachat names ("alice.kachat"), listed first in the @suggestions (iOS d0c5b09).
       getKachatMentionNames: () => {
@@ -33198,7 +31109,7 @@ queueMicrotask(async () => {
       // Every KaChat indexer the app is configured with; the screen asks each once.
       // iOS KaChatStatsView.indexerBases: indexer, public chat (broadcast) indexer, KaPost indexer.
       indexerUrls: () => ["kasiaIndexer", "broadcastIndexer", "kapostIndexer"].map((key) => getEndpoint(key)).filter(Boolean),
-      // The .kachat Domains cards (iOS f5d34f4, 4924787: Transactions and Fees): the registry's own
+      // The Usernames cards (iOS f5d34f4, 4924787: Transactions and Fees): the registry's own
       // totals, wherever names are live.
       kachatTotals: async () => {
         const registry = kachatNamesLaunched() ? kachatNames()?.registry : null;
@@ -33214,18 +31125,15 @@ queueMicrotask(async () => {
     // and owes the backup an upload.
     initAddressBook({
       escapeHtml, shortAddress, personGlyphSvg,
-      // Use Their Domain Name (KaChat 413f6d6d): their .kachat name, with its ending
+      // Use Their Username (KaChat 413f6d6d): their .kachat name, with its ending
       kachatNameFor: (address) => (kachatNamesUiEnabled() ? kachatCachedLabel(address) : null),
       // Exactly the avatar the address set on its own profile - never a chat contact's photo.
       profileAvatarHtml: (address, className) => {
         if (address === engine.address) return selfAvatarHtml(className);
-        if (kachatNamesUiEnabled()) return kachatAvatarSpanHtml(address, className);
-        const avatarUrl = engine.peekKnsAddressProfile?.(address)?.profile?.avatarUrl;
-        if (avatarUrl) return `<span class="${className}"><img src="${escapeHtml(avatarUrl)}" alt="" /></span>`;
-        return `<span class="${className} avatar-fallback">${personGlyphSvg()}</span>`;
+        return kachatAvatarSpanHtml(address, className);
       },
       ownAddress: () => engine.address || "",
-      // The editor's address field takes a domain, .kachat first (iOS 6ac48a7).
+      // The editor's address field takes a .kachat name (iOS 6ac48a7).
       looksLikeName: (input) => engine.looksLikeName(input),
       lookUpName: (input) => engine.lookUpName(input),
       canSend: () => Boolean(engine.address),
@@ -33286,7 +31194,7 @@ queueMicrotask(async () => {
     appendEngineLog,
     isChattingBalanceZero,
     showFundingGate: showFundingGateModal,
-    // Contact name, then KNS domain, then the shortened address - the app's rule, and the same
+    // Contact name, then .kachat name, then the shortened address - the app's rule, and the same
     // for the player themselves (never "You"; iOS 30d0cca).
     displayNameFor: (address) => {
       const contact = (state.contacts || []).find((c) => c.address === address);
@@ -33509,40 +31417,14 @@ function saveGroupMessages(groupId, list, owner = engine.address) {
   saveGroupMsgAll(all);
 }
 // Returns true if this was a new message (deduped by msgIdHex, then txId, then id).
-// Your own KNS domain names (bare, no .kas), used to detect @mentions of you in group chats.
-function myKnsDomainSet() {
-  const set = new Set();
-  const info = engine.peekKnsAddressInfo?.(engine.address);
-  const add = (d) => { const bare = String(d || "").replace(/\.kas$/i, "").toLowerCase().trim(); if (bare) set.add(bare); };
-  add(info?.explicitPrimaryDomain);
-  add(info?.primaryDomain);
-  for (const d of info?.allDomains || []) add(d?.fullName || d);
-  return set;
-}
-const GROUP_MENTION_RE = /(^|[\s([{<"'])@([a-z0-9-]+(?:\.[a-z0-9-]+)*)/gi;
-
-// TWO mention wire forms travel between platforms and both must match, or a mention is
-// silently dropped: iOS and desktop compose `@<address>` (optionally brace-wrapped on older
-// desktop builds), while Android composes a bare `@domain`. Desktop used to test only the
-// address form, so every mention an Android member typed went unnoticed here.
-// Domain comparison is case-insensitive with the `.kas` suffix optional, matching iOS.
+// A mention of you: `@<your address>` (optionally brace-wrapped, as older desktop builds wrote it).
+// The bare `@domain` form matched your .kas domain until KNS left (K 518fdc8c GroupChatService).
 function textMentionsMe(text) {
   const body = String(text || "");
-  if (!body) return false;
   const me = engine.address || "";
-  if (me) {
-    const escaped = me.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (new RegExp(`@\\{?${escaped}\\}?`, "i").test(body)) return true;
-  }
-  const mine = myKnsDomainSet();
-  if (!mine.size) return false;
-  GROUP_MENTION_RE.lastIndex = 0;
-  let match;
-  while ((match = GROUP_MENTION_RE.exec(body)) !== null) {
-    const handle = String(match[2] || "").replace(/\.kas$/i, "").toLowerCase();
-    if (handle && mine.has(handle)) return true;
-  }
-  return false;
+  if (!body || !me) return false;
+  const escaped = me.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`@\\{?${escaped}\\}?`, "i").test(body);
 }
 // A group message that is personal to you even in a mentions-only group: it @mentions you, or
 // it is a reply to one of YOUR messages. Mirrors iOS GroupChatService.isPersonalGroupMessage
@@ -33615,7 +31497,7 @@ function maybeNotifyGroupIncoming(groupId, senderAddress, text, id, createdAt) {
   });
 }
 
-// When an incoming group message @mentions one of your KNS domains, surface it in the global
+// When an incoming group message @mentions you, surface it in the global
 // notification center (and an OS ping). Group mentions are purely client-detected — there is no
 // server round-trip, unlike KaPosts mentions. Reached through maybeNotifyGroupIncoming, which
 // has already applied the group's mode (a muted group never gets here).
@@ -34164,10 +32046,8 @@ const groupCreateError = document.querySelector("[data-group-create-error]");
 const groupCreateSubmit = document.querySelector("[data-group-create-submit]");
 let groupAddressResolved = null;
 let groupAddressResolveToken = 0;
-// A typed name (iOS 6ac48a7): every service's answer, and the one in use - its name and ending.
-let groupAddressNameResults = [];
+// A typed .kachat name in use (iOS 6ac48a7, K 518fdc8c: one answer).
 let groupAddressPickedName = null;
-let groupAddressPickedTld = null;
 const groupChatScreen = document.querySelector("[data-group-chat-screen]");
 const groupChatName = document.querySelector("[data-group-chat-name]");
 const groupChatSub = document.querySelector("[data-group-chat-sub]");
@@ -34514,7 +32394,7 @@ function closeGroupChat({ keepDraft = true } = {}) {
 }
 
 // Decode @<address> mention tokens (brace-wrapped legacy desktop form OR bare iOS/Android form)
-// back to @KNSDomain text — used for plain-text contexts like chat-list previews and reply banners.
+// back to @name text — used for plain-text contexts like chat-list previews and reply banners.
 // The live bubble renderer uses renderTextWithMentions instead (clickable spans).
 function decodeGroupMentions(text) {
   return String(text || "").replace(CHAT_MENTION_TOKEN_RE, (_, addr) => `@${mentionDisplayLabel(addr)}`);
@@ -34823,18 +32703,14 @@ function showReactionsSheet({ entries, nameFor, avatarFor }) {
   infoSheet({ title: entries.length === 1 ? "1 Reaction" : `${entries.length} Reactions`, html });
 }
 
-// An avatar for any address: a saved contact's, else the KNS face when cached, else initials.
+// An avatar for any address: a saved contact's, else their .kachat face, else the glyph.
 function avatarHtmlForAnyAddress(address, className = "message-avatar") {
   if (address === engine.address) return selfAvatarHtml(className);
   const contact = (state.contacts || []).find((c) => c.address === address);
   if (contact) return avatarHtmlFor(contact, className);
   const assigned = assignedPhotoSpanHtml(address, className);
   if (assigned) return assigned;
-  // Testnet: their .kachat face, never the KNS one.
-  if (kachatNamesUiEnabled()) return kachatAvatarSpanHtml(address, className);
-  const avatarUrl = engine.peekKnsAddressProfile?.(address)?.profile?.avatarUrl;
-  if (avatarUrl) return `<span class="${className}"><img src="${escapeHtml(avatarUrl)}" alt="" loading="lazy" /></span>`;
-  return `<span class="${className} avatar-fallback">${personGlyphSvg()}</span>`;
+  return kachatAvatarSpanHtml(address, className);
 }
 
 /** What a message is, for its long-press menu (iOS: each bubble kind carries its own menu). */
@@ -35541,7 +33417,7 @@ function renderGroupMemberPicker(excludeAddresses = []) {
     const anyone = eligibleGroupContacts([]).length > 0;
     groupMemberPicker.innerHTML = `<p class="group-picker-empty">${groupModalMode === "add" && anyone
       ? "Everyone in your contacts is already in this group."
-      : "You have no contacts yet. Paste an address or a domain to invite someone."}</p>`;
+      : "You have no contacts yet. Paste an address or a username to invite someone."}</p>`;
     return;
   }
   // Filter by the search box (name, nickname, or address). Selection persists across
@@ -35571,14 +33447,11 @@ function renderGroupMemberPicker(excludeAddresses = []) {
   }).join("");
 }
 
-/// Avatar for someone with no contact record - straight off their KNS profile, initials otherwise.
+/// Avatar for someone with no contact record - their .kachat face, the glyph otherwise.
 function groupPickerAvatarHtml(address, name) {
   const assigned = assignedPhotoSpanHtml(address, "chat-avatar");
   if (assigned) return assigned;
-  if (kachatNamesUiEnabled()) return kachatAvatarSpanHtml(address, "chat-avatar");
-  const avatarUrl = engine.peekKnsAddressProfile?.(address)?.profile?.avatarUrl;
-  if (avatarUrl) return `<span class="chat-avatar"><img src="${escapeHtml(avatarUrl)}" alt="" /></span>`;
-  return `<span class="chat-avatar avatar-fallback">${personGlyphSvg()}</span>`;
+  return kachatAvatarSpanHtml(address, "chat-avatar");
 }
 function updateGroupCreateSubmit() {
   if (!groupCreateSubmit) return;
@@ -35617,8 +33490,8 @@ function renderGroupSelectedMembers() {
   }
   groupMembersList.innerHTML = addrs.map((addr) => {
     const contact = (state.contacts || []).find((c) => c.address === addr);
-    // Someone added from the follow graph or by domain has no contact record, but usually does
-    // have a KNS name and avatar - falling straight to the short address dropped both.
+    // Someone added from the follow graph or by username has no contact record, but usually does
+    // have a .kachat name and avatar - falling straight to the short address dropped both.
     const name = contact
       ? displayNameForAddress(contact)
       : identityNameForAddress(addr);
@@ -35680,12 +33553,12 @@ function openGroupCreate() {
 // contacts and also takes an address or a domain, the typed person as a row of their own, your
 // contacts as checkable rows, and Add (N) in the bar. The sheet stays up while the members are
 // added, Add turning into a spinner, and closes once they all are.
-const addMembersSheet = { groupId: null, query: "", selected: new Set(), adding: false, token: 0, resolving: false, resolvedAddress: null, resolvedName: null, results: [], tld: null, notFound: null };
+const addMembersSheet = { groupId: null, query: "", selected: new Set(), adding: false, token: 0, resolving: false, resolvedAddress: null, resolvedName: null, results: [], notFound: null };
 function openGroupAddMember(groupId) {
   const mgr = getGroupManager();
   const g = mgr && mgr.getGroup(groupId);
   if (!g) return;
-  Object.assign(addMembersSheet, { groupId, query: "", selected: new Set(), adding: false, resolving: false, resolvedAddress: null, resolvedName: null, results: [], tld: null, notFound: null });
+  Object.assign(addMembersSheet, { groupId, query: "", selected: new Set(), adding: false, resolving: false, resolvedAddress: null, resolvedName: null, results: [], notFound: null });
   addMembersSheet.token += 1;
   const el = addMembersSheetEl();
   const input = el.querySelector("[data-add-members-search]");
@@ -35727,7 +33600,7 @@ function addMembersTypedAddress() {
 }
 function addMembersResolveTypedDomain() {
   const query = addMembersSheet.query.trim().toLowerCase();
-  Object.assign(addMembersSheet, { resolvedAddress: null, resolvedName: null, results: [], tld: null, notFound: null });
+  Object.assign(addMembersSheet, { resolvedAddress: null, resolvedName: null, results: [], notFound: null });
   const token = ++addMembersSheet.token;
   if (!query || addMembersValidAddress(query) || !engine.looksLikeName(query) || query.length < 2) {
     addMembersSheet.resolving = false;
@@ -35745,7 +33618,6 @@ function addMembersResolveTypedDomain() {
     if (resolution?.ownerAddress) {
       addMembersSheet.resolvedAddress = resolution.ownerAddress;
       addMembersSheet.resolvedName = resolution.domain || query;
-      addMembersSheet.tld = resolution.tld || null;
     } else if (!addMembersCandidates().length) {
       // A name that matched contacts is not a failed lookup.
       addMembersSheet.notFound = nameNotFoundText(query, addMembersSheet.results);
@@ -35770,13 +33642,12 @@ function renderAddMembersSheet() {
   if (status) {
     let html = "";
     if (sheet.resolving) {
-      html = '<span class="create-chat-status-muted"><span class="add-members-spinner small" aria-hidden="true"></span> Looking up domain...</span>';
+      html = '<span class="create-chat-status-muted"><span class="add-members-spinner small" aria-hidden="true"></span> Looking up username...</span>';
     } else if (sheet.resolvedAddress && sheet.resolvedName) {
       html = `<span class="create-chat-status-good">✓ Resolved: ${escapeHtml(sheet.resolvedName)}</span><span class="create-chat-status-mono">${escapeHtml(sheet.resolvedAddress)}</span>`;
     } else if (sheet.notFound) {
       html = `<span class="create-chat-status-bad">✕ ${escapeHtml(sheet.notFound)}</span>`;
     }
-    if (!sheet.resolving) html += otherDomainsHtml({ resolutions: sheet.results, selectedTld: sheet.tld });
     status.innerHTML = html;
     status.hidden = !html;
   }
@@ -35810,9 +33681,9 @@ function renderAddMembersSheet() {
   if (list) {
     const candidates = addMembersCandidates();
     if (!addMembersActiveContacts().length) {
-      list.innerHTML = '<p class="add-members-empty">You have no contacts yet. Paste an address or a domain above to invite someone.</p>';
+      list.innerHTML = '<p class="add-members-empty">You have no contacts yet. Paste an address or a username above to invite someone.</p>';
     } else if (!candidates.length) {
-      list.innerHTML = `<p class="add-members-empty">${sheet.query ? "No contacts match your search. Paste an address or a domain to invite someone new." : "Everyone in your contacts is already in this group."}</p>`;
+      list.innerHTML = `<p class="add-members-empty">${sheet.query ? "No contacts match your search. Paste an address or a username to invite someone new." : "Everyone in your contacts is already in this group."}</p>`;
     } else {
       list.innerHTML = candidates.map((contact) => {
         const on = sheet.selected.has(contact.address);
@@ -35862,15 +33733,6 @@ function addMembersSheetEl() {
     if (event.target === el || event.target.closest("[data-add-members-cancel]")) {
       if (addMembersSheet.adding) return;
       el.hidden = true;
-      return;
-    }
-    const picked = pickOtherDomain(event, addMembersSheet.results);
-    if (picked) {
-      addMembersSheet.resolvedAddress = picked.address;
-      addMembersSheet.resolvedName = picked.name;
-      addMembersSheet.tld = picked.tld;
-      addMembersSheet.notFound = null;
-      renderAddMembersSheet();
       return;
     }
     const toggle = event.target.closest("[data-add-members-toggle]");
@@ -35980,9 +33842,7 @@ function renderGroupAddressPreview() {
 
 function resetGroupAddressSection() {
   groupAddressResolved = null;
-  groupAddressNameResults = [];
   groupAddressPickedName = null;
-  groupAddressPickedTld = null;
   groupAddressResolveToken++;
   if (groupAddressInput) groupAddressInput.value = "";
   setGroupAddressStatus("");
@@ -36001,40 +33861,32 @@ function groupAddressDuplicateWarning(address) {
 }
 
 /// The group field's line for a resolved name (iOS 6ac48a7 AddGroupMembersView): "Resolved: name"
-/// (or why it can't be added) with the address, then Other domains.
+/// (or why it can't be added) with the address.
 function groupAddressResolvedStatusHtml(address, name) {
   const dupe = groupAddressDuplicateWarning(address);
   return (dupe
     ? `<span class="create-chat-status-bad">✕ ${escapeHtml(dupe)}</span>`
     : `<span class="create-chat-status-good">✓ Resolved: ${escapeHtml(name)}</span>`)
-    + `<span class="create-chat-status-mono">${escapeHtml(address)}</span>`
-    + otherDomainsHtml({ resolutions: groupAddressNameResults, selectedTld: groupAddressPickedTld });
+    + `<span class="create-chat-status-mono">${escapeHtml(address)}</span>`;
 }
-/// Use one service's answer (the priority one, or a pick from Other domains).
-function useGroupAddressResolution(address, name, tld) {
+/// Use the name's answer.
+function useGroupAddressResolution(address, name) {
   groupAddressResolved = address;
   groupAddressPickedName = name;
-  groupAddressPickedTld = tld || null;
   setGroupAddressStatus(groupAddressResolvedStatusHtml(address, name));
   if (groupAddressAddButton) groupAddressAddButton.disabled = Boolean(groupAddressDuplicateWarning(address));
   renderGroupAddressPreview();
 }
-groupAddressStatus?.addEventListener("click", (event) => {
-  const entry = pickOtherDomain(event, groupAddressNameResults);
-  if (entry) useGroupAddressResolution(entry.address, entry.name, entry.tld);
-});
 
-// Live validity feedback for the group address field (raw address or a domain, .kachat first -
-// iOS 6ac48a7), mirroring the 1:1 create-chat resolver. Sets groupAddressResolved to the address
-// that "Add to Group" will use.
+// Live validity feedback for the group address field (raw address or a .kachat name - iOS
+// 6ac48a7, K 518fdc8c), mirroring the 1:1 create-chat resolver. Sets groupAddressResolved to the
+// address that "Add to Group" will use.
 function updateGroupAddressState() {
   if (!groupAddressInput) return;
   const raw = lowercasedKaspaAddress(String(groupAddressInput.value || "").trim());
   const token = ++groupAddressResolveToken;
   groupAddressResolved = null;
-  groupAddressNameResults = [];
   groupAddressPickedName = null;
-  groupAddressPickedTld = null;
   if (groupAddressAddButton) groupAddressAddButton.disabled = true;
 
   if (!raw) { setGroupAddressStatus(""); renderGroupAddressPreview(); return; }
@@ -36057,19 +33909,17 @@ function updateGroupAddressState() {
   }
 
   if (engine.looksLikeName(raw)) {
-    setGroupAddressStatus('<span class="create-chat-status-muted">Looking up domain…</span>');
+    setGroupAddressStatus('<span class="create-chat-status-muted">Looking up username…</span>');
     window.setTimeout(async () => {
       if (token !== groupAddressResolveToken) return;
       try {
         const { results, resolution } = await engine.lookUpName(raw);
         if (token !== groupAddressResolveToken) return;
-        groupAddressNameResults = results || [];
         if (resolution?.ownerAddress) {
-          useGroupAddressResolution(resolution.ownerAddress, resolution.domain || raw, resolution.tld);
+          useGroupAddressResolution(resolution.ownerAddress, resolution.domain || raw);
           return;
         }
-        setGroupAddressStatus(`<span class="create-chat-status-bad">✕ ${escapeHtml(nameNotFoundText(raw, groupAddressNameResults))}</span>`
-          + otherDomainsHtml({ resolutions: groupAddressNameResults }));
+        setGroupAddressStatus(`<span class="create-chat-status-bad">✕ ${escapeHtml(nameNotFoundText(raw, results || []))}</span>`);
         renderGroupAddressPreview();
       } catch {
         if (token !== groupAddressResolveToken) return;
@@ -36877,7 +34727,7 @@ function cancelGroupReply() {
   if (groupReplyBanner) groupReplyBanner.hidden = true;
 }
 
-// Members mentionable with a single-token handle (KNS domain / short address, no spaces).
+// Members mentionable with a single-token handle (.kachat name / short address, no spaces).
 function groupMentionCandidates(query) {
   const g = getGroupManager()?.getGroup(activeGroupId);
   if (!g) return [];
@@ -36885,7 +34735,7 @@ function groupMentionCandidates(query) {
   return g.members
     .filter((m) => m.address && m.address !== engine.address)
     .map((m) => {
-      // Prefer the KNS domain as the single-token handle (what the user wants shown); fall back to
+      // Prefer their name as the single-token handle (what the user wants shown); fall back to
       // a space-free contact label, else the short address.
       const label = mentionDisplayLabel(m.address);
       const handle = /\s/.test(label) ? shortAddress(m.address) : label;
@@ -36941,8 +34791,8 @@ function encodeGroupMentions(text) {
   for (const [handle, address] of [...groupDraftMentions.entries()].sort((a, b) => b[0].length - a[0].length)) {
     out = out.split(handle).join(`@${address}`);
   }
-  // Also catch a member's KNS domain / name typed by hand — iterate members longest-label-first,
-  // mirroring iOS/Android GroupMentionCodec so a manually-typed @alice.kas still encodes.
+  // Also catch a member's name typed by hand — iterate members longest-label-first, mirroring
+  // iOS/Android GroupMentionCodec so a manually-typed @alice.kachat still encodes.
   const g = getGroupManager()?.getGroup(activeGroupId);
   const members = (g?.members || [])
     .filter((m) => m.address && m.address !== engine.address)

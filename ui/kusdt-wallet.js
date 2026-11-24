@@ -66,7 +66,7 @@ export const RECEIVE_NOTES = Object.freeze({
   kaspaOnly: { kind: "allowed", text: "Only Kaspa can be sent here." },
   noKusdtOnQuantum: { kind: "warning", text: "Don't send kUSDT here: it can't be traded from a quantum-resistant address. Use Receive for a regular one." },
   walletReceive: { kind: "info", text: "It lands in this account and shows in your spending total. Use it for everything except .kachat names." },
-  chattingUse: { kind: "info", text: "Use for chatting and acquiring .kachat domains." },
+  chattingUse: { kind: "info", text: "Use for chatting and acquiring usernames." },
   kusdtOnly: { kind: "allowed", text: "Only kUSDT on Kaspa, or KAS, can be sent here." },
   kusdtBridgeFirst: { kind: "warning", text: "Don't send USDT from Ethereum, BNB Chain or an exchange to this address: it would be lost. Bridge it to Kaspa on Trestly first." },
 });

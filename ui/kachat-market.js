@@ -37,7 +37,7 @@ import {
   kachatNameTileHtml, kachatNameGridHtml, liveClaimsButtonHtml, openClaimsList,
 } from "./kachat-names-live.js";
 
-/** Your Domains > .kachat and each address's .kachat tab (iOS KachatLiveDomainsTab, KachatAddressLiveNamesList); see kachat-names-live.js. */
+/** Your Usernames and each address's .kachat tab (iOS KachatLiveDomainsTab, KachatAddressLiveNamesList); see kachat-names-live.js. */
 export { renderKachatLiveDomainsTab };
 
 let deps = null;
@@ -56,7 +56,7 @@ const placeholderListing = { sellerAddress: null };
 
 // Names for sale, expired names anyone may claim, names in their grace period (counting down to
 // release), and everything that happens in the registry - in that order (iOS cb3c27d, 73128b3).
-// Your own names (and the offers you made) live in Profile > Your Domains (iOS 0765ce0, eea52b2).
+// Your own names (and the offers you made) live in Profile > Your Usernames (iOS 0765ce0, eea52b2).
 const PAGES = [
   { id: "market", title: "Marketplace", icon: "tag" },
   { id: "available", title: "Available", icon: "sealOutline" },
@@ -571,7 +571,7 @@ function openHowItWorksSheet() {
 
 let coverBalanceObserver = null;
 
-/** Opened over Your Domains, the cover's bar carries the app's top-bar balance (it is hidden under
+/** Opened over Your Usernames, the cover's bar carries the app's top-bar balance (it is hidden under
  *  the cover): a copy of it, kept in step, and a click copies it as the app's does. As a tab the
  *  app's own balance shows. */
 function showCoverBalance() {
@@ -824,7 +824,7 @@ function guideStepHtml(step) {
         ${guideStepHeader("Claim your .kachat name", "It's the name people see you as across K - in chats, on posts and on your profile link. Without one, people see your address.", `<span class="kmkt-guide-mark">${KACHAT_WORDMARK_SVG}</span>`)}
         <div class="kmkt-guide-claim">
           <div class="kmkt-guide-field"><span class="kmkt-placeholder-text">yourname</span><span class="kmkt-search-suffix">.kachat</span></div>
-          <small class="kmkt-muted">Search for the name you want in .kachat, then claim it.</small>
+          <small class="kmkt-muted">Search for the name you want in Usernames, then claim it.</small>
         </div>`;
     }
     case "howItWorks":
@@ -845,14 +845,14 @@ function guideStepHtml(step) {
         ])}`;
     case "keepIt":
       return `
-        ${guideStepHeader("Keep it", "Your names are in Profile > Your Domains > .kachat.", GUIDE_ICON.renew)}
+        ${guideStepHeader("Keep it", "Your names are in Wallet > Your Usernames.", GUIDE_ICON.renew)}
         ${guideBullets([
           "Renew before it expires. It shows when, on each name.",
           "After it expires there's a grace period to renew it before anyone else can claim it.",
           "You can transfer it, list it for sale, or accept an offer for it.",
         ])}`;
     default:
-      return guideStepHeader("You're all set", "Claim your name in .kachat whenever you're ready.", ICON.sealCheck);
+      return guideStepHeader("You're all set", "Claim your name in Usernames whenever you're ready.", ICON.sealCheck);
   }
 }
 
@@ -927,15 +927,15 @@ export function initKachatMarket(dependencies) {
   screen();
 }
 
-/** The marketplace opened over Your Domains, while it is up: { layer, pillSlot }. */
+/** The marketplace opened over Your Usernames, while it is up: { layer, pillSlot }. */
 let marketCover = null;
 
 /**
- * The .kachat marketplace as a sheet over Your Domains (iOS KachatLiveDomainsTab's Inscribe:
+ * The .kachat marketplace as a sheet over Your Usernames (iOS KachatLiveDomainsTab's Inscribe:
  * KachatMarketView in a .sheet), whether or not .kachat is in the dock or Kaspa Hub: the .kachat
  * screen itself moves into a full cover while it is up, with the chatting balance in its bar. Close
  * (the platform's stand-in for swiping the sheet away) or Escape puts the screen back where it
- * lives; `onClose` then runs (Your Domains refreshes the registry, so a new name lands there).
+ * lives; `onClose` then runs (Your Usernames refreshes the registry, so a new name lands there).
  * Messaging a name's owner from inside closes it first.
  */
 export function openKachatMarketSheet({ onClose = null } = {}) {
@@ -1014,7 +1014,7 @@ export function hideKachatMarket() {
 export function kachatAddressDomainsHtml() {
   return `<div class="kachat-address-domains">
     <span class="kachat-address-domains-mark" aria-hidden="true">${KACHAT_WORDMARK_SVG}</span>
-    <strong>No .kachat names on this address</strong>
+    <strong>No usernames on this address</strong>
     <p>Names this address claims or buys show here once .kachat names launch.</p>
   </div>`;
 }

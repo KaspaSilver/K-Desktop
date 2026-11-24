@@ -16,7 +16,6 @@ const CENTRED = [
   "[data-delete-confirm-modal]",
   "[data-password-modal]",
   ".chatting-picker-confirm-backdrop",
-  ".kns-send-progress-backdrop",
   "[data-cold-confirm-modal]",
   ".group-refresh-backdrop",
   ".chess-overlay",

@@ -172,7 +172,6 @@ test("ui/kaposts.js: a notification poll that lands after a switch is dropped", 
   ordered(poll, "const owner = accountGuard(", "await fetchKaPostNotifications(", "the owner is taken before the fetch");
   ordered(poll, "await fetchKaPostNotifications(", "if (!owner.still()) return;", "and checked once it lands");
   ordered(poll, "if (!owner.still()) return;", "loadSeenKaPostNotificationIds()", "before the seen list is read");
-  ordered(poll, "await deps.engine.refreshKnsIfNeeded", "if (!owner.still()) return;", "and again after the name lookup");
   assert.match(poll, /const my = owner\.account;/);
 });
 

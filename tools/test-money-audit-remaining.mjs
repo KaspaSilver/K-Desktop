@@ -7,7 +7,7 @@ import { verifiedFreshQuantumIndex, QUANTUM_INDEX_BASE } from "../engine/quantum
 
 const store = new Map();
 globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
-const { resumePendingKnsReveals, pendingKnsReveals, KNS_REVEAL_MISSING_LIFETIME_MS } = await import("../engine/kns-write.js");
+const { resumePendingKnsReveals, pendingKnsReveals, KNS_REVEAL_MISSING_LIFETIME_MS } = await import("../engine/kns-reveal-recovery.js");
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const app = read("ui/app.js");
@@ -58,10 +58,9 @@ test("records are kept per account, under the prefix account removal sweeps", ()
 });
 
 test("wiring", () => {
-  const kns = read("engine/kns-write.js");
-  assert.equal(kns.split("commitWithRevealFiled({").length - 1, 3, "defined once, used by registration and profile edits");
-  assert.equal(kns.split("revealOrLeaveFiled(() =>").length - 1, 2);
-  assert.match(kns, /K will finish it the next time it opens\./);
+  // KNS writes are gone (K 518fdc8c); only the recovery that finishes their reveals is left.
+  const kns = read("engine/kns-reveal-recovery.js");
+  assert.doesNotMatch(kns, /commitWithRevealFiled|sendKnsCommitTransaction|inscribeDomain|submitProfileField/);
   assert.match(index, /expectedFeeSompi: options\.expectedFeeSompi \?\? null,\n\s+escalateOrphan: false,/);
   assert.match(index, /options\.ownerAddress && options\.ownerAddress !== this\.address/);
   assert.equal(app.split("ownerAddress: envelope.fromAddress").length - 1, 3, "edits, notices and reactions are bound to their account");

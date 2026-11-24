@@ -30,10 +30,8 @@ import {
   fetchNetworkStats, peekNetworkStats, formatHashrate, estimateDailyKas,
 } from "../engine/network-stats.js";
 import { ADDRESS_PREFIX, ADDRESS_HRP, KAS_UNIT, isValidKaspaAddress } from "../engine/network.js";
-import { resolveDomain } from "../engine/kns.js";
-import { looksLikeName, resolveEverywhere, primary as primaryName, notFoundMessage } from "../engine/name-services.js";
+import { looksLikeName, notFoundMessage } from "../engine/name-services.js";
 import { closeActiveScanner, scanKaspaAddress } from "./qr-scan.js";
-import { otherDomainsHtml, pickOtherDomain } from "./send-kaspa-components.js";
 import { saveFile } from "./save-file.js";
 import { transactionBelongsInHistory } from "../engine/sync.js";
 import { isNextcloudConnected, uploadToKaChatFolder, downloadNextcloudText, openNextcloudFilePicker, notePortfolioChanged } from "./nextcloud.js";
@@ -113,7 +111,7 @@ let rangeDays = 1; // iOS PortfolioViewModel.priceRangeDays starts on 1D
 let loading = false;
 let editingTx = null;      // null = closed; { id } editing; { id: null } adding
 // null = closed; otherwise { busy, progress, input, resolving, resolvedAddress, resolvedDomain,
-// notFound } — the KNS resolution state for the Add Kaspa Address sheet.
+// notFound } — the username resolution state for the Add Kaspa Address sheet.
 let addressImport = null;
 // The running background price backfill loop's token (null: none). An account switch clears it,
 // which retires that loop, so the next account's loop starts at once instead of waiting it out.
@@ -1122,7 +1120,7 @@ function openAddressImport(presetAddress = null) {
     resolving: false, resolvedAddress: null, resolvedDomain: null, notFound: false,
     preset: presetAddress || null,
   };
-  knsResolveSeq += 1; // abandon any lookup left over from a previous open
+  nameResolveSeq += 1; // abandon any lookup left over from a previous open
   modalsEl.querySelector("[data-portfolio-import-address]").value = "";
   const preset = Boolean(presetAddress);
   const title = modalsEl.querySelector("[data-portfolio-import-title]");
@@ -2240,7 +2238,7 @@ function setImportProgress(text) {
   if (el) el.textContent = text || "";
 }
 
-// --- address field: raw address or a domain, .kachat first (iOS PortfolioAddAddressView, 6ac48a7) ---
+// --- address field: raw address or a .kachat username (iOS PortfolioAddAddressView, K 518fdc8c) ---
 
 function looksLikeRawAddress(input) {
   const lower = String(input || "").toLowerCase();
@@ -2257,7 +2255,7 @@ function shortenAddress(address) {
   return address.length > 26 ? `${address.slice(0, 16)}...${address.slice(-8)}` : address;
 }
 
-/** What Import actually runs against: the resolved owner of a typed domain, else the raw input. */
+/** What Import actually runs against: the resolved owner of a typed username, else the raw input. */
 function importEffectiveAddress() {
   return addressImport?.resolvedAddress || addressImport?.input || "";
 }
@@ -2269,7 +2267,7 @@ function canImportAddress() {
 }
 
 /** Under-field status line + button states — port of iOS's `validationStatus`: nothing while
- *  empty or mid-resolution, "Resolves to ..." for a resolved domain, a quiet "Domain not found",
+ *  empty or mid-resolution, "Resolves to ..." for a resolved username, a quiet "No username found",
  *  or the raw address's valid/invalid affordance. */
 function syncImportModal() {
   if (!modalsEl) return;
@@ -2286,17 +2284,11 @@ function syncImportModal() {
   status.style.color = "";
   // Who the address resolves to (iOS ac0ef19): the create-chat card under the status.
   let cardHost = modalsEl.querySelector("[data-portfolio-import-card]");
-  // iOS order: the field, who it resolves to, the status line, then Other domains.
+  // iOS order: the field, who it resolves to, then the status line.
   if (!cardHost) { cardHost = document.createElement("div"); cardHost.dataset.portfolioImportCard = ""; status.insertAdjacentElement("beforebegin", cardHost); }
   const showCard = (address, domain) => { cardHost.innerHTML = address ? (deps.addressCardHtml?.(address, { domain, onLoaded: () => syncImportModal() }) || "") : ""; };
   showCard(null);
-  // Other domains under the resolved name (iOS 6ac48a7): the same name on the other services.
-  let othersHost = modalsEl.querySelector("[data-portfolio-import-other-domains]");
-  if (!othersHost) { othersHost = document.createElement("div"); othersHost.dataset.portfolioImportOtherDomains = ""; status.insertAdjacentElement("afterend", othersHost); }
-  othersHost.innerHTML = addressImport && !addressImport.resolving && input
-    ? otherDomainsHtml({ resolutions: addressImport.nameResolutions || [], selectedTld: addressImport.selectedTld ?? null })
-    : "";
-  if (addressImport?.resolving) { status.textContent = "Looking up domain..."; return; }
+  if (addressImport?.resolving) { status.textContent = "Looking up username..."; return; }
   if (!input) { status.textContent = ""; return; }
   if (addressImport.resolvedAddress) {
     status.textContent = `Resolved: ${addressImport.resolvedDomain || ""} ${shortenAddress(addressImport.resolvedAddress)}`;
@@ -2316,7 +2308,7 @@ function syncImportModal() {
 }
 
 // Bumped on every keystroke so an in-flight lookup for older input can't land on newer input.
-let knsResolveSeq = 0;
+let nameResolveSeq = 0;
 
 function handleImportInputChange(raw) {
   if (!addressImport || addressImport.busy) return;
@@ -2327,8 +2319,7 @@ function handleImportInputChange(raw) {
   addressImport.notFound = false;
   addressImport.resolving = false;
   addressImport.nameResolutions = [];
-  addressImport.selectedTld = null;
-  const seq = (knsResolveSeq += 1);
+  const seq = (nameResolveSeq += 1);
 
   if (trimmed && !looksLikeRawAddress(trimmed) && looksLikeName(trimmed)) {
     addressImport.resolving = true;
@@ -2359,7 +2350,7 @@ async function pasteIntoImportField() {
 /** Camera scan for the address field, the desktop equivalent of iOS's Scan button
  *  (PortfolioTransactionsView's `showQRScanner` / `handleScannedQRCode`). The scanner
  *  already strips a `kaspa:addr?amount=...` query, and the result is fed through the
- *  SAME path the Paste button uses, so KNS resolution and validation still run. */
+ *  SAME path the Paste button uses, so name resolution and validation still run. */
 async function scanIntoImportField() {
   if (!addressImport || addressImport.busy) return;
   let scanned = null;
@@ -2384,35 +2375,23 @@ function fillImportField(text) {
 }
 
 /** Debounced forward resolution — the same 300ms wait-then-check-input-unchanged pattern iOS
- *  uses, so mid-typing keystrokes never each fire a KNS request. */
+ *  uses, so mid-typing keystrokes never each fire a name lookup. */
 async function resolveImportDomain(domain, seq) {
   await sleep(300);
-  if (seq !== knsResolveSeq || addressImport?.input !== domain) return;
+  if (seq !== nameResolveSeq || addressImport?.input !== domain) return;
 
-  // Every name service in priority order (iOS 79b6ac8): the typed ending's, else .kachat, .kas,
-  // .k, .kaspa - the same resolution as sends and new chats (the engine's, so .kachat resolves
-  // where its registry is live). Every answer is kept for Other domains (iOS 6ac48a7).
+  // .kachat only (K 518fdc8c): the same resolution as sends and new chats. The answer is kept for
+  // the not-found message.
   let resolution = null;
   let results = [];
   try {
-    if (deps.engine?.lookUpName) {
-      ({ results, resolution } = await deps.engine.lookUpName(domain));
-    } else {
-      results = await resolveEverywhere(domain, {
-        resolveKas: async (name) => {
-          try { return (await resolveDomain(name, { baseUrl: getEndpoint("knsApi") }))?.ownerAddress || null; } catch { return null; }
-        },
-      });
-      const winner = primaryName(results, domain);
-      resolution = winner?.address ? { ownerAddress: winner.address, domain: winner.name, tld: winner.tld } : null;
-    }
+    ({ results, resolution } = await deps.engine.lookUpName(domain));
   } catch { resolution = null; }
 
   // Input may have moved on while the lookup was in flight — a stale answer must not overwrite
   // the state for what's in the field now.
-  if (seq !== knsResolveSeq || addressImport?.input !== domain) return;
+  if (seq !== nameResolveSeq || addressImport?.input !== domain) return;
   addressImport.nameResolutions = results || [];
-  addressImport.selectedTld = resolution?.tld || null;
   addressImport.resolvedAddress = resolution?.ownerAddress || null;
   addressImport.resolvedDomain = resolution?.domain || null;
   addressImport.notFound = !resolution;
@@ -2480,7 +2459,7 @@ function finishAddressImport(message) {
 
 function closeAddressImportSheet() {
   addressImport = null;
-  knsResolveSeq += 1; // any in-flight KNS lookup belongs to a sheet that's gone
+  nameResolveSeq += 1; // any in-flight name lookup belongs to a sheet that's gone
   closeActiveScanner(); // and so does any camera it opened
   const modal = modalsEl?.querySelector("[data-portfolio-import-modal]");
   if (modal) modal.hidden = true;
@@ -2488,7 +2467,7 @@ function closeAddressImportSheet() {
 
 async function runAddressImport(addressRaw) {
   const address = String(addressRaw || "").trim();
-  // KNS domains never reach this check: the field resolves them to an address before Import is
+  // Usernames never reach this check: the field resolves them to an address before Import is
   // enabled.
   if (!isValidRawAddress(address)) {
     finishAddressImport("That doesn't look like a valid Kaspa address.");
@@ -2801,13 +2780,13 @@ function buildModals() {
           <button class="modal-close" type="button" data-portfolio-import-close aria-label="Close">×</button>
         </div>
         <div class="portfolio-editor-body">
-          <input class="field-input portfolio-import-address" type="text" placeholder="kaspa:qr... or domain" aria-label="Kaspa address or domain" data-portfolio-import-address data-portfolio-import-manual spellcheck="false" autocomplete="off" autocapitalize="off" />
+          <input class="field-input portfolio-import-address" type="text" placeholder="kaspa:qr... or username" aria-label="Kaspa address or username" data-portfolio-import-address data-portfolio-import-manual spellcheck="false" autocomplete="off" autocapitalize="off" />
           <p class="portfolio-editor-hint" data-portfolio-import-status data-portfolio-import-manual></p>
           <div class="portfolio-import-buttons" data-portfolio-import-manual>
             <button class="cold-inline-link" type="button" data-portfolio-import-paste>Paste</button>
             <button class="cold-inline-link" type="button" data-portfolio-import-scan>Scan QR</button>
           </div>
-          <p class="portfolio-import-note" data-portfolio-import-manual>Enter a Kaspa address or a domain like name.kachat (.kachat names are looked up first). Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import.</p>
+          <p class="portfolio-import-note" data-portfolio-import-manual>Enter a Kaspa address or a username like name.kachat. Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import.</p>
           <p class="portfolio-import-progress" data-portfolio-import-progress></p>
         </div>
         <div class="modal-actions" data-portfolio-import-manual>
@@ -2956,18 +2935,6 @@ function buildModals() {
       if (!addressImport?.busy) closeAddressImportSheet();
       return;
     }
-    // A pick under Other domains imports that service's address instead (iOS 6ac48a7).
-    if (event.target.closest("[data-portfolio-import-other-domains]") && addressImport && !addressImport.busy) {
-      const entry = pickOtherDomain(event, addressImport.nameResolutions);
-      if (entry) {
-        addressImport.resolvedAddress = entry.address;
-        addressImport.resolvedDomain = entry.name;
-        addressImport.selectedTld = entry.tld;
-        addressImport.notFound = false;
-        syncImportModal();
-        return;
-      }
-    }
     if (event.target.closest("[data-portfolio-import-paste]")) {
       pasteIntoImportField();
       return;
@@ -2977,7 +2944,7 @@ function buildModals() {
       return;
     }
     if (event.target.closest("[data-portfolio-import-start]")) {
-      // Runs against the RESOLVED address when a KNS domain was typed, not the domain text.
+      // Runs against the RESOLVED address when a username was typed, not the name text.
       if (canImportAddress()) runAddressImport(importEffectiveAddress());
     }
   });

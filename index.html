@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <!-- On an https page, every plain-http subresource the page ever asks for (a link preview's
-       og:image, an avatar a KNS profile points at, a leftover ws:// node) is upgraded to https/wss
+       og:image, an avatar a profile points at, a leftover ws:// node) is upgraded to https/wss
        before it leaves the browser. One such request is enough for Chrome and Brave to mark the
        whole tab "Not secure" until the next navigation. Only on https: an http page on the LAN
        must keep talking plain http/ws to a local node. A file, not inline, so the CSP needs no
@@ -13,7 +13,7 @@
   <!-- Too-old browsers (no WebAssembly / modern JS, e.g. iOS 10) get a clear message, not a blank layout. -->
   <script src="/browser-check.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=431" />
+  <link rel="stylesheet" href="./ui/styles.css?v=432" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (K's globe, dark only since K b0f0a4e6) is the tab icon too. -->
@@ -786,13 +786,13 @@
         <div class="profile-screen wallet-screen" data-app-tab-screen="wallet" hidden>
           <div class="kaposts-header profile-title-row">
             <h1 class="kaposts-title">Wallet</h1>
-            <!-- Refresh: the platform's stand-in for iOS's pull-to-refresh, as on Your Domains. -->
+            <!-- Refresh: the platform's stand-in for iOS's pull-to-refresh, as on Your Usernames. -->
             <button class="chatting-address-back domains-refresh wallet-refresh" type="button" data-wallet-refresh aria-label="Refresh" title="Refresh">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 12.6A7.5 7.5 0 1 1 17 6.6"/><path d="M19.6 3.8v4.6H15"/></svg>
             </button>
           </div>
 
-          <!-- On Wallet with Your Domains since the old Profile screen went (KaChat iOS 148a5331). One of your .kachat names expired and is in its grace period: renew it in time (iOS 6ac48a7). -->
+          <!-- On Wallet with Your Usernames since the old Profile screen went (KaChat iOS 148a5331). One of your .kachat names expired and is in its grace period: renew it in time (iOS 6ac48a7). -->
           <div class="kachat-expired-banner" data-kachat-expired-banner hidden></div>
 
           <!-- The balance cards side by side, one showing, the pills under them choosing (KaPay 3d126db
@@ -885,12 +885,13 @@
             <span class="profile-row-trailing"><svg viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5l5 5-5 5"/></svg></span>
           </button>
 
-          <!-- Wallet's cards are Chatting Address, Swap Stablecoins and Your Domains (KaChat iOS 148a5331). Your Domains: a top-level row rather than a page inside the KNS editor - domains are
-               something you own, not a setting of the profile that happens to use one (iOS
-               yourDomainsSection). Shown for every account, since the list has an empty state. -->
+          <!-- Wallet's cards are Chatting Address and Your Usernames (K 518fdc8c; Swap Stablecoins went:
+               Swap is a button beside Send / Receive / Request). Your Usernames: the account's .kachat
+               names, the only name service since 2026-11-23 (audit 2026-11-24 #36). Shown for every
+               account, since the list has an empty state. -->
           <button class="profile-card profile-recovery-row" type="button" data-open-domains-screen>
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/></svg>
-            <span>Your Domains</span>
+            <span>Your Usernames</span>
             <span class="profile-row-trailing">
               <span class="profile-domains-count" data-profile-domains-count></span>
               <svg viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5l5 5-5 5"/></svg>
@@ -933,7 +934,7 @@
       <button class="sidebar-tab" type="button" data-app-tab="kachat-names" hidden>
         <!-- at (KaPay AppTab.kachatNames): the name is under it, so it is not spelled out twice. -->
         <span class="sidebar-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.6"/><path d="M15.6 12v1.4a2.6 2.6 0 0 0 5.2 0V12a8.8 8.8 0 1 0-3.4 6.9"/></svg></span>
-        <span>.kachat</span>
+        <span>Usernames</span>
       </button>
       <button class="sidebar-tab" type="button" data-app-tab="kachat-stats" hidden>
         <span class="sidebar-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 20.5h18"/><path d="M6 17V11M10 17V6M14 17v-8M18 17v-4"/></svg></span>
@@ -1069,8 +1070,8 @@
               <!-- iOS SettingsView customizationPage: pickers, Customize Dock, then Show Fee Estimate
                    (default on). No Show Setup Guides switch: the guides are always shown. -->
               <div class="settings-toggle-row" data-fee-estimate-row><span><strong>Show Fee Estimate</strong></span><label class="switch-control"><input type="checkbox" data-pref-estimate-fees checked><span></span></label></div>
-              <!-- iOS 94ed3a35 KachatEndingsToggle: display only, on by default. -->
-              <div class="settings-toggle-row"><span><strong>Show .kachat Endings</strong></span><label class="switch-control"><input type="checkbox" data-pref-kachat-endings checked><span></span></label></div>
+              <!-- iOS 94ed3a35 KachatEndingsToggle: display only, off by default (K 518fdc8c). -->
+              <div class="settings-toggle-row"><span><strong>Show .kachat Endings</strong></span><label class="switch-control"><input type="checkbox" data-pref-kachat-endings><span></span></label></div>
             </div>
             <p class="settings-group-footer field-hint">Turn off to show names like alice instead of alice.kachat. A name you gave someone yourself never has the ending.</p>
             <!-- K 518fdc8c: what Tip sends, on a post and in a 1:1 chat's + (moved here from
@@ -1198,7 +1199,7 @@
             </div>
             </div>
             <div class="connection-panel" data-connection-panel="domains" hidden>
-            <!-- .kachat first: it is what every address field resolves before anything else (iOS 6ac48a7). -->
+            <!-- .kachat is the only name service (K 518fdc8c): what every address field resolves. -->
             <p class="settings-group-label">.kachat Names</p>
             <div class="settings-list-card">
               <div class="settings-page-form">
@@ -1216,15 +1217,6 @@
                     <code data-kachat-names-source></code>
                     <small data-kachat-names-source-note hidden>This indexer doesn't serve .kachat names on this network, or is behind.</small>
                   </div>
-              </div>
-            </div>
-            <p class="settings-group-label">Other Domains</p>
-            <div class="settings-list-card">
-              <!-- Shown, not editable (iOS domainsSections): .kas follows the network. -->
-              <div class="settings-page-form connection-readonly-list">
-                <div class="connection-readonly"><span>.kas</span><code data-kns-url></code></div>
-                <div class="connection-readonly"><span>.k</span><code>https://api.dotk.name/v1</code></div>
-                <div class="connection-readonly"><span>.kaspa</span><code>https://kaspaname.com/v1</code></div>
               </div>
             </div>
             </div>
@@ -1611,9 +1603,9 @@
       <section class="create-chat-section">
         <p class="create-chat-section-title">ADDRESS</p>
         <div class="create-chat-address-card">
-          <label class="create-chat-address-label" for="create-chat-address">Kaspa Address or Domain</label>
-          <input id="create-chat-address" class="create-chat-address-input" name="address" type="text" placeholder="kaspa:qr... or domain" autocomplete="off" spellcheck="false" required />
-          <!-- As iOS AddContactView: the status (with Other domains), the preview card and the
+          <label class="create-chat-address-label" for="create-chat-address">Kaspa Address or Username</label>
+          <input id="create-chat-address" class="create-chat-address-input" name="address" type="text" placeholder="kaspa:qr... or username" autocomplete="off" spellcheck="false" required />
+          <!-- As iOS AddContactView: the status, the preview card and the
                error sit under the field, above the Contacts / Paste / Scan QR row. -->
           <div class="create-chat-status" data-create-chat-status hidden></div>
           <div class="create-chat-preview" data-create-chat-preview hidden></div>
@@ -1634,7 +1626,7 @@
             </button>
           </div>
         </div>
-        <p class="create-chat-help">Enter a Kaspa address (kaspa:...) or a domain (e.g. alice.kachat). .kachat names are looked up first.</p>
+        <p class="create-chat-help">Enter a Kaspa address (kaspa:...) or a username (e.g. alice.kachat).</p>
       </section>
 
       <!-- Private: no first-contact signal at all (iOS 5.2, NO_HANDSHAKE_MESSAGING.md §3.1). Right
@@ -2084,7 +2076,7 @@
         <!-- New Group (iOS 1be4f6e): "Add Members" - the Address Book's multi-select, or anyone by
              address. Add Members to an existing group keeps the Contacts list above. -->
         <p class="group-section-title group-add-members-title" data-group-add-members-title hidden>Add Members</p>
-        <input class="group-address-input" type="text" placeholder="kaspa:qr... or domain" autocomplete="off" spellcheck="false" data-group-address-input />
+        <input class="group-address-input" type="text" placeholder="kaspa:qr... or username" autocomplete="off" spellcheck="false" data-group-address-input />
         <!-- As iOS: the status and preview card under the field, then the tools row. -->
         <div class="group-address-status" data-group-address-status hidden></div>
         <div class="create-chat-preview" data-group-address-preview hidden></div>
@@ -2104,7 +2096,7 @@
         </div>
         <button type="button" class="secondary-button group-address-add" data-group-address-add disabled>Add to Group</button>
         <!-- The section's footer (iOS "Add Members" footer). -->
-        <p class="field-hint group-add-members-footer" data-group-add-by-address-hint>Pick people from your contacts, or add anyone by Kaspa address or domain.</p>
+        <p class="field-hint group-add-members-footer" data-group-add-by-address-hint>Pick people from your contacts, or add anyone by Kaspa address or username.</p>
       </div>
 
       <p class="field-error" data-group-create-error hidden></p>
@@ -2124,75 +2116,6 @@
       </header>
       <div class="manage-address-body group-manage-body" data-group-manage-body></div>
     </div>
-  </div>
-
-  <div class="modal-backdrop" data-kns-register-modal hidden>
-    <section class="contact-modal kns-register-modal kns-wizard-modal" role="dialog" aria-modal="true" aria-label="Create KNS Profile">
-      <div class="modal-header">
-        <button type="button" class="linklike-button kns-wizard-close" data-close-kns-register>Close</button>
-        <h2 class="kns-wizard-title">Create KNS Profile</h2>
-        <span class="kns-wizard-close-spacer" aria-hidden="true"></span>
-      </div>
-      <div class="kns-wizard-body" data-kns-wizard-body></div>
-    </section>
-  </div>
-
-  <div class="modal-backdrop" data-kns-editor-modal hidden>
-    <section class="contact-modal kns-register-modal" role="dialog" aria-modal="true" aria-label="Edit KNS Profile">
-      <div class="modal-header">
-        <div>
-          <p class="modal-kicker">Real Kaspa transaction</p>
-          <h2>Edit KNS Profile</h2>
-        </div>
-        <button class="modal-close" type="button" data-close-kns-editor aria-label="Close">×</button>
-      </div>
-      <div class="kns-editor-scroll">
-        <button class="kns-editor-guide" type="button" data-open-kns-guide hidden>
-          <span class="kns-editor-guide-icon" aria-hidden="true">📘</span>
-          <span class="kns-editor-guide-text">
-            <span class="kns-editor-guide-title">Setup Guide</span>
-            <span class="kns-editor-guide-sub">Walk through domain, banner, avatar and details again</span>
-          </span>
-          <svg class="kns-editor-guide-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-        </button>
-        <p class="kns-editor-section">Avatar</p>
-        <div class="kns-image-row">
-          <span class="kaposts-avatar kns-avatar-preview" data-kns-avatar-preview aria-hidden="true"></span>
-          <div class="kns-image-buttons">
-            <button type="button" class="secondary-button" data-kns-choose-avatar>Choose Avatar</button>
-            <button type="button" class="secondary-button danger" data-kns-remove-avatar hidden>Remove Avatar</button>
-          </div>
-          <input type="file" accept="image/*" hidden data-kns-avatar-file />
-        </div>
-        <p class="field-hint" data-kns-avatar-status hidden>Processing avatar...</p>
-        <p class="kns-editor-section">Banner</p>
-        <div class="kns-banner-preview" data-kns-banner-preview hidden></div>
-        <div class="kns-image-buttons">
-          <button type="button" class="secondary-button" data-kns-choose-banner>Choose Banner</button>
-          <button type="button" class="secondary-button danger" data-kns-remove-banner hidden>Remove Banner</button>
-        </div>
-        <input type="file" accept="image/*" hidden data-kns-banner-file />
-        <p class="field-hint" data-kns-banner-status hidden>Processing banner...</p>
-        <p class="kns-editor-section">Profile</p>
-        <label class="field-label compact">Bio<textarea class="field-input" data-kns-editor-field="bio" maxlength="300" rows="3"></textarea></label>
-        <label class="field-label compact">X handle<input class="field-input" type="text" data-kns-editor-field="x" maxlength="64" autocapitalize="none" /></label>
-        <label class="field-label compact">Website<input class="field-input" type="url" data-kns-editor-field="website" maxlength="2048" autocapitalize="none" /></label>
-        <label class="field-label compact">Telegram<input class="field-input" type="text" data-kns-editor-field="telegram" maxlength="64" autocapitalize="none" /></label>
-        <label class="field-label compact">Discord user id<input class="field-input" type="text" data-kns-editor-field="discord" maxlength="128" autocapitalize="none" /></label>
-        <label class="field-label compact">Email<input class="field-input" type="email" data-kns-editor-field="contactEmail" maxlength="254" autocapitalize="none" /></label>
-        <label class="field-label compact">GitHub<input class="field-input" type="text" data-kns-editor-field="github" maxlength="64" autocapitalize="none" /></label>
-        <label class="field-label compact">Redirect URL<input class="field-input" type="url" data-kns-editor-field="redirectUrl" maxlength="2048" autocapitalize="none" /></label>
-        <p class="kns-editor-section">Domain</p>
-        <div class="broadcast-info-row"><span>Name</span><strong data-kns-editor-domain-name>--</strong></div>
-        <div class="broadcast-info-row"><span>Asset ID</span><strong class="kns-asset-id" data-kns-editor-asset-id>--</strong></div>
-        <p class="field-error" data-kns-editor-error hidden></p>
-        <div class="kns-progress" data-kns-editor-progress hidden></div>
-      </div>
-      <div class="modal-actions">
-        <button class="secondary-button" type="button" data-close-kns-editor>Cancel</button>
-        <button class="primary-button" type="button" data-kns-editor-save disabled>Save</button>
-      </div>
-    </section>
   </div>
 
   <div class="modal-backdrop" data-account-rename-modal hidden>
@@ -2261,7 +2184,7 @@
           <canvas width="512" height="512" data-chatting-address-qr></canvas>
         </div>
         <p class="chatting-address-value" data-chatting-address-value>No wallet loaded</p>
-        <p class="chatting-address-subtitle" data-chatting-address-subtitle>Use for chatting and acquiring .kachat domains.</p>
+        <p class="chatting-address-subtitle" data-chatting-address-subtitle>Use for chatting and acquiring usernames.</p>
         <!-- What the address means for privacy, and what may be sent to it (KaPay 3d126db ReceiveNotes). -->
         <p class="receive-privacy" data-chatting-address-privacy hidden></p>
         <p class="qr-tap-hint">Tap anywhere to copy</p>
@@ -2308,34 +2231,24 @@
     </div>
   </div>
 
-  <div class="chatting-address-screen manage-address-screen domains-screen" data-domains-screen hidden role="dialog" aria-modal="true" aria-label="Your Domains">
+  <!-- Your Usernames (K 518fdc8c): the account's .kachat names, straight away (KachatLiveDomainsTab). -->
+  <div class="chatting-address-screen manage-address-screen domains-screen" data-domains-screen hidden role="dialog" aria-modal="true" aria-label="Your Usernames">
     <div class="manage-address-card">
       <header class="chatting-address-header">
         <button class="chatting-address-back" type="button" data-close-domains-screen aria-label="Back">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg>
         </button>
-        <span class="chatting-address-balance">Your Domains</span>
-        <!-- Refresh: the platform's stand-in for iOS's pull-to-refresh on each service's list. -->
-        <button class="chatting-address-back domains-refresh" type="button" data-domains-refresh aria-label="Refresh" title="Refresh" hidden>
+        <span class="chatting-address-balance">Your Usernames</span>
+        <!-- Refresh: the platform's stand-in for iOS's pull-to-refresh on the list. -->
+        <button class="chatting-address-back domains-refresh" type="button" data-domains-refresh aria-label="Refresh" title="Refresh">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 12.6A7.5 7.5 0 1 1 17 6.6"/><path d="M19.6 3.8v4.6H15"/></svg>
         </button>
       </header>
       <div class="manage-address-body">
-        <!-- One square card per name ending, KaChat's own first, each naming who runs it, in the
-             Kaspa Hub tile look (iOS debd6fd). Each opens that service's own screen, titled by
-             its ending, with the list that used to be its tab. -->
-        <div class="domains-service-grid" data-domains-services aria-label="Name services">
-          <button type="button" class="hub-tile domains-service-tile" data-domains-service="kachat"><span class="domains-service-suffix">.kachat</span><span class="domains-service-name">KaChat Names</span><span class="domains-service-count" data-domains-count="kachat">–</span></button>
-          <button type="button" class="hub-tile domains-service-tile" data-domains-service="kas"><span class="domains-service-suffix">.kas</span><span class="domains-service-name">KNS</span><span class="domains-service-count" data-domains-count="kas">–</span></button>
-          <button type="button" class="hub-tile domains-service-tile" data-domains-service="k"><span class="domains-service-suffix">.k</span><span class="domains-service-name">dotk</span><span class="domains-service-count" data-domains-count="k">–</span></button>
-          <button type="button" class="hub-tile domains-service-tile" data-domains-service="kaspa"><span class="domains-service-suffix">.kaspa</span><span class="domains-service-name">Kaspa Names</span><span class="domains-service-count" data-domains-count="kaspa">–</span></button>
-        </div>
-        <div class="profile-domains-list" data-profile-domains-list hidden></div>
-        <div class="profile-domain-detail" data-domain-detail hidden></div>
+        <div class="profile-domains-list" data-profile-domains-list></div>
       </div>
       <div class="manage-address-actions">
-        <!-- .kachat's Inscribe; the outside services have no button (iOS 4314e17e). -->
-        <button type="button" class="chatting-address-copy domains-inscribe-button" data-domains-inscribe hidden>Claim a Name</button>
+        <button type="button" class="chatting-address-copy domains-inscribe-button" data-domains-inscribe hidden>Claim a Username</button>
       </div>
     </div>
   </div>
@@ -2368,7 +2281,7 @@
         <nav class="domains-tabs address-tabs" aria-label="Chatting address view">
           <button type="button" class="domains-tab active" data-manage-address-tab="transactions">History</button>
           <button type="button" class="domains-tab" data-manage-address-tab="utxos">UTXOs</button>
-          <button type="button" class="domains-tab" data-manage-address-tab="kachat">Domains</button>
+          <button type="button" class="domains-tab" data-manage-address-tab="kachat">Usernames</button>
         </nav>
 
         <div class="manage-address-body">
@@ -2383,7 +2296,7 @@
           </div>
         </div>
 
-        <!-- Receive and Send belong to the history: the UTXOs and Domains tabs don't show them (iOS 0b9fd28). -->
+        <!-- Receive and Send belong to the history: the UTXOs and Usernames tabs don't show them (iOS 0b9fd28). -->
         <div class="manage-address-actions" data-manage-address-actions>
           <button type="button" class="chatting-address-copy" data-manage-address-receive>
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v3M14 20h3M20 18v3"/></svg>
@@ -2407,7 +2320,7 @@
 
         <div class="manage-address-send-body">
           <label class="field-label"><span data-i18n="send.recipient">Recipient</span>
-            <input class="field-input" type="text" data-manage-send-recipient placeholder="kaspa:qr... or domain" autocomplete="off" spellcheck="false" />
+            <input class="field-input" type="text" data-manage-send-recipient placeholder="kaspa:qr... or username" autocomplete="off" spellcheck="false" />
           </label>
           <p class="field-hint" data-manage-send-resolved hidden></p>
           <span class="field-label" data-manage-send-amount-label>Amount (KAS)</span>
@@ -2570,7 +2483,7 @@
       <nav class="domains-tabs address-tabs" aria-label="Spending address view">
         <button type="button" class="domains-tab active" data-spending-detail-tab="transactions">History</button>
         <button type="button" class="domains-tab" data-spending-detail-tab="utxos">UTXOs</button>
-        <button type="button" class="domains-tab" data-spending-detail-tab="kachat">Domains</button>
+        <button type="button" class="domains-tab" data-spending-detail-tab="kachat">Usernames</button>
       </nav>
 
       <div class="manage-address-body">
@@ -2634,7 +2547,7 @@
       </header>
       <span class="chatting-picker-header-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="10.5" r="2"/><path d="M5.5 16c.6-1.6 1.6-2.4 3-2.4s2.4.8 3 2.4M14 9.5h4M14 13h4"/></svg></span>
       <h3 class="chatting-picker-title">Choose Your Chatting Address</h3>
-      <p class="spending-manage-subtitle">If these words already hold your identity at a different address - a domain (.kachat, .kas, .k or .kaspa) or a funded chatting balance - pick it here. Only addresses with a balance or domains are shown.</p>
+      <p class="spending-manage-subtitle">If these words already hold your identity at a different address - a .kachat name or a funded chatting balance - pick it here. Only addresses with a balance or names are shown.</p>
       <div class="manage-address-body">
         <div class="manage-address-list chatting-picker-list" data-chatting-picker-list></div>
         <p class="field-error chatting-picker-error" data-chatting-picker-error hidden></p>
@@ -2673,72 +2586,6 @@
       </div>
     </section>
   </div>
-
-  <!-- Send Domain (iOS ContactsView.swift KNSDomainSendView): Cancel / "Send Domain" / Send in the
-       bar; Domain (name + asset id), Recipient Address (field, who it is, the lookup line, Other
-       domains, Paste / Scan QR, footer), Fee (Normal / Fast / Priority, Network Fee - click it for a
-       custom one - footer), the error. Progress is its own sheet, the end the shared Sent sheet. -->
-  <div class="modal-backdrop" data-kns-transfer-modal hidden>
-    <section class="contact-modal kns-send-modal" role="dialog" aria-modal="true" aria-labelledby="kns-send-title">
-      <header class="kns-send-header">
-        <button class="create-chat-nav-button" type="button" data-kns-transfer-cancel>Cancel</button>
-        <h2 id="kns-send-title">Send Domain</h2>
-        <span class="kns-send-header-action">
-          <span class="sk-spinner" data-kns-transfer-spinner aria-hidden="true" hidden></span>
-          <button class="create-chat-nav-button" type="button" data-kns-transfer-send disabled>Send</button>
-        </span>
-      </header>
-      <p class="settings-group-label">Domain</p>
-      <div class="settings-list-card kns-send-card">
-        <strong class="kns-send-domain" data-kns-transfer-domain></strong>
-        <code class="kns-send-asset" data-kns-transfer-asset></code>
-      </div>
-      <p class="settings-group-label">Recipient Address</p>
-      <div class="settings-list-card kns-send-card">
-        <input class="field-input kns-send-input" type="text" data-kns-transfer-recipient placeholder="kaspa:qr... or domain" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Recipient Address" />
-        <div data-kns-transfer-card hidden></div>
-        <div class="sk-recipient-status" data-kns-transfer-resolution role="status" aria-live="polite"></div>
-        <div class="kns-send-actions">
-          <button class="cold-inline-link kns-send-action" type="button" data-kns-transfer-paste><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2.5" width="8" height="4" rx="1.2"/><path d="M8 4.5H6.5A1.5 1.5 0 0 0 5 6v13.5A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H16"/></svg>Paste</button>
-          <button class="cold-inline-link kns-send-action" type="button" data-kns-transfer-scan><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8V5.5A2.5 2.5 0 0 1 5.5 3H8M16 3h2.5A2.5 2.5 0 0 1 21 5.5V8M21 16v2.5a2.5 2.5 0 0 1-2.5 2.5H16M8 21H5.5A2.5 2.5 0 0 1 3 18.5V16"/><path d="M3 12h18"/></svg>Scan QR</button>
-        </div>
-      </div>
-      <p class="field-hint kns-send-footer">Enter a Kaspa address (kaspa:...) or a domain. .kachat names are looked up first.</p>
-      <p class="settings-group-label">Fee</p>
-      <div class="settings-list-card kns-send-card">
-        <div class="settings-segmented full" role="group" aria-label="Fee">
-          <button type="button" class="settings-segmented-option active" data-kns-transfer-fee="normal" aria-pressed="true">Normal</button>
-          <button type="button" class="settings-segmented-option" data-kns-transfer-fee="fast" aria-pressed="false">Fast</button>
-          <button type="button" class="settings-segmented-option" data-kns-transfer-fee="priority" aria-pressed="false">Priority</button>
-        </div>
-        <div class="sk-fee-row kns-send-fee-row">
-          <span class="sk-fee-title">Network Fee</span>
-          <span class="sk-fee-value">
-            <span class="sk-fee-editor" data-kns-transfer-fee-editor hidden>
-              <input class="sk-fee-input" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" data-kns-transfer-fee-custom aria-label="Custom network fee" />
-              <button type="button" class="sk-icon-button sk-fee-commit" data-kns-transfer-fee-commit aria-label="Use this fee" title="Use this fee"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"/><path d="M8 12.4l2.6 2.6L16 9.6"/></svg></button>
-            </span>
-            <button type="button" class="sk-fee-text" data-kns-transfer-fee-edit title="Set a custom fee"><span data-kns-transfer-fee-summary>0.02 KAS</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L18.5 9.5a2.12 2.12 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l3 3"/></svg></button>
-          </span>
-        </div>
-      </div>
-      <p class="field-hint kns-send-footer">If the network is busy, Fast or Priority pays a higher fee to help your transfer confirm sooner. Click the fee amount to set a custom fee.</p>
-      <!-- An unfinished transfer (audit EXT-005): Send finishes it instead of committing again. -->
-      <p class="field-hint" data-kns-transfer-status hidden></p>
-      <div class="settings-list-card kns-send-card" data-kns-transfer-error-card hidden><p class="field-error kns-send-error" data-kns-transfer-error></p></div>
-    </section>
-  </div>
-
-  <!-- The transfer's progress (iOS domainTransferProgressSheet): it can't be closed mid-transfer. -->
-  <div class="modal-backdrop kns-send-progress-backdrop" data-kns-transfer-progress hidden>
-    <section class="contact-modal kns-send-progress" role="dialog" aria-modal="true" aria-labelledby="kns-send-progress-title">
-      <h2 id="kns-send-progress-title" data-kns-transfer-progress-title>Sending</h2>
-      <div class="kns-send-progress-track" aria-hidden="true"><span class="kns-send-progress-fill" data-kns-transfer-progress-fill></span></div>
-      <p class="kns-send-progress-stage" data-kns-transfer-progress-stage>Preparing transfer</p>
-      <p class="kns-send-progress-note">A domain transfer is two transactions, so this takes a moment. Keep the app open until it finishes.</p>
-    </section>
-  </div>
-
   <div class="modal-backdrop" data-send-kaspa-modal hidden>
     <section class="contact-modal send-kaspa-modal" role="dialog" aria-modal="true" aria-label="Send Kaspa">
       <div class="modal-header">
@@ -2884,7 +2731,7 @@
         <!-- KaChat 413f6d6d: "Share Profile" under the circle; the words share too. -->
         <button class="chat-info-share" type="button" data-chat-info-share aria-label="Share this profile" title="Share this profile"><span class="chat-info-share-button" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12"/></svg></span><span class="chat-info-share-caption">Share Profile</span></button>
         <div class="profile-card chat-info-header-card">
-          <!-- The contact's KNS banner, bled to the card's edges (iOS ChatInfoView's header
+          <!-- The contact's .kachat banner, bled to the card's edges (iOS ChatInfoView's header
                section leads with it when the profile has one). -->
           <div class="chat-info-banner" data-chat-info-banner hidden></div>
           <!-- Tapping the avatar opens it full screen. No photo of your own choosing: iOS shows
@@ -2905,9 +2752,8 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
             </button>
           </span>
-          <!-- Exactly ONE line sits under the name, as on iOS: the address while the contact owns
-               no KNS domain, their bio once they have one, and a short note about profile data
-               otherwise. Showing all three stacked was the old shape. -->
+          <!-- Exactly ONE line sits under the name, as on iOS: their bio when they have one, else
+               the address. -->
           <span class="chat-info-address-caption" data-chat-info-address-caption></span>
           <p class="chat-info-bio" data-chat-info-bio hidden title="Click to expand"></p>
           <!-- Testnet: the .kachat profile's Linktree link (iOS e52357d). -->
@@ -2915,13 +2761,6 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>
             <span data-chat-info-linktree-text></span>
           </a>
-          <!-- The profile's links live behind a disclosure (iOS's "More Info" DisclosureGroup).
-               Seven always-open rows pushed everything below them off the card for a contact who
-               had filled them all in. -->
-          <details class="chat-info-more" data-chat-info-more hidden>
-            <summary class="chat-info-more-summary">More Info</summary>
-            <div class="chat-info-more-rows" data-chat-info-social-links></div>
-          </details>
         </div>
 
         <!-- One row per section, each opening its own sheet (iOS's infoCard list). The screen had
@@ -2939,12 +2778,7 @@
             <span class="chat-info-row-title">Address</span>
             <svg class="chat-info-row-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
           </button>
-          <button class="chat-info-row" type="button" data-chat-info-sheet="domains" data-chat-info-domains-row disabled>
-            <svg class="chat-info-row-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 5 -2.2A9 9 0 1 0 17.5 19"/></svg>
-            <span class="chat-info-row-title">KNS Domains</span>
-            <svg class="chat-info-row-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
-          </button>
-          <!-- Testnet: the address's .kachat names, its primary marked (iOS e52357d). -->
+          <!-- The address's .kachat names, its primary marked (iOS e52357d). -->
           <button class="chat-info-row" type="button" data-chat-info-sheet="kachat-names" data-chat-info-kachat-names-row hidden disabled>
             <svg class="chat-info-row-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 5 -2.2A9 9 0 1 0 17.5 19"/></svg>
             <span class="chat-info-row-title">.kachat Names</span>
@@ -3013,9 +2847,6 @@
               </button>
             </section>
 
-            <section data-chat-info-panel="domains" hidden>
-              <div class="settings-list-card chat-info-domains-card" data-chat-info-domains></div>
-            </section>
             <section data-chat-info-panel="kachat-names" hidden>
               <div class="settings-list-card chat-info-domains-card" data-chat-info-kachat-names></div>
             </section>

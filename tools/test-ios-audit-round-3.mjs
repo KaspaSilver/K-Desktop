@@ -77,7 +77,6 @@ test("sends: an unknown outcome holds nothing; only the primary moves the primar
   assert.match(app, /sourceIndex === getSpendingState\(account\.owner\)\.activeIndex \? rotatePrimarySpendingTo : revealSpendingChangeAddress/);
   assert.match(app, /compoundSpending\(\{[^\n]*selectedOutpoints: outpoints \}/);
   assert.match(app, /expectedFeeSompi: max \? null : paymentTotalFeeSompi\(\)/);
-  assert.match(app, /KNS_TRANSFER_MAX_FEE_SOMPI \? KNS_TRANSFER_MAX_FEE_SOMPI : sompi/);
 });
 
 test("accounts and tips", () => {

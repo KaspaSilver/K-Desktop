@@ -1,4 +1,4 @@
-import { ADDRESS_PREFIX, NETWORK, IS_TESTNET } from "./network.js";
+import { ADDRESS_PREFIX, IS_TESTNET } from "./network.js";
 import { loadKaspaModule } from "./wasm-loader.js";
 import { maxFeerate } from "./kachat-names/codec.js";
 import { clearNodeRegistry, connectRpc, createStandbyRpc, disconnectRpc, forgetEndpoint, getNodeRegistrySnapshot, isRpcConnectionError, markBadNode, probeRpc, recordFailover } from "./rpc.js";
@@ -17,41 +17,8 @@ import { chainHistory } from "./chain-history.js";
 import { shouldSkipIndexer, isIndexerDown } from "./indexer-health.js";
 import { createInboxBlockScan, groupRowsFromBlock, provenTxSender, PROOF_RETRY_DELAYS_MS } from "./outage-scan.js";
 import { blockFromBlockAddedEvent, extractBroadcastHitsFromBlock, normalizeBroadcastChannel, BroadcastSenderVerifier, BROADCAST_SENDER } from "./broadcasts.js";
-import {
-  normalizeDomainName as knsNormalizeDomainName,
-  looksLikeDomain as knsLooksLikeDomain,
-  resolveDomain as knsResolveDomain,
-  fetchAddressInfo as knsFetchAddressInfo,
-  getAddressInfo as knsGetAddressInfo,
-  fetchAddressProfile as knsFetchAddressProfile,
-  getAddressProfile as knsGetAddressProfile,
-  refreshIfNeeded as knsRefreshIfNeeded,
-  peekAddressInfo as knsPeekAddressInfo,
-  peekAddressProfile as knsPeekAddressProfile,
-  clearKnsCache,
-  clearAllKnsCache,
-  checkDomainAvailability as knsCheckDomainAvailability,
-  fetchInscribeFeeTiers as knsFetchInscribeFeeTiers,
-  fetchProfileByAssetId as knsFetchProfileByAssetId,
-  dropProfileCache as knsDropProfileCache,
-} from "./kns.js";
-import { looksLikeName as nsLooksLikeName, resolveEverywhere as nsResolveEverywhere, primary as nsPrimary, listOwnedNames as nsListOwnedNames, ownedNamesForAddresses as nsOwnedNamesForAddresses } from "./name-services.js";
-import {
-  inscribeDomain as knsInscribeDomain,
-  transferDomain as knsTransferDomain,
-  submitProfileFields as knsSubmitProfileFields,
-  submitProfileField as knsSubmitProfileField,
-  validateProfileFields as knsValidateProfileFields,
-  uploadKnsProfileImage as knsUploadProfileImage, setKnsPrimaryDomain as knsSetPrimaryDomain,
-  peekPendingKnsCommit,
-  resumePendingKnsReveals,
-  clearPendingKnsCommit,
-  resumeKnsTransfer as knsResumeTransfer,
-  listPendingKnsTransfers as knsListPendingTransfers,
-  getPendingKnsTransfer as knsGetPendingTransfer,
-  clearPendingKnsTransfer as knsClearPendingTransfer,
-  KNS_ECONOMICS,
-} from "./kns-write.js";
+import { looksLikeName as nsLooksLikeName, resolveEverywhere as nsResolveEverywhere, primary as nsPrimary } from "./name-services.js";
+import { resumePendingKnsReveals, resumePendingKnsTransfers } from "./kns-reveal-recovery.js";
 
 // A displayed total fee in KAS (a string or a number) as exact sompi; null = "the network floor".
 // An unreadable one is an error, never a silently different fee (iOS IOS-010).
@@ -1336,18 +1303,6 @@ export class KaspaEngine {
 
   // options.manualUtxos: coin control (outpoints the build may pick from; null = automatic).
   // options.extraFeeSompi: a priority fee in sompi on top of the minimum (Fast / Priority / custom).
-  /** The password (or Face ID) for the sends that still ask: Send Domain, and anything that passes
-   *  `confirm` (Delete Account). Plain Kaspa sends - Send Kaspa, Max, chat payments, tips - and
-   *  .kas registration and profile saves no longer ask (owner, 2026-11-17, iOS 5.3 "no Face ID on
-   *  sends"). The app sets `authorizeSpend`; unset (tests, tools), it goes ahead. A refusal throws
-   *  SEND_CANCELLED. */
-  async confirmSpend(details) {
-    if (typeof this.authorizeSpend !== "function") return;
-    if (await this.authorizeSpend(details)) return;
-    const error = new Error("Send cancelled.");
-    error.code = "SEND_CANCELLED";
-    throw error;
-  }
 
   async send(destinationAddress, amountKas, feeKas = "0", options = {}) {
     if (options.ownerAddress && options.ownerAddress !== this.address) throw new Error("The account changed before this could be sent.");
@@ -2011,99 +1966,54 @@ export class KaspaEngine {
     return this.kaspa?.version ? this.kaspa.version() : "";
   }
 
-  knsNormalizeDomainName(raw) {
-    return knsNormalizeDomainName(raw);
-  }
+  // --- Names: .kachat only (K 518fdc8c NameServicesClient). KNS (.kas), dotk (.k) and Kaspa Names
+  // (.kaspa) were removed on 2026-11-23 (owner's call).
 
-  knsLooksLikeDomain(input) {
-    return knsLooksLikeDomain(input);
-  }
-
-  async resolveKnsDomain(domain, options = {}) {
-    return knsResolveDomain(domain, { baseUrl: getEndpoint("knsApi"), ...options });
-  }
-
-  // --- Every name service (iOS NameServicesClient, 5.2): .kachat first once live, then .kas, .k,
-  // .kaspa. A name typed with its ending asks that service; a bare name takes the first that answers.
-
-  /** Whether the input reads as a name on any service rather than an address. */
+  /** Whether the input reads as a .kachat name rather than an address. */
   looksLikeName(input) {
     const raw = String(input || "").trim();
     if (!raw || /^kaspa(test)?:/i.test(raw)) return false;
     return nsLooksLikeName(raw);
   }
 
-  /** Every service's answer for a typed name, in resolution order. .kachat is always listed first;
-   *  where its registry isn't live yet (mainnet) it comes back as state "notLive", shown as
-   *  "Coming soon" under Other domains (iOS 6ac48a7). */
+  /** A typed name's .kachat answer: [] or [one entry]. Where the registry isn't live it comes back
+   *  as state "notLive". */
   async resolveNameEverywhere(input) {
-    const results = await nsResolveEverywhere(String(input || "").trim(), {
-      network: NETWORK,
-      // .kachat (testnet): the shared registry, registered by the app (setKachatNameHooks).
+    return nsResolveEverywhere(String(input || "").trim(), {
+      // the shared registry, registered by the app (setKachatNameHooks)
       resolveKachat: this.kachatHooks?.resolve || undefined,
-      // a KNS that can't be reached is "couldn't look up", never "not registered" (iOS 5.3)
-      resolveKas: async (name) => (await this.resolveKnsDomain(name, { strict: true }))?.ownerAddress || null,
     });
-    return results;
   }
 
-  /** The address a typed name points to, in the shape resolveKnsDomain returned:
-   *  { ownerAddress, domain, tld, results } (results = every service's answer), or null. */
+  /** The address a typed name points to: { ownerAddress, domain, tld, results }, or null. */
   async resolveName(input) {
     return (await this.lookUpName(input)).resolution;
   }
 
-  /** Every service's answer and the winner, also when nothing won (iOS 6ac48a7: a field shows
-   *  "No .x domain found" with the other services' answers under Other domains):
+  /** The .kachat answer and the winner, also when nothing won (a field shows "No username found"):
    *  { results, resolution } where resolution is resolveName's shape or null. */
   async lookUpName(input) {
     const results = await this.resolveNameEverywhere(input);
-    const winner = nsPrimary(results, String(input || "").trim());
+    const winner = nsPrimary(results);
     const resolution = winner?.address
       ? { ownerAddress: winner.address, domain: winner.name, tld: winner.tld, results }
       : null;
     return { results, resolution };
   }
 
-  /** Names this address owns on .k and .kaspa (read-only), for Your Domains. */
-  async listOtherServiceNames(address) {
-    let xOnlyPubKeyHex = null;
-    try { xOnlyPubKeyHex = await this.xOnlyPubKeyForAddress?.(address); } catch { xOnlyPubKeyHex = null; }
-    return nsListOwnedNames({ address, xOnlyPubKeyHex, network: NETWORK });
-  }
-
-  /** .k and .kaspa names each address owns, six lookups at a time (iOS
-   *  NameServicesClient.ownedNames(of:)), for account discovery. Map of address -> names
-   *  ({name, display, settling, tld}); only addresses that own a name. Failures count as none. */
-  async otherServiceNamesFor(addresses) {
-    return nsOwnedNamesForAddresses(addresses, { network: NETWORK, xOnlyPubKeyFor: (address) => this.xOnlyPubKeyForAddress(address) });
-  }
-
-  /** The addresses that own a name on any service KaChat reads - .kas (KNS, batched and cached),
-   *  .k and .kaspa (iOS NameServicesClient.ownsAnyName), so discovery finds an address whose only
-   *  trace is a name. .kachat joins once its registry is live. */
+  /** The addresses that hold a .kachat name (K NameServicesClient.ownsAnyName), so discovery finds
+   *  an address whose only trace is a name. Empty where the registry isn't live. */
   async addressesOwningAnyName(addresses) {
-    const list = [...new Set((addresses || []).filter(Boolean))];
     const owners = new Set();
-    try { await this.refreshKnsIfNeeded(list); } catch { /* fall back to whatever is cached */ }
-    for (const address of list) {
-      if (this.peekKnsAddressInfo(address)?.allDomains?.length) owners.add(address);
-    }
-    const others = await this.otherServiceNamesFor(list.filter((address) => !owners.has(address)));
-    for (const address of others.keys()) owners.add(address);
-    // .kachat where it is live (testnet): an address holding only a .kachat name is found too.
-    if (this.kachatHooks?.ownsAny) {
-      for (const address of list) {
-        if (owners.has(address)) continue;
-        try { if (await this.kachatHooks.ownsAny(address)) owners.add(address); } catch { /* unreadable: not counted */ }
-      }
+    if (!this.kachatHooks?.ownsAny) return owners;
+    for (const address of [...new Set((addresses || []).filter(Boolean))]) {
+      try { if (await this.kachatHooks.ownsAny(address)) owners.add(address); } catch { /* unreadable: not counted */ }
     }
     return owners;
   }
 
   /** The .kachat names each address holds (active or in grace) where the registry is live; an
-   *  empty Map elsewhere (iOS 6ac48a7 NameServicesClient.kachatNames(of:)). Kept apart from
-   *  otherServiceNamesFor because .kachat comes first wherever names are listed. Map of address ->
+   *  empty Map elsewhere (K NameServicesClient.kachatNames(of:)). Map of address ->
    *  [{ name, display, tld: "kachat" }]; only addresses holding one. Failures count as none. */
   async kachatNamesFor(addresses) {
     const result = new Map();
@@ -2117,51 +2027,13 @@ export class KaspaEngine {
     return result;
   }
 
-  /** The .kachat registry hooks the app registers on testnet: { resolve(canonical) -> address|null,
+  /** The .kachat registry hooks the app registers: { resolve(canonical) -> address|null,
    *  ownsAny(address) -> bool, held(address) -> [name] }. The engine never builds the registry itself. */
   setKachatNameHooks(hooks) { this.kachatHooks = hooks || null; }
 
-  /** Whether one address owns a name on any service (iOS ownsAnyName). */
+  /** Whether one address holds a .kachat name. */
   async ownsAnyName(address) {
     return (await this.addressesOwningAnyName([address])).has(address);
-  }
-
-  async fetchKnsAddressInfo(address, options = {}) {
-    return knsFetchAddressInfo(address, { baseUrl: getEndpoint("knsApi"), ...options });
-  }
-
-  async getKnsAddressInfo(address, options = {}) {
-    return knsGetAddressInfo(address, { baseUrl: getEndpoint("knsApi"), ...options });
-  }
-
-  // KaChat reads only a .kas domain's NAME (iOS d6ded9d): no avatar, banner, bio or links are
-  // loaded from .kas profiles any more - full profiles will come from .kachat. And a .kas name is
-  // no one's identity (iOS 509c0fe): it never labels a person. Both are single switches.
-  get knsProfilesLoaded() { return false; }
-  get knsNamesAsIdentity() { return false; }
-
-  async fetchKnsAddressProfile(address, options = {}) {
-    if (!this.knsProfilesLoaded) return null;
-    return knsFetchAddressProfile(address, { baseUrl: getEndpoint("knsApi"), ...options });
-  }
-
-  async getKnsAddressProfile(address, options = {}) {
-    if (!this.knsProfilesLoaded) return null;
-    return knsGetAddressProfile(address, { baseUrl: getEndpoint("knsApi"), ...options });
-  }
-
-  /** One domain's .kas profile, for editing it in Your Domains only: never cached or shown
-   *  anywhere else (iOS fetchDomainProfileForEditing). */
-  async fetchKnsDomainProfileForEditing(assetId) {
-    return knsFetchProfileByAssetId(assetId, { baseUrl: getEndpoint("knsApi") });
-  }
-
-  async refreshKnsIfNeeded(addresses, options = {}) {
-    return knsRefreshIfNeeded(addresses, { baseUrl: getEndpoint("knsApi"), ...(this.knsProfilesLoaded ? {} : { profiles: false }), ...options });
-  }
-
-  peekKnsAddressInfo(address) {
-    return knsPeekAddressInfo(address);
   }
 
   // The 66-hex compressed KaPost pubkey for a Kaspa address, or null. Kaspa "PubKey" (schnorr,
@@ -2204,142 +2076,28 @@ export class KaspaEngine {
     }
   }
 
-  peekKnsAddressProfile(address) {
-    if (!this.knsProfilesLoaded) return null;
-    return knsPeekAddressProfile(address);
-  }
-
-  /** Profiles saved before they stopped loading are dropped once at startup. */
-  dropKnsProfileCache() {
-    try { knsDropProfileCache(); } catch { /* fine */ }
-  }
-
-  clearKnsCache(address) {
-    return clearKnsCache(address);
-  }
-
-  clearAllKnsCache() {
-    return clearAllKnsCache();
-  }
-
-  async checkKnsDomainAvailability(domainInput, options = {}) {
-    this.requireWallet();
-    return knsCheckDomainAvailability(this.address, domainInput, { baseUrl: getEndpoint("knsApi"), ...options });
-  }
-
-  async fetchKnsFeeTiers(options = {}) {
-    return knsFetchInscribeFeeTiers({ baseUrl: getEndpoint("knsApi"), ...options });
-  }
-
-  knsEconomics() {
-    return KNS_ECONOMICS;
-  }
-
-  validateKnsProfileFields(fields) {
-    return knsValidateProfileFields(fields);
-  }
-
-  peekPendingKnsCommit() {
-    return peekPendingKnsCommit();
-  }
-
-  /** Finishes .kas reveals an earlier run left owing (iOS 4f8e14bb KNSRevealRecovery). */
-  resumePendingKnsReveals() {
-    return resumePendingKnsReveals({ engine: this, log: this.log });
-  }
-
-  clearPendingKnsCommit() {
-    return clearPendingKnsCommit();
-  }
-
-  // Registering a domain and editing its profile go out like any plain send, with no password
-  // (owner, 2026-11-17); Send Domain (transferKnsDomain) still asks.
-  async inscribeKnsDomain(label, { onStatus = () => {} } = {}) {
-    this.requireWallet();
-    await this.connect();
-    return knsInscribeDomain({ engine: this, label, onStatus, log: this.log });
-  }
-
-  // Transfers a KNS domain. `spendingIndex` (with the account's mnemonic/
-  // passphrase) makes a derived spending address the owner/funder/signer of
-  // the commit/reveal pair — iOS's fromSpendingAddressIndex analog; omitted,
-  // the chatting identity transfers its own domain.
-  // `revealPriorityFeeSompi`: the Send Domain sheet's fee (iOS KNSDomainSendView priorityFeeSompi).
-  async transferKnsDomain({ domain, assetId, toAddress, mnemonic = null, spendingIndex = null, passphrase = "", passphraseForm = "nfkd", changeAddress = null, revealPriorityFeeSompi = undefined, onStatus = () => {} }) {
-    await this.confirmSpend({ to: toAddress, domain });
-    this.requireWallet();
-    await this.connect();
-    let signer = null;
-    if (spendingIndex != null) {
-      if (!mnemonic) throw new Error("The account mnemonic is required to sign from a spending address.");
-      const spending = this.deriveSpendingWallet(mnemonic, spendingIndex, passphrase, { passphraseForm });
-      signer = { privateKey: spending.privateKey, address: spending.address };
-    }
-    // `source` goes into the pending-transfer record so Finish transfer can derive the same key.
-    const source = spendingIndex != null ? { kind: "spending", index: Number(spendingIndex) } : { kind: "identity" };
-    return knsTransferDomain({ engine: this, domain, assetId, toAddress, signer, source, changeAddress, revealPriorityFeeSompi, onStatus, log: this.log });
-  }
-
-  // Unfinished .kas transfers (commit sent, reveal not accepted yet) on this network; with
-  // `sourceAddress`, only those that address started (audit EXT-005).
-  async listPendingKnsTransfers({ sourceAddress = null } = {}) {
-    return knsListPendingTransfers({ sourceAddress });
-  }
-
-  async getPendingKnsTransfer(assetId) {
-    return knsGetPendingTransfer(assetId);
-  }
-
-  async clearPendingKnsTransfer(assetId) {
-    return knsClearPendingTransfer(assetId);
-  }
-
-  // Finish transfer / Retry reveal: re-derives the key the transfer was started with (the
-  // record's `source`) and reveals the commit. A spending-address transfer needs the mnemonic.
-  async resumeKnsTransfer({ assetId, mnemonic = null, passphrase = "", passphraseForm = "nfkd", onStatus = () => {} }) {
-    this.requireWallet();
-    await this.connect();
-    const record = await knsGetPendingTransfer(assetId);
-    if (!record) throw new Error("There is no unfinished transfer for this domain.");
-    let signer = null;
-    if (record.source?.kind === "spending" && record.source.index != null) {
-      if (!mnemonic) throw new Error("The account mnemonic is required to sign from a spending address.");
-      const spending = this.deriveSpendingWallet(mnemonic, Number(record.source.index), passphrase, { passphraseForm });
-      signer = { privateKey: spending.privateKey, address: spending.address };
-    }
-    return knsResumeTransfer({ engine: this, assetId, signer, onStatus, log: this.log });
-  }
-
-  /** A profile save no longer asks for the password (owner, 2026-11-17: like a plain send). Kept
-   *  so a multi-field save's callers (which pass `confirmed: true` to each write) don't change. */
-  async confirmKnsProfileUpdate() {}
-
-  async submitKnsProfileField(assetId, key, value, { onStatus = () => {}, confirmed = false } = {}) {
-    if (!confirmed) await this.confirmKnsProfileUpdate(1);
-    this.requireWallet();
-    await this.connect();
-    return knsSubmitProfileField({ engine: this, assetId, key, value, onStatus, log: this.log });
-  }
-
-  async submitKnsProfileFields(assetId, fields, { onStatus = () => {}, confirmed = false } = {}) {
-    if (!confirmed) await this.confirmKnsProfileUpdate(Object.keys(fields || {}).length);
-    this.requireWallet();
-    await this.connect();
-    return knsSubmitProfileFields({ engine: this, assetId, fields, onStatus, log: this.log });
-  }
-
-  async uploadKnsProfileImage(assetId, uploadType, blob) {
-    this.requireWallet();
-    return knsUploadProfileImage({ engine: this, assetId, uploadType, blob, baseUrl: getEndpoint("knsApi") });
-  }
-
-  // Which of this wallet's domains is its primary name. The cache for our own address is
-  // dropped so the next lookup sees the new primary rather than the entry it just replaced.
-  async setKnsPrimaryDomain(domainId) {
-    this.requireWallet();
-    const result = await knsSetPrimaryDomain({ engine: this, domainId, baseUrl: getEndpoint("knsApi") });
-    this.clearKnsCache?.(this.address);
-    return result;
+  /** Finishes what an unfinished KNS commit still owes, returning its coins (K 518fdc8c
+   *  KNSRevealRecovery, audit 2026-11-24 #4): reveals owed by a registration or profile edit, and
+   *  domain transfers whose commit went out. Starts nothing new. A transfer signed by a spending
+   *  address needs the account's seed (`mnemonic`); without it that one waits for a later call. */
+  async resumeKnsRevealRecovery({ mnemonic = null, passphrase = "", passphraseForm = "nfkd" } = {}) {
+    if (!this.address || !this.privateKey) return 0;
+    const reveals = await resumePendingKnsReveals({ engine: this, log: this.log });
+    const transfers = await resumePendingKnsTransfers({
+      engine: this,
+      log: this.log,
+      signerFor: (record) => {
+        const from = record?.source?.address;
+        if (!from) return null;
+        if (record.source.kind === "spending" && record.source.index != null) {
+          if (!mnemonic) return null;
+          const spending = this.deriveSpendingWallet(mnemonic, Number(record.source.index), passphrase, { passphraseForm });
+          return spending?.address === from ? { privateKey: spending.privateKey, address: spending.address } : null;
+        }
+        return from === this.address ? { privateKey: this.privateKey, address: this.address } : null;
+      },
+    });
+    return reveals + transfers;
   }
 }
 

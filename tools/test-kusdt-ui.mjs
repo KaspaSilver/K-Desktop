@@ -149,7 +149,7 @@ await check("receive notes, word for word (§10)", () => {
   assert.deepEqual(n("chatting"), [
     "Your Chatting Address shows your .kachat name and identity: whoever pays here can see it's you.",
     "Kaspa, and kUSDT on Kaspa, can be sent here.",
-    "Use for chatting and acquiring .kachat domains.",
+    "Use for chatting and acquiring usernames.",
   ]);
   assert.deepEqual(n("spending"), ["A spending address of yours: a payment here isn't tied to your name.", "Kaspa, and kUSDT on Kaspa, can be sent here."]);
   assert.deepEqual(n("quantum"), [

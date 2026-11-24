@@ -232,12 +232,10 @@ export function nextFreshQuantumIndex(qMaxIndex) {
  *   primary (which rotates as before); a self-send (Compound) consolidates into the address itself.
  * - "payment" (a chat payment or tip From a spending address, sendPaymentInternal): always a fresh
  *   quantum slot.
- * - "kns" (a KNS transfer funded by a spending address, KNSDomainTransferService): the primary only.
  */
 export function spendingChangeIndex({ purpose, sourceIndex, primaryIndex, qMaxIndex, selfSend = false }) {
   const fresh = nextFreshQuantumIndex(qMaxIndex);
   if (purpose === "payment") return fresh;
-  if (purpose === "kns") return sourceIndex != null && sourceIndex === primaryIndex ? fresh : null;
   if (selfSend || sourceIndex == null) return null;
   return isQuantumIndex(sourceIndex) || sourceIndex === primaryIndex ? fresh : null;
 }
@@ -247,10 +245,10 @@ export function spendingChangeIndex({ purpose, sourceIndex, primaryIndex, qMaxIn
  * quantum source's spend reveals its key, so change back to it would park funds on a revealed key -
  * the send throws QUANTUM_CHANGE_UNAVAILABLE instead. Only where the change rule asked for a fresh
  * slot (`freshIndex` from spendingChangeIndex) and only for a chat payment or a Manage Addresses send;
- * a legacy source keeps its fallback to itself, and a KNS transfer is unchanged.
+ * a legacy source keeps its fallback to itself.
  */
-export function freshChangeRequired({ purpose, sourceIndex, freshIndex }) {
-  return purpose !== "kns" && freshIndex != null && isQuantumIndex(sourceIndex);
+export function freshChangeRequired({ sourceIndex, freshIndex }) {
+  return freshIndex != null && isQuantumIndex(sourceIndex);
 }
 
 /**

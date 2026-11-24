@@ -29,7 +29,7 @@ import { closeActiveScanner, scanKaspaAddress, scanQrCode } from "./qr-scan.js";
 import { transactionBelongsInHistory } from "../engine/sync.js";
 import {
   recipientCardHtml, recipientStatusHtml, amountEntryHtml, layoutAmountEntry, sanitizeAmountText,
-  feeControlsHtml, coinControlSummaryText, refreshRecipientAddressBook, pickOtherDomain, nameNotFoundText,
+  feeControlsHtml, coinControlSummaryText, refreshRecipientAddressBook, nameNotFoundText,
   createSwipeUpScreen, formatSompiPlain,
 } from "./send-kaspa-components.js";
 // Cold Storage's send in steps (KaPay 05db583): the shared step pieces and their look.
@@ -68,9 +68,8 @@ let addressTab = "transactions";
 let addrTxs = { state: "idle", txs: [], error: null };
 let addrUtxos = { state: "idle", entries: [], error: null };
 let addrToken = 0;
-// Addresses of the open account that own at least one KNS domain (cached
-// engine lookups) or a .kachat name (iOS 881ada6 ownersOfNames, where the
-// registry is launched) — drives the "Contains domain" row tag and list ordering.
+// Addresses of the open account that hold a .kachat name (iOS 881ada6 ownersOfNames, where the
+// registry is launched) — drives the "Contains username" row tag and list ordering.
 let detailDomainOwning = new Set();
 /// What the last discover on this account turned up, shown in the Address Actions sheet.
 let detailDiscoverySummary = null;
@@ -407,14 +406,14 @@ function addressRowHtml(account, entry) {
       : '<span class="spending-address-usage unused" data-cold-usage-cell="' + entry.index + '">Unused</span>';
   const balanceText = entry.balanceSompi === undefined ? `… ${KAS_UNIT}` : `${fmtKasExact(entry.balanceSompi)} ${KAS_UNIT}`;
   // iOS ColdStorageDetailView.addressRow: label, short address, balance, then the Used / Unused /
-  // Checking badge with the Contains domain tag on their own line. No chevron.
+  // Checking badge with the Contains username tag on their own line. No chevron.
   return `
     <div class="spending-address-row cold-address-row" data-cold-address-row="${entry.index}">
       <button type="button" class="spending-address-row-main" data-cold-addr-open="${entry.index}">
         <span class="spending-address-label cold-addr-label">${deps.escapeHtml(displayLabelFor(account, entry.index))}</span>
         <span class="spending-address-value">${deps.escapeHtml(shortColdAddress(entry.address))}</span>
         <span class="spending-address-balance" data-cold-balance-cell="${entry.index}">${deps.escapeHtml(balanceText)}</span>
-        <span class="cold-address-badges" data-cold-badges="${entry.index}">${usageBadge}${detailDomainOwning.has(entry.address) ? '<span class="cold-address-domain-tag">Contains domain</span>' : ""}</span>
+        <span class="cold-address-badges" data-cold-badges="${entry.index}">${usageBadge}${detailDomainOwning.has(entry.address) ? '<span class="cold-address-domain-tag">Contains username</span>' : ""}</span>
       </button>
       <div class="spending-address-row-menu-wrap">
         <button type="button" class="spending-row-menu-btn" data-cold-addr-menu-toggle="${entry.index}" aria-haspopup="dialog" aria-label="Address options">${DOTS_ICON}</button>
@@ -441,7 +440,7 @@ function renderDetail() {
   const visible = detailEntries.filter((e) => !hiddenSet.has(e.index));
   const totalSompi = visible.reduce((sum, e) => sum + (e.balanceSompi || 0), 0);
 
-  // Funded-or-domain-holding addresses first (the KNS tag promotes a row into
+  // Funded-or-username-holding addresses first (the username tag promotes a row into
   // the active group), lowest index first within each group — same sort as the
   // spending-chain Manage Addresses list.
   const sorted = [...visible].sort((a, b) => {
@@ -800,7 +799,7 @@ function renderColdActionsSheet() {
       : `<div class="cold-action-rows">
            ${row("generate", "Generate More Addresses", "Reveals the next unused address in this account.",
                  '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>')}
-           ${row("discover", "Discover Addresses", "Finds addresses holding a balance or a domain.",
+           ${row("discover", "Discover Addresses", "Finds addresses holding a balance or a username.",
                  '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>')}
            ${row("open-visibility", "Address Visibility", "Check off every address you want on the list, in one sitting.",
                  CHECKLIST_ICON)}
@@ -1098,11 +1097,11 @@ function renderAddressScreen() {
     <!-- The same balance card as a Manage Addresses address's page (K b0f0a4e6): its name, its
          balance large, and its worth in your currency. -->
     ${balanceCardHtml(displayLabelFor(account, entry.index), balanceSompi, renderAddressScreen)}
-    <!-- History / UTXOs / Domains on the app's underline tab bar (iOS b96d727, 718b88c, fe52376). -->
+    <!-- History / UTXOs / Usernames on the app's underline tab bar (iOS b96d727, 718b88c, fe52376). -->
     <nav class="domains-tabs address-tabs" aria-label="Cold address view">
       <button type="button" class="domains-tab ${addressTab === "transactions" ? "active" : ""}" data-cold-tab="transactions">History</button>
       <button type="button" class="domains-tab ${addressTab === "utxos" ? "active" : ""}" data-cold-tab="utxos">UTXOs</button>
-      <button type="button" class="domains-tab ${addressTab === "kachat" ? "active" : ""}" data-cold-tab="kachat">Domains</button>
+      <button type="button" class="domains-tab ${addressTab === "kachat" ? "active" : ""}" data-cold-tab="kachat">Usernames</button>
     </nav>
     <div class="manage-address-list cold-address-panel">
       ${addressTab === "transactions" ? addressTxRowsHtml(entry) : addressTab === "utxos" ? addressUtxoRowsHtml(entry) : "<div data-cold-kachat-names></div>"}
@@ -1117,9 +1116,9 @@ function renderAddressScreen() {
         Send
       </button>
     </div>`;
-  // The Domains tab: a card per name service (iOS fe52376); .kachat opens this address's own names,
-  // live where the registry is launched (iOS 881ada6). A name opens read-only here - a KasSigner
-  // address signs on its device.
+  // The Usernames tab: this address's own .kachat names (K 518fdc8c: .kachat only), live where the
+  // registry is launched (iOS 881ada6). A name opens read-only here - a KasSigner address signs on
+  // its device.
   if (addressTab === "kachat") {
     const namesEl = rootEl.querySelector("[data-cold-kachat-names]");
     if (namesEl) renderAddressDomainsTab(namesEl, entry.address);
@@ -1271,7 +1270,7 @@ function sendEffectiveAddress() {
 
 function sendHasValidRecipient() {
   if (send.resolvedAddress) return true;
-  return send.validAddress && !send.resolvingKns;
+  return send.validAddress && !send.resolvingName;
 }
 
 /** More than the address being sent from holds (iOS exceedsBalance). */
@@ -1368,8 +1367,8 @@ async function openSendFlow({ compound = false } = {}) {
     toInput: compound ? entry.address : "",
     resolvedAddress: null,
     resolvedDomain: null,
-    knsError: null,
-    resolvingKns: false,
+    nameError: null,
+    resolvingName: false,
     validAddress: compound,
     amountText: "",
     amountUnit: "kas", // "kas" | "fiat" — which unit the amount field is typed in
@@ -1516,12 +1515,8 @@ function handleSendRecipientInput(raw) {
   send.toInput = raw;
   send.resolvedAddress = null;
   send.resolvedDomain = null;
-  send.knsError = null;
-  send.resolvingKns = false;
-  // Every service's answer for a typed name and the one in use: the rest go under Other domains
-  // (iOS 6ac48a7 ColdSendFlowView).
-  send.nameResolutions = [];
-  send.selectedTld = null;
+  send.nameError = null;
+  send.resolvingName = false;
   // a compact QR code's upper-case address reads in lower case (iOS 5.3)
   const trimmed = lowercasedKaspaAddress(raw.trim());
   const token = ++sendResolveToken;
@@ -1538,28 +1533,25 @@ function handleSendRecipientInput(raw) {
   }
   send.validAddress = false;
   if (deps.engine.looksLikeName?.(trimmed)) {
-    send.resolvingKns = true;
+    send.resolvingName = true;
     renderSendStatusOnly();
     window.setTimeout(async () => {
       if (!send || token !== sendResolveToken) return;
       try {
-        // Every name service, in priority: the ending typed, else .kachat, .kas, .k, .kaspa. The
-        // resolved line names which one answered; the others are offered under Other domains.
+        // A .kachat username (K 518fdc8c: the only name service).
         const { results, resolution } = await deps.engine.lookUpName(trimmed);
         if (!send || token !== sendResolveToken) return;
-        send.nameResolutions = results || [];
         if (resolution) {
           send.resolvedAddress = resolution.ownerAddress;
           send.resolvedDomain = resolution.domain;
-          send.selectedTld = resolution.tld || null;
         } else {
-          send.knsError = nameNotFoundText(trimmed, results);
+          send.nameError = nameNotFoundText(trimmed, results);
         }
       } catch {
         if (!send || token !== sendResolveToken) return;
-        send.knsError = nameNotFoundText(trimmed);
+        send.nameError = nameNotFoundText(trimmed);
       }
-      send.resolvingKns = false;
+      send.resolvingName = false;
       renderSendStatusOnly();
     }, 300);
   } else {
@@ -1892,20 +1884,18 @@ function sendBuiltRecipientText() {
 function sendRecipientStatusHtml() {
   return recipientStatusHtml({
     input: send.toInput,
-    resolving: send.resolvingKns,
-    error: send.knsError,
+    resolving: send.resolvingName,
+    error: send.nameError,
     resolvedAddress: send.resolvedAddress,
     resolvedName: send.resolvedDomain,
     valid: send.validAddress,
-    nameResolutions: send.nameResolutions || [],
-    selectedTld: send.selectedTld ?? null,
   });
 }
 
 /** Who the address resolves to (iOS ac0ef19): the create-chat card, in the recipient card. */
 function sendRecipientCardHtml() {
   const trimmed = send.toInput.trim();
-  if (!trimmed || send.resolvingKns || send.knsError) return "";
+  if (!trimmed || send.resolvingName || send.nameError) return "";
   const address = send.resolvedAddress || (send.validAddress ? trimmed : null);
   if (!address) return "";
   return deps.addressCardHtml?.(address, { domain: send.resolvedDomain, onLoaded: () => renderSendStatusOnly() }) || "";
@@ -2595,16 +2585,6 @@ function buildModals() {
       return;
     }
     if (event.target.closest("[data-cold-send-continue]:not([disabled])")) { continueSendStep(); return; }
-    // A pick under Other domains switches the recipient to that service's answer (iOS 6ac48a7).
-    const otherDomain = pickOtherDomain(event, send.nameResolutions);
-    if (otherDomain) {
-      send.resolvedAddress = otherDomain.address;
-      send.resolvedDomain = otherDomain.name;
-      send.selectedTld = otherDomain.tld;
-      send.knsError = null;
-      renderSendStatusOnly();
-      return;
-    }
     if (event.target.closest("[data-cold-send-paste]")) {
       try {
         const text = (await navigator.clipboard.readText())?.trim();
@@ -2618,7 +2598,7 @@ function buildModals() {
     }
     // Camera scan for the recipient, matching iOS ColdStorageView's "Scan QR" button. The
     // scanner strips a `kaspa:addr?amount=...` query, and the result goes through the same
-    // handler the field and Paste use, so KNS resolution and validation still run.
+    // handler the field and Paste use, so name resolution and validation still run.
     if (event.target.closest("[data-cold-send-scan]")) {
       let scanned = null;
       try {
@@ -2939,19 +2919,11 @@ async function loadDetail({ useCache = true } = {}) {
   render(); // applies the funded-first sort + summary total now that balances are in
   persistAccountCache(account.id);
 
-  // Contains-domain tags: batched, cached KNS assets-by-owner lookups (the
-  // refresh is debounced inside engine/kns.js), applied after the rows are
-  // already visible — a re-render then also promotes tagged rows in the sort.
+  // Contains-username tags: the .kachat names these addresses hold (iOS 881ada6; empty where the
+  // registry isn't launched), applied after the rows are already visible — a re-render then also
+  // promotes tagged rows in the sort.
   (async () => {
-    try { await deps.engine.refreshKnsIfNeeded?.(derived); } catch { /* tags fall back to cache */ }
-    if (detailToken !== token) return;
-    const owning = new Set();
-    for (const address of derived) {
-      const info = deps.engine.peekKnsAddressInfo?.(address);
-      if (info?.allDomains?.length) owning.add(address);
-    }
-    // .kachat names count too (iOS 881ada6; empty where the registry isn't launched).
-    for (const address of await kachatOwnersOfNames(derived)) owning.add(address);
+    const owning = new Set(await kachatOwnersOfNames(derived));
     if (detailToken !== token) return;
     const changed = owning.size !== detailDomainOwning.size || [...owning].some((a) => !detailDomainOwning.has(a));
     detailDomainOwning = owning;
@@ -3007,9 +2979,9 @@ const DISCOVER_DEPTH = 1000;
 /// 250 x 2 in flight sweeps a 1000-address window in about 0.7 seconds, four requests total.
 const ACTIVE_BATCH = 250;
 const ACTIVE_CONCURRENCY = 2;
-/// KNS has no bulk endpoint, so domain ownership is only probed this far in - and now only for
-/// addresses the chain says were actually touched, which is a handful rather than all of them.
-const KNS_PROBE_DEPTH = 200;
+/// Username ownership is one registry lookup per address, so it is only probed this far in - and
+/// only for addresses the chain says were actually touched, which is a handful rather than all.
+const NAME_PROBE_DEPTH = 200;
 /// The fallback sweep (iOS ColdStorageManager): addresses per balance request, how many misses in a
 /// row end it once past the floor, and the hard stop so it always terminates.
 const SWEEP_BATCH = 100;
@@ -3069,9 +3041,9 @@ async function fetchActiveAddresses(addresses) {
 /// `POST /addresses/active` answers "was this address ever used" for a whole list at once, which
 /// removes the reason to walk at all. The entire window goes out in two requests, the chain says
 /// which handful of addresses were ever touched, and only those cost anything further: balances
-/// come from one batched UTXO call, and KNS - the part that actually made this slow, one
-/// sequential HTTP lookup per address - is asked only about addresses the chain already says are
-/// real. A balance or a domain cannot exist on an address that has never been touched, so
+/// come from one batched UTXO call, and the username lookup - one per address - is asked only about
+/// addresses the chain already says are real. A balance or a username cannot exist on an address
+/// that has never been touched, so
 /// nothing is lost by that filter.
 async function discoverAddresses(account, onProgress = null) {
   const report = (checkingIndex, foundCount) => { try { onProgress?.({ checkingIndex, foundCount }); } catch { /* UI only */ } };
@@ -3109,19 +3081,18 @@ async function discoverAddresses(account, onProgress = null) {
     if (activeAccountId !== account.id) return 0;
     report(touched.length ? touched[touched.length - 1].index : 0, funded.size);
 
-    // KNS, concurrently, and only for touched, unfunded addresses inside the probe depth. This is
-    // the step that used to dominate the whole scan as 200 sequential lookups.
-    const knsCandidates = touched.filter(({ index, address }) => index < KNS_PROBE_DEPTH && !funded.has(address));
+    // Usernames, only for touched, unfunded addresses inside the probe depth.
+    const nameCandidates = touched.filter(({ index, address }) => index < NAME_PROBE_DEPTH && !funded.has(address));
     const ownsDomain = new Set();
-    if (knsCandidates.length) {
-      // Any name counts - .kas, .k or .kaspa (iOS NameServicesClient.ownsAnyName).
+    if (nameCandidates.length) {
+      // A .kachat name counts (K NameServicesClient.ownsAnyName).
       try {
-        const owners = await deps.engine.addressesOwningAnyName(knsCandidates.map((c) => c.address));
+        const owners = await deps.engine.addressesOwningAnyName(nameCandidates.map((c) => c.address));
         for (const address of owners) ownsDomain.add(address);
       } catch { /* tags are a nicety; a balance is what actually matters here */ }
     }
 
-    // An address is worth surfacing when it HOLDS something - a balance or a domain. Having merely
+    // An address is worth surfacing when it HOLDS something - a balance or a username. Having merely
     // been used once and emptied is what the Used badge is for, not what this list is for.
     for (const { index, address } of touched) {
       if (funded.has(address) || ownsDomain.has(address)) {
@@ -3151,11 +3122,11 @@ async function discoverAddresses(account, onProgress = null) {
       if (activeAccountId !== account.id) return 0;
       for (const [address, sompi] of balances) balanceCache.set(address, sompi);
 
-      // Domains only this far in (KNS has no bulk endpoint), for the unfunded ones.
-      const knsCandidates = derived.filter((address, i) => index + i < KNS_PROBE_DEPTH && !((balances.get(address) || 0) > 0));
+      // Usernames only this far in (one registry lookup per address), for the unfunded ones.
+      const nameCandidates = derived.filter((address, i) => index + i < NAME_PROBE_DEPTH && !((balances.get(address) || 0) > 0));
       let owners = new Set();
-      if (knsCandidates.length) {
-        try { owners = new Set(await deps.engine.addressesOwningAnyName(knsCandidates)); }
+      if (nameCandidates.length) {
+        try { owners = new Set(await deps.engine.addressesOwningAnyName(nameCandidates)); }
         catch { owners = new Set(); }
       }
       if (activeAccountId !== account.id) return 0;
@@ -3401,10 +3372,10 @@ async function runAddressAction(kind) {
       detailDiscoveryProgress = null;
       if (activeAccountId !== account.id) return;
       await loadDetail();
-      // The COUNT of addresses holding a balance or a domain (iOS discoverAddresses' summary).
+      // The COUNT of addresses holding a balance or a username (iOS discoverAddresses' summary).
       const summary = found === 0
-        ? "No addresses with a balance or domain found."
-        : `Found ${found} address${found === 1 ? "" : "es"} with a balance or domain.`;
+        ? "No addresses with a balance or username found."
+        : `Found ${found} address${found === 1 ? "" : "es"} with a balance or username.`;
       const sheetOpen = coldSheet?.kind === "actions" && !modalsEl?.querySelector("[data-cold-actions-modal]")?.hidden;
       // In the sheet when it is still up; closed and carried on, the summary has nowhere to
       // render, so it is a toast instead.

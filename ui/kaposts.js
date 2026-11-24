@@ -6,10 +6,8 @@
 // behind a 5-second undo countdown — cancel and nothing ever touches the network.
 
 import { guessLanguage, OTHER_LANGUAGE } from "./language-guess.js";
-import { fitBackgroundBanner } from "./banner-fit.js";
-import { safeCssUrl } from "./css-url.js";
 import { userFacingError } from "./dialogs.js";
-import { splitTypedName, primary as primaryName } from "../engine/name-services.js";
+import { primary as primaryName } from "../engine/name-services.js";
 import {
   KAPOSTS_POST_CHARACTER_LIMIT,
   fetchFollowingFeed,
@@ -338,7 +336,7 @@ function toggleBell(post) {
 }
 
 // ---------------------------------------------------------------------------
-// Identity (contact custom name > KNS primary > short address; .kas stripped)
+// Identity (contact custom name > .kachat name > short address)
 // ---------------------------------------------------------------------------
 
 // Every link the apps hand out is https://kachat.app/... (KACHAT_APP_LINKS.md): it unfurls a
@@ -349,24 +347,14 @@ function postShareLink(remoteId) {
 
 function posterName(address) {
   if (!address) return "Unknown";
-  // Your saved contact name wins, then their KNS domain, then the short address —
+  // Your saved contact name wins, then their .kachat name, then the short address —
   // same order iOS resolves display names for notifications and posts.
-  // The .kas suffix is part of the name and shows everywhere (iOS a7c0c5e); typing never needs
-  // it - resolution appends it and mention suggestions match on the bare name.
   const alias = deps.contactAliasFor?.(address);
   if (alias) return alias;
-  // Who they are: their .kachat name, like the rest of the app (iOS 3d6fb7c; a .kas domain isn't
-  // identity since 5.2). Null on mainnet until names launch; it lands on its own
-  // (onKachatIdentityChange repaints).
-  if (kachatNamesUiEnabled()) {
-    const label = kachatCachedDisplayLabel(address);
-    if (label) return label;
-  } else {
-    // A .kas name is no one's identity (iOS 509c0fe).
-    const info = deps.engine.knsNamesAsIdentity ? deps.engine.peekKnsAddressInfo?.(address) : null;
-    const domain = info?.explicitPrimaryDomain || info?.primaryDomain || "";
-    if (domain) return domain;
-  }
+  // Who they are: their .kachat name, like the rest of the app (iOS 3d6fb7c; K 518fdc8c: the only
+  // name service). It lands on its own (onKachatIdentityChange repaints).
+  const label = kachatCachedDisplayLabel(address);
+  if (label) return label;
   // No name: the app's one short form, kaspa:xxxx....xxxx (iOS a80d271).
   return deps.defaultAlias ? deps.defaultAlias(address) : deps.shortAddress(address);
 }
@@ -374,29 +362,22 @@ function posterName(address) {
 const POSTER_GLYPH_SVG = '<svg viewBox="0 0 24 24"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.118a7.5 7.5 0 0 1 15 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.5-1.632Z"/></svg>';
 
 function posterAvatarHtml(address) {
-  // The poster's .kachat avatar (yours on your own posts and profile), every network (iOS 3d6fb7c):
-  // never the KNS picture where .kachat is identity. A picture that won't load retries once through
-  // the relay, then shows the glyph (handlePosterImageError).
-  const avatarUrl = kachatNamesUiEnabled()
-    ? kachatCachedAvatarUrl(address)
-    : deps.engine.peekKnsAddressProfile?.(address)?.profile?.avatarUrl;
+  // The poster's .kachat avatar (yours on your own posts and profile), every network (iOS 3d6fb7c).
+  // A picture that won't load retries once through the relay, then shows the glyph
+  // (handlePosterImageError).
+  const avatarUrl = kachatCachedAvatarUrl(address);
   if (avatarUrl) {
-    const kachat = kachatNamesUiEnabled() ? ' referrerpolicy="no-referrer" data-kaposts-kachat-img="avatar"' : "";
-    return `<span class="kaposts-avatar"><img src="${deps.escapeHtml(avatarUrl)}" alt="" loading="lazy"${kachat} /></span>`;
+    return `<span class="kaposts-avatar"><img src="${deps.escapeHtml(avatarUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" data-kaposts-kachat-img="avatar" /></span>`;
   }
   // Person glyph fallback (4.0 look — no initials).
   return `<span class="kaposts-avatar kaposts-avatar-fallback" aria-hidden="true">${POSTER_GLYPH_SVG}</span>`;
 }
 
 /** The .kachat banner and bio of a profile page (iOS 3d6fb7c, KachatLive.profileBanner /
- *  profileBio), else - only where .kachat isn't identity - the KNS profile's. */
+ *  profileBio). */
 function posterProfilePieces(address) {
-  if (kachatNamesUiEnabled()) {
-    const pieces = kachatCachedProfilePieces(address) || {};
-    return { bannerUrl: pieces.bannerUrl || null, bio: String(pieces.bio || "").trim() || null, kachat: true };
-  }
-  const kns = deps.engine.peekKnsAddressProfile?.(address)?.profile || null;
-  return { bannerUrl: kns?.bannerUrl || null, bio: String(kns?.bio || "").trim() || null, kachat: false };
+  const pieces = kachatCachedProfilePieces(address) || {};
+  return { bannerUrl: pieces.bannerUrl || null, bio: String(pieces.bio || "").trim() || null };
 }
 
 /** A .kachat picture in KaPosts that would not load: one retry through the relay, then the
@@ -456,31 +437,6 @@ function repaintPosterIdentities() {
     }
   } catch (error) {
     deps?.appendEngineLog?.(`KaPosts .kachat repaint failed: ${error?.message || error}`);
-  }
-}
-
-/**
- * KNS names/avatars for a batch of freshly appended rows. Goes through the engine's
- * refreshKnsIfNeeded — ONE pass that dedupes, skips addresses already cached and honours
- * the per-address backoff — never a request per post. Re-renders only when it actually
- * fetched something (the caller's render reads the warm cache synchronously via peek*).
- */
-let knsRefreshInFlight = false;
-async function resolvePosterIdentities(addresses, onResolved) {
-  if (!deps?.engine?.refreshKnsIfNeeded) return;
-  const unique = [...new Set((addresses || []).filter(Boolean))].slice(0, 60);
-  if (unique.length === 0) return;
-  const fetched = await deps.engine.refreshKnsIfNeeded(unique).catch(() => 0);
-  if (fetched) onResolved?.();
-}
-
-async function refreshVisiblePosterNames() {
-  if (knsRefreshInFlight) return;
-  knsRefreshInFlight = true;
-  try {
-    await resolvePosterIdentities(visibleFeedPosts().slice(0, 30).map((p) => p.posterAddress), () => renderFeed());
-  } finally {
-    knsRefreshInFlight = false;
   }
 }
 
@@ -949,7 +905,6 @@ async function loadFeed() {
       if (loaded) lastFeedLoadAt = Date.now();
       renderStatus();
       renderFeed({ resetScroll: loaded });
-      refreshVisiblePosterNames();
     }
   }
 }
@@ -1033,7 +988,6 @@ function loadMoreFeed() {
       const added = mapped.filter((post) => post.remoteId && !known.has(post.remoteId));
       remotePosts = [...remotePosts, ...added];
       const rendered = appendFeedRows(); // mute/block + Following-list filtering happens here
-      resolvePosterIdentities(added.map((post) => post.posterAddress), () => renderFeed());
       return rendered;
     },
     isStale: () => generation !== feedGeneration,
@@ -1233,7 +1187,6 @@ async function loadCommentReplies(comment) {
       const known = new Set(target.comments.map((entry) => entry.remoteId).filter(Boolean));
       target.comments = [...target.comments, ...replies.filter((reply) => !known.has(reply.remoteId))];
     });
-    resolvePosterIdentities(replies.map((reply) => reply.posterAddress), () => renderThread());
   } catch (error) {
     if (generation !== threadGeneration || threadPagers.get(comment.id) !== pager) return;
     pager.loading = false;
@@ -1263,7 +1216,6 @@ function loadMoreCommentReplies(commentId) {
         added = Math.max(added, rows.filter((reply) => !isHiddenAuthor(reply.posterAddress)).length);
       });
       renderThread();
-      resolvePosterIdentities(mapped.map((reply) => reply.posterAddress), () => renderThread());
       return added;
     },
     isStale: () => generation !== threadGeneration || !expandedCommentIds.has(commentId),
@@ -1338,7 +1290,6 @@ async function loadAncestorsFor(post) {
     if (!mapped.length) return;
     mergeIntoResolutionPool(mapped);
     fetchedAncestors.set(remoteId, mapped);
-    resolvePosterIdentities(mapped.map((entry) => entry.posterAddress), () => renderThread());
     renderThread();
   } catch {
     // Unclaimed, so opening the post again retries rather than showing no context forever.
@@ -1622,7 +1573,6 @@ function mergeLivePosts(live) {
   if (!fresh.length) return;
   remotePosts = [...fresh.sort((a, b) => b.timestamp - a.timestamp), ...remotePosts];
   renderFeed();
-  refreshVisiblePosterNames();
 }
 
 /// The indexer went away or came back. Back, it has the final word: everything loaded during the
@@ -1656,13 +1606,13 @@ function pendingActionButtonHtml(key) {
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
 
 /** Escapes text and wraps URLs in clickable spans (confirmation popover on click). */
-// @mention token: `@domain` (optionally dotted, optional .kas), not part of an email — must be
+// @mention token: `@name` (optionally dotted, e.g. .kachat), not part of an email — must be
 // at the start or follow whitespace / an opening bracket-quote. Matches the indexer spec so what
 // highlights here is exactly what triggers a mention notification server-side.
 const MENTION_PATTERN = /(^|[\s([{<"'])@([a-z0-9-]+(?:\.[a-z0-9-]+)*)/gi;
-// @mentions ride on .kas names, which are no longer anyone's identity: one switch turns them off
-// everywhere until they are rebuilt on .kachat (iOS 08dd836 MentionsFeature.enabled). No
-// suggestions, no mentioned pubkeys on posts, and @name.kas in a post is plain text.
+// @mentions rode on .kas names, which are gone (K 518fdc8c): one switch turns them off everywhere
+// until they are rebuilt on .kachat (iOS 08dd836 MentionsFeature.enabled). No suggestions, no
+// mentioned pubkeys on posts, and @name in a post is plain text.
 const MENTIONS_ENABLED = false;
 
 // Escape a plain-text run, but wrap any @mention tokens in a highlight span first.
@@ -1683,42 +1633,27 @@ function escapeWithMentions(rawText) {
   return out;
 }
 
-// The owner address of an @mention token (iOS KaPostsView.mentionAddress, e493c97 IOS-068/069).
-// Mentions have their own rule, not the address fields' .kachat-only one:
+// The owner address of an @mention token (iOS KaPostsView.mentionAddress, e493c97 IOS-068/069):
 // - with the post's signed mentions (`signed`), the answer whose owner the author signed: who the
 //   token meant when it was written, whoever holds the name today;
-// - otherwise the ending typed ("@bob.kas" is the .kas name), else .kachat, else .kas: the meaning
-//   every post from before .kachat was written with.
+// - otherwise its .kachat owner (the only name service since 2026-11-23, K 518fdc8c).
 async function mentionAddress(token, signed = []) {
   const results = (await deps.engine.resolveNameEverywhere?.(token)) || [];
   if (signed.length) {
     // on the x-only key (KaPost 369794e): an 03 key and the 02 guess an address gives are one person
     const keys = new Set(signed.map((k) => String(k).toLowerCase().slice(2)));
-    const typed = splitTypedName(token).tld;
-    const ordered = [...results.filter((r) => r.tld === typed), ...results.filter((r) => r.tld !== typed)];
-    const match = ordered.find((r) => {
+    const match = results.find((r) => {
       const pk = r.address ? deps.engine.kapostPubkeyForAddress?.(r.address) : null;
       return pk && keys.has(String(pk).toLowerCase().slice(2));
     });
     if (match) return match.address;
   }
-  return mentionResolution(token, results)?.address || null;
-}
-
-// The mention rule's answer among every service's results (iOS e493c97): the ending typed, else
-// .kachat, else - a bare token with no .kachat answer - the .kas name it meant before .kachat.
-function mentionResolution(token, results) {
-  const winner = primaryName(results, token);
-  if (winner) return winner;
-  if (splitTypedName(token).tld) return null;
-  return results.find((r) => r.tld === "kas" && r.address) || null;
+  return primaryName(results)?.address || null;
 }
 
 // Resolve the @mentions in a post's text to the compressed pubkeys the indexer needs in
-// mentioned_pubkeys. Each token keeps the ending it was typed with (iOS d0c5b09): a contact's .kas
-// name resolves from the local candidate list - only for a token typed as .kas - and everyone else
-// resolves live on every service, .kachat first (owner address -> pubkey). Unresolvable tokens
-// stay plain text.
+// mentioned_pubkeys. Each token resolves live as a .kachat name (owner address -> pubkey).
+// Unresolvable tokens stay plain text.
 async function mentionedPubkeysFor(text) {
   if (!MENTIONS_ENABLED) return [];
   const tokens = [];
@@ -1730,19 +1665,15 @@ async function mentionedPubkeysFor(text) {
     if (token && !seenTokens.has(token)) { seenTokens.add(token); tokens.push(token); }
   }
   if (!tokens.length) return [];
-  const byKasName = new Map((deps.getMentionCandidates?.() || []).map((c) => [c.domain.toLowerCase(), c.pubkey]));
   const found = new Set();
   for (const token of tokens) {
-    let pubkey = token.endsWith(".kas") ? (byKasName.get(token.slice(0, -4)) || null) : null;
-    if (!pubkey) {
-      // everyone else: the mention rule (ending typed, else .kachat, else .kas; iOS e493c97)
-      try {
-        const address = await mentionAddress(token);
-        // the person's real 02/03 key (KaPost 369794e), not the 02 guess the address gives: an 03
-        // user was never notified
-        if (address) pubkey = (await realMentionKey(address)) || deps.engine.kapostPubkeyForAddress?.(address) || null;
-      } catch { /* unresolvable: plain text */ }
-    }
+    let pubkey = null;
+    try {
+      const address = await mentionAddress(token);
+      // the person's real 02/03 key (KaPost 369794e), not the 02 guess the address gives: an 03
+      // user was never notified
+      if (address) pubkey = (await realMentionKey(address)) || deps.engine.kapostPubkeyForAddress?.(address) || null;
+    } catch { /* unresolvable: plain text */ }
     if (pubkey) found.add(pubkey);
   }
   // once per person, in the order written (the engine checks again on the x-only key)
@@ -1762,8 +1693,8 @@ async function realMentionKey(address) {
 }
 
 // Tapped @mention anywhere in KaPosts: open the profile of whoever the author signed for the
-// token (the post's mentionedPubkeys, iOS e493c97 IOS-068), else the mention rule's answer
-// ("@bob.kas" stays the .kas name, iOS d0c5b09), at the resolved address (iOS 5316269) - anyone
+// token (the post's mentionedPubkeys, iOS e493c97 IOS-068), else its .kachat owner, at the
+// resolved address (iOS 5316269) - anyone
 // with a name, contact or not; never-posted owners get an honest empty profile.
 // No key is handed over (iOS 474388a): the address gives only the x-only key, and a K key starts
 // with 02 or 03 - the profile resolves which (XP-034), so Follow never posts for a guessed key
@@ -3193,11 +3124,7 @@ async function openThread(post, { scrollToRemoteId = null, ensureComment = null 
       const ensuredId = ensureComment?.remoteId;
       if (ensuredId && !p.comments.some((c) => c.remoteId === ensuredId)) p.comments = [...p.comments, ensureComment];
     });
-    if (ensureComment) resolvePosterIdentities([ensureComment.posterAddress], () => renderThread());
     renderThread();
-    resolvePosterIdentities(replies.map((reply) => reply.posterAddress), () => {
-      if (threadStack[threadStack.length - 1] === post.id) renderThread();
-    });
     // Walk the author's own continuation (if any) so the Thread section can render.
     await loadSelfThreadChain(findPost(post.id) || post);
     if (generation === threadGeneration) renderThread();
@@ -3234,9 +3161,6 @@ function loadMoreThreadReplies(postId) {
         added = Math.max(added, rows.filter((reply) => !isHiddenAuthor(reply.posterAddress)).length);
       });
       renderThread();
-      resolvePosterIdentities(mapped.map((reply) => reply.posterAddress), () => {
-        if (threadStack[threadStack.length - 1] === postId) renderThread();
-      });
       return added;
     },
     isStale: () => generation !== threadGeneration || threadStack[threadStack.length - 1] !== postId,
@@ -3917,7 +3841,7 @@ const LOGOUT_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H5
  *  screen). Share Profile sits beside the Profile title (K 804cbcb7, index.html). */
 function rootProfileButtonsHtml() {
   return `<span class="kaposts-profile-buttons kaposts-root-buttons">`
-    + `<button class="kaposts-edit-kns" type="button" data-kaposts-edit-kns><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PANEL_ICONS.idCard}"/></svg>Edit Profile</button>`
+    + `<button class="kaposts-edit-kns" type="button" data-kaposts-edit-profile><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PANEL_ICONS.idCard}"/></svg>Edit Profile</button>`
     + `<button class="kaposts-edit-kns kaposts-logout" type="button" data-kaposts-log-out>${LOGOUT_SVG}Log Out</button>`
     + `</span>`;
 }
@@ -4291,11 +4215,10 @@ function renderPanel() {
     const address = panel.address;
     // Both profile pages - yours and a tapped poster's - show the .kachat banner and bio (iOS 3d6fb7c).
     const profile = posterProfilePieces(address);
-    // A .kachat banner is an <img> (no referrer, one relay retry); a KNS one stays a background.
-    const kachatBanner = profile.kachat && profile.bannerUrl
+    // The .kachat banner is an <img> (no referrer, one relay retry).
+    const kachatBanner = profile.bannerUrl
       ? `<img class="kaposts-profile-banner-img" alt="" decoding="async" referrerpolicy="no-referrer" data-banner-fit data-kaposts-kachat-img="banner" src="${deps.escapeHtml(profile.bannerUrl)}" />`
       : "";
-    const knsBanner = profile.kachat ? "" : safeCssUrl(profile.bannerUrl);
     const isMine = sameAddress(address, deps.engine.address);
     const isFollowing = prefs.following.includes(address);
     // Your own profile merges session posts the indexer has not stamped yet (still pending, or
@@ -4308,7 +4231,7 @@ function renderPanel() {
       : remoteItems;
     panelBodyEl.innerHTML = `
       <div class="kaposts-profile-hero">
-        <div class="kaposts-profile-banner${kachatBanner ? " has-img" : ""}"${knsBanner ? ` style="background-image:url('${deps.escapeHtml(knsBanner)}')"` : ""}>${kachatBanner}</div>
+        <div class="kaposts-profile-banner${kachatBanner ? " has-img" : ""}">${kachatBanner}</div>
         ${/* Someone else's: Follow and Chat beside the avatar, above the name, so a long name never
              squeezes them (iOS 472cb72, .kaposts-profile-row.other). */ ""}
         <div class="kaposts-profile-row${isMine && !isRootProfilePanel(panel) ? "" : " other"}">
@@ -4323,7 +4246,7 @@ function renderPanel() {
             </span>
             ${profile.bio ? `<span class="kaposts-profile-bio" data-kaposts-profile-bio>${deps.escapeHtml(profile.bio)}</span><button type="button" class="kaposts-bio-more" data-kaposts-bio-more hidden>More</button>` : ""}
             ${isMine && isRootProfilePanel(panel) ? rootProfileButtonsHtml() : ""}
-            ${isMine && !isRootProfilePanel(panel) ? `<span class="kaposts-profile-buttons"><button class="kaposts-edit-kns" type="button" data-kaposts-edit-kns><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PANEL_ICONS.idCard}"/></svg>Edit KaChat Profile</button>${/* Beside it, Wallet (iOS 865c9ab): the chatting address's balance, history and coins -
+            ${isMine && !isRootProfilePanel(panel) ? `<span class="kaposts-profile-buttons"><button class="kaposts-edit-kns" type="button" data-kaposts-edit-profile><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PANEL_ICONS.idCard}"/></svg>Edit KaChat Profile</button>${/* Beside it, Wallet (iOS 865c9ab): the chatting address's balance, history and coins -
                  Desktop's Manage Address screen. */ ""}${deps.openChattingWallet && deps.engine.address ? `<button class="kaposts-edit-kns kaposts-wallet-button" type="button" data-kaposts-wallet>${WALLET_SVG}Wallet</button>` : ""}${/* And Request (KaPost 9653c04): a payment request link to copy or share. */ ""}${deps.openRequestPayment && deps.engine.address ? `<button class="kaposts-edit-kns kaposts-wallet-button" type="button" data-kaposts-request aria-label="Request Payment">${REQUEST_SVG}Request</button>` : ""}</span>` : ""}
           </div>
           ${isRootProfilePanel(panel) ? `<span class="kaposts-profile-actions">
@@ -4354,8 +4277,7 @@ function renderPanel() {
             : feedItems.map((post) => postCellHtml(post, { inThread: true, openByRemote: true, profileOf: address })).join("")}
       </div>`;
     // The whole banner at the full width, at its own proportions (iOS c66bfc7).
-    // A .kachat <img> banner sizes its box itself when it loads (banner-fit.js data-banner-fit).
-    fitBackgroundBanner(panelBodyEl.querySelector(".kaposts-profile-banner"), knsBanner || "");
+    // The .kachat <img> banner sizes its box itself when it loads (banner-fit.js data-banner-fit).
     // More appears only when the three-line clamp actually hid something.
     const bioEl = panelBodyEl.querySelector("[data-kaposts-profile-bio]");
     const bioMore = panelBodyEl.querySelector("[data-kaposts-bio-more]");
@@ -4622,10 +4544,6 @@ function loadMoreSearch() {
       mapped.forEach((post) => known.add(post.remoteId));
       panel.scanned = [...panel.scanned, ...mapped];
       renderSearchResults(panel);
-      // Warm the names for whoever just arrived, so People rows are not a wall of addresses.
-      resolvePosterIdentities(mapped.map((post) => post.posterAddress), () => {
-        if (activePanel === panel) renderSearchResults(panel);
-      });
       // Every scanned post counts as progress here - the search's own filter is the query,
       // not the pager's visibility rule.
       return mapped.length;
@@ -4859,9 +4777,6 @@ async function openPosterProfile(address, passedPubkey) {
   const panel = activePanel;
   renderPanel();
   syncRailActive();
-  deps.engine.fetchKnsAddressInfo?.(address).catch(() => null)
-    .then(() => deps.engine.fetchKnsAddressProfile?.(address).catch(() => null))
-    .then(() => { if (activePanel === panel) renderPanel(); });
   // No pubkey handed over: the address gives the x-only key, but a K key starts with 02 or 03 -
   // try both and keep the one the indexer has data for (iOS XP-034). The panel's pubkey is what
   // Follow and the counts use, so it is never a guess: null when neither has any.
@@ -4895,7 +4810,6 @@ async function openPosterProfile(address, passedPubkey) {
     // Read from saved pages or the chain, it's opened afresh next time.
     if (!content.outage) keptProfilePanel = { address, panel, loadedAt: Date.now() };
     renderPanel();
-    resolvePosterIdentities([address], () => { if (activePanel === panel) renderPanel(); });
   } catch (error) {
     deps.appendEngineLog?.(`KaPost profile load failed: ${error.message}`);
     if (activePanel === panel) {
@@ -5022,7 +4936,6 @@ function loadMoreFollowList() {
       panel.loading = false;
       recompute();
       renderPanel();
-      resolvePosterIdentities(added.map((row) => row.address), () => { if (activePanel === panel) renderPanel(); });
       return added.length;
     },
     isStale,
@@ -5179,10 +5092,6 @@ async function pollKaPostNotificationsForPings() {
     if (firstRun) continue; // baseline seeding — history never notifies
     const actorAddress = kaspaAddressFromPubkey(deps.engine, n.userPublicKey);
     if (!actorAddress || actorAddress === my || isHiddenAuthor(actorAddress)) continue;
-    // Warm the KNS cache so posterName can use the actor's domain (peek is cache-only;
-    // a cold cache would fall back to the short address even when they own a domain).
-    try { await deps.engine.refreshKnsIfNeeded?.([actorAddress]); } catch { /* name falls back */ }
-    if (!owner.still()) return; // switched during the name lookup: nothing below is the new account's
     // The global notification center lists every fresh KaPosts action (mentions included),
     // independent of the per-type OS-ping gate below.
     const centerText = stripKaChatMarker(n.postContent ? (decodePostContent({ postContent: n.postContent }) || "") : "").trim();
@@ -5284,18 +5193,11 @@ export function kaPostLinkSnippet(raw) {
   const characters = Array.from(cleaned);
   return characters.length > KAPOST_LINK_SNIPPET_MAX ? `${characters.slice(0, KAPOST_LINK_SNIPPET_MAX).join("")}…` : cleaned;
 }
-/** The poster as the card names them: KNS or .kachat name first, then the name you gave them, then
+/** The poster as the card names them: their .kachat name first, then the name you gave them, then
  *  the short address (iOS 23920c8). A post's own rows put your contact name first (posterName). */
 function kaPostLinkAuthorName(address) {
   if (!address) return null;
-  if (kachatNamesUiEnabled()) {
-    const label = kachatCachedDisplayLabel(address);
-    if (label) return label;
-  } else if (deps.engine.knsNamesAsIdentity) {
-    const domain = deps.engine.peekKnsAddressInfo?.(address)?.explicitPrimaryDomain || deps.engine.peekKnsAddressProfile?.(address)?.domainName;
-    if (domain) return domain;
-  }
-  return posterName(address);
+  return kachatCachedDisplayLabel(address) || posterName(address);
 }
 function kaPostLinkPreviewEntry(post) {
   if (!post) return null;
@@ -5452,9 +5354,6 @@ async function loadNotificationsFirstPage(panel) {
     }
     saveSeenKaPostNotificationIds(seen);
     renderPanel();
-    resolvePosterIdentities(panel.items.map((item) => item.actorAddress), () => {
-      if (activePanel === panel) renderPanel();
-    });
     // A saved list isn't kept as if it had loaded: the next open asks again.
     return !page.outage;
   } catch (error) {
@@ -5481,9 +5380,6 @@ function loadMoreNotifications() {
       const rows = fresh.map(mapNotificationRow).filter(Boolean);
       panel.items = [...panel.items, ...rows];
       renderPanel();
-      resolvePosterIdentities(rows.map((item) => item.actorAddress), () => {
-        if (activePanel === panel) renderPanel();
-      });
       return rows.length;
     },
     isStale: () => generation !== panelGeneration || activePanel !== panel || panel.pager !== pager,
@@ -5576,10 +5472,6 @@ async function openEngagementPanel(post) {
     });
     absorbEngagementRows(lists, page.engagement);
     seedPager(panel.pager, page.engagement, page.pagination, (row) => row?.actionTxId);
-    resolvePosterIdentities(
-      Object.values(lists).flat().map((entry) => entry.actorAddress),
-      () => { if (activePanel === panel) renderPanel(); },
-    );
   } catch (error) {
     // Older deployments: derive from the notification stream (own posts only) — a one-shot
     // list with no cursor of its own, so paging stops here.
@@ -5650,7 +5542,6 @@ async function loadFirstTips(panel) {
     if (isStale()) return;
     panel.tips = page.tippers.map(mapTipperRow).filter(Boolean);
     seedPager(panel.tipsPager, page.tippers, page.pagination);
-    resolvePosterIdentities(panel.tips.map((tip) => tip.actorAddress), () => { if (activePanel === panel) renderPanel(); });
   } catch (error) {
     if (isStale()) return;
     panel.tipsError = userFacingError(error);
@@ -5673,7 +5564,6 @@ function loadMoreTips() {
       const rows = fresh.map(mapTipperRow).filter(Boolean);
       panel.tips = [...panel.tips, ...rows];
       renderPanel();
-      resolvePosterIdentities(rows.map((tip) => tip.actorAddress), () => { if (activePanel === panel) renderPanel(); });
       return rows.length;
     },
     isStale: () => generation !== panelGeneration || activePanel !== panel,
@@ -5715,10 +5605,6 @@ function loadMoreEngagement() {
       const lists = panel.lists || (panel.lists = { likes: [], dislikes: [], reposts: [], quotes: [] });
       const counts = absorbEngagementRows(lists, fresh);
       renderPanel();
-      resolvePosterIdentities(
-        fresh.map((row) => kaspaAddressFromPubkey(deps.engine, row.actorPubkey)),
-        () => { if (activePanel === panel) renderPanel(); },
-      );
       return counts[panel.tab || "likes"] || 0;
     },
     isStale: () => generation !== panelGeneration || activePanel !== panel,
@@ -6796,10 +6682,9 @@ export function resetKaPostsForAccount() {
 }
 
 // --- @mention autocomplete --------------------------------------------------
-// Attach to a composer textarea: typing "@" opens a menu of your 1:1 contacts' names - their
-// .kachat names first (deps.getKachatMentionNames), then their .kas domains
-// (deps.getMentionCandidates) - and a live-resolved name for the query by the mention rule:
-// .kachat first, else .kas (iOS d0c5b09, e493c97). Picking one inserts "@name.ending ", so it resolves on the service shown.
+// Attach to a composer textarea: typing "@" opens a menu of your 1:1 contacts' .kachat names
+// (deps.getKachatMentionNames) and the query's live-resolved .kachat name (K 518fdc8c: .kachat
+// only). Picking one inserts "@name.kachat ".
 const MENTION_QUERY_RE = /(?:^|[\s([{<"'])@([a-z0-9-]*)$/i;
 
 function attachMentionAutocomplete(textarea) {
@@ -6810,8 +6695,8 @@ function attachMentionAutocomplete(textarea) {
   let items = [];
   let activeIndex = 0;
   let anchorStart = -1; // index of the '@' currently being completed
-  // Live resolution of the current query, .kachat first, else .kas (contacts come from the
-  // local list; this row lets you mention anyone with a name anywhere).
+  // Live resolution of the current query as a .kachat name (contacts come from the local list;
+  // this row lets you mention anyone with a name).
   let resolveToken = 0;
   let resolvedExtra = null; // { query, domain } - domain with its ending, e.g. "bob.kachat"
 
@@ -6824,7 +6709,7 @@ function attachMentionAutocomplete(textarea) {
     resolvedExtra = null;
   }
 
-  function scheduleAnyKnsResolve(query) {
+  function scheduleNameResolve(query) {
     const clean = String(query || "").toLowerCase();
     const token = ++resolveToken;
     if (resolvedExtra && resolvedExtra.query !== clean) resolvedExtra = null;
@@ -6832,9 +6717,9 @@ function attachMentionAutocomplete(textarea) {
     window.setTimeout(async () => {
       if (token !== resolveToken) return;
       try {
-        // anyone with a name: .kachat first, else the .kas name (the mention rule, iOS e493c97)
+        // anyone with a .kachat name
         const results = (await deps.engine.resolveNameEverywhere?.(clean)) || [];
-        const resolution = mentionResolution(clean, results);
+        const resolution = primaryName(results);
         if (token !== resolveToken || !resolution?.name) return;
         resolvedExtra = { query: clean, domain: String(resolution.name).toLowerCase() };
         const ctx = currentQuery();
@@ -6854,18 +6739,13 @@ function attachMentionAutocomplete(textarea) {
 
   function render(query) {
     const q = String(query || "").toLowerCase();
-    const candidates = deps.getMentionCandidates?.() || [];
-    // contacts' .kachat names come first, then their .kas domains (as "name.kas": the ending
-    // typed is the service it resolves on, iOS d0c5b09)
-    const kachat = [...new Set((deps.getKachatMentionNames?.() || []).map((n) => String(n).toLowerCase()))]
+    // contacts' .kachat names
+    items = [...new Set((deps.getKachatMentionNames?.() || []).map((n) => String(n).toLowerCase()))]
       .filter((full) => !q || full.startsWith(q))
       .sort()
-      .map((full) => ({ domain: full, name: "" }));
-    const kas = candidates
-      .filter((c) => !q || c.domain.toLowerCase().startsWith(q) || c.name.toLowerCase().includes(q))
-      .map((c) => ({ domain: `${c.domain.toLowerCase()}.kas`, name: c.name }));
-    items = [...kachat, ...kas].slice(0, 6);
-    // a live-resolved name matching the query (any service, .kachat first) rides along
+      .map((full) => ({ domain: full, name: "" }))
+      .slice(0, 6);
+    // a live-resolved .kachat name matching the query rides along
     if (resolvedExtra && resolvedExtra.query === q && resolvedExtra.domain.startsWith(q)
         && !items.some((c) => c.domain.toLowerCase() === resolvedExtra.domain)) {
       items = [...items, { domain: resolvedExtra.domain, name: "" }];
@@ -6907,7 +6787,7 @@ function attachMentionAutocomplete(textarea) {
     if (!ctx) { close(); return; }
     anchorStart = ctx.atIndex;
     render(ctx.query);
-    scheduleAnyKnsResolve(ctx.query);
+    scheduleNameResolve(ctx.query);
   }
 
   textarea.addEventListener("input", refresh);
@@ -7807,7 +7687,7 @@ export function initKaPosts(dependencies) {
       deps.startChat?.(activePanel.address, posterName(activePanel.address));
       return;
     }
-    if (event.target.closest("[data-kaposts-edit-kns]")) { deps.editKnsProfile?.(); return; }
+    if (event.target.closest("[data-kaposts-edit-profile]")) { deps.editProfile?.(); return; }
     if (event.target.closest("[data-kaposts-see-all]")) { deps.openKaPostsTab?.(); return; }
     if (event.target.closest("[data-kaposts-share-profile]")) { deps.shareProfile?.(); return; }
     if (event.target.closest("[data-kaposts-log-out]")) { deps.logOut?.(); return; }

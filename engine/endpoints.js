@@ -9,7 +9,6 @@
 //   kachatNamesIndexer — where .kachat names and profiles are read (iOS 7abc06e8 kachatNamesIndexerURL,
 //                  Connection Settings > Domains): its own field, apart from the message indexer, so
 //                  anyone can run the names indexer themselves
-//   knsApi       — KNS domain/profile API
 //   trestlyApi   — Trestly's kUSDT API (iOS AppSettings.trestlyAPIURL, KaPay 3d126db): which kUSDT
 //                  coins an address has. Asked DIRECTLY, never through the /nc-proxy relay (a capped
 //                  Cloudflare function; api.trestly.io sends CORS *), so it is deliberately absent
@@ -38,7 +37,6 @@ const MAINNET_ENDPOINT_DEFAULTS = Object.freeze({
   broadcastIndexer: DEFAULT_MAINNET_INDEXER,
   pushIndexer: DEFAULT_MAINNET_INDEXER,
   kachatNamesIndexer: DEFAULT_MAINNET_INDEXER,
-  knsApi: "https://api.knsdomains.org/mainnet/api/v1",
   trestlyApi: "https://api.trestly.io/api/v1",
   translationService: DEFAULT_MAINNET_INDEXER,
   trustedNode: "",
@@ -51,7 +49,7 @@ const MAINNET_ENDPOINT_DEFAULTS = Object.freeze({
 // are blank there - names are read from the chain - unless someone points a field at their own.
 export const DEFAULT_TESTNET_INDEXER = "";
 // What testnet starts with (iOS ConnectionProfile.defaults(.testnet)): the public testnet-10 REST
-// API, KNS's testnet registry and automatic node discovery. Custom URLs are kept.
+// API and automatic node discovery. Custom URLs are kept.
 const TESTNET_ENDPOINT_DEFAULTS = Object.freeze({
   kaspaApi: "https://api-tn10.kaspa.org",
   kasiaIndexer: DEFAULT_TESTNET_INDEXER,
@@ -59,7 +57,6 @@ const TESTNET_ENDPOINT_DEFAULTS = Object.freeze({
   broadcastIndexer: DEFAULT_TESTNET_INDEXER,
   pushIndexer: DEFAULT_TESTNET_INDEXER,
   kachatNamesIndexer: DEFAULT_TESTNET_INDEXER,
-  knsApi: "https://api.knsdomains.org/tn10/api/v1",
   trestlyApi: "https://testnet.trestly.io/api/v1",
   // Not read: translation follows the message indexer, so it's off on testnet (KaChat iOS 148a5331,
   // getEndpoint's FOLLOWS_MESSAGE_INDEXER). Kept so an older stored value isn't an unknown key.
@@ -152,12 +149,12 @@ let overrides = loadStored();
 // policy", seen from kachat.app against adam.kaspa.green) and Automatic Scan stalls on a server
 // that would have answered a curl. Relayed same-origin, the answer arrives. The wRPC websocket
 // that follows is not a fetch and is unaffected.
-const INDEXER_PROXY_HOST_RE = /(^|\.)kasia\.wtf$|^indexer\.kachat\.app$|^api(-tn\d+)?\.kaspa\.org$|(^|\.)kaspa\.(green|red|stream|blue|ws)$|^api\.gateio\.ws$|(^|\.)finance\.yahoo\.com$|^api(-tn\d+)?\.dotk\.name$|^kaspaname\.com$/i;
+const INDEXER_PROXY_HOST_RE = /(^|\.)kasia\.wtf$|^indexer\.kachat\.app$|^api(-tn\d+)?\.kaspa\.org$|(^|\.)kaspa\.(green|red|stream|blue|ws)$|^api\.gateio\.ws$|(^|\.)finance\.yahoo\.com$/i;
 /// Where the proxy lives, relative to wherever the app is served from.
 ///
 /// The published site sits under /desktop/, so the proxy is at /desktop/nc-proxy/ - a root-absolute
 /// /nc-proxy/ 404s there. Vite substitutes BASE_URL at build time; every other caller of the proxy
-/// already goes through it (see nextcloud.js, kns.js), and this one did not.
+/// already goes through it (see nextcloud.js), and this one did not.
 function proxyRoot() {
   let base = "/";
   try { base = import.meta.env.BASE_URL || "/"; } catch { base = "/"; }
@@ -246,7 +243,7 @@ export async function isRelayRateLimit(response) {
 
 // Hosts that answer a browser page on any origin by themselves (checked 2026-11-19: the KaChat
 // indexer reflects the page's origin, GET and POST with Content-Type, on errors too; api.kaspa.org,
-// gate.io and dotk send "*"). These are asked DIRECTLY, and the relay is only a fallback. Every
+// and gate.io send "*"). These are asked DIRECTLY, and the relay is only a fallback. Every
 // request the relay carries is a Cloudflare Pages Function call on desktop.kachat.app, and the
 // free plan stops them all at 100,000 a day: with the indexer's chat sync relayed, a few active
 // users used that up ("Workers daily request limit exceeded", 2026-11-19), and the relay then
@@ -257,7 +254,7 @@ export async function isRelayRateLimit(response) {
 // carries that host for 5 minutes; a relay that failed too (the server is down) isn't asked again
 // for that host for a minute, so an outage never doubles into relay calls. A POST isn't repeated:
 // it may have reached the server.
-const DIRECT_FIRST_HOST_RE = /^indexer\.kachat\.app$|^api(-tn\d+)?\.kaspa\.org$|^api\.gateio\.ws$|^api\.dotk\.name$/i;
+const DIRECT_FIRST_HOST_RE = /^indexer\.kachat\.app$|^api(-tn\d+)?\.kaspa\.org$|^api\.gateio\.ws$/i;
 const DIRECT_FIRST_RELAY_MS = 5 * 60_000;
 const DIRECT_FIRST_NO_RELAY_MS = 60_000;
 const directFirstRelayUntil = new Map();
@@ -388,7 +385,7 @@ installIndexerProxy();
 // requests are still reported by their own callers.
 let verboseApiLogging = false;
 let apiLogSink = null;
-const API_HOST_RE = /(^|\.)kasia\.wtf$|^indexer\.kachat\.app$|^api(-tn\d+)?\.kaspa\.org$|knsdomains\.org$/i;
+const API_HOST_RE = /(^|\.)kasia\.wtf$|^indexer\.kachat\.app$|^api(-tn\d+)?\.kaspa\.org$/i;
 export function setVerboseApiLogging(enabled, sink = null) {
   verboseApiLogging = Boolean(enabled);
   if (sink) apiLogSink = sink;

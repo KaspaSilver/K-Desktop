@@ -28,10 +28,10 @@ await test("the contact editor opens with only a name you gave them, and needs a
   assert.doesNotMatch(app, /suggestedName/);
   assert.match(app, /presetName: contact\.nameIsCustom \? contact\.name : null/);
 });
-await test("a clear button and Use Their Domain Name (never .kas), the .kachat name with its ending", () => {
+await test("a clear button and Use Their Username (K 518fdc8c), the .kachat name with its ending", () => {
   assert.match(book, /data-ab-editor-name-clear aria-label="Clear"/);
-  assert.match(book, /Use Their Domain Name <span class="ab-use-domain-name">\(\$\{esc\(suggestion\)\}\)<\/span>/);
-  assert.match(book, /s\.resolvedAddress && s\.resolvedName && s\.selectedTld !== "kas"/);
+  assert.match(book, /Use Their Username <span class="ab-use-domain-name">\(\$\{esc\(suggestion\)\}\)<\/span>/);
+  assert.match(book, /s\.resolvedAddress && s\.resolvedName\) \{/);
   assert.match(app, /kachatNameFor: \(address\) => \(kachatNamesUiEnabled\(\) \? kachatCachedLabel\(address\) : null\),/);
 });
 await test("User Info's name field takes the name the editor saved", () => {

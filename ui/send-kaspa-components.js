@@ -119,67 +119,24 @@ export function fixedKas8(sompi) {
 
 // --- Recipient ----------------------------------------------------------------------------------
 
-// --- Other domains -------------------------------------------------------------------------------
-
-// "Other domains" (iOS 6ac48a7 OtherDomainsDropdown): what the same typed name points to on the
-// other services, under the name it resolved to, each selectable. Every field that takes an
-// address shows it (Create chat, the group address field, the Send screens, KasSigner's send, Send
-// Domain, Portfolio, the Address Book editor, .kachat Transfer); the order is always .kachat first,
-// and where .kachat's registry isn't live yet (mainnet) it is listed as "Coming soon". Opens by
-// itself when nothing was picked but another service has the name. A pick is a click on
-// [data-other-domain="<tld>"]; `pickOtherDomain` turns it back into the answer.
-
-/** What a service with no address for the name says: "Coming soon", "Couldn't check" or
- *  "Not registered" (iOS OtherDomainsDropdown.missingText). */
-export function otherDomainMissingText(resolution) {
-  if (resolution?.state === "notLive") return "Coming soon";
-  return resolution?.state === "failed" ? "Couldn't check" : "Not registered";
-}
-
-/** The one not-found message every address field shows (iOS 5a5122d notFoundMessage): "No .kas
- *  domain found" for a typed ending, else the .kachat one - "No .kachat domain found", or
- *  ".kachat names aren't live on this network yet" where its registry isn't. `results` are the
+/** The one not-found message every address field shows (K NameServicesClient.notFoundMessage):
+ *  "No username found", or ".kachat names aren't live on this network yet" where its registry
+ *  isn't, or "Couldn't look up ..." when the registry couldn't be asked. `results` are the
  *  lookup's answers when the caller has them. */
 export function nameNotFoundText(typed, results = []) {
   return notFoundMessage(String(typed || ""), results);
 }
 
-/** The dropdown's markup: every answer but the one in use (`selectedTld`), or "" when there is
- *  none. `resolutions` are engine NameResolution rows ({ tld, name, address, state }). */
-export function otherDomainsHtml({ resolutions = [], selectedTld = null } = {}) {
-  const list = Array.isArray(resolutions) ? resolutions : [];
-  const others = list.filter((entry) => entry && entry.tld !== selectedTld);
-  if (!others.length) return "";
-  const open = selectedTld == null && list.some((entry) => entry?.address);
-  return `
-    <details class="create-chat-other-domains other-domains" data-other-domains ${open ? "open" : ""}>
-      <summary>Other domains</summary>
-      ${others.map((entry) => entry.address
-        ? `<button type="button" class="create-chat-other-domain" data-other-domain="${esc(entry.tld)}"><strong>${esc(entry.name)}</strong><span>${esc(shortSendAddress(entry.address))}</span></button>`
-        : `<div class="create-chat-other-domain muted"><strong>${esc(entry.name)}</strong><span>${esc(otherDomainMissingText(entry))}</span></div>`).join("")}
-    </details>`;
-}
-
-/** The answer a click under Other domains picked, or null (not a pick, or nothing to pick). */
-export function pickOtherDomain(event, resolutions) {
-  const button = event?.target?.closest?.("[data-other-domain]");
-  if (!button) return null;
-  return (Array.isArray(resolutions) ? resolutions : [])
-    .find((entry) => entry?.tld === button.dataset.otherDomain && entry.address) || null;
-}
-
 /** The line under the recipient saying what the input resolved to (iOS SendRecipientCard
- *  statusLine), with Other domains under it once the lookup is done (`nameResolutions` /
- *  `selectedTld`, iOS 6ac48a7). Empty while nothing is typed. */
-export function recipientStatusHtml({ input = "", resolving = false, error = null, resolvedAddress = null, resolvedName = null, valid = false, nameResolutions = [], selectedTld = null } = {}) {
+ *  statusLine). Empty while nothing is typed. */
+export function recipientStatusHtml({ input = "", resolving = false, error = null, resolvedAddress = null, resolvedName = null, valid = false } = {}) {
   const trimmed = String(input || "").trim();
   if (!trimmed) return "";
-  if (resolving) return '<p class="sk-status muted"><span class="sk-spinner" aria-hidden="true"></span>Looking up domain...</p>';
-  const others = otherDomainsHtml({ resolutions: nameResolutions, selectedTld });
-  if (error) return `<p class="sk-status bad">✕ ${esc(error)}</p>${others}`;
+  if (resolving) return '<p class="sk-status muted"><span class="sk-spinner" aria-hidden="true"></span>Looking up username...</p>';
+  if (error) return `<p class="sk-status bad">✕ ${esc(error)}</p>`;
   if (resolvedAddress) {
     return `<p class="sk-status good">✓ Resolved: ${esc(resolvedName || "")}</p>
-      <p class="sk-status mono">${esc(resolvedAddress)}</p>${others}`;
+      <p class="sk-status mono">${esc(resolvedAddress)}</p>`;
   }
   if (valid) return '<p class="sk-status good">✓ Valid address</p>';
   // The other network's address is the same key on another chain (IOS-003): say which.
@@ -196,7 +153,7 @@ export function recipientStatusHtml({ input = "", resolving = false, error = nul
  * button) and P-saved-name (the saved name under the card, for `savedNameAddress` or the value).
  */
 export function recipientCardHtml({
-  prefix, value = "", lockedAddress = null, placeholder = "kaspa:qr... or domain",
+  prefix, value = "", lockedAddress = null, placeholder = "kaspa:qr... or username",
   statusHtml = "", cardHtml = "", valid = false, label = "To", savedNameAddress = null,
 } = {}) {
   const p = attrName(prefix);
@@ -844,8 +801,8 @@ function middleTruncatedHtml(text, tail = 10) {
 
 /**
  * The sheet every successful Kaspa send finishes on (iOS ActionSheet.swift SentConfirmationSheet):
- * a check, "Sent", the amount ("1.5 KAS", trailing zeros trimmed), "to <domain or address>", the
- * txid as a link to the explorer, and Done. Send Kaspa, KaPosts tips and Send Domain all use it.
+ * a check, "Sent", the amount ("1.5 KAS", trailing zeros trimmed), "to <username or address>", the
+ * txid as a link to the explorer, and Done. Send Kaspa and KaPosts tips use it.
  * `amountSompi` null leaves the amount line out, `recipient` empty the "to" line. `explorerUrl`
  * is the txid's explorer page (null shows the id as plain text). Done, Escape or the backdrop
  * close it and call `onDone`.

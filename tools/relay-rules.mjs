@@ -42,7 +42,7 @@ export const CLIENT_IDENTITY_HEADERS = [
 // Request kinds a browser uses to RENDER a response. The relay never serves those.
 export const NAVIGATION_DESTS = new Set(["document", "iframe", "frame", "embed", "object"]);
 // The only request kind the app makes of the relay: fetch() (Sec-Fetch-Dest: empty). Every caller
-// (engine/endpoints.js, engine/kns.js, ui/nextcloud.js, ui/talk.js, ui/swaps.js, link previews in
+// (engine/endpoints.js, ui/nextcloud.js, ui/talk.js, ui/swaps.js, link previews in
 // ui/app.js and ui/kachat-names-live.js) fetches and reads the body as JSON, text or a blob; images
 // and media are shown from blob: URLs or straight from their own server, never from a relay URL.
 // Anything else - script, style, worker, image, audio, font, manifest ... - would let a page load

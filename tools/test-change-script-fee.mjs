@@ -4,11 +4,9 @@
 // the sender's 34-byte script would be ~1,100 sompi short of the built transaction's minimum.
 // Desktop builds every change-carrying send through the Kaspa WASM generator, which sizes change
 // from the change address itself; this pins that, for a legacy and a quantum source, plain and
-// with a payload. Also pins two refusals ported alongside it:
-// - iOS ca53cd1: a coin locked to another address is never signed with this key (Desktop has no
-//   pending-coin cache; the SDK signer refuses before anything is submitted);
-// - iOS 2a8ca5a: a .kas transfer out of a quantum-safe address, or to a script address, is refused
-//   with iOS's text before anything is built.
+// with a payload. Also pins a refusal ported alongside it: iOS ca53cd1, a coin locked to another
+// address is never signed with this key (Desktop has no pending-coin cache; the SDK signer refuses
+// before anything is submitted).
 // Offline only: fake coins, an in-memory RPC that records what would be submitted, nothing leaves
 // the machine. Run from the repo root:
 //
@@ -21,7 +19,6 @@ import { dirname, join } from "node:path";
 import * as Q from "../engine/quantum.js";
 import { deriveSpendingWallet } from "../engine/wallet.js";
 import { sendKaspa, sendMaxKaspa, sendPayloadToSelf } from "../engine/transactions.js";
-import { transferDomain, KNS_QUANTUM_SOURCE_MESSAGE, KNS_SCRIPT_RECIPIENT_MESSAGE } from "../engine/kns-write.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..");
@@ -163,24 +160,6 @@ async function main() {
       await r.throws(() => run(rpc), (e) => /sign/i.test(String(e?.message ?? e)), `foreign coin, ${label}: refused at signing`);
       r.eq(rpc.submitted.length, 0, `foreign coin, ${label}: nothing submitted`);
     }
-  }
-
-  // MARK: KNS and quantum addresses (iOS 2a8ca5a)
-  {
-    const engine = { kaspa, address: legacySrc.address, privateKey: legacySrc.privateKey };
-    const asset = "a".repeat(64) + "i0";
-    await r.throws(
-      () => transferDomain({ engine, domain: "example.kas", assetId: asset, toAddress: dest, signer: { privateKey: quantumSrc.privateKey, address: quantumSrc.address } }),
-      (e) => e.message === KNS_QUANTUM_SOURCE_MESSAGE,
-      "kns: a transfer out of a quantum-safe address is refused with iOS's text",
-    );
-    await r.throws(
-      () => transferDomain({ engine, domain: "example.kas", assetId: asset, toAddress: quantumChange.address }),
-      (e) => e.message === KNS_SCRIPT_RECIPIENT_MESSAGE,
-      "kns: a transfer to a quantum-safe (P2SH) address is refused with iOS's text",
-    );
-    r.eq(KNS_QUANTUM_SOURCE_MESSAGE, "KNS can't move a domain out of a quantum-safe address: KNS identifies a domain's owner by a public key, and a quantum-safe address keeps its key hidden.", "kns: source text is iOS's");
-    r.eq(KNS_SCRIPT_RECIPIENT_MESSAGE, "A .kas domain can't be sent to a quantum-safe or other script address: KNS could never move it out again. Send it to a regular address instead.", "kns: recipient text is iOS's");
   }
 
   for (const f of r.failures) console.log(`FAIL ${f}`);

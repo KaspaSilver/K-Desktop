@@ -1,8 +1,6 @@
 // Wallet-screen races in ui/app.js, run from their own source with the page around them stubbed:
-// a failed KNS profile write is retried on the domain (and account) it was for, never on whatever
-// the editor has open by then; setting a primary domain doesn't pop its detail back up after you
-// left it, or touch another account; and an address's history never lands under the address
-// opened after it.
+// an address's history never lands under the address opened after it. (The KNS profile Retry and
+// Set as Primary races left with KNS, K 518fdc8c.)
 //
 //   node tools/test-wallet-screen-races.mjs
 import assert from "node:assert/strict";
@@ -79,134 +77,7 @@ function deferred() {
 }
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-// --- 1. KNS profile Retry ----------------------------------------------------------------------
-function knsWritesPage({ failKeys = [] } = {}) {
-  const engine = { address: "kaspa:qaccounta", writes: [] };
-  const fail = new Set(failKeys);
-  const page = sandbox([extractFunction(app, "runKnsProfileWrites"), extractFunction(app, "retryFailedKnsUpdates")], {
-    engine: Object.assign(engine, {
-      submitKnsProfileField: async (assetId, key, value) => {
-        engine.writes.push([assetId, key, value]);
-        if (fail.has(key)) throw new Error(`${key} rejected`);
-      },
-      clearKnsCache() {},
-      confirmKnsProfileUpdate: async () => {},
-    }),
-    failedKnsUpdates: {},
-    failedKnsUpdatesTarget: null,
-    KNS_FIELD_LABELS: { bio: "Bio", x: "X" },
-    knsEditAssetId: () => page.scope.editingAssetId,
-    editingAssetId: "asset-a",
-    refreshOwnKnsProfile: async () => {},
-  });
-  return { ...page, engine, fail };
-}
-
-await test("kns retry: a failed write is retried on the domain it was for, not the one the editor has open now", async () => {
-  const { fns, scope, engine, fail } = knsWritesPage({ failKeys: ["bio"] });
-  await fns.runKnsProfileWrites("asset-a", { bio: "hello from A", x: "a_on_x" });
-  assert.deepEqual(scope.failedKnsUpdates, { bio: "hello from A" });
-  // The person opens another domain's Customize Profile; the banner's Retry is still up.
-  scope.editingAssetId = "asset-b";
-  fail.clear();
-  engine.writes.length = 0;
-  await fns.retryFailedKnsUpdates();
-  assert.deepEqual(engine.writes, [["asset-a", "bio", "hello from A"]], "A's bio goes to A, never onto B");
-  assert.deepEqual(scope.failedKnsUpdates, {});
-});
-
-await test("kns retry: after an account switch nothing is written with the new account's key", async () => {
-  const { fns, scope, engine, called } = knsWritesPage({ failKeys: ["bio"] });
-  await fns.runKnsProfileWrites("asset-a", { bio: "hello from A" });
-  engine.address = "kaspa:qaccountb";
-  scope.editingAssetId = "asset-of-b";
-  engine.writes.length = 0;
-  await fns.retryFailedKnsUpdates();
-  assert.deepEqual(engine.writes, [], "no write at all");
-  assert.deepEqual(scope.failedKnsUpdates, {}, "the old account's failures are dropped");
-  assert.equal(called("hideKnsSaveBanner").length, 1);
-});
-
-await test("kns retry: a save on another domain replaces the old domain's failures instead of mixing them", async () => {
-  const { fns, scope, engine, fail } = knsWritesPage({ failKeys: ["bio"] });
-  await fns.runKnsProfileWrites("asset-a", { bio: "A bio" });
-  fail.clear();
-  fail.add("x");
-  await fns.runKnsProfileWrites("asset-b", { x: "b_on_x" });
-  assert.deepEqual(scope.failedKnsUpdates, { x: "b_on_x" });
-  fail.clear();
-  engine.writes.length = 0;
-  await fns.retryFailedKnsUpdates();
-  assert.deepEqual(engine.writes, [["asset-b", "x", "b_on_x"]]);
-});
-
-// --- 2. Set as Primary -------------------------------------------------------------------------
-function primaryPage() {
-  const engine = { address: "kaspa:qaccounta" };
-  const write = deferred();
-  const detailEl = { hidden: false };
-  const page = sandbox([extractFunction(app, "setPrimaryDomain")], {
-    engine: Object.assign(engine, { setKnsPrimaryDomain: () => write.promise }),
-    settingPrimaryAssetId: null,
-    setPrimaryError: "",
-    ownKnsPrimaryDomain: "old.kas",
-    domainDetailTarget: null,
-    document: { querySelector: (selector) => (selector === "[data-domain-detail]" ? detailEl : null) },
-    refreshOwnKnsProfileUntilResolved: async () => {},
-  });
-  // renderDomainDetail sets the shown target, as the real one does.
-  page.scope.renderDomainDetail = (domain) => { page.scope.rendered.push(domain.inscriptionId); page.scope.domainDetailTarget = domain; detailEl.hidden = false; };
-  page.scope.rendered = [];
-  return { ...page, engine, write, detailEl };
-}
-const domainA = { inscriptionId: "asset-a", fullName: "alpha.kas" };
-const domainB = { inscriptionId: "asset-b", fullName: "beta.kas" };
-
-await test("set primary: Back to the list while it is written - the detail does not pop back up", async () => {
-  const { fns, scope, write, detailEl } = primaryPage();
-  const done = fns.setPrimaryDomain(domainA);
-  assert.deepEqual(scope.rendered, ["asset-a"]);
-  // closeDomainDetail
-  scope.domainDetailTarget = null;
-  detailEl.hidden = true;
-  write.resolve();
-  await done;
-  assert.deepEqual(scope.rendered, ["asset-a"], "nothing drawn over the list");
-  assert.equal(scope.ownKnsPrimaryDomain, "alpha.kas");
-  assert.equal(scope.settingPrimaryAssetId, null);
-});
-
-await test("set primary: another domain opened meanwhile is the one redrawn (its button comes back)", async () => {
-  const { fns, scope, write } = primaryPage();
-  const done = fns.setPrimaryDomain(domainA);
-  scope.renderDomainDetail(domainB);
-  write.reject(new Error("node said no"));
-  await done;
-  assert.deepEqual(scope.rendered, ["asset-a", "asset-b", "asset-b"]);
-  assert.equal(scope.setPrimaryError, "", "A's error is not shown under B");
-  assert.equal(scope.settingPrimaryAssetId, null);
-});
-
-await test("set primary: an account switch meanwhile leaves the new account's primary alone", async () => {
-  const { fns, scope, engine, write } = primaryPage();
-  const done = fns.setPrimaryDomain(domainA);
-  engine.address = "kaspa:qaccountb";
-  write.resolve();
-  await done;
-  assert.equal(scope.ownKnsPrimaryDomain, "old.kas");
-  assert.deepEqual(scope.rendered, ["asset-a"]);
-  assert.equal(scope.settingPrimaryAssetId, null);
-});
-
-await test("set primary: still on the detail, it redraws with the new primary", async () => {
-  const { fns, scope, write } = primaryPage();
-  const done = fns.setPrimaryDomain(domainA);
-  write.resolve();
-  await done;
-  assert.deepEqual(scope.rendered, ["asset-a", "asset-a"]);
-});
-
-// --- 3. An address's history --------------------------------------------------------------------
+// --- An address's history -----------------------------------------------------------------------
 function fakeElement() {
   const el = {
     children: [], dataset: {}, listeners: {}, _html: "",
