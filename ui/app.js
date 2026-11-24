@@ -17,7 +17,7 @@ import { QUANTUM_INDEX_BASE, QUANTUM_SCAN_FLOOR, QUANTUM_SCAN_LIMIT, QUANTUM_CHA
 import { createGroupManager } from "../engine/group-store.js";
 import { sompiFromUserText, kasTextFromSompi, kasToSompi, fiatTextFloorFromSompi, checkedUtxoAnswer, kasExact8Text } from "../engine/amounts.js";
 import { makePaymentRequest, signPaymentRequest, parsePaymentRequestLink, paymentRequestAmountText, paymentRequestUniversalLink, clampMemoText, memoCharacters, PAYMENT_REQUEST_MEMO_LIMIT } from "../engine/payment-request.js";
-import { excludeReservedUtxos, excludeJustSpentUtxos, noteSpentOutpoints, excludeCovenantUtxos, isTransactionKnown, maxSendOutpointKeys, MAX_AMOUNT_CHANGED, MAX_AMOUNT_CHANGED_MESSAGE, MAX_SEND_INPUT_LIMIT, SEND_FEE_CHANGED, SEND_OUTCOME_UNKNOWN, SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/transactions.js";
+import { excludeReservedUtxos, excludeJustSpentUtxos, noteSpentOutpoints, excludeCovenantUtxos, totalUtxoSompi, isTransactionKnown, maxSendOutpointKeys, MAX_AMOUNT_CHANGED, MAX_AMOUNT_CHANGED_MESSAGE, MAX_SEND_INPUT_LIMIT, SEND_FEE_CHANGED, SEND_OUTCOME_UNKNOWN, SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/transactions.js";
 import { isLeftoverSend, undeliveredRowFor, settleLeftoverGroupRows } from "./leftover-sends.js";
 import { parsePaymentPoolEnvelope, validPaymentNotice, encodePaymentNotice, paymentNoticeText, paymentNoticePlacement, checkPaymentNoticeTx, chatPaymentNotificationBody } from "../engine/payment-notice.js";
 import { isScriptAddress, isKachatContractTransaction, legacyWireAliases, transactionBelongsInHistory, restPaymentSompiTo, restPaymentSender, fetchHeldPaymentRows, strangerPaymentStep } from "../engine/sync.js";
@@ -11543,6 +11543,26 @@ function swapKusdtDeps() {
       for (const r of rows) if (Number(kasOf.get(r.address)) > 0) list.push({ label: r.label, address: r.address, spendingIndex: r.index, units: 0n });
       return list.map((c) => ({ ...c, kasSompi: kasSompiOf(kasOf.get(c.address)) }));
     },
+    // "Available" and Max on a kUSDT swap (K 6b99c6dd SwapService.refreshKusdtBalances): the Swap
+    // From address's plain KAS (kUSDT coins sit at the token's own script, so they aren't in it;
+    // covenant-bound, just-spent and held coins can't go either) and its kUSDT, in units.
+    balancesOf: async (address) => {
+      const owner = engine.address;
+      let kasSompi = null;
+      try {
+        const { entries } = await engine.balanceForAddress(address);
+        kasSompi = totalUtxoSompi(excludeReservedUtxos(excludeJustSpentUtxos(excludeCovenantUtxos(entries))));
+      } catch { kasSompi = null; }
+      if (engine.address !== owner) return null;
+      // not read since the page opened (the Wallet wasn't visited): read it now
+      if (kusdtWallet && kusdtWallet.heldHoldings?.() == null) {
+        try { await kusdtWallet.refresh(); } catch { /* unknown stays unknown */ }
+        if (engine.address !== owner) return null;
+      }
+      const held = kusdtWallet?.heldHoldings?.();
+      const units = held ? held.filter((h) => h.address === address).reduce((s, h) => s + BigInt(h.units || 0), 0n) : null;
+      return { kasSompi, units };
+    },
     // The kUSDT side in that address's history, and a line in the bell (K TrestlyTrade.recordSwap).
     noteSwap: ({ record, target, owner }) => {
       if (!record || !owner) return;
@@ -12982,7 +13002,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 330;
+const APP_BUILD = 331;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
