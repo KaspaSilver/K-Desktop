@@ -1,10 +1,14 @@
 // ChangeNOW Swap: the coins, the API client and the quote logic (iOS SwapModels.swift,
 // ChangeNowAPIClient.swift and SwapService's live quote, as they were at f94db5a^ with 4b9da6a and
-// 2eebb70). No DOM here, so tools/test-swap-quote.mjs runs it against a mocked ChangeNOW.
+// 2eebb70), brought up to K 5.4 (518fdc8c): kUSDT as a coin (Trestly's pool, not ChangeNOW), XRP
+// destination tags, the answer checked against the request, cleaned amounts, status names. No DOM
+// here, so tools/test-swap-quote.mjs and tools/test-swap-k54.mjs run it against a mocked ChangeNOW.
 //
 // The client never holds or sends an API key. Every call goes to the same-origin relay
 // (tools/relay-guard.mjs), which attaches the server's key to exactly these four calls and drops
 // any key header a page sends.
+
+import { sanitizeAmountInput } from "../engine/amounts.js";
 
 export const CHANGENOW_BASE = "https://api.changenow.io";
 
@@ -53,8 +57,124 @@ export const GROUPED_TICKERS = Object.freeze({ usdt: "Tether", usdc: "USD Coin" 
 /** USDC and USDT pinned as the picker's first two rows, in that order. */
 export const PINNED_GROUP_TICKERS = Object.freeze(["usdc", "usdt"]);
 
+/** kUSDT on Kaspa (K 5.4 `SwapCoin.kusdt`): swapped natively through Trestly's pool
+ *  (engine/kusdt-trade.js), never through ChangeNOW, which doesn't list it. First in the picker. */
+export const KUSDT_COIN = Object.freeze({ ticker: "kusdt", network: "kaspa-trestly", displayName: "kUSDT (Kaspa)" });
+
 export function sameCoin(a, b) {
   return Boolean(a && b && a.ticker === b.ticker && a.network === b.network);
+}
+
+/** Swapped through Trestly's pool on Kaspa rather than ChangeNOW. */
+export function isTrestlyCoin(coin) {
+  return sameCoin(coin, KUSDT_COIN);
+}
+
+/** Every coin the picker can give back, by "ticker:network" (kUSDT included). */
+export function coinByKey(key) {
+  const [ticker, network] = String(key || "").split(":");
+  if (ticker === KUSDT_COIN.ticker && network === KUSDT_COIN.network) return KUSDT_COIN;
+  return CURATED_COINS.find((c) => c.ticker === ticker && c.network === network) || null;
+}
+
+// ---------------------------------------------------------------------------
+// Tags (K audit 2026-11-24 #1): XRP's addresses are shared (ChangeNOW's deposit address, an
+// exchange's) and tell payments apart by a destination tag sent with them. ChangeNOW's deposit for
+// it comes with `payinExtraId`, which the deposit must carry, and a payout to an exchange may need
+// one (`extraId`).
+// ---------------------------------------------------------------------------
+
+/** A coin whose payments carry a tag (iOS SwapCoin.needsMemo): XRP. */
+export function needsMemo(coin) {
+  return Boolean(coin && coin.ticker === "xrp" && coin.network === "xrp");
+}
+
+/** A payout tag K can send for this coin (iOS SwapCoin.isValidMemo): empty is fine (none); XRP's
+ *  destination tag is a whole number below 2^32; any other memo is at most 100 characters. */
+export function isValidMemo(coin, text) {
+  const memo = String(text ?? "").trim();
+  if (!memo) return true;
+  if (needsMemo(coin)) return memo.length <= 10 && /^[0-9]+$/.test(memo) && BigInt(memo) <= 4_294_967_295n;
+  return memo.length <= 100;
+}
+
+/** The payout tag to send for `coin`: the typed one trimmed, or null (none, or a coin without tags). */
+export function payoutExtraIdFor(coin, text) {
+  if (!needsMemo(coin)) return null;
+  const memo = String(text ?? "").trim();
+  return memo || null;
+}
+
+// ---------------------------------------------------------------------------
+// Typed amounts (K audit 2026-11-24 #3): cleaned as every amount field is (engine/amounts.js
+// sanitizeAmountInput): "1,5" is 1.5, never 15.
+// ---------------------------------------------------------------------------
+
+/** Digits and one decimal point, "," read as "." and at most `maxDecimals` decimals (8; kUSDT 6). */
+export function cleanSwapAmount(text, maxDecimals = 8) {
+  return sanitizeAmountInput(text, maxDecimals);
+}
+
+/** A decimal amount as an exact integer of 10^-`places` units (BigInt), or null. Takes ChangeNOW's
+ *  numbers too, written however JSON gave them ("0.00123", 1e-7, "1.5E+3"); digits past `places`
+ *  are cut. */
+export function scaledAmount(value, places = 8) {
+  if (value == null || value === "") return null;
+  const text = typeof value === "number" ? (Number.isFinite(value) ? String(value) : "") : String(value).trim();
+  const m = /^(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(text);
+  if (!m || (!m[1] && !m[2])) return null;
+  let digits = `${m[1] || ""}${m[2] || ""}`;
+  let point = (m[1] || "").length + (m[3] ? Number(m[3]) : 0);
+  if (!Number.isFinite(point) || Math.abs(point) > 60) return null;
+  if (point < 0) { digits = "0".repeat(-point) + digits; point = 0; }
+  if (digits.length < point) digits = digits.padEnd(point, "0");
+  const whole = digits.slice(0, point) || "0";
+  const frac = digits.slice(point).padEnd(places, "0").slice(0, places);
+  return BigInt(whole) * 10n ** BigInt(places) + BigInt(frac || "0");
+}
+
+// ---------------------------------------------------------------------------
+// ChangeNOW's answer (K audit 2026-11-24 #6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether ChangeNOW created the exchange K asked for (iOS SwapService.answerMatches): the same
+ * payout address (letter case aside: some networks write addresses either way) - which must be in
+ * the answer -, the same coins on the same networks where it names them, a send amount within 1%
+ * of the one asked (exact, in 10^-8 units), and the payout tag if it echoes one. Until it matches,
+ * its deposit address isn't shown.
+ */
+export function answerMatches(response, { from, to, amountText, payoutAddress, extraId = null }) {
+  const trimmed = (v) => (v == null ? "" : String(v).trim());
+  const same = (answered, asked) => {
+    const a = trimmed(answered);
+    return !a || a.toLowerCase() === String(asked).toLowerCase();
+  };
+  const payout = trimmed(response?.payoutAddress);
+  if (!payout || payout.toLowerCase() !== trimmed(payoutAddress).toLowerCase()) return false;
+  if (!same(response.fromCurrency, from.ticker) || !same(response.toCurrency, to.ticker)) return false;
+  if (!same(response.fromNetwork, from.network) || !same(response.toNetwork, to.network)) return false;
+  if (response.fromAmount != null && response.fromAmount !== "") {
+    const sent = scaledAmount(response.fromAmount);
+    const asked = scaledAmount(amountText);
+    if (sent == null || asked == null) return false;
+    const diff = sent > asked ? sent - asked : asked - sent;
+    if (diff * 100n > asked) return false;
+  }
+  const echoed = trimmed(response.payoutExtraId);
+  if (extraId && echoed && echoed !== String(extraId)) return false;
+  return true;
+}
+
+/** ChangeNOW's status in words (K audit 2026-11-24 #35). */
+export function swapStatusName(status) {
+  const names = {
+    new: "New", waiting: "Waiting", confirming: "Confirming", exchanging: "Exchanging", sending: "Sending",
+    finished: "Finished", failed: "Failed", refunded: "Refunded", verifying: "Verifying", expired: "Expired",
+  };
+  const key = String(status || "").toLowerCase();
+  if (names[key]) return names[key];
+  return key.replace(/(^|[\s_-])(\p{L})/gu, (m, sep, ch) => sep + ch.toUpperCase()) || "New";
 }
 
 /** Plain decimal text for a quoted amount: up to 8 places, trailing zeros trimmed, never scientific
@@ -163,10 +283,12 @@ export function createChangeNowClient({ fetchImpl, urlFor = (url) => url, timeou
       if (!Number.isFinite(min)) throw new Error("ChangeNOW did not return a minimum for this pair.");
       return min;
     },
-    /** Opens an exchange; its payinAddress is where the "from" coin has to arrive. */
-    create: (from, to, fromAmount, address) => request("/v2/exchange", {
+    /** Opens an exchange; its payinAddress is where the "from" coin has to arrive. `extraId` is the
+     *  payout's tag (XRP's destination tag, ChangeNOW v2's `extraId`), left out of the body when
+     *  there is none (K audit 2026-11-24 #1). */
+    create: (from, to, fromAmount, address, extraId = null) => request("/v2/exchange", {
       method: "POST",
-      body: { ...pair(from, to), fromAmount, address, flow: "standard" },
+      body: { ...pair(from, to), fromAmount, address, ...(extraId ? { extraId: String(extraId) } : {}), flow: "standard" },
     }),
     /** Status of an exchange created earlier. */
     status: (id) => request("/v2/exchange/by-id", { query: { id } }),

@@ -1292,8 +1292,9 @@ export class KaspaEngine {
    *  scriptVersion, blockDaaScore: bigint, isCoinbase, covenantId: hex | null }`. 50 addresses
    *  per request. Coins a send from here has just spent are left out (noteSpentOutpoints): the
    *  node lists them until that spend is in a block, and a .kachat name transaction built on one
-   *  would be refused (iOS 3942a5b7). */
-  async getUtxosWithCovenants(addresses) {
+   *  would be refused (iOS 3942a5b7). `includeJustSpent`: every coin the node lists, held ones too
+   *  (Swap's kUSDT trade hold, engine/kusdt-trade.js, ends once a coin it had is really gone). */
+  async getUtxosWithCovenants(addresses, { includeJustSpent = false } = {}) {
     this.requireSdk();
     const list = [...new Set((addresses || []).map(String).filter(Boolean))];
     const out = [];
@@ -1302,7 +1303,7 @@ export class KaspaEngine {
       const response = await this.withRpc(async (rpc) => checkedUtxoAnswer(await rpc.getUtxosByAddresses(chunk)), { retries: 1, label: "UTXO read" });
       for (const e of response?.entries || []) out.push(plainUtxo(e));
     }
-    return excludeJustSpentUtxos(out);
+    return includeJustSpent ? out : excludeJustSpentUtxos(out);
   }
 
   /** The registry's injected `getUtxosByAddresses` (engine/kachat-names/registry.js). */

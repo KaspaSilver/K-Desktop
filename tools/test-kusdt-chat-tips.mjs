@@ -332,7 +332,7 @@ await check("exact strings: Send Dollars, its From step, the tip chooser", () =>
     'tipTitle: "Tip"', 'tipQuestion: "What are you tipping in?"', 'tipKusdtSubtitle: "Not counted on the post"',
     'tipFootnote: "Set what Tip sends in Settings > Customization > Tipping."',
     'lockedChanged: "This send changed while the screen was open. Nothing was sent: check it again and swipe."',
-    "<span>Swap Stablecoins</span>",
+    "<span>Swap for kUSDT</span>", // K 5.4: the Wallet's Swap with kUSDT picked (Swap Stablecoins went)
   ]) assert.ok(screens.includes(text), text);
 });
 

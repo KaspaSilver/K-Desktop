@@ -1,8 +1,9 @@
 // ChangeNOW Swap screen guards, run on the real ui/swaps.js with the page, the portfolio, the dialogs
 // and ChangeNOW stubbed: a swap whose fresh payout address or exchange comes back after an account
 // switch is neither created for nor filed under the account switched to (it stays with the account
-// it was started from), and the deposit card keeps naming the coin the deposit address takes after
-// the pair is flipped. Run from the repo root:
+// it was started from); the deposit card is the created exchange's (its coin, amount and payout
+// address) and goes on a flip (K audit 2026-11-24 #2); an answer without the payout address shows
+// and files nothing (#6). Run from the repo root:
 //
 //   node tools/test-swaps-ui.mjs
 
@@ -67,8 +68,9 @@ registerHooks({
   resolve(specifier, context, nextResolve) {
     if (/\/ui\/swaps\.js$/.test(context.parentURL || "")) {
       if (STUBS[specifier]) return { url: STUBS[specifier], shortCircuit: true };
-      if (/\.(css|png)$/.test(specifier)) return { url: dataModule(`export default "asset";`), shortCircuit: true };
     }
+    // ui/swaps.js and what it imports (ui/kusdt-icons.js): Vite's assets
+    if (/\.(css|png)$/.test(specifier)) return { url: dataModule(`export default "asset";`), shortCircuit: true };
     return nextResolve(specifier, context);
   },
 });
@@ -86,9 +88,11 @@ const deps = {
   revealNextSwapAddress: () => new Promise((resolve) => { revealGate = resolve; }),
   showToast: () => {},
   currencySymbol: () => "$",
+  account: () => account,
 };
 const HISTORY = (who) => `kachat-account-data-v1:${who}:kachat-swap-history-v1`;
-const AGREED = (who) => `kachat-account-data-v1:${who}:kachat-swap-disclaimer-agreed-v1`;
+// K 5.4: one agreement per third party, per account (ChangeNOW's here).
+const AGREED = (who) => `kachat-account-data-v1:${who}:kachat-swap-agreement-changenow-v1`;
 store.set(AGREED("kaspa:qalice"), "1");
 store.set(AGREED("kaspa:qbob"), "1");
 
@@ -126,27 +130,41 @@ r.check(posts().length === 1, "the exchange is requested");
 const payout = JSON.parse(posts()[0].body || "{}").address;
 r.check(payout === "kaspa:qbob-1", `it pays out to the account that started it (got ${payout})`);
 switchTo("kaspa:qalice");
-createGate({ id: "ex-bob", payinAddress: "0xDEPOSITBOB", toAmount: 1000, status: "new" });
+createGate({ id: "ex-bob", payinAddress: "0xDEPOSITBOB", payoutAddress: "kaspa:qbob-1", fromAmount: 100, toAmount: 1000, status: "new" });
 await settle();
 r.check(historyOf("kaspa:qalice").length === 0, "the swap is not filed under the account switched to");
 const bobHistory = historyOf("kaspa:qbob");
 r.check(bobHistory.length === 1 && bobHistory[0].id === "ex-bob" && bobHistory[0].payoutAddress === "kaspa:qbob-1", "the swap is filed under the account it was created for");
 r.check(!root.innerHTML.includes("0xDEPOSITBOB"), "the switched-to account's screen does not show the other account's deposit address");
 
-// 3. Flipping the pair after the deposit address came back keeps the coin it takes.
+// 3. The deposit card is the created exchange's (K audit 2026-11-24 #2): its coin and amount, and it
+// goes once the direction changes (it belongs to the exchange made, not to the coins picked now).
 await type("100");
 await click("data-swap-create");
 revealGate(1);
 await settle();
-createGate({ id: "ex-alice", payinAddress: "0xDEPOSITALICE", toAmount: 1000, status: "new" });
+createGate({ id: "ex-alice", payinAddress: "0xDEPOSITALICE", payoutAddress: "kaspa:qalice-1", fromAmount: 100, toAmount: 1000, status: "new" });
 await settle();
 r.check(root.innerHTML.includes("Send USDC Coin (Polygon) to this address"), "the deposit card names the coin to send");
+r.check(root.innerHTML.includes("Amount to Send") && root.innerHTML.includes("100 USDC Coin (Polygon)"), "the deposit card says how much to send");
+r.check(root.innerHTML.includes("kaspa:qalice-1"), "the deposit card shows the payout address ChangeNOW answered");
 r.check(historyOf("kaspa:qalice").length === 1, "the swap is filed for the open account");
-await click("data-swap-flip");
-r.check(root.innerHTML.includes("0xDEPOSITALICE"), "the deposit card is still shown after the flip");
-r.check(root.innerHTML.includes("Send USDC Coin (Polygon) to this address") && !root.innerHTML.includes("Send Kaspa to this address"),
-  "after a flip the deposit card still names the coin the address takes, not the newly selected side");
 r.check(!root.innerHTML.includes("data-swap-open-spending"), "no Go to Spending Addresses link on a deposit that isn't KAS");
+await click("data-swap-flip");
+r.check(!root.innerHTML.includes("0xDEPOSITALICE") && !root.innerHTML.includes("Send Kaspa to this address"),
+  "after a flip the deposit card is gone, never relabelled with the newly selected side");
+
+// 4. ChangeNOW's answer without the payout address asked for is refused: no deposit address shows
+// and nothing is filed (K audit 2026-11-24 #6).
+await click("data-swap-flip");
+await type("100");
+await click("data-swap-create");
+revealGate(1);
+await settle();
+createGate({ id: "ex-wrong", payinAddress: "0xDEPOSITWRONG", fromAmount: 100, toAmount: 1000, status: "new" });
+await settle();
+r.check(!root.innerHTML.includes("0xDEPOSITWRONG"), "an answer with no payout address never shows its deposit address");
+r.check(!historyOf("kaspa:qalice").some((s) => s.id === "ex-wrong"), "an answer with no payout address is not filed");
 
 if (r.fail) {
   console.error(`test-swaps-ui: ${r.fail} failed, ${r.pass} passed`);

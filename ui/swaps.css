@@ -1,4 +1,4 @@
-/* Kaspa Hub > ChangeNOW Swap (ui/swaps.js; iOS SwapView). Imported by ui/swaps.js, the way
+/* Swap: ChangeNOW and kUSDT (ui/swaps.js; K iOS SwapView). Imported by ui/swaps.js, the way
    ui/kachat-market.css is, so every swap style lives here and nowhere in ui/styles.css. Colours come
    from the app's theme tokens, so light and dark follow the rest of the app. */
 
@@ -228,3 +228,69 @@
 .swap-own-key .field-error { margin: 0; }
 .swap-own-key .primary-button { min-width: 160px; }
 .swap-own-key-change { display: block; margin: 6px auto 0; border: 0; background: none; font: inherit; font-size: 13px; cursor: pointer; }
+
+/* K 5.4: the agreement's third party, kUSDT, the payout tag, the deposit tag, the approval. */
+.swap-disclaimer-lead { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.swap-agreement-head { display: flex; align-items: center; gap: 12px; }
+.swap-agreement-head > span:last-child { display: grid; gap: 2px; }
+.swap-agreement-head strong { font-size: 16px; font-weight: 700; }
+.swap-agreement-head small { color: var(--muted); font-size: 12px; }
+.swap-agreement-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--kaspa); color: var(--on-accent-strong, #000); }
+.swap-agreement-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.swap-terms-link { display: inline-flex; align-items: center; gap: 6px; }
+.swap-terms-link svg { width: 16px; height: 16px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.swap-disclaimer-card .swap-agreement-other { justify-self: center; font-size: 13px; }
+.swap-unavailable-actions { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px; margin-top: 8px; }
+.swap-coin-icon.kusdt { display: inline-grid; place-items: center; overflow: hidden; border-radius: 50%; }
+.swap-coin-icon.kusdt > * { width: 20px !important; height: 20px !important; }
+.swap-amount-input[readonly] { cursor: default; }
+.swap-payout-tag { display: grid; gap: 6px; }
+.swap-payout-tag small { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.swap-result-amount, .swap-result-payout { display: grid; gap: 2px; min-width: 0; }
+.swap-result-amount b { font-size: 19px; font-weight: 700; overflow-wrap: anywhere; user-select: text; }
+.swap-result-payout code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--text); overflow-wrap: anywhere; user-select: text; }
+.swap-details-tag { color: var(--muted); font-size: 12px; }
+
+/* The deposit's destination tag (K SwapDepositTagBox): large, with Copy and why it's required. */
+.swap-tag-box {
+  display: grid; gap: 8px; padding: 12px; border-radius: 14px;
+  background: color-mix(in srgb, var(--ios-orange) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ios-orange) 60%, transparent);
+}
+.swap-tag-head { display: flex; align-items: center; gap: 6px; color: var(--ios-orange); font-size: 12px; }
+.swap-tag-head svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.swap-tag-value {
+  justify-self: start; padding: 0; border: 0; background: transparent; cursor: pointer; color: var(--text);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 20px; font-weight: 700; overflow-wrap: anywhere; text-align: left;
+}
+.swap-tag-box p { margin: 0; color: var(--text); font-size: 12px; font-weight: 600; line-height: 1.4; }
+.swap-tag-copy { display: inline-flex; align-items: center; gap: 6px; justify-self: start; font-size: 12px; }
+.swap-tag-copy svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* kUSDT's Swap From (K KusdtSwapFromPicker). */
+.swap-kusdt-from-row { justify-content: flex-start; }
+.swap-kusdt-from-mark { width: 22px; height: 22px; flex: 0 0 auto; display: grid; place-items: center; color: var(--muted); }
+.swap-kusdt-from-mark.on { color: var(--kaspa-ink); }
+.swap-kusdt-from-mark svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The approval (K TrestlyApprovalSheet): nothing is signed until Approve. */
+.swap-approval { display: flex; flex-direction: column; gap: 14px; }
+.swap-approval-head { display: flex; align-items: center; gap: 10px; }
+.swap-approval-head > span:last-child { display: grid; gap: 2px; }
+.swap-approval-head small { color: var(--muted); font-size: 12px; }
+.swap-approval-head strong { font-size: 19px; font-weight: 700; }
+.swap-approval-card { display: grid; gap: 12px; padding: 16px; border-radius: 18px; }
+.swap-approval-card hr { width: 100%; margin: 0; border: 0; border-top: .5px solid var(--line); }
+.swap-approval-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 14px; }
+.swap-approval-line > span { color: var(--muted); }
+.swap-approval-line strong { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.swap-approval-line strong.bold { font-weight: 800; }
+.swap-approval-warning { margin: 0; color: var(--ios-orange); font-size: 13px; font-weight: 600; line-height: 1.4; }
+.swap-approval-note { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.swap-approval-approve { height: 50px; border-radius: 999px; font-size: 17px; font-weight: 700; }
+.swap-approval-approve[disabled] { opacity: .45; cursor: default; }
+
+/* The Wallet's Swap button (K 5.4: beside Send, Receive and Request): four across while it shows
+   (Simple Mode hides it, and the row goes back to three). Here rather than ui/styles.css so the
+   rule ships with the button's screen. */
+.wallet-actions:has(> [data-wallet-swap-action]:not([hidden])) { grid-template-columns: repeat(4, 1fr); }

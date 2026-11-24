@@ -29,7 +29,8 @@ const SETS = {
   cipher: ["cipher.js", "cipher_bg.wasm", "cipher.d.ts", "cipher_bg.wasm.d.ts", "package.json"],
   // Trestly's kUSDT builders (provenance in kusdt/VERSION): the patched loader is bundled by Vite,
   // so this is its pin; the .wasm is checked again at run time by engine/kusdt-core.js.
-  kusdt: ["kusdt_wasm.js", "kusdt_wasm_bg.wasm", "kusdt-kcc20-template.json"],
+  // kusdt-wallet.js is Trestly's pinned pool code (Swap's kUSDT trades), unchanged from K iOS's copy.
+  kusdt: ["kusdt_wasm.js", "kusdt_wasm_bg.wasm", "kusdt-kcc20-template.json", "kusdt-wallet.js"],
 };
 const sha256 = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
 let failed = false;

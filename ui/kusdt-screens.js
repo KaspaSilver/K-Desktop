@@ -1,5 +1,5 @@
 // The kUSDT screens (KaPay iOS 3d126db Views/Tokens/*.swift, the Wallet card and Help's guide):
-// the Wallet card's kUSDT page and its pills, Swap Stablecoins, Wallet Send's asset chooser, Send
+// the Wallet card's kUSDT page and its pills, Wallet Send's asset chooser, Send
 // kUSDT (To / From / How much / Review), Fund This Address, Combine Coins, Manage kUSDT with its row
 // menu, kUSDT Actions and Address Visibility, an address's page and history, About kUSDT, Receive
 // kUSDT and the kUSDT Guide.
@@ -10,9 +10,9 @@
 // screens' white QR card, the app's dialogs (ui/dialogs.js). The state lives in ui/kusdt-wallet.js;
 // app.js hands in what only it knows through `deps` (initKusdtScreens), as ui/kaposts.js does.
 //
-// Desktop differences (owner 2026-11-20 unless noted): Swap Stablecoins opens Trestly's swap page
-// in a new tab (a web page can't hand window.kusdt to Trestly's site), so there's no in-app
-// browser, connect or approval sheet, and no Swapped / Bridged rows. Mine while porting: the From
+// Desktop differences (owner 2026-11-20 unless noted): no in-app Trestly site, connect sheet or
+// Bridged rows. Swapping KAS and kUSDT is the Wallet's Swap (K 5.4, ui/swaps.js, Trestly's pool
+// code run by K; Swap Stablecoins and its new tab on trestly.io went 2026-11-24). Mine while porting: the From
 // step is shown (not skipped) when no address holds kUSDT, saying so, and Manage kUSDT shows
 // "No kUSDT Yet" under the Chatting Address while nothing holds any.
 //
@@ -20,7 +20,7 @@
 // and send is tied to the account it started on; an answer after a switch is dropped.
 
 import {
-  KUSDT_TOKEN, kusdtDeployment, formatKusdt, typedKusdt, kusdtDollars, kusdtUnitsFromText, canHoldKusdt, KUSDT_DECIMALS,
+  KUSDT_TOKEN, formatKusdt, typedKusdt, kusdtDollars, kusdtUnitsFromText, canHoldKusdt, KUSDT_DECIMALS,
 } from "../engine/kusdt.js";
 import {
   prepareTransfer, prepareCombine, isReviewStale, staleReviewOutcome, createPrepareGate, KusdtTransferError,
@@ -75,11 +75,9 @@ export const KUSDT_TEXT = Object.freeze({
   risk: "Not independently audited yet. Hold only what you can afford to lose.",
   aboutCoin: "Every kUSDT coin holds 1.5 KAS. It goes along with the kUSDT when you send it.",
   emptyTitle: "No kUSDT Yet",
-  emptyText: "Receive it on a fresh address, or buy it with Swap Stablecoins on the Wallet tab.",
+  emptyText: "Receive it on a fresh address, or swap KAS for it with Swap on the Wallet tab.",
   historyEmpty: "No kUSDT activity yet.",
   historyEmptyNote: "Sends, receives and combines on this computer show here from now on.",
-  swapRowSubtitle: "On Trestly's site, in a new tab",
-  swapFooter: "More stablecoins will show here as K adds them.",
   visibilityEmptyPage: "These addresses couldn't be derived right now. Go back a page or reopen this screen to retry.",
   // §14 Send Dollars (KaChat iOS 5b7c772c) and §15 KaPost's Tip In (KaPost iOS f954738)
   sendDollarsTitle: "Send Dollars",
@@ -134,7 +132,7 @@ export function receiveNotesHtml(screen) {
   };
 }
 
-// MARK: - Choice sheets (iOS SendStepHeader + rows: Swap Stablecoins, Send's asset chooser)
+// MARK: - Choice sheets (iOS SendStepHeader + rows: Send's asset chooser)
 
 let sheetHost = null;
 let sheetSettle = null;
@@ -262,22 +260,15 @@ function initWalletCards() {
   });
   pager?.addEventListener("pointercancel", () => { start = null; });
   setWalletPage(0, { animate: false });
-  document.querySelector("[data-wallet-swap]")?.addEventListener("click", () => openSwapStablecoins());
   renderKusdtWalletCard();
 }
 
-// MARK: - §2 Swap Stablecoins
+// MARK: - §2 Swap (K 5.4: the Wallet's Swap button, ui/swaps.js; Swap Stablecoins went)
 
-/** Which stablecoin, then Trestly's swap page in a new tab (owner, 2026-11-20). */
-export async function openSwapStablecoins() {
-  const pick = await openChoiceSheet({
-    title: "Swap Stablecoins",
-    question: "Which stablecoin?",
-    rows: [{ id: "kusdt", iconHtml: kusdtCoinIconHtml(44), title: SYMBOL, subtitle: KUSDT_TEXT.swapRowSubtitle }],
-    footer: KUSDT_TEXT.swapFooter,
-  });
-  if (pick !== "kusdt") return;
-  openExternal(`${kusdtDeployment(deps.network).siteUrl}/swap`);
+/** Swap with kUSDT picked, Send kUSDT closed first (its "None held" state). */
+function openKusdtSwap() {
+  if (send && !send.swipe.sending) closeSend();
+  deps.openSwap?.("kusdt");
 }
 
 // MARK: - §3 Wallet Send's asset chooser
@@ -456,9 +447,9 @@ function mountSend() {
   fromBody.insertAdjacentHTML("beforeend", `<div class="sk-source-list ss-address-list" data-kusdt-from-list role="listbox" aria-label="Your addresses holding kUSDT"></div>
     <p class="ss-note kusdt-from-footnote">${esc(KUSDT_TEXT.fromFootnote)}</p>`);
   fromBody.querySelector("[data-kusdt-from-list]").addEventListener("click", (event) => {
-    // None held, from a chat or a tip: Swap Stablecoins (Desktop's stand-in for iOS's Get KaPay,
-    // owner 2026-11-20), over this screen.
-    if (event.target.closest("[data-kusdt-from-swap]")) { openSwapStablecoins(); return; }
+    // None held, from a chat or a tip: Swap with kUSDT picked (Desktop's stand-in for iOS's Get
+    // KaPay, owner 2026-11-20; K 5.4's Swap since 2026-11-24).
+    if (event.target.closest("[data-kusdt-from-swap]")) { openKusdtSwap(); return; }
     const row = event.target.closest("[data-kusdt-from]");
     if (!row || S.sending) return;
     S.fromId = row.dataset.kusdtFrom;
@@ -531,7 +522,7 @@ function paintFrom() {
     list.innerHTML = wallet.discovering || wallet.refreshing || !wallet.known
       ? `<div class="sk-source-empty">${spinnerLine(KUSDT_TEXT.fromChecking)}</div>`
       : `<div class="sk-source-empty kusdt-from-none"><p>${esc(KUSDT_TEXT.fromNone)}</p>
-          <button type="button" class="primary-button kusdt-fund-button kusdt-from-swap" data-kusdt-from-swap>${KUSDT_ICONS.dollarCircle}<span>Swap Stablecoins</span></button></div>`;
+          <button type="button" class="primary-button kusdt-fund-button kusdt-from-swap" data-kusdt-from-swap>${KUSDT_ICONS.dollarCircle}<span>Swap for kUSDT</span></button></div>`;
   } else {
     list.innerHTML = holdings.map((h) => {
       const current = selected?.id === h.id;
@@ -1498,7 +1489,7 @@ const GUIDE_CARDS = [
   { icon: "arrowUp", title: "Sending kUSDT", detail: "A send takes a little KAS from the same address for the network fee, plus 1.5 KAS for your change coin when you keep some kUSDT. If the address is short, Fund This Address tops it up from another of your addresses." },
   { icon: "merge", title: "Combine Coins", detail: "Each payment you receive is its own coin with its own 1.5 KAS. Combine Coins, in an address's menu, merges them into one and gives the extra KAS back." },
   // Desktop rewrite (owner, 2026-11-20): Trestly's own site, in a new tab, not inside the app.
-  { icon: "swap", title: "Swapping", detail: "To swap KAS and kUSDT, or add to the pool, click Swap Stablecoins on the Wallet tab and choose kUSDT. Trestly's own site opens in a new tab: connect a wallet there, then send what you swapped to one of your addresses here." },
+  { icon: "swap", title: "Swapping", detail: "To swap KAS and kUSDT, click Swap on the Wallet tab and choose kUSDT (Kaspa). K trades it through Trestly's pool with Trestly's own code, and asks you to approve each swap before anything is signed. To add to the pool, use Trestly's own site." },
   { icon: "clock", title: "History", detail: "kUSDT history is kept on this computer: sends, combines and payments received from now on. What happened before, or in another app, isn't shown." },
   { icon: "warning", title: "The Risks", detail: KUSDT_TEXT.risk, tone: "warn" },
 ];
@@ -1531,7 +1522,7 @@ export function openKusdtGuide() {
  *  addressCopiedToastText, explorerTxUrl, explorerAddressUrl, addressCardHtml(address, opts),
  *  addressBookName(address), makeRecipientController(els, hooks), pickFromAddressBook(),
  *  drawQr(canvas, address), secretKeyFor(holding), makeFundingRequest({ address, amountSompi, memo }),
- *  openSendKaspa({ paymentRequest, onClosed }), openManageAddresses(), kaspaTotalSompi(),
+ *  openSendKaspa({ paymentRequest, onClosed }), openManageAddresses(), openSwap(coinKey), kaspaTotalSompi(),
  *  spendingAddressesInRange(start, end), revealSpendingSlot(index, owner), customLabel(index),
  *  renameSpending(index, label), usedSpendingIndices(), modalAnchor(), log(line). */
 export function initKusdtScreens(dependencies) {

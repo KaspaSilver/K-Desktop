@@ -257,8 +257,22 @@ export function createKusdtCore({
     return parsed;
   }
 
+  /** Like runCore, but answers the parsed object as it is, an `error` field included: Trestly's
+   *  pool code (engine/kusdt-wallet-core.js) refuses with `{ error, code?, maybeSent? }`, which
+   *  its caller reads whole. Throws KusdtCoreError "unavailable" when nothing usable came back. */
+  async function callRaw(command, request = {}, { timeoutMs = CALL_TIMEOUT_MS.run } = {}) {
+    const b = await load();
+    const text = typeof request === "string" ? request : stringifyExact(request);
+    const answer = await b.call(String(command), text, timeoutMs);
+    let parsed;
+    try { parsed = parseExactJson(answer); } catch { parsed = null; }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw unavailable(CORE_MESSAGES.noAnswer);
+    return parsed;
+  }
+
   return {
     runCore,
+    callRaw,
     /** Starts the builder now (it otherwise starts on the first call). */
     preload: () => load().then(() => true),
     /** "worker" | "thread" | null (not started). */

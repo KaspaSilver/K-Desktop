@@ -30,8 +30,21 @@ FILES
                              and tools/test-kusdt-engine.mjs checks it against the WASM's own `template`.
   LICENSE                    kusdt-open's MIT licence.
 
-Not vendored: KaPay's kusdt-core.html (Desktop runs the WASM in a module worker instead of a hidden
-web view) and kusdt-wallet.js (Trestly's pool/swap wallet logic, not ported).
+  kusdt-wallet.js            Trestly's pool wallet logic (kusdt-open b70707c wallet/extension/src/kusdt,
+                             bundled by KaPay's tools/kusdt-wallet), unchanged copy of K iOS
+                             KaChat/Resources/KusdtCore/kusdt-wallet.js.txt (K 518fdc8c, KusdtCore.swift
+                             `pinned`): sha256 6631a35d5c0fc2ceb00ac08611379442e6a8fe75aec36dbcb530343ffd439cb2.
+                             Added 2026-11-24 for Swap's kUSDT trades (engine/kusdt-wallet-worker.js
+                             runs it in its own module worker, never on the page). It imports
+                             ./kusdt_wasm.js (the patched loader above). Vite bundles it into that
+                             worker, so its pin is this build-time check. Its `fetch` and
+                             `chrome.storage` shims call `webkit.messageHandlers.kusdtNet` /
+                             `kusdtStore`, which engine/kusdt-wallet-bridge.js provides inside the
+                             worker: HTTPS to the Trestly API host and the public Kaspa node resolvers
+                             only, and a WebSocket to those nodes only.
+
+Not vendored: KaPay's kusdt-core.html (Desktop runs the WASM in module workers instead of a hidden
+web view).
 
 LOCAL PATCH (2026-11-20, KaChat-Desktop, the kUSDT port)
   kusdt/kusdt_wasm.js, two changes; the .wasm is unchanged:

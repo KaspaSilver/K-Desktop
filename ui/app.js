@@ -18,7 +18,7 @@ import { QUANTUM_INDEX_BASE, QUANTUM_SCAN_FLOOR, QUANTUM_SCAN_LIMIT, QUANTUM_CHA
 import { createGroupManager } from "../engine/group-store.js";
 import { sompiFromUserText, kasTextFromSompi, kasToSompi, fiatTextFloorFromSompi, checkedUtxoAnswer, kasExact8Text } from "../engine/amounts.js";
 import { makePaymentRequest, signPaymentRequest, parsePaymentRequestLink, paymentRequestAmountText, paymentRequestUniversalLink, clampMemoText, memoCharacters, PAYMENT_REQUEST_MEMO_LIMIT } from "../engine/payment-request.js";
-import { excludeReservedUtxos, excludeJustSpentUtxos, excludeCovenantUtxos, isTransactionKnown, maxSendOutpointKeys, MAX_AMOUNT_CHANGED, MAX_AMOUNT_CHANGED_MESSAGE, MAX_SEND_INPUT_LIMIT, SEND_FEE_CHANGED, SEND_OUTCOME_UNKNOWN, SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/transactions.js";
+import { excludeReservedUtxos, excludeJustSpentUtxos, noteSpentOutpoints, excludeCovenantUtxos, isTransactionKnown, maxSendOutpointKeys, MAX_AMOUNT_CHANGED, MAX_AMOUNT_CHANGED_MESSAGE, MAX_SEND_INPUT_LIMIT, SEND_FEE_CHANGED, SEND_OUTCOME_UNKNOWN, SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/transactions.js";
 import { isLeftoverSend, undeliveredRowFor, settleLeftoverGroupRows } from "./leftover-sends.js";
 import { parsePaymentPoolEnvelope, validPaymentNotice, encodePaymentNotice, paymentNoticeText, paymentNoticePlacement, checkPaymentNoticeTx, chatPaymentNotificationBody } from "../engine/payment-notice.js";
 import { isScriptAddress, isKachatContractTransaction, legacyWireAliases, transactionBelongsInHistory, restPaymentSompiTo, restPaymentSender, fetchHeldPaymentRows, strangerPaymentStep } from "../engine/sync.js";
@@ -91,8 +91,10 @@ import {
 } from "./send-steps.js";
 import "./send-steps.css";
 import { initNextcloud, noteContactActivity, resetNextcloudForAccount, uploadNextcloudMedia, isNextcloudConnected, openNextcloudMediaPicker, nextcloudDirectOnly, storedNextcloudLoginsFor, revokeNextcloudLogins } from "./nextcloud.js";
-// Kaspa Hub > ChangeNOW Swap (iOS SwapView), back on Desktop (owner, 2026-10-22).
-import { initSwaps, refreshSwaps, resetSwapsForAccount } from "./swaps.js";
+// Swap (K 5.4 SwapView): ChangeNOW for other coins and kUSDT through Trestly's pool; the Wallet's Swap button and the dock.
+import { initSwaps, refreshSwaps, resetSwapsForAccount, selectSwapCoin } from "./swaps.js";
+import { kusdtWalletCore } from "../engine/kusdt-wallet-core.js";
+import { kusdtDeployment } from "../engine/kusdt.js";
 import { sealBackupEnvelope, openBackupEnvelope, openEncryptedArchive } from "./backup-crypto.js";
 import { calculateMass, calculateFee, fetchQuotedFeeRateSompiPerGram, MIN_RELAY_FEE_PER_GRAM } from "./kspt.js";
 import {
@@ -154,8 +156,8 @@ import { sameAccountAddress as sameStoredAccountAddress } from "../engine/networ
 import { openEmojiReactionPicker, openComposerEmojiPopover, closeComposerEmojiPopover, recordEmojiRecent } from "./emoji.js";
 // kUSDT (KaPay iOS 3d126db): the state (ui/kusdt-wallet.js) and its screens (ui/kusdt-screens.js).
 import { NETWORK_ID } from "../engine/network.js";
-import { forgetAccount as forgetKusdtStorage } from "../engine/kusdt-store.js";
-import { createKusdtWallet, manageAddressesHideRefusal, reshowListedHidden, hideAllKeepingListed, KUSDT_LISTED_HIDE_MESSAGE, KUSDT_LISTED_ALERT_TITLE, kasAmountText as kusdtKasAmountText } from "./kusdt-wallet.js";
+import { forgetAccount as forgetKusdtStorage, activityId as kusdtActivityId } from "../engine/kusdt-store.js";
+import { createKusdtWallet, holdingIdFor as kusdtHoldingIdFor, manageAddressesHideRefusal, reshowListedHidden, hideAllKeepingListed, KUSDT_LISTED_HIDE_MESSAGE, KUSDT_LISTED_ALERT_TITLE, kasAmountText as kusdtKasAmountText } from "./kusdt-wallet.js";
 import { initKusdtScreens, openManageKusdt, openWalletSend, openKusdtGuide, receiveNotesHtml, closeKusdtForAccountSwitch, openKusdtSend, openTipAssetChooser, kusdtTotalText, kusdtLooking } from "./kusdt-screens.js";
 import { kusdtCoinIconHtml } from "./kusdt-icons.js";
 // Send Dollars in a 1:1 chat (KaChat iOS 5b7c772c): the token_payment_notice and its chain check.
@@ -10718,6 +10720,8 @@ document.querySelector("[data-wallet-send]")?.addEventListener("click", () => {
 });
 document.querySelector("[data-wallet-receive]")?.addEventListener("click", () => { openReceiveKaspaScreen(); });
 document.querySelector("[data-wallet-request]")?.addEventListener("click", () => { if (engine.address) openCreatePaymentRequest(); });
+// Swap beside them (K 5.4 WalletView; it replaced Swap Stablecoins): the Swap screen (ui/swaps.js).
+document.querySelector("[data-wallet-swap-action]")?.addEventListener("click", () => { if (engine.address && tabAllowed("swaps")) setActiveAppTab("swaps"); });
 document.querySelector("[data-wallet-refresh]")?.addEventListener("click", async (event) => {
   const button = event.currentTarget;
   button.classList.add("spinning");
@@ -11644,6 +11648,90 @@ async function kusdtTransactionInputs(txid) {
     address: input?.previous_outpoint_address || input?.previous_outpoint_resolved?.script_public_key_address || null,
   }));
 }
+/// The key of a kUSDT address ({ spendingIndex, address }) for one build or trade, or null: the
+/// Chatting Address's is engine.privateKeyHex; a regular spending address's is derived from the
+/// account's words and must give that very address (never a quantum-safe one).
+function kusdtSecretKeyFor(holding) {
+  if (holding?.spendingIndex == null) return String(engine.privateKeyHex || "").trim() || null;
+  if (isQuantumIndex(holding.spendingIndex)) return null;
+  const account = captureActiveSpendingAccount();
+  if (!account || account.owner !== engine.address) return null;
+  const spending = engine.deriveSpendingWallet(account.mnemonic, holding.spendingIndex, account.passphrase, { passphraseForm: account.passphraseForm });
+  if (String(spending?.address || "").toLowerCase() !== String(holding.address || "").toLowerCase()) return null;
+  return String(spending?.privateKeyHex || "").trim() || null;
+}
+/// Swap's kUSDT side (K 5.4 TrestlyTrade, ui/swaps.js, engine/kusdt-trade.js): Trestly's pinned
+/// pool code in its own worker (engine/kusdt-wallet-core.js, its API straight from there, never
+/// /nc-proxy), the key only on Approve (kusdtSecretKeyFor, checked against the address there), the
+/// coins a trade spends held like a send's, and the swap in that address's kUSDT history and the bell.
+function swapKusdtDeps() {
+  const deployment = kusdtDeployment(NETWORK_ID);
+  const kasSompiOf = (kas) => (Number.isFinite(Number(kas)) ? sompiFromUserText(Number(kas).toFixed(8)) : null);
+  return {
+    siteUrl: () => deployment.siteUrl,
+    tradeDeps: {
+      walletCall: (fn, request) => kusdtWalletCore().walletCall(fn, request),
+      network: () => NETWORK_ID,
+      apiUrl: () => getEndpoint("trestlyApi") || deployment.apiBase,
+      storage: localStorage,
+      // every coin the node lists there, held ones included (a hold ends once one is really gone)
+      outpointsOf: async (address) => (await engine.getUtxosWithCovenants([address], { includeJustSpent: true }))
+        .map((u) => `${String(u?.outpoint?.transactionId || "").toLowerCase()}:${Number(u?.outpoint?.index)}`),
+      secretFor: (target) => kusdtSecretKeyFor(target),
+      noteSpentOutpoints: (keys) => noteSpentOutpoints(keys),
+      markOwnTransaction: (txid) => markOwnTransaction(txid),
+      afterTrade: () => {
+        window.setTimeout(() => {
+          kusdtWallet?.refresh().catch(() => {});
+          refreshBalanceOnly().catch(() => {});
+        }, 4000);
+      },
+    },
+    // Swap From (K KusdtSwapFromPicker): the Chatting Address, every address holding kUSDT, and the
+    // regular spending addresses holding KAS. Never a quantum-safe one.
+    fromChoices: async () => {
+      const owner = engine.address;
+      if (!owner) return [];
+      const held = kusdtWallet?.heldHoldings?.() || [];
+      const unitsOf = (address) => held.find((h) => h.address === address)?.units ?? 0n;
+      const list = [{ label: "Chatting Address", address: owner, spendingIndex: null, units: unitsOf(owner) }];
+      for (const h of held) {
+        if (h.spendingIndex == null || isQuantumIndex(h.spendingIndex) || list.some((c) => c.address === h.address)) continue;
+        list.push({ label: kusdtWallet.labelOf(h), address: h.address, spendingIndex: h.spendingIndex, units: h.units ?? 0n });
+      }
+      const rows = [];
+      if (activeAccountMnemonic()) {
+        const state = getSpendingState();
+        for (const index of spendingRevealedIndices(state)) {
+          if (isQuantumIndex(index)) continue;
+          const address = deriveSpendingAddressAt(index);
+          if (address && !list.some((c) => c.address === address)) rows.push({ index, address, label: spendingLabelFor(state, index) });
+        }
+      }
+      const kasOf = new Map();
+      const all = [...list.map((c) => c.address), ...rows.map((r) => r.address)];
+      for (let i = 0; i < all.length; i += 8) {
+        await Promise.all(all.slice(i, i + 8).map(async (address) => { kasOf.set(address, (await spendingUsageFor(address)).kas); }));
+        if (engine.address !== owner) return [];
+      }
+      for (const r of rows) if (Number(kasOf.get(r.address)) > 0) list.push({ label: r.label, address: r.address, spendingIndex: r.index, units: 0n });
+      return list.map((c) => ({ ...c, kasSompi: kasSompiOf(kasOf.get(c.address)) }));
+    },
+    // The kUSDT side in that address's history, and a line in the bell (K TrestlyTrade.recordSwap).
+    noteSwap: ({ record, target, owner }) => {
+      if (!record || !owner) return;
+      try {
+        const holdingId = kusdtHoldingIdFor(target?.spendingIndex ?? null);
+        kusdtWallet?.storeFor(owner)?.record({
+          id: kusdtActivityId(record.txid, holdingId, "swapped"), kind: "swapped", units: record.kusdtUnits,
+          counterparty: "Trestly", holdingId, fee: record.fee, outgoing: record.sold,
+        });
+      } catch { /* the history's own problem */ }
+      if (owner !== engine.address) return;
+      recordGlobalNotification({ id: `trestly-swap-${record.txid}`, source: "wallet", title: record.title, body: record.text, timestamp: Date.now(), targetKind: "kusdt" });
+    },
+  };
+}
 function initKusdt() {
   kusdtWallet = createKusdtWallet({
     account: () => engine.address,
@@ -11687,15 +11775,7 @@ function initKusdt() {
     makeRecipientController: (els, { onRecipientChange }) => makeSendController(els, { slideToSend: true, onRecipientChange, getBalance: async () => ({}) }),
     pickFromAddressBook: () => pickFromAddressBook(),
     drawQr: (canvas, address) => engine.drawQrFor(canvas, address, { dark: "#06110f", light: "#ffffff" }),
-    secretKeyFor: (holding) => {
-      if (holding?.spendingIndex == null) return String(engine.privateKeyHex || "").trim() || null;
-      if (isQuantumIndex(holding.spendingIndex)) return null;
-      const account = captureActiveSpendingAccount();
-      if (!account || account.owner !== engine.address) return null;
-      const spending = engine.deriveSpendingWallet(account.mnemonic, holding.spendingIndex, account.passphrase, { passphraseForm: account.passphraseForm });
-      if (String(spending?.address || "").toLowerCase() !== String(holding.address || "").toLowerCase()) return null;
-      return String(spending?.privateKeyHex || "").trim() || null;
-    },
+    secretKeyFor: (holding) => kusdtSecretKeyFor(holding),
     // Fund This Address's request (KaPay 3d126db openFunding): the shortfall to the sending address,
     // signed by the Chatting Address so it reads as yours. Paid as a plain send even to the Chatting
     // Address: Desktop pays a chatting-address request as a chat payment, which here would be a chat
@@ -11707,6 +11787,8 @@ function initKusdt() {
     },
     openSendKaspa: (options) => openSendKaspaModal(options || {}),
     openManageAddresses: () => openSpendingManageScreen(),
+    // Send kUSDT with none held: Swap with kUSDT picked (K 5.4's Swap replaced Swap Stablecoins).
+    openSwap: (coinKey) => { if (!tabAllowed("swaps")) return; try { selectSwapCoin(coinKey); } catch { /* not started */ } setActiveAppTab("swaps"); },
     kaspaTotalSompi: () => walletTotalSompi(sompiFromUserText(String(currentBalanceKas ?? "")), profileSpendingTotal.get()),
     spendingAddressesInRange: kusdtRegularAddressesInRange,
     revealSpendingSlot: kusdtRevealSpendingSlot,
@@ -12831,7 +12913,7 @@ sidebarTabButtons.forEach((button) => {
 // ---------------------------------------------------------------------------
 
 /** Full names, used in the More grid where a dock label is too short. */
-const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "ChangeNOW Swap", chess: "KaPlay", "kachat-names": ".kachat Domains", "kachat-stats": "KaChat Stats" };
+const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "Swap", chess: "KaPlay", "kachat-names": ".kachat Domains", "kachat-stats": "KaChat Stats" };
 
 function tabFullName(tab) {
   if (TAB_FULL_NAMES[tab]) return TAB_FULL_NAMES[tab];
@@ -12932,6 +13014,9 @@ function applyDockLayout() {
 
   renderHubGrid();
   publishDockHeight();
+  // The Wallet's Swap button goes with Swap itself (Simple Mode hides both).
+  const walletSwapAction = document.querySelector("[data-wallet-swap-action]");
+  if (walletSwapAction) walletSwapAction.hidden = !tabAllowed("swaps");
 
   // A tab that just left the dock must not stay on screen with nothing selected, and a Hub
   // section that just moved INTO the dock must not render inside the Hub as well.
@@ -13773,7 +13858,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 326;
+const APP_BUILD = 327;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -32910,6 +32995,12 @@ queueMicrotask(async () => {
       engine, escapeHtml, accountScopedKey, showToast: showCopyToast,
       explorerAddressUrl, addressCopiedToastText, copyTextToClipboard,
       currencySymbol: () => currencyMeta().symbol.trim(),
+      // Swap's state is the account's own (K audit 2026-11-24 #5).
+      account: () => engine.address,
+      // Not Now on an agreement: back to the Wallet.
+      leaveSwap: () => setActiveAppTab("wallet"),
+      // kUSDT through Trestly's pool (K 5.4 TrestlyTrade).
+      kusdt: swapKusdtDeps(),
       // Choose Address (iOS SwapAddressPickerView): every revealed spending address of either chain
       // with its balance and used flag. Hidden ones are left out before anything is asked of the
       // network, and the rest are checked a few at a time.

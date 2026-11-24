@@ -389,12 +389,11 @@ await check("exact strings (§1-§13)", () => {
     "KAS for a kUSDT send", "This address's key isn't available on this computer.",
     "Every kUSDT coin holds 1.5 KAS. Combining them into one coin gives the extra KAS back to this address as regular KAS, less the network fee. Your kUSDT stays the same.",
     "Not independently audited yet. Hold only what you can afford to lose.",
-    "Receive it on a fresh address, or buy it with Swap Stablecoins on the Wallet tab.",
+    "Receive it on a fresh address, or swap KAS for it with Swap on the Wallet tab.",
     "Sends, receives and combines on this computer show here from now on.",
-    "More stablecoins will show here as K adds them.",
     "These addresses couldn't be derived right now. Go back a page or reopen this screen to retry.",
     "Who are you sending to?", "Where are you sending from?", "How much?", "You're sending", "Goes With It",
-    "Total KAS", "KAS Paid From", "Check Again", "Swap Stablecoins", "Which stablecoin?", "What are you sending?",
+    "Total KAS", "KAS Paid From", "Check Again", "Swap for kUSDT", "What are you sending?",
     "Gives this address a label of your own.", "Puts the full address on the clipboard.",
     "Full screen, for scanning with another device.", "Moves kUSDT from this address to your Chatting Address.",
     "Merges its coins into one and gives the extra KAS back.", "Adds a brand-new regular address of yours to this list.",
@@ -418,8 +417,10 @@ await check("exact strings (§1-§13)", () => {
   ]) assert.match(screens, pattern, label);
 });
 
-await check("Swap opens Trestly's swap page in a new tab, with noopener", () => {
-  assert.match(screens, /openExternal\(`\$\{kusdtDeployment\(deps\.network\)\.siteUrl\}\/swap`\)/);
+await check("K 5.4: Swap Stablecoins went (no new tab on trestly.io); None held opens Swap with kUSDT picked", () => {
+  assert.doesNotMatch(screens, /siteUrl\}\/swap`/);
+  assert.doesNotMatch(screens, /openSwapStablecoins/);
+  assert.match(screens, /deps\.openSwap\?\.\("kusdt"\)/);
   assert.match(screens, /window\.open\(url, "_blank", "noopener,noreferrer"\)/);
   assert.equal(K.kusdtDeployment("testnet-10").siteUrl, "https://testnet.trestly.io");
 });
@@ -451,7 +452,7 @@ await check("app.js hooks: Delete Account, Address Activity, Manage Addresses §
 
 await check("index.html: the pager and its pills, Swap, the Help row, the Trestly field, the CSS version", () => {
   for (const marker of ["data-wallet-card-pager", "data-wallet-card-pill=\"1\">kUSDT", "data-kusdt-card", "kUSDT Balance", "Held On", "KAS Held With It",
-    "Tap to Manage", "data-wallet-swap", "Swap Stablecoins", "data-help-kusdt", "kUSDT Guide",
+    "Tap to Manage", "data-wallet-swap-action", "data-help-kusdt", "kUSDT Guide",
     "What kUSDT is, where it lives, and how sending and swapping work.", "data-endpoint=\"trestlyApi\"", "Trestly API URL",
     "data-chatting-address-notes", "data-spending-qr-notes"]) assert.ok(html.includes(marker), marker);
   // 417 came with kUSDT; later builds only move it up.
