@@ -770,6 +770,12 @@ export function chessBotsClick(event) {
   }
 }
 
+/** A bot game's board is up, over or not: an arcade challenge waits for the whole of it, so a
+ *  finished win's stamp still goes out (K 518fdc8c, audit 2026-11-24 #11). */
+export function chessBotBoardUp() {
+  return screen === "game" && Boolean(game);
+}
+
 /** A game on: true when nothing more can be played without resigning. */
 export function chessBotsLockedIn() {
   return screen === "game" && Boolean(game) && !game.isOver;

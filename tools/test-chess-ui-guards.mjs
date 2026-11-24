@@ -69,6 +69,10 @@ const STUBS = {
   "./broadcasts.js": dataModule(`export const setServiceScanWanted = () => {};`),
   "../engine/endpoints.js": dataModule(`export const getEndpoint = (name) => (name === "kaspaApi" ? "https://rest.test" : "");`),
   "./chess-bots.css": dataModule(``),
+  // KaPlay's arcade (ui/arcade.js, K 518fdc8c): its stylesheet and images.
+  "./arcade.css": dataModule(``),
+  "./assets/coins/coin_btc.png": dataModule(`export default "";`),
+  "./assets/kaspa-logo.png": dataModule(`export default "";`),
   // The bot games ui/chess-bots.js starts, kept for the test to look at.
   "../engine/chess-bot.js": dataModule(`
     import * as real from ${JSON.stringify(repoUrl("engine/chess-bot.js"))};
@@ -80,7 +84,7 @@ const STUBS = {
 registerHooks({
   resolve(specifier, context, nextResolve) {
     const parent = context.parentURL || "";
-    if (STUBS[specifier] && /\/ui\/chess-(tournaments|bots)\.js$/.test(parent)) return { url: STUBS[specifier], shortCircuit: true };
+    if (STUBS[specifier] && /\/ui\/(?:chess-(tournaments|bots)|arcade)\.js$/.test(parent)) return { url: STUBS[specifier], shortCircuit: true };
     return nextResolve(specifier, context);
   },
 });

@@ -113,6 +113,8 @@ import {
   kapostsKeptPageFresh,
 } from "./kaposts-format.js";
 import { botChallengeIn, botChallengeTitle } from "../engine/chess-bot-links.js";
+import { arcadeChallengeIn, arcadeChallengeTitle } from "../engine/arcade-services.js";
+import { arcadeIconHtml } from "./arcade-icon.js";
 // The phone header's hamburger, its slide-out card and the swipeable feeds (iOS 865c9ab).
 import "./kaposts-drawer.css";
 import "./kapost-terms.css";
@@ -2024,6 +2026,24 @@ function botChallengeCardHtml(challenge, pid) {
     </button>`;
 }
 
+/// A KaPlay arcade score challenge in a post (K 518fdc8c KaPostArcadeChallengeCard): the game's icon,
+/// "Beat 1,240 in Snake" and Play, which opens the game in KaPlay with the score to beat. `pid` is
+/// the post's id for the feed's click handler; null draws it inert (the quick composer's preview).
+function arcadeChallengeCardHtml(challenge, pid) {
+  const inner = `
+      <span class="kaposts-bot-card-top">
+        <span class="kaposts-bot-card-icon kaposts-arcade-card-icon">${arcadeIconHtml(challenge.game)}</span>
+        <span class="kaposts-bot-card-copy">
+          <span class="kaposts-bot-card-eyebrow">Arcade Challenge</span>
+          <span class="kaposts-bot-card-title">${deps.escapeHtml(arcadeChallengeTitle(challenge))}</span>
+        </span>
+      </span>
+      <span class="kaposts-bot-card-pill">Play</span>`;
+  return pid == null
+    ? `<div class="kaposts-bot-card kaposts-arcade-card" inert>${inner}</div>`
+    : `<button type="button" class="kaposts-bot-card kaposts-arcade-card" data-kaposts-arcade-challenge="${pid}" title="Opens KaPlay to play this game.">${inner}</button>`;
+}
+
 /// Puts each post's site link card in place of its link once painted: the card is DOM, its image
 /// loading through the relay, and the app's cache makes a repaint instant.
 function fillSiteLinkCards(root) {
@@ -2062,7 +2082,10 @@ function postCellHtml(post, { inThread = false, isRoot = false, replyInline = tr
   const payLink = postPaymentRequestLink(post);
   // So is a KaPlay bot challenge link (KaPost 9e22075 botChallengeLink).
   const botChallenge = botChallengeIn(payLink ? payLink.bodyText : postDisplayText(post));
-  const textWithoutCards = botChallenge ? botChallenge.bodyText : payLink ? payLink.bodyText : postDisplayText(post);
+  // And a KaPlay arcade score challenge (K 518fdc8c KaPostArcadeChallengeCard).
+  const textBeforeArcade = botChallenge ? botChallenge.bodyText : payLink ? payLink.bodyText : postDisplayText(post);
+  const arcadeChallenge = arcadeChallengeIn(textBeforeArcade);
+  const textWithoutCards = arcadeChallenge ? arcadeChallenge.bodyText : textBeforeArcade;
   // And a link drawn as its preview card, or the link itself if that can't load: KaChat's own site
   // (KaPost f81c467) or an allowed site's link, only for a poster with a .kachat name (KaPost
   // b78fdb0); anyone else's links stay plain text.
@@ -2128,6 +2151,7 @@ function postCellHtml(post, { inThread = false, isRoot = false, replyInline = tr
         ${(!inThread || truncates) && isLong ? `<button class="kaposts-show-more" type="button" data-kaposts-expand="${pid}">${foldText ? "Show more" : "Show less"}</button>` : ""}
         ${payLink ? paymentRequestCardHtml(payLink.request, pid) : ""}
         ${botChallenge ? botChallengeCardHtml(botChallenge.challenge, pid) : ""}
+        ${arcadeChallenge ? arcadeChallengeCardHtml(arcadeChallenge.challenge, pid) : ""}
         ${siteLink ? `<div class="kaposts-site-card" data-kaposts-site-card="${deps.escapeHtml(siteLink.url)}"><a href="${deps.escapeHtml(siteLink.url)}" target="_blank" rel="noopener noreferrer">${deps.escapeHtml(siteLink.raw)}</a></div>` : ""}
         ${translateAffordanceHtml(post)}
         ${pollCardHtml(post)}
@@ -3429,7 +3453,7 @@ function renderComposerThreadUi() {
   }
   // The + appears once you type, and never while quoting or replying - both are one post about
   // one other post, so neither stacks into a thread.
-  if (addBtn) addBtn.hidden = Boolean(composerKeptSource) || Boolean(composerQuoteTarget) || Boolean(composerReplyTarget) || Boolean(composerEditTarget) || !trimmed || Boolean(composerPoll) || composerScheduleAt != null;
+  if (addBtn) addBtn.hidden = Boolean(composerKeptSource) || Boolean(composerQuoteTarget) || Boolean(composerReplyTarget) || Boolean(composerEditTarget) || !trimmed || Boolean(composerPoll) || composerScheduleAt != null || Boolean(quickCompose);
   // iOS KaPostComposerView's header: an edit is "Edit Post" / "Save" whatever it edits, a reply
   // "Reply to Post" / "Reply", a quote "Quote Post"; this runs on every keystroke, so each mode
   // has to win here or the next render resets it.
@@ -3447,7 +3471,7 @@ function renderComposerThreadUi() {
             : (total > 1 ? `Post All (${total})` : "Post");
     // A poll posts only with its question and two to four valid options (iOS canPost).
     // A reply or quote is never posted as a plain post: off until its source loads (iOS ee5ec98).
-    composerSubmit.disabled = composerKeptSource ? true : composerPoll ? !(trimmed && pollEditorValid()) : total === 0;
+    composerSubmit.disabled = composerKeptSource ? true : composerPoll ? !(trimmed && pollEditorValid()) : total === 0 && !quickCompose?.link;
   }
   renderComposerSourceNotice();
   if (composerInput) {
@@ -3500,6 +3524,8 @@ function autoGrowReply() {
 // thread's pinned reply box - not here: a reply or quote composer, an edit, a reopened draft and
 // an undone post all open as they are.
 function openComposer(quoteTarget = null, { replyTarget = null, editTarget = null } = {}) {
+  quickCompose = null;
+  renderQuickComposerCard();
   editingDraftId = null;
   composerKeptSource = null;
   composerEditTarget = editTarget;
@@ -3564,11 +3590,73 @@ export function openKaPostComposerWithText(text) {
   composerInput.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+/// KaPost's composer over another screen (K 518fdc8c KaPostQuickComposer): KaPlay's Share to KaPost
+/// slides it up over the game instead of leaving for KaPost. Post sends the post at once - there is
+/// no feed here for the five-second undo - and the X closes it, leaving you where you were. A
+/// challenge link in the text shows as the card the feed will draw, and goes back on the end of
+/// the post when it is sent. `onPosting()` runs on Post; `onResult({ ok, txId } | { unknown,
+/// error } | { error })` when the send is over - an unknown outcome may have gone out, so the
+/// caller must not offer a second post (audit 2026-11-24 #8). False when it couldn't open (another
+/// post being written, or no KAS: the funding card shows).
+let quickCompose = null;   // { onPosting, onResult, link }
+export function openKaPostQuickComposer(text, { onPosting = () => {}, onResult = () => {} } = {}) {
+  if (!deps || !composerEl || !composerEl.hidden) return false;
+  if (deps.isChattingBalanceZero?.()) { deps.showFundingGate?.(); return false; }
+  const value = kapostsClampBytes(String(text || ""), KAPOSTS_POST_CHARACTER_LIMIT);
+  const found = arcadeChallengeIn(value);
+  openComposer();
+  quickCompose = { onPosting, onResult, link: found ? found.raw : null, challenge: found?.challenge || null };
+  composerInput.value = found ? found.bodyText : value;
+  renderQuickComposerCard();
+  composerInput.dispatchEvent(new Event("input", { bubbles: true }));
+  renderComposerExtras();
+  return true;
+}
+
+/// The quick composer's challenge card, under the text (gone in every other composer).
+function renderQuickComposerCard() {
+  let holder = composerEl?.querySelector("[data-kaposts-composer-link-card]");
+  if (!quickCompose?.challenge) { if (holder) holder.hidden = true; return; }
+  if (!holder) {
+    holder = document.createElement("div");
+    holder.className = "kaposts-composer-link-card";
+    holder.dataset.kapostsComposerLinkCard = "";
+    composerInput.after(holder);
+  }
+  holder.hidden = false;
+  holder.innerHTML = arcadeChallengeCardHtml(quickCompose.challenge, null);
+}
+
+/// Post in the quick composer: sent now, the link back on the end.
+function submitQuickComposer() {
+  const handlers = quickCompose;
+  const body = String(composerInput.value || "").trim();
+  const text = handlers.link ? (body ? `${body}\n\n${handlers.link}` : handlers.link) : body;
+  if (!text) return;
+  closeComposer({ keepDraft: false });
+  try { handlers.onPosting(); } catch { /* the caller's state only */ }
+  (async () => {
+    try {
+      const txid = await submitKaPost({ engine: deps.engine, text, mentionedPubkeys: await mentionedPubkeysFor(text) });
+      const post = makeLocalPost(text);
+      post.remoteId = txid;
+      post.delivery = "sent";
+      localPosts.unshift(post);
+      renderAll();
+      try { handlers.onResult({ ok: true, txId: txid }); } catch { /* the caller's state only */ }
+    } catch (error) {
+      deps.appendEngineLog?.(`KaPost quick post failed: ${error?.message || error}`);
+      try { handlers.onResult(kapostOutcomeUnknown(error) ? { unknown: true, error } : { error }); } catch { /* the caller's state only */ }
+    }
+  })();
+}
+
 // Poll and Schedule (iOS 3b1aecf extrasAvailable) belong to a plain new post: never to a reply, a
-// quote, an edit, a thread - or a reopened draft, whose composer iOS opens without them.
+// quote, an edit, a thread - or a reopened draft, whose composer iOS opens without them - nor to
+// the quick composer over a game, which posts one post at once.
 function composerExtrasAllowed() {
   return !composerQuoteTarget && !composerReplyTarget && !composerEditTarget && !editingDraftId
-    && composerThreadSegments.length === 0;
+    && composerThreadSegments.length === 0 && !quickCompose;
 }
 
 /// "Sep 24, 2026 at 9:27 AM" style, as iOS DateFormatter.localizedString(.medium, .short).
@@ -3683,6 +3771,8 @@ async function closeComposer({ keepDraft = null } = {}) {
   const hasContent = [String(composerInput?.value || ""), ...composerThreadSegments].some((s) => s.trim());
   let save = keepDraft;
   if (composerEditTarget) save = false; // an edit is not a draft
+  // The quick composer's X just closes it, back to the game (K KaPostQuickComposer).
+  if (quickCompose) save = false;
   if (save === null && hasContent) {
     // iOS ComposerCloseOptionsSheet: each choice says what happens to the post. Closing the
     // chooser itself (Escape, backdrop) keeps you in the composer with nothing lost.
@@ -3710,6 +3800,8 @@ async function closeComposer({ keepDraft = null } = {}) {
   composerThreadSegments = [];
   editingDraftId = null;
   composerKeptSource = null;
+  quickCompose = null;
+  renderQuickComposerCard();
   renderComposerThreadUi();
   if (save) renderAll();
   if (pendingComposeText != null) {
@@ -7412,6 +7504,8 @@ export function initKaPosts(dependencies) {
   });
   composerSubmit?.addEventListener("click", () => {
     if (composerKeptSource) return; // a draft whose source hasn't loaded (iOS ee5ec98)
+    // The quick composer over a game posts at once (K 518fdc8c KaPostQuickComposer).
+    if (quickCompose) { submitQuickComposer(); return; }
     const text = composerInput.value.trim();
     const segments = text ? [...composerThreadSegments, text] : [...composerThreadSegments];
     if (!segments.length) return;
@@ -7564,11 +7658,12 @@ export function initKaPosts(dependencies) {
   // The challenge card's Copy Link (KaPost 9e22075 contextMenu): the card stands in for the link.
   screen?.addEventListener("contextmenu", (event) => {
     const botCard = event.target.closest("[data-kaposts-bot-challenge]");
-    const post = botCard ? findPost(botCard.dataset.kapostsBotChallenge) : null;
-    const found = post ? botChallengeIn(postDisplayText(post)) : null;
+    const arcadeCard = botCard ? null : event.target.closest("[data-kaposts-arcade-challenge]");
+    const post = botCard ? findPost(botCard.dataset.kapostsBotChallenge) : arcadeCard ? findPost(arcadeCard.dataset.kapostsArcadeChallenge) : null;
+    const found = post ? (botCard ? botChallengeIn(postDisplayText(post)) : arcadeChallengeIn(postDisplayText(post))) : null;
     if (!found) return;
     event.preventDefault();
-    openPopover(botCard, `<button type="button" class="kaposts-pop-row" data-kaposts-link-copy="${deps.escapeHtml(found.challenge.url)}"><strong>Copy Link</strong><small>Copies the address to your clipboard.</small></button>`);
+    openPopover(botCard || arcadeCard, `<button type="button" class="kaposts-pop-row" data-kaposts-link-copy="${deps.escapeHtml(found.challenge.url)}"><strong>Copy Link</strong><small>Copies the address to your clipboard.</small></button>`);
     setKaPostsScrollLock(true);
   });
   screen?.addEventListener("click", (event) => {
@@ -7596,6 +7691,16 @@ export function initKaPosts(dependencies) {
       const post = findPost(botCard.dataset.kapostsBotChallenge);
       const found = post ? botChallengeIn(postDisplayText(post)) : null;
       if (found) deps.openKaChatLink?.(found.challenge.url);
+      return;
+    }
+    // A post's arcade challenge card (K 518fdc8c): KaPlay, on that game. The post's signer goes
+    // with it: the game names the challenger only when it is them (audit 2026-11-24 #21).
+    const arcadeCard = event.target.closest("[data-kaposts-arcade-challenge]");
+    if (arcadeCard) {
+      event.stopPropagation();
+      const post = findPost(arcadeCard.dataset.kapostsArcadeChallenge);
+      const found = post ? arcadeChallengeIn(postDisplayText(post)) : null;
+      if (found) deps.openKaChatLink?.(found.challenge.url, { author: post.posterAddress || null });
       return;
     }
     const link = event.target.closest("[data-kaposts-link]");

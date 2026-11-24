@@ -55,8 +55,9 @@ export const CURATED_BROADCAST_CHANNELS = Object.freeze([
 /// Rooms the app uses as machinery, never shown as chats: the chess arena
 /// (CHESS_TOURNAMENTS.md) and the bot games' record (`chess-bots`, iOS ONLINE_CHESS.md §7: one
 /// post per ply of a game against a bot). Hidden from Public Chats, no unread, no bell. Mirrors
-/// iOS `BroadcastService.serviceChannels`.
-export const SERVICE_BROADCAST_CHANNELS = Object.freeze(["chess-arena", "chess-bots"]);
+/// iOS `BroadcastService.serviceChannels`. KaPlay's arcade stamps (`kplay-arcade`, K 518fdc8c
+/// ARCADE.md §1) are machinery too.
+export const SERVICE_BROADCAST_CHANNELS = Object.freeze(["chess-arena", "chess-bots", "kplay-arcade"]);
 export function isServiceBroadcastChannel(name) {
   return SERVICE_BROADCAST_CHANNELS.includes(normalizeBroadcastChannel(name));
 }

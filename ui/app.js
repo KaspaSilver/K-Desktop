@@ -35,8 +35,9 @@ import { SOCIAL_LOGOS } from "./social-logos.js";
 import { kapostsFiatFieldText, kapostsKasFieldText, kapostsTipFieldAmount, kapostsSwitchTipText, kapostsDefaultTipSompi, KAPOSTS_TIP_MIN_SOMPI } from "./kaposts-format.js";
 import { requesterPubkeyFor, KAPOSTS_PROTOCOL, KACHAT_MARKER as KAPOSTS_MARKER, utf8ToBase64 as kapostsUtf8ToBase64, buildKaPostTipPayload } from "../engine/kaposts.js";
 import { initBroadcasts, refreshBroadcasts, repaintBroadcastIdentities, resetBroadcastsForAccount, stopBroadcastPolling, openBroadcastChannelFromNotification, openBroadcastRoomFromLink, openPublicChatsSettings, broadcastNotifyingUnreadTotal, broadcastJoinError, joinBroadcastChannelFromSheet, chatListRooms, openBroadcastRoom, closeBroadcastRoom, markBroadcastRooms, removeBroadcastRooms, setBroadcastRoomNotify, copyBroadcastRoomLink } from "./broadcasts.js";
-import { initChessTournaments, showChessTournaments, hideChessTournaments, resetChessTournamentsForAccount, chessTournamentsMayLeave, openChessBotChallenge } from "./chess-tournaments.js";
+import { initChessTournaments, showChessTournaments, hideChessTournaments, resetChessTournamentsForAccount, chessTournamentsMayLeave, openChessBotChallenge, openArcadeChallenge } from "./chess-tournaments.js";
 import { parseBotChallengeLink, botChallengeFromLaunchSearch } from "../engine/chess-bot-links.js";
+import { parseArcadeChallengeLink, arcadeChallengeFromLaunchSearch } from "../engine/arcade-services.js";
 import { initKachatNamesRuntime, kachatNames, kachatNamesUiEnabled, kachatNamesLaunched, kachatProfiles, kachatVerifiedLabel, kachatLabelChecking, verifyKachatLabel } from "./kachat-names-runtime.js";
 import { PHOTO_UNLOCK_DELAY_MS, photosUnlockTime, photosAreHidden } from "./photo-unlock.js";
 import { createProfileRescans } from "./profile-rescan.js";
@@ -53,7 +54,7 @@ import { broadcastPushWatch, activeBroadcastChannelName } from "./broadcasts.js"
 import { chatListUnreadCount, chatsTabUnreadCount, debouncedCountPublisher } from "./chat-unread.js";
 import { setBroadcastRoomsNotify } from "./broadcasts.js";
 import { kaPostsWatchedAuthorAddresses, kaPostsHiddenXOnlyKeys } from "./kaposts.js";
-import { openKaPostComposerWithText } from "./kaposts.js";
+import { openKaPostComposerWithText, openKaPostQuickComposer } from "./kaposts.js";
 // Terms of Use, Block and tapped room links (KaPosts-iPhone 9e22075); Feed to its top (45de945).
 import { blockKaPostAccount, closeKaPostCovers, kaPostsBlockedAddresses, kaPostsFeedToTop } from "./kaposts.js";
 import { setKaPostsRootMode, syncKaPostsBell, kaPostsUnseenCount } from "./kaposts.js";
@@ -2114,8 +2115,9 @@ const URL_IN_TEXT_RE = /https?:\/\/[^\s<>"']+/g;
 //   kachat://broadcast/<channel>  https://kachat.app/broadcast/<channel>
 //   kachat://profile/<address>    https://kachat.app/u/<address>       (iOS 863b0e9; a missing kaspa: prefix means mainnet)
 //   kachat://pay/<address>?...    https://kachat.app/pay/<address>?... (iOS c6851d6 / 7c71a98, engine/payment-request.js)
-// and KaPlay's bot challenge, kachatchess://bot/<level>?... (KaPlay ddec987, engine/chess-bot-links.js).
-// That one has no card in a chat: INTERNAL_LINK_IN_TEXT_RE leaves it out, and only a KaPost draws it.
+// and KaPlay's bot challenge, kachatchess://bot/<level>?... (KaPlay ddec987, engine/chess-bot-links.js),
+// and its arcade score challenge, kachatarcade://<game>?score=... (K 518fdc8c, engine/arcade-services.js).
+// Those have no card in a chat: INTERNAL_LINK_IN_TEXT_RE leaves them out, and only a KaPost draws them.
 // Everything a pasted link carries is untrusted, so the payload is re-validated here rather
 // than trusted from the URL's text.
 const INTERNAL_LINK_IN_TEXT_RE = /(?:kachat:\/\/(?:kapost|broadcast|profile|pay)\/[^\s<>"']+|kaposts:\/\/kapost\/[^\s<>"']+|https?:\/\/(?:www\.)?kachat\.app\/(?:post|broadcast|u|pay)\/[^\s<>"']+)/i;
@@ -2143,6 +2145,10 @@ function parseKaChatInternalLink(raw) {
   if (/^kachatchess:\/\//i.test(text)) {
     const challenge = parseBotChallengeLink(text);
     return challenge ? { kind: "kaplayBot", challenge } : null;
+  }
+  if (/^kachatarcade:\/\//i.test(text)) {
+    const challenge = parseArcadeChallengeLink(text);
+    return challenge ? { kind: "kaplayArcade", challenge } : null;
   }
   if (/^(?:kachat:\/\/pay\/|https?:\/\/(?:www\.)?kachat\.app\/pay\/)/i.test(text)) {
     const request = parsePaymentRequestLinkCached(text);
@@ -2207,6 +2213,15 @@ function openKaChatInternalLink(link) {
   else if (link.kind === "profile") openProfileLink(link.address);
   else if (link.kind === "pay") openPaymentRequest(link.request);
   else if (link.kind === "kaplayBot") openKaPlayChallenge(link.challenge).catch(() => {});
+  else if (link.kind === "kaplayArcade") openKaPlayArcadeChallenge(link.challenge, link.author || null);
+}
+/** An arcade score challenge opens that game's home in KaPlay with the score to beat (K 518fdc8c
+ *  ArcadeLinkRouter.open). `author` is the signer of the post whose card was clicked: the game names
+ *  the challenger only when it is the link's `by`, so a link from anywhere else says "Someone"
+ *  (audit 2026-11-24 #21). A game on holds it until it is over (#11, openArcadeChallenge). */
+function openKaPlayArcadeChallenge(challenge, author = null) {
+  setActiveAppTab("chess");
+  openArcadeChallenge({ ...challenge, author });
 }
 /** A bot challenge opens KaPlay on that bot (KaPlay ddec987 KaChatChessApp.onOpenURL). Seated or
  *  playing online, it waits in KaPlay until that is over and Chess's home is up - no resign
@@ -2224,13 +2239,16 @@ function routeLaunchChallengeLink() {
   const params = new URLSearchParams(location.search);
   if (!params.has("challenge")) return;
   const challenge = botChallengeFromLaunchSearch(location.search);
+  // An arcade challenge comes the same way (K 518fdc8c): no post, so no one is named.
+  const arcade = challenge ? null : arcadeChallengeFromLaunchSearch(location.search);
   params.delete("challenge");
   const query = params.toString();
   try { history.replaceState(history.state, "", `${location.pathname}${query ? `?${query}` : ""}${location.hash || ""}`); } catch { /* cosmetic */ }
-  if (!challenge) return;
+  if (!challenge && !arcade) return;
   const open = (attempt = 0) => {
     if (engine.address) {
       if (isChildModeEnabled()) showCopyToast("Not available in Simple Mode.");
+      else if (arcade) openKaPlayArcadeChallenge(arcade);
       else openKaPlayChallenge(challenge).catch(() => {});
     } else if (attempt < 180) window.setTimeout(() => open(attempt + 1), 1000);
   };
@@ -13597,7 +13615,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 324;
+const APP_BUILD = 325;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -32146,7 +32164,8 @@ queueMicrotask(async () => {
       copyText: copyTextToClipboard,
       onBlockedAccountsChanged: () => { try { broadcastBlockedAccountsChanged(); } catch { /* rooms not started */ } },
       // A KaChat link from a post opens in the app (iOS 5090ad9); returns whether it was one.
-      openKaChatLink: (raw) => { const link = parseKaChatInternalLink(raw); if (!link) return false; openKaChatInternalLink(link); return true; },
+      // `author`: the post's signer, for an arcade challenge card (K 518fdc8c, audit 2026-11-24 #21).
+      openKaChatLink: (raw, { author = null } = {}) => { const link = parseKaChatInternalLink(raw); if (!link) return false; openKaChatInternalLink(author ? { ...link, author } : link); return true; },
       engine,
       escapeHtml,
       shortAddress,
@@ -32797,6 +32816,10 @@ queueMicrotask(async () => {
     openUserInfo: (address) => openChatInfoForAddress(address),
     // A stamped win's Share to KaPost (KaPlay ddec987): the composer, with the post written.
     openKaPostComposer: (text) => { setActiveAppTab("kaposts"); openKaPostComposerWithText(text); },
+    // An arcade score's Share to KaPost stays in KaPlay (K 518fdc8c KaPostQuickComposer): KaPost's
+    // composer over the game, posting at once.
+    openKaPostQuickComposer: (text, handlers) => openKaPostQuickComposer(text, handlers),
+    accountScopedKey,
   }); }
 
   document.querySelector("[data-open-chess]")?.addEventListener("click", () => {

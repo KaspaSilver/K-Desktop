@@ -1,0 +1,118 @@
+/* KaPlay's arcade (ui/arcade.js, K 518fdc8c ArcadeViews.swift): Snake and 2048 inside KaPlay's
+   screen, which keeps Chess Online's header, body and rows (.chess-t-*). One board that fits a phone
+   (bottom bar) and the desktop layout (left dock). */
+
+/* The game's mark (ui/arcade-icon.js): Snake's symbol, 2048 as the number. */
+.arcade-icon-snake { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.arcade-icon-2048 { display: inline-block; font-weight: 900; font-size: 17px; letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums; font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif; }
+.chess-t-game-card-icon .arcade-icon-snake { width: 32px; height: 32px; stroke-width: 2.1; }
+
+/* A game's home. */
+.arcade-challenge {
+  display: flex; align-items: flex-start; gap: 12px; padding: 14px; border-radius: 16px;
+  background: rgba(255, 149, 0, .14); font-size: 15px; font-weight: 600;
+}
+.arcade-challenge svg { flex: 0 0 22px; width: 22px; height: 22px; fill: none; stroke: var(--ios-orange); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.arcade-hero {
+  display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 20px; text-align: center;
+  border-radius: 20px; background: var(--surface-1); border: 1px solid var(--card-border);
+}
+.arcade-hero p { margin: 0; color: var(--muted); font-size: 14px; max-width: 420px; }
+.arcade-hero small { color: var(--muted); font-size: 12px; max-width: 420px; }
+.arcade-hero-icon { width: 84px; height: 84px; border-radius: 22px; display: grid; place-items: center; background: var(--kaspa); color: #fff; }
+.arcade-hero-icon .arcade-icon-snake { width: 44px; height: 44px; stroke-width: 2; }
+.arcade-hero-icon .arcade-icon-2048 { font-size: 25px; }
+.arcade-best { font-size: 17px; }
+.arcade-play-button { width: 100%; max-width: 420px; min-height: 50px; border-radius: 999px; font-size: 17px; font-weight: 700; }
+.arcade-board-head { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.arcade-board-head h2 { margin: 0; font-size: 20px; }
+.arcade-board-empty { text-align: center; padding: 20px 0; }
+.arcade-board-score { font-weight: 700; font-variant-numeric: tabular-nums; }
+.chess-t-rank.top { color: var(--kaspa-ink); }
+.arcade-link-button { border: 0; padding: 0; background: none; color: var(--kaspa-ink); font: inherit; font-weight: 600; cursor: pointer; }
+
+/* Playing. */
+.arcade-play { align-items: center; gap: 14px; }
+.arcade-play > * { width: 100%; max-width: 460px; }
+.arcade-scorebar { display: flex; justify-content: center; gap: 12px; }
+.arcade-score-big { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.arcade-score-box {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 0;
+  border-radius: 14px; background: var(--surface-2);
+}
+.arcade-score-box small { color: var(--muted); font-size: 12px; font-weight: 600; }
+.arcade-score-box b { font-size: 20px; font-variant-numeric: tabular-nums; }
+/* Square, as large as fits: the width of the column, and short of the screen's height. */
+.arcade-board {
+  position: relative; width: min(100%, 460px, max(240px, calc(100dvh - 330px))); aspect-ratio: 1; margin: 0 auto;
+  touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.arcade-snake-board { border-radius: 12px; background: var(--surface-2); border: 1px solid rgba(112, 199, 186, .4); overflow: hidden; }
+.arcade-snake-board canvas { display: block; width: 100%; height: 100%; }
+.arcade-pad { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.arcade-pad-row { display: flex; gap: 48px; }
+.arcade-pad-button {
+  width: 64px; height: 52px; border: 0; border-radius: 14px; background: var(--kaspa-dim); color: var(--kaspa-ink);
+  display: grid; place-items: center; cursor: pointer;
+}
+.arcade-pad-button svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+/* A keyboard and a mouse need no pad; a touch screen keeps it. */
+@media (hover: hover) and (pointer: fine) { .arcade-pad { display: none; } }
+
+/* 2048: the cells, then the tiles over them, each sliding to its cell (--x, --y). */
+.arcade-2048 { --gap: 8px; container-type: inline-size; padding: var(--gap); border-radius: 14px; background: var(--surface-2); box-sizing: border-box; }
+.arcade-2048-cells { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 1fr); gap: var(--gap); width: 100%; height: 100%; }
+.arcade-2048-cell { border-radius: 10px; background: var(--ios-fill-3); }
+.arcade-2048-tiles { position: absolute; inset: var(--gap); }
+.arcade-2048-tile {
+  position: absolute; left: 0; top: 0;
+  width: calc((100% - 3 * var(--gap)) / 4); height: calc((100% - 3 * var(--gap)) / 4);
+  transform: translate(calc(var(--x) * (100% + var(--gap))), calc(var(--y) * (100% + var(--gap))));
+  transition: transform .11s ease-in-out;
+}
+.arcade-2048-face {
+  display: grid; place-items: center; width: 100%; height: 100%; border-radius: 10px; color: var(--text);
+  font-weight: 900; font-size: min(11cqw, 34px); font-variant-numeric: tabular-nums;
+  font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+}
+.arcade-2048-face[data-digits="3"] { font-size: min(9cqw, 30px); }
+.arcade-2048-face[data-digits="4"] { font-size: min(7cqw, 24px); }
+.arcade-2048-face[data-digits="5"] { font-size: min(5.6cqw, 19px); }
+.arcade-2048-face.dark-text { color: #000; }
+.arcade-2048-tile.new .arcade-2048-face { animation: arcade-grow .22s cubic-bezier(.3, 1.4, .6, 1); }
+.arcade-2048-face.pop { animation: arcade-pop .2s cubic-bezier(.3, 1.6, .6, 1); }
+@keyframes arcade-grow { from { transform: scale(.2); } to { transform: scale(1); } }
+@keyframes arcade-pop { from { transform: scale(1.18); } to { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .arcade-2048-tile { transition: none; }
+  .arcade-2048-tile.new .arcade-2048-face, .arcade-2048-face.pop { animation: none; }
+}
+
+/* Game over: over the game, which stays where it was. */
+.arcade-over { position: absolute; inset: 0; z-index: 6; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, .55); }
+.arcade-over-card {
+  display: flex; flex-direction: column; align-items: center; gap: 10px; width: min(100%, 360px); padding: 24px;
+  border-radius: 20px; background: var(--sheet-bg, var(--panel)); color: var(--text); text-align: center; box-shadow: 0 12px 40px var(--shadow);
+}
+.arcade-over-title { font-size: 22px; }
+.arcade-over-score { font-size: 56px; font-weight: 900; line-height: 1; color: var(--kaspa-ink); font-variant-numeric: tabular-nums; font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif; }
+.arcade-over-best { color: var(--muted); font-size: 14px; }
+.arcade-status { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; color: var(--muted); font-size: 13px; }
+.arcade-status-icon { flex: 0 0 16px; width: 16px; height: 16px; }
+.arcade-status-icon.ok { color: var(--ios-green); }
+.arcade-status-icon.warn { color: var(--ios-orange); }
+.arcade-over .chess-bot-done { color: var(--text); background: var(--surface-3); }
+.arcade-share { background: var(--kaspa); }
+
+/* A round's screen: header, board and the game-over overlay over both. */
+.arcade-play-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* KaPost's arcade challenge card (K KaPostArcadeChallengeCard): one row, Play at the end. Its other
+   pieces are the bot card's (ui/chess-bots.css .kaposts-bot-card). */
+.kaposts-arcade-card { flex-direction: row; align-items: center; }
+.kaposts-arcade-card .kaposts-bot-card-top { flex: 1; align-items: center; }
+.kaposts-arcade-card .kaposts-bot-card-pill { align-self: center; flex: none; }
+.kaposts-arcade-card-icon .arcade-icon-snake { width: 22px; height: 22px; fill: none; }
+.kaposts-arcade-card-icon .arcade-icon-2048 { font-size: 11px; }
+.kaposts-composer-link-card { margin: 4px 0 8px; }
+.kaposts-composer-link-card[hidden] { display: none; }

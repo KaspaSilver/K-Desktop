@@ -17,8 +17,14 @@ import { isIndexerDown, onIndexerAvailabilityChange } from "../engine/indexer-he
 import { chainHistory } from "../engine/chain-history.js";
 import {
   initChessBots, openChessBots, renderChessBots, afterChessBotsRender, chessBotsClick, chessBotsMayLeave,
-  resetChessBotsForAccount, openChessBotBoards, openChessBotChallengeScreen, ICON_CPU,
+  resetChessBotsForAccount, openChessBotBoards, openChessBotChallengeScreen, ICON_CPU, chessBotBoardUp,
 } from "./chess-bots.js";
+import {
+  initArcade, openArcadeGame, renderArcade, afterArcadeRender, arcadeClick, arcadeRoundOpen, pauseArcade, resetArcadeForAccount,
+} from "./arcade.js";
+import { arcadeIconHtml } from "./arcade-icon.js";
+import { ARCADE_GAMES } from "../engine/arcade.js";
+import { arcadeChallengeMayOpen } from "../engine/arcade-services.js";
 
 const ARENA_CACHE_KEY = "kachat-chess-arena-v1";   // device-wide: the arena is the same for every wallet
 const ARENA_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -140,6 +146,9 @@ const ROOM_FILLED_MESSAGE = "That room filled first. Tap Join to try the next on
 /** A bot challenge link that came while this player was busy online (isBusyOnline): it waits
  *  until that is over and Chess's home is showing (iOS 4922804 ChessHomeView.takeChallenge). */
 let heldBotChallenge = null;
+/** An arcade challenge link held while a game is on (audit 2026-11-24 #11, K GamesView
+ *  .takeArcadeChallenge): it opens once the round, the bot game or the online game is over. */
+let heldArcadeChallenge = null;
 /** The waiting room on screen (iOS 8d5f925 ChessWaitingRoomView): the reducer has shown this
  *  player seated there; their Leave went out; when it opened. */
 let waitingWasSeated = false;
@@ -157,6 +166,7 @@ let joinFeeText = null;               // "0.0017 KAS" once estimated this sessio
 // name "games": a card per game, where KaPlay opens (KaPlay 45f28d9). name "home": Chess.
 // name "leaderboard": the Leaderboard's squares (a card under Bots, K 428a797b); name "board": 1v1's or Tournaments' page, by `mode`.
 // name "bots": Play > Bots and Leaderboard > Bots (ui/chess-bots.js paints and drives its own screens).
+// name "arcade": Snake or 2048 (K 518fdc8c; ui/arcade.js paints and drives its own screens).
 let view = { name: "games", mode: "duel", tab: "play", tournamentId: null, gameId: null };
 let autoOpenedGameId = null;
 let spectatorSwitchedFor = null;  // the player's game the board-watching spectator was sent to the bracket for
@@ -1197,6 +1207,7 @@ function render() {
     case "leaderboard": html = renderLeaderboard(); break;
     case "board": html = renderLeaderboardPage(); break;
     case "bots": html = renderChessBots(); break;
+    case "arcade": html = renderArcade(); break;
     case "home": html = renderHome(); break;
     default: html = renderGames();
   }
@@ -1204,6 +1215,7 @@ function render() {
   const body = screenEl.querySelector(".chess-t-body");
   if (body) body.scrollTop = y;
   if (view.name === "bots") afterChessBotsRender(screenEl);
+  if (view.name === "arcade") afterArcadeRender(screenEl);
 }
 
 function headerHtml(title, { back = null, trailing = "", home = false } = {}) {
@@ -1239,6 +1251,13 @@ function renderGames() {
         <span class="chess-t-row-main"><strong>Chess</strong><small>1v1, tournaments and five bots. Online moves and bot results go on Kaspa.</small></span>
         <span class="chess-t-row-chevron">${ICON_CHEVRON}</span>
       </button>
+      ${/* The arcade (K 518fdc8c GamesView, ARCADE.md): Snake and 2048 beside Chess. */ ""}
+      ${ARCADE_GAMES.map((game) => `
+        <button class="chess-t-game-card" type="button" data-chess-t-arcade="${esc(game.id)}">
+          <span class="chess-t-game-card-icon">${arcadeIconHtml(game.id)}</span>
+          <span class="chess-t-row-main"><strong>${esc(game.title)}</strong><small>${esc(game.detail)}</small></span>
+          <span class="chess-t-row-chevron">${ICON_CHEVRON}</span>
+        </button>`).join("")}
     </div>`;
 }
 
@@ -2115,6 +2134,15 @@ function tapSquare(file, rank) {
 function onClick(event) {
   // The bots' screens are their own (ui/chess-bots.js), Back included.
   if (view.name === "bots") { chessBotsClick(event); return; }
+  // So are the arcade's (ui/arcade.js).
+  if (view.name === "arcade") { arcadeClick(event); return; }
+  const arcade = event.target.closest("[data-chess-t-arcade]");
+  if (arcade) {
+    view = { ...view, name: "arcade", tournamentId: null, gameId: null };
+    openArcadeGame(arcade.dataset.chessTArcade);
+    render();
+    return;
+  }
   if (event.target.closest("[data-chess-t-chess]")) {
     view = { ...view, name: "home", tournamentId: null, gameId: null };
     render();
@@ -2281,6 +2309,12 @@ export function initChessTournaments(dependencies) {
     render: () => { if (view.name === "bots") render(); },
     exit: (to = "home") => { view = { ...view, name: to, tournamentId: null, gameId: null }; render(); },
   });
+  initArcade({
+    deps,
+    render: () => { if (view.name === "arcade") render(); },
+    exit: () => { view = { ...view, name: "games", tournamentId: null, gameId: null }; render(); },
+    isShown: () => active && view.name === "arcade",
+  });
   loadCache();
   reduceArena();
   screenEl.addEventListener("click", onClick);
@@ -2317,6 +2351,7 @@ export function showChessTournaments() {
     checkWaitingRoom();
     if (view.name === "tournament" || view.name === "game") autoOpenMyGameIfNeeded();
     takeHeldBotChallengeIfReady();
+    takeHeldArcadeChallengeIfReady();
     // A flag on the clock frees the board, shows Claim win and lifts the waiting overlay.
     if (view.name === "game" && gameScreenState(tournaments[view.tournamentId]?.games[view.gameId]) !== paintedGameState) render();
     // A bracket or game list whose game just ran out of time: drawn again with its winner.
@@ -2360,14 +2395,16 @@ export async function chessTournamentsMayLeave({ challenge = null } = {}) {
 function holdBotChallengeIfBusy(link) {
   if (!deps || !link) return false;
   now = Date.now();
+  // An arcade round on screen holds it too, untouched (audit 2026-11-24 #11).
+  if (arcadeRoundOpen()) { heldBotChallenge = link; return true; }
   if (!isBusyOnline()) return false;
   heldBotChallenge = link;
-  if (view.name === "games") { view = { ...view, name: "home", tournamentId: null, gameId: null }; render(); }
+  if (view.name === "games" || view.name === "arcade") { view = { ...view, name: "home", tournamentId: null, gameId: null }; render(); }
   return true;
 }
 function takeHeldBotChallengeIfReady() {
-  if (!heldBotChallenge) return;
-  if (view.name === "games") { view = { ...view, name: "home", tournamentId: null, gameId: null }; render(); }
+  if (!heldBotChallenge || arcadeRoundOpen()) return;
+  if (view.name === "games" || view.name === "arcade") { view = { ...view, name: "home", tournamentId: null, gameId: null }; render(); }
   if (view.name !== "home" || isBusyOnline()) return;
   openChessBotChallenge(heldBotChallenge);
 }
@@ -2393,7 +2430,36 @@ export function openChessBotChallenge(link) {
   render();
 }
 
+/**
+ * An arcade challenge link (K 518fdc8c ArcadeLinkRouter.open): the game's home in KaPlay with the
+ * score to beat. The caller has the dock on KaPlay. It never pops a game (audit 2026-11-24 #11):
+ * while an arcade round is up, a bot game's board is up, or - Chess open - this player is seated or
+ * playing online, it waits here and opens when that is over. `link.author` is the post's signer.
+ */
+export function openArcadeChallenge(link) {
+  if (!deps || !link) return;
+  now = Date.now();
+  const chessOpen = !["games", "arcade"].includes(view.name);
+  const mayOpen = arcadeChallengeMayOpen({
+    arcadeRoundOpen: arcadeRoundOpen(),
+    botGameOn: view.name === "bots" && chessBotBoardUp(),
+    chessOpen,
+    busyOnline: chessOpen && isBusyOnline(),
+  });
+  if (!mayOpen) { heldArcadeChallenge = link; return; }
+  heldArcadeChallenge = null;
+  view = { ...view, name: "arcade", tournamentId: null, gameId: null };
+  selectedSquare = null;
+  pendingPromotion = null;
+  openArcadeGame(link.game, link);
+  render();
+}
+function takeHeldArcadeChallengeIfReady() {
+  if (heldArcadeChallenge) openArcadeChallenge(heldArcadeChallenge);
+}
+
 export function hideChessTournaments() {
+  pauseArcade();
   if (!active) return;
   active = false;
   setServiceScanWanted([]);
@@ -2405,6 +2471,8 @@ export function hideChessTournaments() {
 
 export function resetChessTournamentsForAccount() {
   resetChessBotsForAccount();
+  resetArcadeForAccount();
+  heldArcadeChallenge = null;
   chainReadAt.clear();
   nextChainReadAt = 0;
   pendingMoveGames.clear();
