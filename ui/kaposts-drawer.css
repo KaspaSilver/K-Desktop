@@ -272,3 +272,27 @@
 .kaposts-wallet-notification-icon.kusdt { color: #26a17b; font-size: 18px; }
 .kaposts-wallet-notification-icon img { width: 24px; height: 24px; }
 .kaposts-wallet-notification-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+/* Profile's header as K's (K 8cb4c88e): the bar on top - Share in plain accent text on the left,
+   refresh and the bell on the right - and under it the large "Profile" title with the glass
+   account chip beside it (kaPostsFixedTitle + ProfileAccountChip: 24 pt picture, subheadline). */
+[data-kaposts-panel][data-kaposts-panel-root] > .kaposts-thread-header {
+  display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "share . . refresh bell" "title chip . . .";
+  align-items: center; column-gap: 12px; row-gap: 2px; justify-content: stretch;
+  min-height: 0; padding: 2px 16px 10px;
+}
+[data-kaposts-panel][data-kaposts-panel-root] > .kaposts-thread-header > .kaposts-title-share {
+  grid-area: share; justify-self: start; margin: 0; padding: 6px 0; border: 0; border-radius: 0;
+  background: transparent; box-shadow: none; color: var(--kaspa, #70c7ba); font-size: 15px; font-weight: 600;
+}
+[data-kaposts-panel][data-kaposts-panel-root] > .kaposts-thread-header > .kaposts-title-share:hover { background: transparent; opacity: .75; }
+[data-kaposts-panel][data-kaposts-panel-root] > .kaposts-thread-header > .kaposts-title-share svg { width: 17px; height: 17px; }
+[data-kaposts-panel][data-kaposts-panel-root] > .kaposts-thread-header [data-kaposts-panel-title] {
+  grid-area: title; position: static; text-align: left; font-size: 34px; font-weight: 700; line-height: 1.15;
+  white-space: nowrap;
+}
+[data-kaposts-panel][data-kaposts-panel-root] > .kaposts-thread-header > .profile-account-chip {
+  grid-area: chip; justify-self: start; height: auto; padding: 5px 12px 5px 5px; font-size: 15px;
+}
+[data-kaposts-panel][data-kaposts-panel-root] > .kaposts-thread-header > .kaposts-panel-refresh { grid-area: refresh; margin: 0; }
+[data-kaposts-panel][data-kaposts-panel-root] > .kaposts-thread-header > .kaposts-root-bell { grid-area: bell; margin: 0; }

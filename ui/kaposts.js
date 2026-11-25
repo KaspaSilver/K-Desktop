@@ -146,6 +146,8 @@ let panelRefreshEl = null; // the panel header's refresh button (built on first 
 //            | {type:"engagement", postId, postTxId, tab, lists, loading}
 //            | {type:"list", kind}  (bookmarks | muted | blocked | menu)
 let activePanel = null;
+/** The profile hero last drawn, so a redraw that would not change it keeps the one on screen. */
+let lastProfileHeroHtml = "";
 let myContentPosts = []; // own posts+replies fetched for share/notification resolution
 let localPosts = [];      // newest first, optimistic
 let remotePosts = [];
@@ -4146,7 +4148,7 @@ function renderPanel() {
           && !remoteItems.some((row) => row.remoteId && row.remoteId === post.remoteId))]
           .sort((a, b) => b.timestamp - a.timestamp)
       : remoteItems;
-    panelBodyEl.innerHTML = `
+    const heroHtml = `
       <div class="kaposts-profile-hero">
         <div class="kaposts-profile-banner${kachatBanner ? " has-img" : ""}">${kachatBanner}</div>
         ${/* Someone else's: the avatar on its own, the name the full width below it, and Follow
@@ -4178,7 +4180,8 @@ function renderPanel() {
             <button class="kaposts-edit-kns kaposts-see-all" type="button" data-kaposts-see-all title="Opens KaPost, where everyone's posts are.">${NEWSPAPER_SVG}See All Posts</button>
           </span>` : ""}
         </div>
-      </div>
+      </div>`;
+    const pageHtml = `
       <div class="cycle-bar kaposts-profile-cycle">${cycleButtonHtml({ name: "kaposts-profile", options: PROFILE_PAGES, value: panel.tab === "replies" ? "replies" : "posts", attrs: "data-kaposts-profile-cycle" })}</div>
       <div class="kaposts-panel-list" data-kaposts-panel-list>
         ${panel.loading && feedItems.length === 0
@@ -4191,6 +4194,17 @@ function renderPanel() {
               )
             : feedItems.map((post) => postCellHtml(post, { inThread: true, openByRemote: true, profileOf: address })).join("")}
       </div>`;
+    // The banner, picture and name stay as they are when only the page under them changes (Posts /
+    // Replies, a page of rows landing): drawing them again reloaded the banner, which sizes itself
+    // when it loads, so the whole screen jumped on every switch (owner, 2026-11-24).
+    const keptHero = panelBodyEl.querySelector(":scope > .kaposts-profile-hero");
+    if (keptHero && lastProfileHeroHtml === heroHtml) {
+      while (keptHero.nextSibling) keptHero.nextSibling.remove();
+      keptHero.insertAdjacentHTML("afterend", pageHtml);
+    } else {
+      panelBodyEl.innerHTML = heroHtml + pageHtml;
+    }
+    lastProfileHeroHtml = heroHtml;
     // The whole banner at the full width, at its own proportions (iOS c66bfc7).
     // The .kachat <img> banner sizes its box itself when it loads (banner-fit.js data-banner-fit).
     // More appears only when the three-line clamp actually hid something.
