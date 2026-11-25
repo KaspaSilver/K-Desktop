@@ -155,6 +155,7 @@ function removalHarness(storage) {
     removeAddressBookForWallet: noop, removeKachatNameReminders: noop,
     ownedNamesStorageKey: (a) => `owned:${a}`, marketAddressesStorageKey: (a) => `market:${a}`, ownProfileStorageKey: (a) => `profile:${a}`,
     STORAGE_KEY: "s", MESSAGE_HISTORY_KEY: "h", STATE_BACKUP_KEY: "b", chatStorageRemoveSync: noop,
+    chatStorageGetSync: (key) => storage.getItem(key), chatStorageSetSync: (key, value) => storage.setItem(key, value),
     accountBackupStatus: { forget: noop },
     loadAccountMetaMap: () => ({}), saveAccountMetaMap: noop, ACCOUNT_SHELL_META_KEY: "meta",
     PERSISTED_WALLET_KEY: "wallet", HANDSHAKE_SYNC_KEY: "hs", readActiveAccountAddress: () => "", ACTIVE_ACCOUNT_KEY: "active",

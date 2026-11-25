@@ -468,7 +468,13 @@ configureAddressBook({
 // below still applies.
 // ---------------------------------------------------------------------------
 const CHAT_STORAGE_BASE_KEYS = [STORAGE_KEY, STATE_BACKUP_KEY, MESSAGE_HISTORY_KEY];
+// Group messages too (2026-11-25): every group's messages, photos and voice notes inline, were one
+// localStorage value, and a save over the ~5MB quota failed without a word - the messages since
+// stayed on screen until the next reload and were then gone. One global key (bucketed by wallet
+// inside), written here as a literal: GROUP_MSG_KEY is declared far below this top-level await.
+const CHAT_STORAGE_GLOBAL_KEYS = ["kachat-group-messages-v1"];
 function isChatStorageKey(key) {
+  if (CHAT_STORAGE_GLOBAL_KEYS.includes(key)) return true;
   return CHAT_STORAGE_BASE_KEYS.some(
     (base) => key === base || (key.startsWith(`${ACCOUNT_DATA_PREFIX}:`) && key.endsWith(`:${base}`)),
   );
@@ -1866,14 +1872,19 @@ function removeAccountScopedLocalData(address, { spendingAddresses = [], keepCoi
     for (const bucketKey of bucketKeys) for (const groupId of Object.keys(groupsAll?.[bucketKey] || {})) removedGroupIds.add(groupId);
   } catch { /* unreadable: no group ids to clear */ }
   for (const key of ["kachat-groups-v1", "kachat-group-seen-msgs-v1", GROUP_MSG_KEY, GROUP_REACTIONS_KEY, GROUP_EDITS_KEY, GROUP_UNREAD_KEY, GROUP_HIDDEN_MEMBERS_KEY, GROUP_MUTED_MEMBERS_KEY, "kachat-group-tombstones-v1", "kachat-group-control-cursor-v1", "kachat-group-msg-counter-v1", "kachat-group-invites-v1", "kachat-group-invite-answers-v1", "kachat-group-member-status-v1", SPENDING_STATE_KEY, UTXO_LABELS_KEY]) {
+    // Group messages live in the chat storage (IndexedDB), the rest in localStorage.
+    const inChatStorage = key === GROUP_MSG_KEY;
     try {
-      const all = JSON.parse(localStorage.getItem(key) || "null");
+      const all = JSON.parse((inChatStorage ? chatStorageGetSync(key) : localStorage.getItem(key)) || "null");
       if (!all || typeof all !== "object") continue;
       let changed = false;
       for (const bucketKey of bucketKeys) {
         if (Object.prototype.hasOwnProperty.call(all, bucketKey)) { delete all[bucketKey]; changed = true; }
       }
-      if (changed) localStorage.setItem(key, JSON.stringify(all));
+      if (changed) {
+        if (inChatStorage) chatStorageSetSync(key, JSON.stringify(all));
+        else localStorage.setItem(key, JSON.stringify(all));
+      }
     } catch { /* leave a store we cannot read */ }
   }
   // Group notification modes are per account now and went with the prefixed keys above. A global
@@ -13115,7 +13126,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 334;
+const APP_BUILD = 335;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -31684,13 +31695,20 @@ let groupMsgAllCache = null;
 let groupMsgSaveTimer = 0;
 function loadGroupMsgAll() {
   if (groupMsgAllCache) return groupMsgAllCache;
-  try { groupMsgAllCache = JSON.parse(localStorage.getItem(GROUP_MSG_KEY) || "{}") || {}; } catch { groupMsgAllCache = {}; }
+  // IndexedDB (ui/storage.js, as the 1:1 chats), not localStorage: see CHAT_STORAGE_GLOBAL_KEYS.
+  try { groupMsgAllCache = JSON.parse(chatStorageGetSync(GROUP_MSG_KEY) || "{}") || {}; } catch { groupMsgAllCache = {}; }
   return groupMsgAllCache;
 }
 function flushGroupMsgAll() {
   groupMsgSaveTimer = 0;
   if (!groupMsgAllCache) return;
-  try { localStorage.setItem(GROUP_MSG_KEY, JSON.stringify(groupMsgAllCache)); } catch {}
+  try {
+    chatStorageSetSync(GROUP_MSG_KEY, JSON.stringify(groupMsgAllCache));
+  } catch (error) {
+    // Only when IndexedDB is unavailable and localStorage is full: say so instead of losing the
+    // messages without a trace (they stay in memory, and the next save tries again).
+    try { appendEngineLog(`Group messages could not be saved: ${error?.message || error}`); } catch {}
+  }
 }
 // Every group's messages are one stored value, so each save writes all of them: a busy group's
 // burst of messages is gathered into one write every 1.5 s (audit 2026-11-22; it was 0.3 s), and
@@ -31700,7 +31718,8 @@ function saveGroupMsgAll(all) {
   groupMsgAllCache = all;
   if (!groupMsgSaveTimer) groupMsgSaveTimer = window.setTimeout(flushGroupMsgAll, GROUP_MSG_SAVE_DELAY_MS);
 }
-function flushPendingGroupMsgAll() { if (groupMsgSaveTimer) { window.clearTimeout(groupMsgSaveTimer); flushGroupMsgAll(); } }
+// The chat storage's own hide/unload flush may already have run, so this one starts the write itself.
+function flushPendingGroupMsgAll() { if (groupMsgSaveTimer) { window.clearTimeout(groupMsgSaveTimer); flushGroupMsgAll(); try { flushChatStorage(); } catch {} } }
 window.addEventListener("pagehide", flushPendingGroupMsgAll);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushPendingGroupMsgAll(); });
 /// System lines - "X was added", a photo or name change - last ten minutes.
