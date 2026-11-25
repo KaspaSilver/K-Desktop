@@ -47,9 +47,11 @@ test("the Chats badge counts rooms whose bell is on", () => {
   assert.match(app, /for \(const tab of \["profile", "kaposts", "chats"\]\)/);
 });
 
-test("Edit Default Public Chats is in the New sheet", () => {
-  assert.match(app, /\{ id: "public-settings", title: "Edit Default Public Chats", subtitle: "Turn the default rooms and the language rooms on or off\." \}/);
-  assert.match(app, /else if \(choice === "public-settings"\) \{\n      try \{ openPublicChatsSettings\(\); \}/);
+// K 8cb4c88e moved it again, out of the New sheet to a gear at the top left of Chats
+// (tools/test-chat-bells-translate.mjs).
+test("Edit Default Public Chats is the Chats gear, not a New sheet row", () => {
+  assert.doesNotMatch(app, /id: "public-settings"/);
+  assert.match(html, /data-chats-public-settings aria-label="Edit Default Public Chats"/);
   assert.match(rooms, /export function openPublicChatsSettings\(\)/);
 });
 

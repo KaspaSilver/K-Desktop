@@ -325,22 +325,18 @@ function curatedChannelOn(name) {
   return curatedShown(name) && (FEATURED_BROADCAST_CHANNELS.includes(name) || joinedChannels.includes(name));
 }
 /** Off: the room leaves the list and its bell goes off. On: it is joined if it wasn't, so it is
- *  in the list and the circles row at once (iOS d128773), and comes back - #kaspa and
- *  #kachat-bugs with their bell on again, as they start; the language rooms as they were. */
+ *  in the list and the circles row at once (iOS d128773), and comes back silenced, as every room
+ *  starts since K 8cb4c88e (#kaspa and #kachat-bugs no longer get their bell back). */
 function setCuratedChannel(name, shown) {
   if (!isCuratedBroadcastChannel(name)) return;
   if (shown) hiddenCurated.delete(name); else hiddenCurated.add(name);
   if (shown) addJoinedChannel(name);
   try { localStorage.setItem(deps.accountScopedKey(HIDDEN_CURATED_KEY), JSON.stringify([...hiddenCurated])); } catch { /* fine */ }
-  const isJoined = joinedChannels.includes(name);
   if (!shown) {
     delete notifyByChannel[name];
     if (activeChannel === name) closeRoom();
     // switched off: its pin in the Chats row goes too (K 518fdc8c dropRoomPin)
     try { deps.onRoomRemoved?.(name); } catch { /* the app's pins */ }
-  } else if (isJoined && FEATURED_BROADCAST_CHANNELS.includes(name)) {
-    // As iOS setCuratedChannel does: a featured room switched back on notifies again.
-    notifyByChannel[name] = true;
   }
   saveNotify();
   syncScanWanted();
@@ -361,8 +357,8 @@ export function setAllLanguageRooms(shown) {
   }
 }
 
-/** Edit Default Public Chats, from the Chats New sheet (KaChat 148a5331; it was the gear on the
- *  Public Chats screen). */
+/** Edit Default Public Chats, from the gear at the top left of Chats (K 8cb4c88e; it was a row in
+ *  the Chats New sheet since KaChat 148a5331, and before that the gear on the Public Chats screen). */
 export function openPublicChatsSettings() {
   // iOS PublicChatsSettingsView (d37f64d): a Form titled "Public Chats" with Done, a Popular
   // section with its footer, then the Languages switch - every language room off at once, and
@@ -504,35 +500,15 @@ function loadState({ caches = true } = {}) {
     if (!joinedAtByChannel[name]) { joinedAtByChannel[name] = Date.now(); stamped = true; }
   }
   if (stamped) { try { saveJoinedAt(); } catch {} }
-  applyDefaultBellsOnce();
   migrateCachedReactionRows();
   pruneCache();
 }
 
-// #kaspa and #kachat-bugs start with notifications on, once per wallet (iOS 865c9ab
-// applyDefaultNotificationsOnce, key kaposts_broadcast_default_bells_<address>), so a bell the
-// user later switches off stays off. The owner's call: this deliberately overrides Desktop's
-// earlier "rooms quiet by default" (Build 51, 91fcc71, porting iOS 1ea3c45), which iOS itself
-// reversed in 865c9ab. The key is new, so every wallet - including one that had the bells on
-// before 91fcc71 and switched them off since - gets them on once more. A room switched off in
-// Public Chats settings is left alone.
-const DEFAULT_BELLS_APPLIED_KEY = "kaposts_broadcast_default_bells";
-function applyDefaultBellsOnce() {
-  // No wallet yet: accountScopedKey would fall back to the bare, unscoped key.
-  if (!deps?.engine?.address) return;
-  const key = deps.accountScopedKey(DEFAULT_BELLS_APPLIED_KEY);
-  try { if (localStorage.getItem(key) === "1") return; } catch { return; }
-  let changed = false;
-  for (const name of FEATURED_BROADCAST_CHANNELS) {
-    if (!curatedShown(name) || !joinedChannels.includes(name) || notifyByChannel[name]) continue;
-    notifyByChannel[name] = true;
-    changed = true;
-  }
-  try {
-    if (changed) saveNotify();
-    localStorage.setItem(key, "1");
-  } catch { /* fine: tried again on the next load */ }
-}
+// Every room starts silenced, bell off (K 8cb4c88e, owner 2026-11-24, for new installs): #kaspa and
+// #kachat-bugs no longer get their bell switched on once per wallet (iOS 865c9ab
+// applyDefaultNotificationsOnce, Desktop's applyDefaultBellsOnce, key
+// kaposts_broadcast_default_bells, both removed). An account that already had those bells switched
+// on keeps them: they are its own saved bells (NOTIFY_KEY) like any other, and nothing here turns them off.
 
 /** Older caches stored reaction payload rows as normal messages — lift them into the
  *  reactions store so they never render as raw-JSON rows. */
@@ -1706,10 +1682,14 @@ function buildMessageElement(m) {
       body.append(mark);
     }
     el.append(body);
-    // The line under a translated bubble, the same words KaPosts uses. Nothing at all until
-    // Translate is picked from the menu.
+    // The line under a bubble, the same words KaPosts uses: "Translate" under someone else's
+    // message in another language (K 8cb4c88e: as KaPost's "Translate post", not only in the
+    // menu; the same language guess, canOfferTextTranslation), then "Translating...", "Translated
+    // from Spanish - Show original", or why it could not be.
     const tState = translationKey ? deps.translation.state(translationKey) : null;
-    if (tState) {
+    const offerText = translationKey && !tState && !m.status ? translatableText(m) : "";
+    const offersTranslate = Boolean(offerText) && deps.translation.canOffer(translationKey, offerText);
+    if (tState || offersTranslate) {
       const note = document.createElement("div");
       note.className = "broadcast-translate-note";
       const link = (label, onClick) => {
@@ -1720,7 +1700,8 @@ function buildMessageElement(m) {
         button.addEventListener("click", (event) => { event.stopPropagation(); onClick(); });
         return button;
       };
-      if (tState.status === "translating") note.textContent = "Translating...";
+      if (!tState) note.append(link("Translate", () => deps.translation.translate(translationKey, offerText)));
+      else if (tState.status === "translating") note.textContent = "Translating...";
       else if (tState.status === "failed") note.append(link("Translation unavailable - try again", () => deps.translation.translate(translationKey, translatableText(m))));
       else if (tState.status === "unavailable") note.textContent = tState.reason || "Translation unavailable";
       else if (tState.showingOriginal) note.append(link("Show translation", () => deps.translation.showTranslation(translationKey)));

@@ -10,9 +10,10 @@
 // what kind ("New message", "Sent you 1.5 KAS").
 //
 // `mirror` (written by ui/web-push.js, names and flags only):
-//   { account, unit, sound, childMode, names: {addr: name}, quiet: [addr], blocked: [addr],
-//     groups: {blindedIdHex: {g: groupId, n: groupName, m: memberAddress}}, addressLabels: {addr: label},
-//     kapostsNames: {xOnlyPubkeyHex: name} }
+//   { account, unit, sound, childMode, names: {addr: name}, quiet: [addr], off: [addr], loud: [addr],
+//     blocked: [addr], groups: {blindedIdHex: {g: groupId, n: groupName, m: memberAddress, q?: 1}},
+//     addressLabels: {addr: label}, kapostsNames: {xOnlyPubkeyHex: name},
+//     kapostsKinds: {likes, dislikes, comments, reposts, follows, mentions}, rooms: [channel] }
 (function (root) {
   "use strict";
 
@@ -39,6 +40,19 @@
     return String(names[lower(address)] || "").trim() || shortAddress(address);
   }
   function has(list, address) { return Array.isArray(list) && list.indexOf(lower(address)) >= 0; }
+  // A push flag as the server may send it: true, 1, "true" or "1" (K 8cb4c88e isTrue).
+  function isTrue(value) {
+    if (value === true) return true;
+    if (typeof value === "number") return value !== 0;
+    const text = String(value == null ? "" : value).trim().toLowerCase();
+    return text === "true" || text === "1";
+  }
+  // The open app's Play sound rule for a chat (maybeNotifyIncoming): a contact set to No Sound is
+  // quiet, one set to Sound rings even with Play sound off (K 8cb4c88e contactChoseSound).
+  function chatSilent(m, address) {
+    if (has(m.quiet, address)) return true;
+    return m.sound === false && !has(m.loud, address);
+  }
 
   // A KaPost push names its actor by public key. The Kaspa address that key pays (a Schnorr P2PK
   // address: version 0 + the 32-byte x-only key, in Kaspa's cashaddr-style bech32), so a tip can
@@ -72,6 +86,13 @@
     const checksum = [];
     for (let i = 7; i >= 0; i -= 1) checksum.push(Number((check >> BigInt(5 * i)) & 31n));
     return `${hrp}:${[...data, ...checksum].map((d) => CHARSET[d]).join("")}`;
+  }
+  // Settings > KaPost's switch for a push's kind (K 8cb4c88e isKaPostsKindEnabled): unknown kinds,
+  // a tip, and no switches mirrored yet (an older app) all pass.
+  function kapostsKindEnabled(kinds, kind) {
+    const setting = { like: "likes", dislike: "dislikes", reply: "comments", quote: "reposts", repost: "reposts", follow: "follows", mention: "mentions" }[kind];
+    if (!setting || !kinds || typeof kinds !== "object") return true;
+    return kinds[setting] !== false;
   }
   // The KaPost action a push is about, as K's notification extension reads it (kaPostsKind).
   function kapostsKind(pushKind, body) {
@@ -225,6 +246,9 @@
 
     if (type === "contextual" || type === "payment" || type === "handshake" || type === "audio") {
       if (!sender || sender === account || otherNetwork(sender) || has(m.blocked, sender)) out.suppress = true;
+      // A contact set to Off rings nothing, a payment included: their chat is out of the
+      // registration, but a payment to you is keyed on your own address (K 8cb4c88e).
+      if (has(m.off, sender)) out.suppress = true;
       // Someone the app holds as a Message Request was announced once already: their later
       // messages are silent until accepted, as in the open app (K chat_request_addresses).
       if (type !== "payment" && has(m.requests, sender)) out.suppress = true;
@@ -254,7 +278,7 @@
       else out.options.body = "New message";
       out.options.tag = `kachat-chat-${sender}`;
       out.options.renotify = true;
-      out.options.silent = !soundOn || has(m.quiet, sender);
+      out.options.silent = chatSilent(m, sender);
       out.options.data.route = { kind: "chatAddress", address: sender };
       out.badge = out.suppress ? null : (unreadHint ?? "increment");
       return out;
@@ -269,6 +293,10 @@
       // nothing here can read one).
       if (control) out.suppress = true;
       if (group) {
+        // A muted group, a muted or hidden member, or a mentions-only group (this worker never reads
+        // a message, so it can't tell a mention): quiet (K 8cb4c88e restrictedGroupOwning,
+        // quietMemberAddresses). The app marks those ids `q` (ui/app.js webPushGroupStreams).
+        if (group.q) out.suppress = true;
         out.title = String(group.n || "").trim() || "Group";
         const who = nameFor(m, group.m || p.sender);
         out.options.body = control ? "Group update" : `${who}: New message`;
@@ -293,7 +321,7 @@
       // push service last heard is silent - except a push that @'s you by your username, which the
       // indexer sends whether or not the bell is on (K bdf29425, INDEXER_HANDOFF.md "Push for
       // @username mentions in public chats"; K's extension shows any room push it gets)
-      const mentionsYou = String(p.mention || "").toLowerCase() === "true";
+      const mentionsYou = isTrue(p.mention);
       if (Array.isArray(m.rooms) && !m.rooms.includes(channel) && !mentionsYou) out.suppress = true;
       // An edit changes an earlier message in place: nothing to announce (KaChat iOS 148a5331).
       if (isRoomEdit(p.body)) out.suppress = true;
@@ -309,12 +337,16 @@
       // someone this account muted or blocked on KaPost never rings (KaPost 369794e)
       const actor = lower(p.actor_pubkey);
       if (actor && Array.isArray(m.kapostsHidden) && m.kapostsHidden.includes(actor.length === 66 ? actor.slice(2) : actor)) out.suppress = true;
+      // A kind switched off in Settings > KaPost (Mentions included), sent anyway: nothing shows
+      // (K 8cb4c88e).
+      const kind = kapostsKind(p.kaposts_kind, p.body);
+      if (!kapostsKindEnabled(m.kapostsKinds, kind)) out.suppress = true;
       // Named as K names them (K b0f0a4e6): a contact's name or a .kachat name the app knows, else
       // the server's subtitle (a KNS name or a short address).
       const actorName = String(((m.kapostsNames || {})[xOnlyOf(actor)]) || "").trim();
       // A tip is a payment in the tipper's chat: one "Received a tip: 0.2 KAS" there, opening that
       // chat, under the tag and key its payment push uses (the same txid), so the two are one.
-      if (kapostsKind(p.kaposts_kind, p.body) === "tip") {
+      if (kind === "tip") {
         const tipper = kaspaAddressFromXOnly(actor, prefixOf(account) || "kaspa");
         if (tipper && tipper !== account) {
           const amount = String(p.body || "").split(": ").pop().split(" ")[0];
@@ -322,10 +354,12 @@
           out.options.body = /^\d+(\.\d+)?$/.test(amount) ? `Received a tip: ${amount} ${unit}` : "Received a tip";
           out.options.tag = `kachat-chat-${tipper}`;
           out.options.renotify = true;
-          out.options.silent = !soundOn || has(m.quiet, tipper);
+          out.options.silent = chatSilent(m, tipper);
           out.options.data.route = { kind: "chatAddress", address: tipper };
           out.options.data.tip = true;
-          if (has(m.blocked, tipper)) out.suppress = true;
+          // It reads as a payment in the tipper's chat, so that chat's rules hold: nothing from a
+          // blocked address or a contact set to Off (K 8cb4c88e applyKaPostsTip).
+          if (has(m.blocked, tipper) || has(m.off, tipper)) out.suppress = true;
           return out;
         }
       }
@@ -444,5 +478,5 @@
     return next.length > 500 ? next.slice(next.length - 500) : next;
   }
 
-  root.KaChatPushMap = { holdsBackWhileOpen, noteHiddenRequest, notificationFromPush, routeKey, shortAddress, kasFromSompi, partBurstKey, applyPartBurst, PART_BURST_MS, kaspaAddressFromXOnly, kapostsKind, noteArrival, recordPushArrival, isTipPush, PUSH_ARRIVAL_MS };
+  root.KaChatPushMap = { isTrue, kapostsKindEnabled, holdsBackWhileOpen, noteHiddenRequest, notificationFromPush, routeKey, shortAddress, kasFromSompi, partBurstKey, applyPartBurst, PART_BURST_MS, kaspaAddressFromXOnly, kapostsKind, noteArrival, recordPushArrival, isTipPush, PUSH_ARRIVAL_MS };
 })(typeof self !== "undefined" ? self : globalThis);

@@ -124,6 +124,8 @@ and thread it through `PushRegistryHandle::register/update` and the actor comman
   "kaposts_notify_comments": true,
   "kaposts_notify_reposts": true,
   "kaposts_notify_follows": true,
+  "kaposts_notify_mentions": true,
+  "notify_sound": true,
   "kaposts_watch_authors": ["89e6...64 hex (x-only)", "0359...66 hex"],
   "watch_only_addresses": ["kaspa:qq...spending1"],
   "primary_address": "kaspa:qr...me",
@@ -158,6 +160,16 @@ Notes for the server:
 * Sign out / notifications off: `DELETE /v1/push/unregister` signed with the wallet (LegacyV1
   preimage over empty lists, the same as the server verifies today), plus device auth; the client
   then also unsubscribes the browser subscription, so a missed unregister ends in a 410 (§6.3).
+* `notify_sound` (K 8cb4c88e): Settings > Notifications > Play sound. `false` = send every push
+  to this device silent (the iOS `silent_tokens` path), `address_activity` and `name_event`
+  included. `kaposts_notify_mentions` (Settings > KaPost > Mentions): `false` = skip the KaPost
+  `mention` push. Both re-send the registration when switched (they are part of what the client
+  fingerprints). The worker enforces both itself as well (`public/sw-push.js`: no sound with Play
+  sound off, a switched-off KaPost kind shown and closed), so a server that ignores them only
+  costs a wasted push.
+* A device with no chats still registers: `watched_addresses` then holds only the wallet's own
+  address, with `primary_address` and `watch_only_addresses` (Received KAS, .kachat name events),
+  which is all `register` needs (iOS since K 8cb4c88e sends the last two alone).
 * `watch_only_addresses`: the web client sends the spending / cold-storage addresses whose Address
   Activity is on (never the chatting address - its payments already come as `payment` pushes). The
   iPhone app sends none today; see "Owner decisions" in the client report.
@@ -237,7 +249,7 @@ small address → name map the app mirrors into IndexedDB):
 | `handshake` | `sender` | **name** / "Started a conversation" | `kachat-chat-<sender>` | that chat |
 | `group_message` | `blinded_group_id`, `sender` | **group name** / "**member**: New message" (unknown group: "Group chat" / "New group message") | `kachat-group-<groupId>` | that group |
 | `group_control` | `blinded_group_id` | **group name** / "Group update" | `kachat-group-<groupId>` | that group |
-| `broadcast` | `channel`, `title`, `subtitle`, `body`, `tx_id`, optional `mention: "true"` (it @'s this account by username: shown even with the room's bell off, K bdf29425) | `#channel` / "subtitle: body" | `kachat-broadcast-<tx_id>` | that room |
+| `broadcast` | `channel`, `title`, `subtitle`, `body`, `tx_id`, optional `mention: "true"` (it @'s this account by username: shown even with the room's bell off, K bdf29425; every room starts with its bell off since K 8cb4c88e, so this is how a mention reaches a closed app), optional `sender` | `#channel` / "subtitle: body" | `kachat-broadcast-<tx_id>` | that room |
 | `kaposts` | `subtitle`, `body`, `post_id`, `kaposts_kind`, `tx_id` | "KaPosts" / "subtitle body" | `kachat-kaposts-<tx_id>` | the post; a `reply` or `quote` opens `tx_id`, the reply itself |
 | `name_event` | `title`, `body`, `name`, `dedup` | title / body as sent | `kachat-name-<dedup>` | .kachat |
 | `address_activity` | `address`, `amount_kas`, `tx_id` | "Received 12.5 KAS" / the address's label | `kachat-addr-activity-<tx_id>` | that address |
@@ -246,6 +258,15 @@ small address → name map the app mirrors into IndexedDB):
 Optional field the worker honours on chat types: `"unread": "<n>"` - the badge to set. The service
 does not know unread counts today, so leave it out; the worker then increments its own count and
 the app corrects it when opened.
+
+Every notification switch holds in the worker too (K 8cb4c88e notifications audit), from the
+mirror the app writes: Push Notifications off shows and closes every push; Play sound off drops
+the sound (a contact set to Sound still rings, one set to No Sound never does); a contact set to
+Off rings nothing, payments and tips included; a room whose bell is off is quiet unless the push
+has `mention`; a KaPost kind switched off (Mentions included) is quiet; a muted group, a muted or
+hidden member and a mentions-only group (the worker can't read a message to find the mention) are
+quiet. "Quiet" is shown and closed at once, since Safari revokes a subscription whose pushes show
+nothing.
 
 The tags are the ones the open app uses for its own notifications, so a push and the app's later
 notification for the same message replace each other (the app's carries the real text).

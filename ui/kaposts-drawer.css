@@ -200,9 +200,48 @@
   position: absolute; top: 6px; right: 6px; width: 9px; height: 9px; border-radius: 50%;
   background: var(--danger, #ff3b30); box-shadow: 0 0 0 2px var(--bg-plain, #000);
 }
-/* Share Profile beside the Profile title (K 804cbcb7); no other page has it. */
+/* Share Profile, the Profile tab only: the top-left button since K 8cb4c88e (beside the title from
+   K 804cbcb7), where the other pages have back; no other page has it. */
 .kaposts-title-share { flex: 0 0 auto; }
 [data-kaposts-panel]:not([data-kaposts-panel-root]) .kaposts-title-share { display: none; }
+[data-kaposts-panel][data-kaposts-panel-root] > .kaposts-thread-header > .kaposts-title-share { order: -1; }
+[data-kaposts-panel][data-kaposts-panel-root] > .kaposts-thread-header > [data-kaposts-panel-back] { display: none; }
+/* The account chip beside Profile's title (K 8cb4c88e ProfileAccountChip): your picture and
+   username in a glass capsule with a chevron; opens the Accounts sheet. Profile tab only. */
+.profile-account-chip {
+  display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0;
+  height: 34px; padding: 0 12px 0 5px; border-radius: 999px;
+  border: .8px solid var(--glass-stroke, rgba(255, 255, 255, .12));
+  background: var(--glass-fill, rgba(255, 255, 255, .06));
+  -webkit-backdrop-filter: var(--glass-blur, blur(18px)); backdrop-filter: var(--glass-blur, blur(18px));
+  box-shadow: var(--glass-shadow, none);
+  color: var(--text); font-family: inherit; font-size: 14px; font-weight: 600; line-height: 1; cursor: pointer;
+}
+.profile-account-chip:hover { background-color: var(--row-hover, rgba(255, 255, 255, .1)); }
+.profile-account-chip[hidden],
+[data-kaposts-panel]:not([data-kaposts-panel-root]) .profile-account-chip { display: none; }
+.profile-account-chip-avatar-host { display: contents; }
+.profile-account-chip-avatar { width: 24px; height: 24px; border-radius: 50%; overflow: hidden; flex: 0 0 auto; }
+.profile-account-chip-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.profile-account-chip-label { min-width: 0; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-account-chip-chevron { width: 12px; height: 12px; flex: 0 0 auto; fill: none; stroke: var(--muted); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+/* The Accounts sheet (K 8cb4c88e AccountSwitcherSheet): each saved account with its own picture,
+   the signed-in one first, outlined and checked; Add Another Account under them. */
+.cold-action-row.account-switcher-row { min-height: 64px; padding-top: 10px; padding-bottom: 10px; }
+.cold-action-row.account-switcher-row .cold-action-copy { flex: 1 1 auto; }
+.cold-action-row.account-switcher-row .cold-action-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cold-action-row.account-switcher-row .cold-action-copy small {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cold-action-row.account-switcher-row .saved-account-avatar { width: 42px; height: 42px; }
+.cold-action-row.account-switcher-row.is-current { border-color: color-mix(in srgb, var(--kaspa, #70c7ba) 70%, transparent); box-shadow: inset 0 0 0 .7px color-mix(in srgb, var(--kaspa, #70c7ba) 70%, transparent); }
+.account-switcher-current { display: grid; place-items: center; flex: 0 0 auto; margin-left: auto; color: var(--kaspa, #70c7ba); }
+.account-switcher-current svg { width: 22px; height: 22px; }
+.cold-action-row.account-switcher-add { justify-content: center; border-color: transparent; background: transparent; box-shadow: none; color: var(--kaspa, #70c7ba); }
+.cold-action-row.account-switcher-add .cold-action-copy { flex: 0 0 auto; }
+.cold-action-row.account-switcher-add .cold-action-copy strong { color: var(--kaspa, #70c7ba); }
+.account-switcher-add-icon { display: grid; place-items: center; flex: 0 0 auto; }
+.account-switcher-add-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 /* At phone width the other pages centre their title; Profile's stays on the left, as iOS's fixed
    large title, with Share Profile right after it. */
 @media (max-width: 859px) {

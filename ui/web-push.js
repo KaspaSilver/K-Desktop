@@ -371,6 +371,8 @@ async function syncOnce(force) {
   const fields = buildRegistrationFields({ ...collected, endpoint: keys.endpoint, p256dh: keys.p256dh, authSecret: keys.auth, primaryAddress: wallet.address });
   // The service refuses a registration with nothing to watch; your own address is always worth
   // watching (handshakes and payments to you are keyed on it - iOS has it through your own chat).
+  // So a device with no chats still registers, for Received KAS (watch_only_addresses) and .kachat
+  // (primary_address) pushes too (K 8cb4c88e hasAnythingToWatch).
   if (!fields.watched_addresses.length && !fields.watched_group_ids.length) fields.watched_addresses = [wallet.address.toLowerCase()];
   const fingerprint = registrationFingerprint(fields, wallet.address);
   const current = loadRegistration();

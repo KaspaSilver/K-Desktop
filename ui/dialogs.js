@@ -246,6 +246,9 @@ export const ACTION_TILE_ICONS = {
 /// with `subtitle` moved to the tooltip and the accessible description. The long-press menus use
 /// it; every other sheet keeps the default row form.
 /// `footer`: a line under the rows (iOS: Manage Addresses' discovery summary under its actions).
+/// Rows may carry `leadingHtml` / `trailingHtml` (trusted markup the caller built and escaped, e.g.
+/// the account switcher's pictures and its Signed in mark, K 8cb4c88e) and an extra `className`;
+/// the leading piece is drawn first by CSS (`.cold-action-leading { order: -1 }`).
 // `messageHtml` (instead of `message`) is markup the caller wrote itself, for a link in the text;
 // never pass it anything from a message, a name or a server.
 export function chooseDialog({ title, message = "", messageHtml = "", kicker = null, options = [], layout = "rows", footer = "" } = {}) {
@@ -266,11 +269,13 @@ export function chooseDialog({ title, message = "", messageHtml = "", kicker = n
       </div>` : `
       <div class="cold-action-rows">
         ${list.map((option) => `
-          <button type="button" class="cold-action-row${option.destructive ? " cold-action-row-danger" : ""}" data-app-dialog-choice="${escape(option.id)}"${option.disabled ? " disabled" : ""}>
+          <button type="button" class="cold-action-row${option.destructive ? " cold-action-row-danger" : ""}${option.className ? ` ${escape(option.className)}` : ""}" data-app-dialog-choice="${escape(option.id)}"${option.disabled ? " disabled" : ""}>
             <span class="cold-action-copy">
               <strong>${escape(option.title)}</strong>
               ${option.subtitle ? `<small>${escape(option.subtitle)}</small>` : ""}
             </span>
+            ${option.leadingHtml ? `<span class="cold-action-leading">${option.leadingHtml}</span>` : ""}
+            ${option.trailingHtml || ""}
           </button>`).join("")}
       </div>`}
       ${footer ? `<p class="field-hint app-dialog-footer">${escape(footer)}</p>` : ""}`, null, tiles ? "app-dialog-tiles" : "");

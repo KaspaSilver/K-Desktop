@@ -307,6 +307,11 @@ export function buildRegistrationFields(input) {
     kaposts_notify_reposts: kaposts ? kaposts.reposts !== false : true,
     kaposts_notify_follows: kaposts ? kaposts.follows !== false : true,
     kaposts_notify_mentions: kaposts ? kaposts.mentions !== false : true,
+    // Settings > Notifications > Play sound (K 8cb4c88e notify_sound): false asks the service to
+    // send every push silent, Received KAS and .kachat included. Part of the fingerprint like
+    // every field here, so switching it registers again. The worker drops the sound too
+    // (public/sw-push.js, mirror.sound), for a service that ignores it.
+    notify_sound: input.notifySound !== false,
     kaposts_watch_authors: kaposts?.pubkey ? cappedUnique(input.kapostsWatchAuthors, PUSH_LIMITS.watchAuthors, (v) => String(v || "").trim().toLowerCase()).sort() : [],
     // Whom you muted or blocked on KaPost (x-only keys): the service never pushes their activity
     // (K 428a797b); the worker's own check (public/sw-push.js) stays as the second line.

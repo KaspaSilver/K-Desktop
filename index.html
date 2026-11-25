@@ -13,7 +13,7 @@
   <!-- Too-old browsers (no WebAssembly / modern JS, e.g. iOS 10) get a clear message, not a blank layout. -->
   <script src="/browser-check.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=435" />
+  <link rel="stylesheet" href="./ui/styles.css?v=436" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (K's globe, dark only since K b0f0a4e6) is the tab icon too. -->
@@ -77,7 +77,17 @@
     <header class="app-topbar">
       <!-- No connection dot here (K 518fdc8c): it is only at the top of Settings and on the dock's
            Settings icon. The cluster stays as the bar's leading spacer. -->
-      <div class="toolbar-health-cluster"></div>
+      <div class="toolbar-health-cluster">
+        <!-- Public Chats' settings (K 8cb4c88e: a gear at the top left of Chats, no longer in the
+             + sheet): the default rooms and the language rooms on or off. Chats only, not while
+             selecting, not in Simple Mode (app.js setChatToolRowsForGroupsTab). -->
+        <button type="button" class="chats-public-settings-gear" data-chats-public-settings aria-label="Edit Default Public Chats" title="Edit Default Public Chats" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 0 1 0 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 0 1 0-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.369-.491l1.217.456c.355.133.75.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281Z"/>
+            <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+          </svg>
+        </button>
+      </div>
       <div class="toolbar-balance" data-toolbar-balance title="Current wallet balance">
         <img class="toolbar-balance-logo" src="./ui/assets/kaspa-logo.png" alt="" aria-hidden="true" width="15" height="15" />
         <span data-toolbar-balance-value>-- KAS</span>
@@ -249,6 +259,9 @@
               <button class="conversation-call-button" type="button" data-open-chess aria-label="Open active chess game" title="Open active chess game" hidden>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4z"/><path d="M4 9h16M4 14h16M9 4v16M14 4v16" opacity=".5"/></svg>
               </button>
+              <!-- This chat's bell (K 8cb4c88e): Silence / Unsilence, the Chats list's swipe Silence.
+                   The glyph and label follow the chat (app.js refreshChatBellButton). -->
+              <button class="conversation-call-button conversation-bell-button" type="button" data-chat-bell aria-label="Notifications on" title="Silence"></button>
             </div>
             <div class="conversation-utility-controls" hidden aria-hidden="true">
               <button type="button" data-copy-contact-address>Copy Address</button>
@@ -473,6 +486,8 @@
                     <p class="conversation-bio group-chat-sub" data-group-chat-sub></p>
                   </span>
                 </button>
+                <!-- This group's bell (K 8cb4c88e): Silence / Unsilence, the Chats list's swipe Silence. -->
+                <button class="conversation-call-button conversation-bell-button" type="button" data-group-chat-bell aria-label="Notifications on" title="Silence"></button>
               </div>
               <div class="message-selection-toolbar" data-group-selection-toolbar hidden>
                 <button class="selection-cancel" type="button" data-group-cancel-selection>Cancel</button>
@@ -689,10 +704,19 @@
                 <span class="kaposts-panel-done">Done</span>
               </button>
               <strong data-kaposts-panel-title>Panel</strong>
-              <!-- Share Profile beside the Profile title (K 804cbcb7, owner's call 2026-11-21): the
-                   Profile tab only; CSS hides it on every other page. -->
-              <button class="kaposts-edit-kns kaposts-title-share" type="button" data-kaposts-share-profile>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12"/></svg>Share Profile
+              <!-- Share Profile, the Profile tab only (CSS hides it on every other page): the top-left
+                   button since K 8cb4c88e (owner, 2026-11-24, swapped with the account chip; it was
+                   beside the title from K 804cbcb7). Icon and "Share", as iOS's toolbar button. -->
+              <button class="kaposts-edit-kns kaposts-title-share" type="button" data-kaposts-share-profile aria-label="Share Profile" title="Share Profile">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12"/></svg>Share
+              </button>
+              <!-- You, in glass, beside Profile's title (K 8cb4c88e ProfileAccountChip): your picture
+                   and username, or your short address; opens the Accounts sheet (ui/app.js
+                   openAccountSwitcher). The Profile tab only, as Share. -->
+              <button class="profile-account-chip" type="button" data-profile-account-chip aria-haspopup="dialog" aria-description="Switch Account" title="Switch Account" hidden>
+                <span class="profile-account-chip-avatar-host" data-profile-account-chip-avatar aria-hidden="true"></span>
+                <span class="profile-account-chip-label" data-profile-account-chip-label></span>
+                <svg class="profile-account-chip-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9.5 5.5 5.5 5.5-5.5"/></svg>
               </button>
             </div>
             <div class="kaposts-panel-body" data-kaposts-panel-body></div>
@@ -1553,8 +1577,14 @@
           <p class="settings-group-label">Connection Status</p>
           <div class="settings-list-card">
             <div class="settings-list-row settings-info-row">
-              <span class="settings-row-copy"><strong>Status</strong></span>
+              <span class="settings-row-copy"><strong>Node Status</strong></span>
               <span class="connection-status-value"><span class="connection-status-dot" data-connection-status-dot aria-hidden="true"></span><span data-connection-status-text>Connecting</span></span>
+            </div>
+            <!-- The message indexer (K 8cb4c88e): Connected, Degraded (a request failed in the last
+                 two minutes) or Disconnected; one /metrics request when the screen opens. -->
+            <div class="settings-list-row settings-info-row" data-connection-indexer-status-row>
+              <span class="settings-row-copy"><strong>Indexer Status</strong></span>
+              <span class="connection-status-value"><span class="connection-status-dot unknown" data-connection-indexer-status-dot aria-hidden="true"></span><span data-connection-indexer-status-text>Checking…</span></span>
             </div>
             <!-- iOS: "Protocol  gRPC (secure)". The browser talks to nodes over wRPC. -->
             <div class="settings-list-row settings-info-row">

@@ -341,6 +341,20 @@ export async function openKachatNameFromNotification(name, { showTab = null } = 
   }
 }
 
+/** Settings > Notifications' Push Notifications or Play sound changed (K 8cb4c88e
+ *  KachatNameReminders.notificationSettingsChanged): switched off, the waiting reminders go at once
+ *  (`canNotify()` now says no); either way a check follows, which re-arms what the switches allow.
+ *  A reminder shows with the sound Play sound says at the time it shows. */
+export function kachatNamesNotificationSettingsChanged() {
+  if (!deps) return;
+  if (!canNotify() && reminderTimerWallet) {
+    const wallet = reminderTimerWallet;
+    stopReminderTimer();
+    writeReminders(wallet, {});
+  }
+  scheduleCheck();
+}
+
 /** A check now, or once the minimum interval has passed (one trailing check at most). */
 function scheduleCheck() {
   const wait = MIN_INTERVAL_MS - (Date.now() - lastCheckAt);

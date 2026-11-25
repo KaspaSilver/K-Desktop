@@ -41,7 +41,7 @@ import { initKachatNamesRuntime, kachatNames, kachatNamesUiEnabled, kachatNamesL
 import { PHOTO_UNLOCK_DELAY_MS, photosUnlockTime, photosAreHidden } from "./photo-unlock.js";
 import { createProfileRescans } from "./profile-rescan.js";
 import { kachatHeroProfile, kachatCachedOwnedNameCount, onKachatSocialChange, kachatCachedIdentity, kachatCachedLabel, kachatCachedDisplayLabel, kachatNameDisplay, kachatShowsEndings, setKachatShowsEndings, kachatCachedAvatarUrl, kachatCachedProfilePieces, onKachatIdentityChange, kachatRetryImage, kachatOwnersOfNames, kachatRescanProfile, kachatOwnedNameCount, onKachatRegistryChange, kachatClearProfileCache, kachatExpiredNames, startKachatUnnamedIdentitySweep, setKachatSocialLookupGate, kachatProfileOpened } from "./kachat-names-live.js";
-import { startKachatNamesNotifier, openKachatNameFromNotification as openKachatNameFromBell, removeKachatNameReminders } from "./kachat-names-notifier.js";
+import { startKachatNamesNotifier, openKachatNameFromNotification as openKachatNameFromBell, removeKachatNameReminders, kachatNamesNotificationSettingsChanged } from "./kachat-names-notifier.js";
 import { initKachatMarket, showKachatMarket, hideKachatMarket, openKachatProfileEditor, openKachatSetupGuide, KACHAT_WORDMARK_SVG, kachatAddressDomainsHtml, renderKachatLiveDomainsTab, openKachatMarketSheet } from "./kachat-market.js";
 import { initKachatStats, showKachatStats, hideKachatStats } from "./kachat-stats.js";
 // Closed-app notifications (Web Push) and the app icon's badge.
@@ -123,7 +123,9 @@ import {
   insertMessageByTime,
   statusLabel as engineStatusLabel,
 } from "../engine/conversations.js";
-import { onIndexerAvailabilityChange, indexerKey, isIndexerDown, INDEXER_RECOVERY_MARGIN_MS } from "../engine/indexer-health.js";
+import { onIndexerAvailabilityChange, indexerKey, isIndexerDown, INDEXER_RECOVERY_MARGIN_MS, indexerConnectionState, checkIndexerNow } from "../engine/indexer-health.js";
+import { createSavedAccountAvatars, savedAvatarSourceFor } from "./saved-account-avatars.js";
+import { accountChipLabel, switcherAccounts, hasKeysOnThisDevice } from "./account-switcher.js";
 import { getEndpoint, getEndpoints, getEndpointOverride, setEndpoint, ENDPOINT_DEFAULTS, DEFAULT_TRUSTED_NODE, DEFAULT_MAINNET_INDEXER, setVerboseApiLogging, isProxyAvailable, proxiedUrl } from "../engine/endpoints.js";
 import { isBip39Word, bip39Matches } from "./bip39-english.js";
 import { createAccountBackupStatus, nextDefaultAccountName, accountHasFunds } from "./account-backup-status.js";
@@ -656,6 +658,8 @@ const ACCOUNT_SHELL_PREFS_KEY = "kachat-account-shell-preferences-v1";
 const ACCOUNT_SHELL_META_KEY = "kachat-account-shell-metadata-v1";
 const SAVED_ACCOUNTS_KEY = "kachat-saved-accounts-v1";
 const ACTIVE_ACCOUNT_KEY = "kachat-active-account-v1";
+// Each saved account's picture, for Saved Accounts and the account switcher (K 8cb4c88e).
+const savedAccountAvatars = createSavedAccountAvatars({ canonicalize: canonicalAccountAddress });
 let accountShellPrefs = loadAccountShellPreferences();
 // The local password guards everything, always (owner, 2026-10-14): revealing a seed phrase or a
 // private key, opening KaChat and switching accounts all ask for it, accounts are always saved on
@@ -1494,6 +1498,45 @@ function applySavedAccountActionsEnabled() {
   }
 }
 
+/** Signs in to a saved account, the sign-in screen's steps (its Saved Accounts rows, and the
+ *  Profile account switcher after Log Out, K 8cb4c88e switchToSavedAccount): this account's
+ *  password when it has one, then the reload. False when it didn't start. */
+async function signInToSavedAccount(account) {
+  if (savedAccountActionRunning) return false;
+  try {
+    // Each account its own password: this account's, asked here when it is picked - never by
+    // itself when the page opens (owner, 2026-10-22). Nothing signs in until it opens the keys
+    // (DSK-007); Face ID / Windows Hello offers itself where the browser allows.
+    const address = account.address;
+    if (isAppLocked(address)) {
+      if (!(await unlockAppWithPassword(undefined, { autoBiometric: true, address }))) return false;
+    } else if (accountShellPrefs.passwordForLogin && hasAppPassword(address)) {
+      const ok = await withVaultTarget(address, () => requestPassword({ mode: "verify", title: "Enter Password", message: "Enter your password to sign in." }));
+      if (!ok) return false;
+    }
+    // the password prompt may have let another account action start meanwhile (iOS 3942a5b7)
+    if (!beginSavedAccountAction("signIn")) return false;
+    activateSavedAccount(account.address);
+    reloadKaChat(); // held until the page goes
+    return true;
+  } catch (error) {
+    endSavedAccountAction("signIn");
+    // iOS OnboardingView: an alert, not a toast.
+    alertDialog({ title: "Sign In Failed", message: userFacingError(error) || "Unable to sign in to this account." });
+    return false;
+  }
+}
+
+/** A saved account's own picture, saved in this browser while it was signed in (K 8cb4c88e
+ *  SavedAccountAvatar), else the person glyph; never looked up. Trusted markup: the src is escaped. */
+function savedAccountAvatarHtml(address, className = "saved-account-avatar") {
+  let src = null;
+  try { src = savedAccountAvatars.get(address); } catch { src = null; }
+  return src
+    ? `<span class="${className}"><img src="${escapeHtml(src)}" alt="" referrerpolicy="no-referrer" data-saved-account-avatar /></span>`
+    : `<span class="${className} avatar-fallback">${personGlyphSvg()}</span>`;
+}
+
 function renderSavedAccountsScreen() {
   if (!savedAccountList) return;
   savedAccountList.replaceChildren();
@@ -1513,7 +1556,8 @@ function renderSavedAccountsScreen() {
     signInButton.type = "button";
     signInButton.className = "saved-account-signin";
     signInButton.setAttribute("aria-label", `Sign in to ${account.name}`);
-    signInButton.innerHTML = `<span class="saved-account-icon" aria-hidden="true">✓</span><span class="saved-account-copy"><strong></strong><small></small></span><span class="saved-account-chevron" aria-hidden="true">›</span>`;
+    // the account's own picture, saved while it was signed in (K 8cb4c88e), where the check was
+    signInButton.innerHTML = `${savedAccountAvatarHtml(account.address)}<span class="saved-account-copy"><strong></strong><small></small></span><span class="saved-account-chevron" aria-hidden="true">›</span>`;
     signInButton.querySelector("strong").textContent = account.name;
     // The full address, truncated in the middle by CSS (iOS formattedPublicAddress, .middle).
     {
@@ -1529,29 +1573,7 @@ function renderSavedAccountsScreen() {
       tail.textContent = full.slice(-8);
       small.append(head, tail);
     }
-    signInButton.addEventListener("click", async () => {
-      if (savedAccountActionRunning) return;
-      try {
-        // Each account its own password: this account's, asked here when it is picked - never by
-        // itself when the page opens (owner, 2026-10-22). Nothing signs in until it opens the keys
-        // (DSK-007); Face ID / Windows Hello offers itself where the browser allows.
-        const address = account.address;
-        if (isAppLocked(address)) {
-          if (!(await unlockAppWithPassword(undefined, { autoBiometric: true, address }))) return;
-        } else if (accountShellPrefs.passwordForLogin && hasAppPassword(address)) {
-          const ok = await withVaultTarget(address, () => requestPassword({ mode: "verify", title: "Enter Password", message: "Enter your password to sign in." }));
-          if (!ok) return;
-        }
-        // the password prompt may have let another account action start meanwhile (iOS 3942a5b7)
-        if (!beginSavedAccountAction("signIn")) return;
-        activateSavedAccount(account.address);
-        reloadKaChat(); // held until the page goes
-      } catch (error) {
-        endSavedAccountAction("signIn");
-        // iOS OnboardingView: an alert, not a toast.
-        alertDialog({ title: "Sign In Failed", message: userFacingError(error) || "Unable to sign in to this account." });
-      }
-    });
+    signInButton.addEventListener("click", () => { signInToSavedAccount(account); });
 
     const editButton = document.createElement("button");
     editButton.type = "button";
@@ -1922,6 +1944,8 @@ function removeSavedAccountFromDevice(account, context = null) {
   // The profile caches go with it (KaChat iOS 5b7c772c audit #15, CacheManager.clearAll): avatars,
   // banners, bios and name records it loaded, which can tie it to the people it saw.
   try { kachatClearProfileCache().catch(() => {}); } catch { /* not loaded yet */ }
+  // its picture on the sign-in screen and in the account switcher (K 8cb4c88e)
+  try { savedAccountAvatars.remove(address); } catch { /* none kept */ }
   // Its own password and Face ID record protect nothing now, whether or not other accounts remain;
   // the shared one goes once no account is left in it.
   if (releaseAppPasswordIfUnused()) refreshPasswordStatus();
@@ -3972,6 +3996,17 @@ function handleKachatImageError(event) {
   }, () => kachatImageFailed(img));
 }
 if (kachatNamesUiEnabled()) document.addEventListener("error", handleKachatImageError, true);
+// A saved account's picture that won't load (a saved link gone stale) shows the glyph (K 8cb4c88e).
+document.addEventListener("error", (event) => {
+  const img = event.target;
+  if (!(img instanceof HTMLImageElement) || !img.hasAttribute("data-saved-account-avatar")) return;
+  const holder = img.parentElement;
+  img.remove();
+  if (holder && !holder.querySelector("img")) {
+    holder.classList.add("avatar-fallback");
+    holder.innerHTML = personGlyphSvg();
+  }
+}, true);
 /// The photo you assigned to this address in Contacts, wherever its avatar shows (iOS bfe9f022
 /// KNSAvatarView.assignedPhoto): your own choice, so it wins over the avatar it set for itself.
 function assignedPhotoSpanHtml(address, className) {
@@ -3999,6 +4034,9 @@ function selfAvatarHtml(className = "chat-avatar") {
 /** The Profile dock item wears your own picture (owner, 2026-11-12), the person glyph while you have
  *  none. Redrawn only when the picture changes, so the many callers cost nothing. */
 function refreshDockProfileAvatar() {
+  // the same picture for Saved Accounts and the account switcher, and the Profile chip (K 8cb4c88e)
+  try { rememberSignedInAvatar(); } catch { /* not started */ }
+  try { refreshProfileAccountChip(); } catch { /* not started */ }
   const icon = document.querySelector('.sidebar-tab[data-app-tab="profile"] .sidebar-tab-icon');
   if (!icon) return;
   if (refreshDockProfileAvatar.glyph === undefined) refreshDockProfileAvatar.glyph = icon.innerHTML;
@@ -4014,6 +4052,35 @@ function refreshDockProfileAvatar() {
     icon.classList.remove("has-avatar");
     icon.innerHTML = refreshDockProfileAvatar.glyph;
   }, { once: true });
+}
+
+/** Keeps the signed-in account's picture in this browser for the sign-in screen and the account
+ *  switcher (K 8cb4c88e DockAvatar.rememberForSignIn): your Contacts photo of yourself, else your
+ *  .kachat picture, copied small. A profile that is known and has no picture drops the copy (not one
+ *  still loading, which also reads as no picture). */
+let rememberedAvatarKey = "";
+function rememberSignedInAvatar() {
+  const address = String(engine.address || "");
+  if (!address) return;
+  let src = "";
+  try { src = addressBookPhoto(address) || (kachatNamesUiEnabled() ? kachatCachedAvatarUrl(address) : "") || ""; } catch { src = ""; }
+  if (!src) {
+    let identity = null;
+    try { identity = kachatNamesUiEnabled() ? kachatCachedIdentity(address) : null; } catch { identity = null; }
+    if (identity && !identity.profile?.avatar) {
+      rememberedAvatarKey = "";
+      savedAccountAvatars.remove(address);
+    }
+    return;
+  }
+  const key = `${canonicalAccountAddress(address)}|${src}`;
+  if (key === rememberedAvatarKey) return;
+  rememberedAvatarKey = key;
+  savedAvatarSourceFor(src).then((kept) => {
+    // still the same account and the same picture
+    if (!kept || rememberedAvatarKey !== key || !sameStoredAccountAddress(engine.address, address)) return;
+    savedAccountAvatars.save(address, kept);
+  }).catch(() => {});
 }
 
 function updateAvatarElement(initialsEl, imageEl, contact) {
@@ -4117,8 +4184,9 @@ chatInfoAliasSending?.addEventListener("click", async () => {
   try { await copyTextToClipboard(chatInfoAliasSending.textContent); showCopyToast("Alias copied to clipboard."); } catch {}
 });
 
-// Notifications is staged while User Info is open and lands on Save, as iOS keeps it in @State
-// until saveChanges (Cancel drops it). null = nothing staged: the stored value.
+// Notifications takes effect as it's picked (K 8cb4c88e), as the Chats list's Silence and the
+// header bell do: it used to wait for Save, so leaving with Cancel dropped it without a word.
+// chatInfoStagedNotify only carries the pick into applyChatInfoStagedPrefs. null = the stored value.
 let chatInfoStagedNotify = null;
 function chatInfoNotifyChoice() {
   return chatInfoStagedNotify ?? (getContactNotifyOverride(chatInfoContactAddress) || "default");
@@ -4139,7 +4207,9 @@ function refreshChatInfoContactControls() {
 chatInfoNotifyToggle?.addEventListener("change", () => {
   if (!chatInfoContactAddress) return;
   chatInfoStagedNotify = String(chatInfoNotifyToggle.value || "default");
+  applyChatInfoStagedPrefs();
   refreshChatInfoContactControls();
+  try { refreshChatBellButton(); renderChats(); } catch { /* not started yet */ }
 });
 /** Save: the staged Notifications choice lands. "default" stores nothing: an override that happens
  *  to equal today's default would silently stop following it the next time the default changes. */
@@ -6518,6 +6588,7 @@ function csvEscape(value) {
 
 function updateSelectionUi() {
   if (selectionToolbar) selectionToolbar.hidden = !messageSelectionMode;
+  try { refreshChatBellButton(); } catch { /* the header is optional */ }
   const deleteSelectedButton = document.querySelector("[data-delete-selected]");
   if (deleteSelectedButton) deleteSelectedButton.disabled = selectedMessageIds.size === 0;
   messageArea?.classList.toggle("selection-mode", messageSelectionMode);
@@ -8468,14 +8539,49 @@ accountOverlay.addEventListener("click", (event) => {
 
 const connectionOverlay = document.querySelector("[data-connection-overlay]");
 
+// Indexer Status is read again every 2 s while the screen is open, as iOS reads it with the node
+// list (K 8cb4c88e ConnectionStatusDetailView.refreshNodeRecordsContinuously).
+let indexerStatusTimer = null;
+
 function openConnectionOverlay() {
   connectionOverlay.hidden = false;
   renderNodeChoice();
   renderConnectionStatus();
+  // one request now, so the indexer's row says how it is, not how it was (K 8cb4c88e)
+  const indexerUrl = getEndpoint("kasiaIndexer");
+  checkIndexerNow(indexerUrl).then(() => { if (!connectionOverlay.hidden) renderIndexerStatus(); });
+  if (indexerStatusTimer == null) {
+    indexerStatusTimer = window.setInterval(() => {
+      if (connectionOverlay.hidden) { window.clearInterval(indexerStatusTimer); indexerStatusTimer = null; return; }
+      renderIndexerStatus();
+    }, 2000);
+  }
 }
 
 function closeConnectionOverlay() {
   connectionOverlay.hidden = true;
+  if (indexerStatusTimer != null) { window.clearInterval(indexerStatusTimer); indexerStatusTimer = null; }
+}
+
+/** Connection Status' Indexer Status row (K 8cb4c88e): Connected (green), Degraded (orange: a
+ *  request failed within the last two minutes), Disconnected (red: down after failures in a row),
+ *  Not set (gray) with no indexer in Settings. */
+function renderIndexerStatus() {
+  const textEl = document.querySelector("[data-connection-indexer-status-text]");
+  const dotEl = document.querySelector("[data-connection-indexer-status-dot]");
+  let state = null;
+  try { state = indexerConnectionState(getEndpoint("kasiaIndexer")); } catch { state = null; }
+  const look = {
+    connected: { text: "Connected", dot: "ready" },
+    degraded: { text: "Degraded", dot: "busy" },
+    disconnected: { text: "Disconnected", dot: "error" },
+    notSet: { text: "Not set", dot: "unknown" },
+  }[state] || { text: "Checking…", dot: "unknown" };
+  if (textEl) textEl.textContent = look.text;
+  if (dotEl) {
+    dotEl.classList.remove("ready", "busy", "error", "unknown");
+    dotEl.classList.add(look.dot);
+  }
 }
 
 document.querySelector("[data-close-connection-overlay]").addEventListener("click", closeConnectionOverlay);
@@ -9544,6 +9650,12 @@ async function runAddressActivityCheck() {
       try { previousSompi = BigInt(previous); } catch {}
       if (!isFirstRun && balance > previousSompi && addressActivityFeatureEnabled() && watched.has(address)) {
         increases.push({ address, delta: balance - previousSompi, kind: watched.get(address) });
+      } else if (!isFirstRun && balance > previousSompi) {
+        // A receive while its switch is off (Address Activity, the spending switch, a Cold Storage
+        // account's): its floor moves to now with the baseline, so switching back on never
+        // announces what came meanwhile (K 8cb4c88e: baselines, handled marks and the chatting
+        // floor follow every own address whatever the switches say).
+        saveActivityFloor(address, Date.now());
       }
       baselines[address] = balanceText;
     }
@@ -12214,6 +12326,7 @@ function setActiveAppTab(tab) {
   // On Chats the topbar narrows to the chats list and the conversation takes the full height
   // beside it; everywhere else there is no list, so it spans as before. CSS reads this class.
   document.body.classList.toggle("chats-tab", isChats);
+  syncChatsPublicSettingsGear();
   // The wide layout lines the toolbar up with the open screen's column (ui/styles.css).
   document.body.dataset.appTab = screenTab;
   publishDockHeight();
@@ -13002,7 +13115,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 331;
+const APP_BUILD = 332;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -16192,6 +16305,8 @@ function renderConnectionStatus() {
     : health.connecting ? "Connecting" : "Connected";
   if (statusDot) { statusDot.classList.remove("ready", "busy", "error"); statusDot.classList.add(health.stateName); }
   if (statusText) statusText.textContent = stateText;
+  // and the message indexer's, below it (K 8cb4c88e)
+  renderIndexerStatus();
 
   // Connected Node and Latency only while there is one (iOS).
   const primaryEl = document.querySelector("[data-connection-primary-endpoint]");
@@ -17898,6 +18013,8 @@ function renderMessages(conversationEntry) {
       chessButton.hidden = !active;
     }
   } catch { /* the header is optional */ }
+  // and the bell beside it (K 8cb4c88e)
+  try { refreshChatBellButton(); } catch { /* the header is optional */ }
 }
 
 messageArea?.addEventListener("scroll", () => {
@@ -21559,7 +21676,7 @@ async function runGroupRowChoice(groupId, choice) {
   if (choice === "read") { markGroupOpened(groupId); setGroupUnread(groupId, 0); renderChats(); return; }
   if (choice === "unread") { setGroupUnread(groupId, Math.max(1, groupUnreadFor(groupId))); renderChats(); return; }
   if (choice === "pin") { toggleChatCirclePin(pinId); return; }
-  if (choice === "silence") { setGroupNotify(groupId, getGroupNotify(groupId) === "muted" ? "all" : "muted"); renderChats(); return; }
+  if (choice === "silence") { setGroupNotify(groupId, getGroupNotify(groupId) === "muted" ? "all" : "muted"); renderChats(); refreshGroupChatBellButton(); return; }
   if (choice === "delete") {
     const ok = await confirmDialog({
       title: "Delete Group?",
@@ -21996,6 +22113,7 @@ async function runChatRowChoice(conversationEntry, choice) {
     // notification path already consults - not a second, parallel mute flag.
     setContactPref(contact.address, "notify", getContactNotifyOverride(contact.address) === "off" ? undefined : "off");
     renderChats();
+    refreshChatBellButton(); // an open thread's header bell follows (K 8cb4c88e)
     return;
   }
   if (choice === "delete") {
@@ -22008,6 +22126,45 @@ async function runChatRowChoice(conversationEntry, choice) {
     if (confirmed) deleteConversationsByIds([conversationEntry.id]);
   }
 }
+
+// The thread header's bell (K 8cb4c88e): Silence / Unsilence this chat or group, one tap away - the
+// same switch the Chats list's swipe Silence sets (runChatRowChoice / runGroupRowChoice), with
+// iOS's short toast. A filled bell while notifications are on, bell.slash while silenced; not
+// shown while picking messages (iOS hides it in select mode).
+const CHAT_BELL_ON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>';
+function paintChatBell(button, silent, hidden) {
+  if (!button) return;
+  button.hidden = hidden;
+  button.classList.toggle("is-silenced", silent);
+  button.innerHTML = silent ? ACTION_TILE_ICONS.bellSlash : CHAT_BELL_ON_SVG;
+  button.setAttribute("aria-label", silent ? "Notifications off" : "Notifications on");
+  button.title = silent ? "Unsilence" : "Silence";
+}
+function refreshChatBellButton() {
+  const contact = contactForConversation(state.conversations.find((entry) => entry.id === activeConversationId));
+  paintChatBell(document.querySelector("[data-chat-bell]"), getContactNotifyOverride(contact?.address) === "off", !contact || messageSelectionMode);
+}
+function refreshGroupChatBellButton() {
+  paintChatBell(document.querySelector("[data-group-chat-bell]"), Boolean(activeGroupId) && getGroupNotify(activeGroupId) === "muted", !activeGroupId || groupSelectionMode);
+}
+document.querySelector("[data-chat-bell]")?.addEventListener("click", () => {
+  const conversationEntry = state.conversations.find((entry) => entry.id === activeConversationId);
+  const contact = contactForConversation(conversationEntry);
+  if (!contact) return;
+  const silence = getContactNotifyOverride(contact.address) !== "off";
+  runChatRowChoice(conversationEntry, "silence");
+  // An Off chat leaves the push registration, as Chat Info's Notifications does.
+  try { scheduleWebPushSync(); } catch { /* not started yet */ }
+  refreshChatBellButton();
+  showCopyToast(silence ? "Chat silenced." : "Notifications on.");
+});
+document.querySelector("[data-group-chat-bell]")?.addEventListener("click", () => {
+  if (!activeGroupId) return;
+  const silence = getGroupNotify(activeGroupId) !== "muted";
+  runGroupRowChoice(activeGroupId, "silence");
+  refreshGroupChatBellButton();
+  showCopyToast(silence ? "Group silenced." : "Notifications on.");
+});
 
 document.querySelector("[data-back-to-chats]").addEventListener("click", () => {
   setActiveConversationId(null);
@@ -29592,6 +29749,101 @@ async function openLogoutModal() {
 
 document.querySelectorAll('[data-shell-action="logout"]').forEach((button) => button.addEventListener("click", openLogoutModal));
 
+// --- Switching accounts (K 8cb4c88e AccountSwitcher.swift, owner 2026-11-24) ---------------------
+// The glass chip beside Profile's title (your picture and username, or your short address) opens
+// the Accounts sheet: the accounts saved on this device, the signed-in one first and marked Signed
+// in. Tapping another runs Log Out, then the sign-in screen's own sign-in (its password included);
+// one whose keys aren't on this device says so instead. Add Another Account logs out to the
+// sign-in screen. Every picture is the one saved while that account was signed in.
+const profileAccountChip = document.querySelector("[data-profile-account-chip]");
+
+function refreshProfileAccountChip() {
+  if (!profileAccountChip) return;
+  const address = String(engine.address || "");
+  profileAccountChip.hidden = !address;
+  if (!address) { delete profileAccountChip.dataset.drawn; return; }
+  let username = "";
+  try { const name = mentionUsernameOf(address); username = name ? kachatNameDisplay(name) : ""; } catch { username = ""; }
+  const label = accountChipLabel({ username, address });
+  let avatar = "";
+  try { avatar = selfAvatarHtml("profile-account-chip-avatar"); } catch { avatar = ""; }
+  const drawn = `${label}\n${avatar}`;
+  if (profileAccountChip.dataset.drawn === drawn) return;
+  profileAccountChip.dataset.drawn = drawn;
+  const avatarHost = profileAccountChip.querySelector("[data-profile-account-chip-avatar]");
+  if (avatarHost) avatarHost.innerHTML = avatar;
+  const labelEl = profileAccountChip.querySelector("[data-profile-account-chip-label]");
+  if (labelEl) labelEl.textContent = label;
+  profileAccountChip.setAttribute("aria-label", label);
+}
+
+const ACCOUNT_SWITCHER_CHECK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor"/><path d="m7.5 12.3 3 3 6-6.3" fill="none" stroke="var(--on-accent, #000)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ACCOUNT_SWITCHER_ADD_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"/><path d="M12 8v8M8 12h8"/></svg>';
+
+let accountSwitcherOpen = false;
+async function openAccountSwitcher() {
+  if (accountSwitcherOpen || savedAccountActionRunning || !engine.address) return;
+  accountSwitcherOpen = true;
+  const isCurrent = (account) => sameStoredAccountAddress(account?.address, engine.address);
+  let accounts = [];
+  let choice = null;
+  try {
+    // only what the rows need: no keys held by the sheet
+    accounts = switcherAccounts(savedAccountSummaries(), isCurrent).map((account) => ({
+      address: account.address, name: account.name, current: isCurrent(account), hasKeys: hasKeysOnThisDevice(account),
+    }));
+    choice = await chooseDialog({
+      title: "Accounts",
+      options: [
+        ...accounts.map((account, index) => ({
+          id: `account:${index}`,
+          title: account.name,
+          subtitle: savedAccountShortAddress(account.address),
+          className: account.current ? "account-switcher-row is-current" : "account-switcher-row",
+          leadingHtml: savedAccountAvatarHtml(account.address),
+          trailingHtml: account.current ? `<span class="account-switcher-current" role="img" aria-label="Signed in" title="Signed in" data-account-switcher-signed-in>${ACCOUNT_SWITCHER_CHECK_SVG}</span>` : "",
+        })),
+        { id: "add", title: "Add Another Account", className: "account-switcher-add", leadingHtml: `<span class="account-switcher-add-icon" aria-hidden="true">${ACCOUNT_SWITCHER_ADD_SVG}</span>` },
+      ],
+    });
+  } finally {
+    accountSwitcherOpen = false;
+  }
+  if (!choice) return;
+  if (choice === "add") {
+    const ok = await confirmDialog({
+      title: "Add Another Account?",
+      message: "You'll go to the accounts screen to create or import one. This account stays saved on this device.",
+      confirmLabel: "Log Out",
+    });
+    if (ok && !savedAccountActionRunning) await performLogout();
+    return;
+  }
+  const account = accounts[Number(String(choice).replace(/^account:/, ""))];
+  if (!account || account.current) return;
+  if (!account.hasKeys) {
+    alertDialog({
+      title: "Recovery Phrase Needed",
+      message: "This account's keys aren't on this device. Log out, then sign in to it from the accounts screen with its recovery phrase.",
+    });
+    return;
+  }
+  await switchToSavedAccount(account);
+}
+
+/** Log Out, then sign in to `account`, the same two steps as going through the sign-in screen (K
+ *  8cb4c88e WalletManager.switchToSavedAccount), so everything Log Out puts away is put away and
+ *  the account's own password is asked as there. Cancelling the password leaves the sign-in screen. */
+async function switchToSavedAccount(account) {
+  if (!account?.address || savedAccountActionRunning) return false;
+  if (sameStoredAccountAddress(account.address, engine.address)) return true;
+  await performLogout();
+  if (engine.address) return false; // Log Out didn't finish: nothing else changes
+  return signInToSavedAccount({ address: account.address, name: account.name });
+}
+
+profileAccountChip?.addEventListener("click", () => { openAccountSwitcher(); });
+
 /** Log Out. `fromAnotherTab`: another tab logged out (the storage listener above) - the flag is
  *  already set and that tab removed this browser's push registration, and nothing here may stop
  *  the keys leaving this tab's memory. */
@@ -30102,6 +30354,8 @@ prefBindings.forEach(([selector, key, fallback]) => {
     if (key === "chatNotifications" || key === "notificationSound" || key === "addressActivityNotifications" || key.startsWith("kaPostsNotify")) {
       scheduleWebPushSync({ force: key === "chatNotifications" });
     }
+    // .kachat renewal reminders follow Push Notifications and Play sound (K 8cb4c88e).
+    if (key === "chatNotifications" || key === "notificationSound") { try { kachatNamesNotificationSettingsChanged(); } catch { /* not started */ } }
     if (key === "verboseApiLogging") setVerboseApiLogging(input.checked, appendEngineLog);
     if ((key === "chatNotifications" || key === "addressActivityNotifications") && input.checked) {
       ensureNotificationPermission().then((granted) => {
@@ -30178,24 +30432,30 @@ async function pushIncomingAliasesFor(contact) {
 }
 
 /** Every group stream to watch (iOS collectWatchedGroupIds): each OTHER member's blinded id in
- *  each group that isn't muted, skipping muted members - and, for the worker, which group and
- *  member each id stands for (names only). */
+ *  each group that isn't muted, skipping muted and hidden members (K 8cb4c88e
+ *  quietMemberAddresses: someone whose messages you stopped seeing doesn't ring either) - and, for
+ *  the worker, which group and member each id stands for (names only). The worker also knows the
+ *  ids left out, marked `q` (never rings), with the mentions-only groups' ids: a push already on
+ *  its way when a group or member was silenced stays quiet instead of ringing as an unknown
+ *  "Group chat", and a mentions-only group's push can't be checked for a mention by the worker,
+ *  which never reads a message (K 8cb4c88e restrictedGroupOwning). */
 function webPushGroupStreams() {
   const me = engine.address || "";
   const ids = [];
   const mirror = {};
   const memberNames = {};
   for (const group of getGroupManager()?.listGroups?.() || []) {
-    if (getGroupNotify(group.groupId) === "muted") continue;
+    const mode = getGroupNotify(group.groupId);
     let blindingKey;
     try { blindingKey = pushHexToBytes(group.blindingKeyHex); } catch { continue; }
     for (const member of group.members || []) {
       if (!member?.xOnlyPubKeyHex || !member.address || member.address === me) continue;
-      if (isGroupMemberMuted(group.groupId, member.address)) continue;
+      const quietMember = isGroupMemberMuted(group.groupId, member.address) || isGroupMemberHidden(group.groupId, member.address);
       let id;
       try { id = pushBytesToHex(pushBlindedGroupId(blindingKey, member.xOnlyPubKeyHex)); } catch { continue; }
-      ids.push(id);
+      if (mode !== "muted" && !quietMember) ids.push(id);
       mirror[id] = { g: group.groupId, n: String(group.name || "Group").slice(0, 80), m: member.address.toLowerCase() };
+      if (mode !== "all" || quietMember) mirror[id].q = 1;
       try { memberNames[member.address.toLowerCase()] = String(groupNotificationSenderName(member.address) || "").slice(0, 64); } catch { /* the worker shortens the address */ }
     }
   }
@@ -30277,6 +30537,8 @@ async function collectWebPushRegistration() {
     kapostsWatchAuthors: watchAuthors,
     kapostsBlockedPubkeys: (() => { try { return kaPostsHiddenXOnlyKeys(); } catch { return []; } })(),
     watchOnlyAddresses: watchOnly,
+    // Play sound reaches the push service too (K 8cb4c88e notify_sound).
+    notifySound: (accountShellPrefs.notificationSound ?? true) !== false,
   };
 }
 
@@ -30284,13 +30546,22 @@ async function collectWebPushRegistration() {
 function webPushMirror() {
   const names = {};
   const quiet = [];
+  // A contact set to Off rings nothing, payments and tips included; one set to Sound rings with
+  // Play sound off, as the open app does (maybeNotifyIncoming; K 8cb4c88e NotificationService
+  // contactChoseSound). Their chat is out of the registration when Off, but payments to you are
+  // keyed on your own address and a tip comes as a KaPost push.
+  const off = [];
+  const loud = [];
   let count = 0;
   for (const contact of state.contacts || []) {
     if (!contact?.address || count >= 3000) continue;
     const address = contact.address.toLowerCase();
     const name = isOwnChattingAddress(contact.address) ? "" : String(displayNameForAddress(contact) || "").trim();
     if (name) { names[address] = name.slice(0, 64); count += 1; }
-    if (getContactNotifyOverride(contact.address) === "noSound") quiet.push(address);
+    const override = getContactNotifyOverride(contact.address);
+    if (override === "noSound") quiet.push(address);
+    else if (override === "off") off.push(address);
+    else if (override === "sound") loud.push(address);
   }
   const groups = webPushGroupStreams();
   for (const [address, name] of Object.entries(groups.memberNames)) if (name && !names[address]) names[address] = name;
@@ -30321,8 +30592,19 @@ function webPushMirror() {
     rooms,
     unit: KAS_UNIT,
     sound: (accountShellPrefs.notificationSound ?? true) !== false,
+    // Settings > KaPost's switches, Mentions included: a kind switched off never rings, even when
+    // the push service sent it (an older registration, a server that ignores a switch; K 8cb4c88e
+    // shared_kaposts_notify_kinds).
+    kapostsKinds: {
+      likes: (accountShellPrefs.kaPostsNotifyLikes ?? true) !== false,
+      dislikes: (accountShellPrefs.kaPostsNotifyDislikes ?? true) !== false,
+      comments: (accountShellPrefs.kaPostsNotifyComments ?? true) !== false,
+      reposts: (accountShellPrefs.kaPostsNotifyReposts ?? true) !== false,
+      follows: (accountShellPrefs.kaPostsNotifyFollows ?? true) !== false,
+      mentions: (accountShellPrefs.kaPostsNotifyMentions ?? true) !== false,
+    },
     childMode: isChildModeEnabled(),
-    names, quiet, blocked, groups: groups.mirror, addressLabels,
+    names, quiet, off, loud, blocked, groups: groups.mirror, addressLabels,
     // Who Can Message You? (K 518fdc8c): requests stay quiet, nameless first messages too.
     ...whoCanMessageMirror(),
   };
@@ -31091,7 +31373,9 @@ queueMicrotask(async () => {
     try {
       startKachatNamesNotifier({
         record: (row) => recordGlobalNotification(row), log: appendEngineLog,
-        canNotify: () => typeof Notification !== "undefined" && Notification.permission === "granted",
+        // Push Notifications off in K counts as much as the browser's permission: nothing is kept
+        // waiting, so turning it back on never rings reminders that came due meanwhile (K 8cb4c88e).
+        canNotify: () => pushNotificationsEnabled() && typeof Notification !== "undefined" && Notification.permission === "granted",
         notify: ({ id, title, body, name }) => {
           showAppNotification({
             title, body, tag: id, key: id, silent: (accountShellPrefs.notificationSound ?? true) === false,
@@ -31963,6 +32247,9 @@ function setGroupMemberMuted(groupId, address, muted) {
   if (muted) current.add(address); else current.delete(address);
   all[wallet][groupId] = [...current];
   saveGroupMutedAll(all);
+  // Their blinded id leaves (or rejoins) the push watch list now, not at the next minute's round
+  // (K 8cb4c88e hiddenMembersChanged).
+  try { scheduleWebPushSync(); } catch { /* not started yet */ }
 }
 function setGroupMemberHidden(groupId, address, hidden) {
   const all = loadGroupHiddenAll();
@@ -31972,6 +32259,8 @@ function setGroupMemberHidden(groupId, address, hidden) {
   if (hidden) current.add(address); else current.delete(address);
   all[wallet][groupId] = [...current];
   saveGroupHiddenAll(all);
+  // A hidden member doesn't ring while K is closed either (K 8cb4c88e quietMemberAddresses).
+  try { scheduleWebPushSync(); } catch { /* not started yet */ }
 }
 
 // Open (or create) a 1:1 conversation with a group member, and switch to the Chats tab.
@@ -32116,7 +32405,24 @@ function setChatToolRowsForGroupsTab(isGroups) {
   // by incoming messages while another tab is open, so it must not simply unhide the control.
   // The body class is setActiveAppTab's own record of that (and is safe during boot).
   if (selectRow) selectRow.hidden = !document.body.classList.contains("chats-tab");
+  syncChatsPublicSettingsGear();
 }
+
+/** The gear at the top left of Chats (K 8cb4c88e): Edit Default Public Chats, moved out of the +
+ *  sheet. Only on Chats, not while selecting (iOS hides it in edit mode), and not in Simple Mode,
+ *  which hides Public Chats. DOM-only, like the Select row above: safe during the boot render. */
+function syncChatsPublicSettingsGear() {
+  const gear = document.querySelector("[data-chats-public-settings]");
+  if (!gear) return;
+  let simple = false;
+  try { simple = isChildModeEnabled(); } catch { /* not started */ }
+  gear.hidden = !document.body.classList.contains("chats-tab")
+    || Boolean(document.querySelector("[data-app-sidebar]")?.classList.contains("selecting-chats"))
+    || simple;
+}
+document.querySelector("[data-chats-public-settings]")?.addEventListener("click", () => {
+  try { openPublicChatsSettings(); } catch { /* rooms not started */ }
+});
 
 const GROUP_AVATAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M2.5 19.5c.6-3.9 3-6.3 6.5-6.3s5.9 2.4 6.5 6.3"/><path d="M16.3 6.2a3.2 3.2 0 1 1 1.9 5.8"/><path d="M15.8 13.3c2.9.4 4.7 2.3 5.2 5.4"/></svg>';
 // Group photo is stored/transmitted as hex of a compressed JPEG (see gctl_photo). These convert
@@ -32394,6 +32700,7 @@ function openGroupChat(groupId) {
   // The header is the photo and the name only (iOS groupTitleChip): no member count.
   if (groupChatSub) { groupChatSub.textContent = ""; groupChatSub.hidden = true; }
   if (groupChatAvatar) groupChatAvatar.innerHTML = groupAvatarHtml(g.photoHex);
+  refreshGroupChatBellButton();
   const amMember = g.members.some((m) => m.address === engine.address);
   if (groupReadonlyNote) groupReadonlyNote.hidden = amMember;
   if (groupComposer) groupComposer.hidden = !amMember;
@@ -32982,6 +33289,7 @@ function updateGroupSelectionUi() {
   const del = document.querySelector("[data-group-delete-selected]");
   if (toolbar) toolbar.hidden = !groupSelectionMode;
   if (del) del.disabled = selectedGroupMessageKeys.size === 0;
+  refreshGroupChatBellButton();
   groupMessageArea?.classList.toggle("selection-mode", groupSelectionMode);
 }
 function enterGroupSelection(initialKey = null) {
@@ -34409,7 +34717,7 @@ groupMembersList?.addEventListener("click", (event) => {
 // - New Chat / New Group Chat swap the sheet for the existing create modals; their Cancel (or a
 //   backdrop click / Escape) comes back to this menu, and a chat or group made lands on its tab.
 // - New Public Chat swaps the sheet's content for the room-name field. Errors show in place;
-//   joining opens the room in Chats. Edit Default Public Chats opens the rooms' switches.
+//   joining opens the room in Chats. (Edit Default Public Chats is the Chats gear, K 8cb4c88e.)
 // - Chatting Address closes the sheet and brings up Profile's QR page.
 // No state lives outside the DOM: the sheet is built per open (like the payment detail sheet), and
 // "came from the sheet" is a data attribute on the create modal, so nothing here is read at load.
@@ -34418,8 +34726,6 @@ function newChatSheetIcon(kind) {
     chat: '<path d="M5 4.5h14a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-8l-5 3.8V17H5a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"/>',
     group: '<path d="M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M2.5 19.5c.6-3.9 3-6.3 6.5-6.3s5.9 2.4 6.5 6.3"/><path d="M16.3 6.2a3.2 3.2 0 1 1 1.9 5.8"/><path d="M15.8 13.3c2.9.4 4.7 2.3 5.2 5.4"/>',
     public: '<path d="M9.5 4 7.5 20M16.5 4l-2 16M4.5 9h15.5M4 15h15.5"/>',
-    // slider.horizontal.3 (KaChat 148a5331 Edit Default Public Chats)
-    "public-settings": '<path d="M3 7h5.4M12.6 7H21M3 12h9.4M16.6 12H21M3 17h6.4M13.6 17H21"/><circle cx="10.5" cy="7" r="2.1"/><circle cx="14.5" cy="12" r="2.1"/><circle cx="11.5" cy="17" r="2.1"/>',
     fund: '<rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1.2"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1.2"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1.2"/><path d="M14 14h2.8v2.8H14zM20.5 14v.01M17 20.5h3.5V17M14 20.5v.01"/>',
     // iOS f81e8d6: arrow.up.circle / arrow.down.circle.
     send: '<circle cx="12" cy="12" r="9"/><path d="M12 16.5v-9M8 11.5l4-4 4 4"/>',
@@ -34439,8 +34745,7 @@ function newChatSheetMenuHtml() {
     // Simple Mode hides Public Chats, so it has no tile here either.
     ...(isChildModeEnabled() ? [] : [
       { id: "public", title: "New Public Chat", subtitle: "Join a public room, or create one." },
-      // KaChat 148a5331: the default rooms' switches moved here from Public Chats' gear.
-      { id: "public-settings", title: "Edit Default Public Chats", subtitle: "Turn the default rooms and the language rooms on or off." },
+      // Edit Default Public Chats is the gear at the top left of Chats now (K 8cb4c88e), not a row here.
     ]),
   ];
   return actionRowsSheetHtml("New", rows);
@@ -34543,8 +34848,6 @@ function openNewChatSheet() {
       if (openGroupCreate() && groupCreateModal) groupCreateModal.dataset.fromNewSheet = "1";
     } else if (choice === "fund") {
       openChattingAddressScreen();
-    } else if (choice === "public-settings") {
-      try { openPublicChatsSettings(); } catch { /* rooms not started */ }
     }
   });
   sheet.addEventListener("input", (event) => {

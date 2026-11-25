@@ -66,6 +66,12 @@ export function createIndexerHealth({ now = () => Date.now(), storage = globalTh
     isDown: (url) => entry(indexerKey(url)).downSince != null,
     /** When the current outage began (ms), or null. */
     downSince: (url) => entry(indexerKey(url)).downSince,
+    /** Up, but a request failed lately (within the failure window): Connection Status says
+     *  Degraded (K 8cb4c88e IndexerHealth.hasRecentFailures). */
+    hasRecentFailures(url) {
+      const found = entry(indexerKey(url));
+      return found.failures > 0 && now() - found.lastFailureAt <= INDEXER_FAILURE_WINDOW_MS;
+    },
     /** True at most once a minute, while it's down. */
     claimRecoveryCheck(url) {
       const found = entry(indexerKey(url));
@@ -130,7 +136,28 @@ export const indexerHealth = createIndexerHealth();
 export const onIndexerAvailabilityChange = (listener) => indexerHealth.subscribe(listener);
 export const isIndexerDown = (url) => indexerHealth.isDown(url);
 
-const browserIsOffline = () => globalThis.navigator?.onLine === false;
+/** How the indexer at `url` is doing, for Settings > Connection Status (K 8cb4c88e
+ *  KasiaAPIClient.connectionState): "disconnected" once it's down (several failures in a row),
+ *  "degraded" while a request failed within the last two minutes, else "connected"; "notSet" when
+ *  Settings names none. Desktop has no suspected-DPI state, so nothing else reads as Degraded. */
+export function indexerConnectionState(url, { health = indexerHealth } = {}) {
+  if (!indexerKey(url)) return "notSet";
+  if (health.isDown(url)) return "disconnected";
+  if (health.hasRecentFailures(url)) return "degraded";
+  return "connected";
+}
+
+/** One cheap request, so the state reflects the indexer now (the screen showing it opened; K
+ *  8cb4c88e checkIndexerNow). The page's fetch watcher records how it went, as for any read; this
+ *  never throws. */
+export async function checkIndexerNow(baseUrl, { fetchImpl = (...args) => globalThis.fetch(...args) } = {}) {
+  if (!indexerKey(baseUrl)) return;
+  try {
+    await fetchImpl(`${String(baseUrl).replace(/\/+$/, "")}/metrics`, { headers: { Accept: "application/json" }, cache: "no-store" });
+  } catch { /* recorded as a failure by the watcher */ }
+}
+
+const browserIsOffline =() => globalThis.navigator?.onLine === false;
 
 /** What one finished fetch says about the indexer: "answered", "down" or "inconclusive".
  *  `relayLimited`: a 429 from the app's own relay, which says nothing about the indexer. */

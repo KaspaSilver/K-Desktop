@@ -786,6 +786,25 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
   gap: 6px;
   justify-self: start;
 }
+/* Edit Default Public Chats (K 8cb4c88e): the gear at the top left of Chats, an accent toolbar icon
+   like Select across the bar. */
+.chats-public-settings-gear {
+  width: 34px; height: 34px; padding: 0; flex: 0 0 auto;
+  display: grid; place-items: center;
+  border: 0; border-radius: 999px; background: transparent;
+  color: var(--kaspa-ink); cursor: pointer;
+}
+.chats-public-settings-gear[hidden] { display: none; }
+.chats-public-settings-gear:hover { background: var(--fill-tertiary, rgba(255,255,255,.06)); }
+.chats-public-settings-gear svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+/* On a phone, the same glass as the Select pill across the bar. */
+@media (max-width: 859px) {
+  body.chats-tab .chats-public-settings-gear {
+    width: 36px; height: 36px;
+    border: 1px solid var(--bar-separator, var(--line));
+    background: var(--fill-tertiary, rgba(255,255,255,.06));
+  }
+}
 
 .service-health-button {
   width: 34px;
@@ -3565,6 +3584,8 @@ body.session-logged-out [data-account-rename-modal] {
 .connection-status-dot.ready { background: var(--ios-green); }
 .connection-status-dot.busy { background: var(--ios-orange); }
 .connection-status-dot.error { background: var(--ios-red); }
+/* Indexer Status while Checking… or with no indexer set (K 8cb4c88e: gray) */
+.connection-status-dot.unknown { background: #8e8e93; }
 
 [data-connection-latency].good, [data-connection-pool-health].good { color: var(--ios-green); }
 [data-connection-latency].warn, [data-connection-pool-health].warn { color: var(--ios-orange); }
@@ -6695,6 +6716,8 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .cold-action-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .cold-action-copy strong { font-size: 14px; font-weight: 700; }
 .cold-action-copy small { font-size: 12px; color: var(--muted); line-height: 1.4; }
+/* a row's leading picture or icon (ui/dialogs.js leadingHtml), before its words */
+.cold-action-leading { order: -1; display: grid; place-items: center; flex: 0 0 auto; }
 .cold-actions-summary { text-align: center; }
 .cold-portfolio-warn { color: var(--ios-orange); }
 .cold-portfolio-form { display: flex; flex-direction: column; gap: 10px; }
@@ -8811,6 +8834,12 @@ html.standalone .ios-install-hint { display: none; }
 .conversation-header .conversation-call-button:hover { background: rgba(112,199,186,.22); }
 .conversation-header .conversation-call-button svg { width: 20px; height: 20px; fill: currentColor; }
 .conversation-header .conversation-call-button[hidden] { display: none; }
+/* The chat's bell (K 8cb4c88e): the same round button, top right; bell.fill while notifications are
+   on, an outlined bell.slash while silenced. With a chess game on, the board keeps the corner and
+   the bell sits just left of it (iOS toolbar order). */
+.conversation-header .conversation-bell-button svg { fill: currentColor; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.conversation-header .conversation-bell-button.is-silenced svg { fill: none; stroke-width: 1.9; }
+.conversation-header [data-open-chess]:not([hidden]) ~ .conversation-bell-button { right: 62px; }
 
 
 /* Public Chats: the broadcast rooms as the Chats screen's third tab (iOS a566da7). The list sits
@@ -9191,6 +9220,13 @@ button.chess-t-row { cursor: pointer; }
   color: var(--kaspa);
   font-size: 18px; font-weight: 700;
 }
+/* Each account's own picture where the check was (K 8cb4c88e SavedAccountAvatar, 40 pt). */
+.saved-account-signin { grid-template-columns: 40px minmax(0,1fr); gap: 10px; }
+.saved-account-avatar {
+  width: 40px; height: 40px; border-radius: 50%; overflow: hidden; flex: 0 0 auto;
+  display: grid; place-items: center;
+}
+.saved-account-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .saved-account-copy { gap: 2px; }                   /* was 3px */
 .saved-account-copy strong { font-size: 15px; font-weight: 600; }  /* was 16/700 */
 .saved-account-copy small {

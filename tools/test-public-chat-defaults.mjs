@@ -1,6 +1,7 @@
 // Public Chats' default rooms (iOS 865c9ab / d37f64d): every default room joined from the start,
-// #kaspa and #kachat-bugs notifying once per wallet, the language rooms ordered as iOS lists them,
-// and the Languages switch's helpers. Drives ui/broadcasts.js with the DOM stubbed out (no list
+// every room silenced (bell off) until you turn its bell on (K 8cb4c88e: #kaspa and #kachat-bugs
+// no longer get theirs switched on once per wallet; bells an account already has stay on), the
+// language rooms ordered as iOS lists them, and the Languages switch's helpers. Drives ui/broadcasts.js with the DOM stubbed out (no list
 // is mounted: the app draws the rooms as circles from chatListRooms). Run from the repo root:
 //
 //   node tools/test-public-chat-defaults.mjs
@@ -58,12 +59,20 @@ const notifyStore = () => JSON.parse(localStorage.getItem(scoped("kachat-broadca
   r.eq(rooms.anyLanguageRoomOn(), true, "Languages reads on with every language room in");
 }
 
-// --- #kaspa and #kachat-bugs notify; the language rooms do not ---------------------------------------
+// --- every room starts silenced, #kaspa and #kachat-bugs too (K 8cb4c88e) -------------------------
 {
   const listed = byName();
-  for (const name of FEATURED_BROADCAST_CHANNELS) r.eq(listed.get(name).notify, true, `${name} bell on`);
+  for (const name of FEATURED_BROADCAST_CHANNELS) r.eq(listed.get(name).notify, false, `${name} bell off`);
   for (const name of LANGUAGE_BROADCAST_CHANNELS) r.eq(listed.get(name).notify, false, `${name} bell off`);
-  r.eq(localStorage.getItem(scoped("kaposts_broadcast_default_bells")), "1", "applied flag stored, account-scoped");
+  r.eq(localStorage.getItem(scoped("kaposts_broadcast_default_bells")), null, "no once-per-wallet flag any more");
+  r.eq(rooms.broadcastPushWatch().channels.length, 0, "push watches no room");
+}
+
+// --- an account that already had the two bells on (the old default) keeps them -------------------
+{
+  for (const name of FEATURED_BROADCAST_CHANNELS) rooms.setBroadcastRoomNotify(name, true);
+  rooms.refreshBroadcasts(); // reloads state from storage, as showing Chats does
+  for (const name of FEATURED_BROADCAST_CHANNELS) r.eq(byName().get(name).notify, true, `${name} bell kept on`);
   r.eq(notifyStore().kaspa, true, "the bell is saved");
   r.check(pushSyncs > 0, "the push registration hears about it");
   r.eq(rooms.broadcastPushWatch().channels.join(","), [...FEATURED_BROADCAST_CHANNELS].sort().join(","), "push watches only the two bells");
@@ -82,7 +91,7 @@ const notifyStore = () => JSON.parse(localStorage.getItem(scoped("kachat-broadca
   r.eq(Object.keys(rooms.broadcastPushWatch().hidden).length, 0, "undoing the block puts them back");
 }
 
-// --- once per wallet: a bell switched off stays off -------------------------------------------------
+// --- a bell switched off stays off -----------------------------------------------------------------
 {
   rooms.setBroadcastRoomNotify("kaspa", false);
   rooms.refreshBroadcasts(); // reloads state from storage, as showing Chats does
@@ -122,13 +131,13 @@ const notifyStore = () => JSON.parse(localStorage.getItem(scoped("kachat-broadca
   r.eq(rooms.anyLanguageRoomOn(), true, "Languages stays on while any language is on");
 }
 
-// --- a second wallet gets its own once ----------------------------------------------------------
+// --- a second wallet starts silenced too ------------------------------------------------------------
 {
   engine.address = "kaspa:qwallettwo";
   rooms.resetBroadcastsForAccount();
   const listed = byName();
-  r.eq(listed.get("kaspa").notify, true, "wallet two: #kaspa on");
-  r.eq(listed.get("kachat-bugs").notify, true, "wallet two: #kachat-bugs on");
+  r.eq(listed.get("kaspa").notify, false, "wallet two: #kaspa off");
+  r.eq(listed.get("kachat-bugs").notify, false, "wallet two: #kachat-bugs off");
   r.check(LANGUAGE_BROADCAST_CHANNELS.every((name) => listed.get(name)?.joined), "wallet two: every language room in (wallet one's switches are its own)");
   engine.address = "kaspa:qwalletone";
   rooms.resetBroadcastsForAccount();
