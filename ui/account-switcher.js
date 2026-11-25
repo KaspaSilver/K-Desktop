@@ -21,6 +21,25 @@ export function switcherAccounts(accounts, isCurrent) {
   return [...all.filter((account) => isCurrent(account)), ...all.filter((account) => !isCurrent(account))];
 }
 
+/** Switching accounts (K 961fc05a WalletManager.isSwitchingAccount): Log Out, then the sign-in, with
+ *  the loading globe over the gap between them, never the sign-in screen (owner, 2026-11-25: "it
+ *  should be a seamless transfer to another profile"). `setSwitching(true)` before Log Out; it stays
+ *  on once the sign-in has started the reload (the next page's launch screen takes over), and goes
+ *  off when the switch ends here: Log Out didn't finish, or the sign-in was cancelled or failed,
+ *  which leaves the sign-in screen showing, with why. Answers whether the sign-in started. */
+export async function runAccountSwitch({ setSwitching, logOut, signedOut, signIn }) {
+  setSwitching(true);
+  let signingIn = false;
+  try {
+    await logOut();
+    if (!signedOut()) return false;
+    signingIn = Boolean(await signIn());
+    return signingIn;
+  } finally {
+    if (!signingIn) setSwitching(false);
+  }
+}
+
 /** Whether this device holds `account`'s keys (iOS WalletManager.hasKeysOnThisPhone): in the clear,
  *  or sealed under a password. Without them signing in needs its recovery phrase. */
 export function hasKeysOnThisDevice(account) {

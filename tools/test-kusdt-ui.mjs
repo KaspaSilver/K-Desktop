@@ -322,7 +322,8 @@ await check("Received: never on the first look; a payment from someone else afte
   assert.deepEqual(notes, [], "waiting for a chat notice");
   clock += W.KUSDT_NOTICE_WAIT_MS + 1000;
   await wallet.refresh();
-  assert.deepEqual(notes, [{ title: "Received 12.50 kUSDT", body: "" }], "no notice came: the wallet says it, amount only");
+  // no block time known: it counts as now, so it rings (K 961fc05a)
+  assert.deepEqual(notes, [{ title: "Received 12.50 kUSDT", body: "", ring: true, happenedAtMs: null }], "no notice came: the wallet says it, amount only");
   assert.equal(wallet.activity()[0].kind, "received");
   const quiet = makeWallet(w, { notificationsEnabled: () => false });
   await quiet.wallet.refresh();
@@ -473,6 +474,44 @@ await check("the Trestly API: its own endpoint, defaulting to the deployment's, 
   const re = eval(relayed[1]);
   assert.equal(re.test("api.trestly.io"), false);
   assert.equal(re.test("testnet.trestly.io"), false);
+});
+
+await check("after a trade the balances are looked up on a widening schedule until its coin shows (K 961fc05a)", async () => {
+  assert.deepEqual(W.KUSDT_TRADE_FOLLOW_DELAYS_MS, [3000, 4000, 6000, 8000, 10000, 15000, 20000, 30000]);
+  assert.equal(W.KUSDT_TRADE_FOLLOW_DELAYS_MS.reduce((a, b) => a + b, 0), 96_000, "about a minute and a half in all");
+  assert.equal(W.tradeCoinShown([[{ transactionId: "AB" }], []], "ab"), true);
+  assert.equal(W.tradeCoinShown([[{ transactionId: "cd" }]], "ab"), false);
+  const w = world();
+  w.coins[chatting] = [{ n: 1, index: 0, units: 1_000_000n }];
+  const timers = [];
+  const { wallet, switchTo } = makeWallet(w, {
+    setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    clearTimer: (id) => { if (timers[id - 1]) timers[id - 1].fn = null; },
+  });
+  await wallet.refresh();
+  const looks = [];
+  const fire = async () => { await timers.at(-1).fn?.(); };
+  wallet.followTrade(txid(9), { onLook: () => looks.push(wallet.balance()) });
+  wallet.followTrade(txid(9), { onLook: () => looks.push("second listener") });
+  assert.deepEqual(timers.map((t) => t.ms), [3000], "the first look after 3 s; the same trade isn't followed twice");
+  await fire();
+  assert.deepEqual(timers.map((t) => t.ms), [3000, 4000], "not listed yet: looked at again 4 s on");
+  // Trestly lists the bought coin now
+  w.coins[chatting].push({ n: 9, index: 1, units: 2_000_000n });
+  await fire();
+  assert.equal(wallet.balance(), 3_000_000n);
+  assert.equal(timers.length, 2, "its coin showed: no more looks");
+  assert.deepEqual(looks, [1_000_000n, "second listener", 3_000_000n, "second listener"], "Swap's Available read after each look");
+  // an account switch ends a follow
+  wallet.followTrade(txid(10));
+  assert.equal(timers.length, 3);
+  switchTo(spending(1));
+  wallet.heldHoldings();
+  assert.equal(timers[2].fn, null, "cleared with the account");
+  // wiring: the trade hands its txid to the wallet; Swap's Available follows it
+  assert.match(app, /afterTrade: \(\{ txid = null \} = \{\}\) => \{\n\s*if \(txid\) kusdtWallet\?\.followTrade\(txid\);/);
+  assert.match(app, /followTrade: \(txid, onLook\) => kusdtWallet\?\.followTrade\(txid, \{ onLook \}\)/);
+  assert.match(read("engine/kusdt-trade.js"), /deps\.afterTrade\?\.\(\{ txid: typeof result\.txid === "string" \? result\.txid : null, address \}\)/);
 });
 
 console.log(`kUSDT UI: ${passed}/${passed + failures.length} passed`);

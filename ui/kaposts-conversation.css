@@ -1,0 +1,113 @@
+/* KaPost conversations like X, "Replying to", and Kaspa Hub card links (K 961fc05a). Imported from
+   ui/kaposts.js, which builds the elements. The older thread rules live in ui/styles.css; the ones
+   overridden here are written one class more specific, so they win wherever this sheet lands. */
+
+/* --- The post you opened, as X's focused post (K KaPostCellView.focusedLayout) ------------------ */
+
+/* The avatar and name on one line, the text full width under them. */
+.kaposts-thread .kaposts-cell.focused { flex-direction: column; gap: 10px; }
+.kaposts-focused-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.kaposts-focused-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.kaposts-cell.focused .kaposts-focused-body { width: 100%; }
+/* Larger than a row's text, as X draws the post you opened. */
+.kaposts-thread .kaposts-cell.focused .kaposts-cell-text { font-size: 20px; line-height: 1.4; }
+/* "12:00 PM · Nov 25, 2026" */
+.kaposts-focused-stamp { display: flex; align-items: center; }
+.kaposts-cell.focused .kaposts-focused-stamp .kaposts-cell-stamp { font-size: 15px; color: var(--muted); }
+/* The actions between two rules. */
+.kaposts-focused-actions { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 4px 0; }
+.kaposts-focused-actions .kaposts-actions { margin: 0; }
+
+/* --- The poster's own continuation, no "Thread" header ------------------------------------------ */
+
+.kaposts-thread-chain.kaposts-thread-chain { margin-top: 0; border-top: 1px solid var(--line); }
+.kaposts-thread-chain .kaposts-thread-chain-item { position: relative; }
+/* One post under another, joined by the line down the avatar column, as the posts above are
+   (.kaposts-ancestor::before). It runs on past the row into the next row's top padding, so it
+   meets the next avatar instead of stopping short of it. */
+.kaposts-thread-chain .kaposts-thread-chain-item.continues::before {
+  content: "";
+  position: absolute;
+  left: 30px;
+  top: 52px;
+  bottom: -12px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--line);
+  pointer-events: none;
+}
+.kaposts-thread-chain .kaposts-thread-chain-item + .kaposts-thread-chain-item { border-top: 0; }
+/* Everyone else's replies follow straight on, after one rule. */
+.kaposts-thread-chain.kaposts-thread-chain { border-bottom: 1px solid var(--line); }
+
+/* --- Full-width link cards in KaPost (K 961fc05a LinkPreviewCardView fillsWidth) -------------- */
+
+/* A post's link card fills the post's column, as on X, instead of a chat bubble's 320 px, and its
+   picture grows with it (190 pt on K). Chats keep their size. */
+.kaposts-site-card .message-link-card { max-width: none; width: 100%; }
+.kaposts-site-card .message-link-card-thumb { height: 190px; }
+
+/* --- "Replying to <name>" on a reply shown outside its conversation ---------------------------- */
+
+.kaposts-replying-to {
+  font-size: 13px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.kaposts-replying-to-name { color: var(--kaspa-ink); }
+
+/* --- A Kaspa Hub card's link in a post and the composer (K KaspaHubLinkCard) -------------------- */
+
+.kaposts-hub-card {
+  display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 4px; padding: 14px;
+  border: 1px solid rgba(112,199,186,.35); border-radius: 16px; background: rgba(112,199,186,.08);
+  color: var(--text); font: inherit; text-align: start; cursor: pointer;
+}
+.kaposts-hub-card:hover { background: rgba(112,199,186,.13); }
+.kaposts-hub-card[inert] { cursor: default; }
+.kaposts-hub-card-icon {
+  flex: none; width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center;
+  background: rgba(112,199,186,.18); color: var(--kaspa-ink);
+}
+/* The card's own icon is its dock glyph: the outline form, as More's tiles draw it. */
+.kaposts-hub-card-icon svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.kaposts-hub-card-icon svg.tab-glyph-controller { fill: currentColor; stroke: none; }
+.kaposts-hub-card-icon img { width: 24px; height: 24px; object-fit: contain; }
+.kaposts-hub-card-copy { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kaposts-hub-card-eyebrow { color: var(--kaspa-ink); font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .02em; }
+.kaposts-hub-card-title { font-size: 16px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kaposts-hub-card-blurb {
+  font-size: 13px; color: var(--muted);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.kaposts-hub-card-pill {
+  flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 8px 16px; border-radius: 999px;
+  background: var(--kaspa-ink); color: #fff; font-size: 14px; font-weight: 750;
+}
+.kaposts-hub-card-pill svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The composer's preview: the card as the post will draw it, with an x that takes the link out. */
+.kaposts-composer-hub-card { position: relative; }
+.kaposts-composer-hub-card[hidden] { display: none; }
+.kaposts-composer-hub-remove {
+  position: absolute; top: -4px; right: -4px; width: 24px; height: 24px; padding: 0;
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+}
+.kaposts-composer-hub-remove svg { width: 24px; height: 24px; }
+.kaposts-composer-hub-remove svg path { fill: none; stroke: var(--bg, #fff); stroke-width: 2; stroke-linecap: round; }
+
+/* --- A Kaspa Hub card's link in a chat (K KaChatInternalLinkCardView .hubSection) --------------- */
+/* Here rather than in ui/styles.css because the Hub card links came in together; ui/app.js imports
+   ui/kaposts.js on every page, so this sheet is always loaded. */
+
+/* The card's own icon (its dock glyph) in the internal link card's tile. */
+.internal-link-icon.hub-link-icon svg { width: 22px; height: 22px; fill: none; stroke: var(--kaspa); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.internal-link-icon.hub-link-icon svg.tab-glyph-filled { display: none; }
+.internal-link-icon.hub-link-icon svg.tab-glyph-controller { fill: var(--kaspa); stroke: none; }
+
+/* --- Everyone else's replies to the post you opened: plain rows, as on X (K 961fc05a) ---------- */
+
+/* Desktop 4.0 hung them off a line down the left like a nested reply; X lists them as ordinary
+   rows, one rule apart. */
+.kaposts-thread-replies-host > .kaposts-thread-replies > .kaposts-thread-reply { padding-left: 0; }
+.kaposts-thread-replies-host > .kaposts-thread-replies > .kaposts-thread-reply::before { content: none; }
+.kaposts-thread-replies-host > .kaposts-thread-replies > .kaposts-thread-reply + .kaposts-thread-reply { border-top: 1px solid var(--line); }

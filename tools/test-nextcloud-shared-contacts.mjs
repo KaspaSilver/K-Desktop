@@ -513,7 +513,7 @@ const logs = [];
 let backupsSealed = 0;
 let backupKeyAvailable = true;
 const BACKUP_KEY_HEX = "11".repeat(32);
-const BACKUP_PATH = "KaChat/kachat-contacts.json";
+const BACKUP_PATH = "K/kachat-contacts.json";
 const sealFor = (address, json) => sealBackupEnvelope(json, BACKUP_KEY_HEX, address);
 const openFor = (address, raw) => openBackupEnvelope(raw, BACKUP_KEY_HEX, address);
 const toFake = (activeWallet, fields) => {
@@ -558,13 +558,13 @@ const contactRow = (address, name, updatedAt = "2026-11-01T10:00:00Z") => ({
   id: UUID_1, address, name, note: "", createdAt: "2026-10-01T10:00:00Z", updatedAt,
 });
 const writesTo = (path) => dav.log.filter((r) => (r.method === "PUT" && r.path === path)
-  || (r.method === "MOVE" && r.path.startsWith(`KaChat/.${path.split("/").pop()}.upload-`)));
+  || (r.method === "MOVE" && r.path.startsWith(`K/.${path.split("/").pop()}.upload-`)));
 
 
 test("a backup is one encrypted kachat-contacts.json holding the Address Book, and never the chat backup", async () => {
   toFake(WALLET_A, { autoBackup: false });
   saveAddressBookEntry({ address: ALICE, name: "Alice" });
-  dav.put("sam", "KaChat/kachat-backup.json", "{\"old\":true}");
+  dav.put("sam", "K/kachat-backup.json", "{\"old\":true}");
   startModule();
   await runBackup();
   const raw = dav.get("sam", BACKUP_PATH);
@@ -576,8 +576,8 @@ test("a backup is one encrypted kachat-contacts.json holding the Address Book, a
   assert.equal(inside.walletAddress, WALLET_A);
   assert.deepEqual(inside.entries.map((e) => e.address), [ALICE]);
   assert.ok(Array.isArray(inside.deleted));
-  assert.equal(dav.get("sam", "KaChat/kachat-backup.json"), "{\"old\":true}");
-  assert.ok(!dav.log.some((r) => r.path === "KaChat/kachat-backup.json"), "the old file is never even read");
+  assert.equal(dav.get("sam", "K/kachat-backup.json"), "{\"old\":true}");
+  assert.ok(!dav.log.some((r) => r.path === "K/kachat-backup.json"), "the old file is never even read");
 });
 
 test("an account with no contacts writes no file", async () => {
@@ -705,18 +705,18 @@ const pfRow = (id, name, createdAt = 1_780_000_000_000, updatedAt = 1_780_000_00
 const pfTx = (id, portfolioId) => ({ id, type: "buy", amountSompi: 100_000_000, fiatValue: 12.5, timestamp: 1_780_000_000_000, notes: null, portfolioId, sourceAddress: null, sourceTxId: null, updatedAt: 1_780_000_000_000 });
 const pfState = (rows, transactions = [], tombstones = []) => ({ portfolios: rows, transactions, fees: [], tombstones });
 function pfFake(walletAddress = WALLET_A, fields = { autoBackup: false }) {
-  toFake(walletAddress, { backupFolder: "KaChat", singlePortfolioMerged: true, ...fields });
+  toFake(walletAddress, { backupFolder: "K", singlePortfolioMerged: true, ...fields });
   dav.listings = true;
-  dav.folders.add("sam/KaChat");
-  dav.files.set("sam/KaChat/.keep.txt", "");
+  dav.folders.add("sam/K");
+  dav.files.set("sam/K/.keep.txt", "");
   backupKeyAvailable = true;
   startModule();
 }
-const pfFile = async (name) => JSON.parse(await openFor(WALLET_A, dav.get("sam", `KaChat/${name}`)));
+const pfFile = async (name) => JSON.parse(await openFor(WALLET_A, dav.get("sam", `K/${name}`)));
 const pfJson = (rows, transactions = [], walletAddress = WALLET_A) => portfolioSync.portfolioBackupFileJson(pfState(rows, transactions), walletAddress);
 const pfPuts = () => dav.log.filter((r) => r.method === "PUT").map((r) => r.path);
 // Another account's file: its own key, its own wallet's hint.
-const pfForeign = async (name, walletAddress) => dav.put("sam", `KaChat/${name}`,
+const pfForeign = async (name, walletAddress) => dav.put("sam", `K/${name}`,
   await sealBackupEnvelope(pfJson([pfRow(PF_SHORT, name)], [], walletAddress), "22".repeat(32), walletAddress));
 
 test("portfolio: each gets its own encrypted file named after it, with its owner and only its rows", async () => {
@@ -749,12 +749,12 @@ test("portfolio: a second backup writes nothing, and an unchanged file isn't dow
 test("portfolio: another account's file or any other file is never written over", async () => {
   pfFake();
   await pfForeign("Long Term.json", WALLET_B);
-  dav.put("sam", "KaChat/Short.json", JSON.stringify({ mine: "not a portfolio" }));
-  const foreign = dav.get("sam", "KaChat/Long Term.json");
+  dav.put("sam", "K/Short.json", JSON.stringify({ mine: "not a portfolio" }));
+  const foreign = dav.get("sam", "K/Long Term.json");
   portfolios.local = pfState([pfRow(PF_LONG, "Long Term"), pfRow(PF_SHORT, "Short")]);
   await runPortfolioBackup();
-  assert.equal(dav.get("sam", "KaChat/Long Term.json"), foreign);
-  assert.deepEqual(JSON.parse(dav.get("sam", "KaChat/Short.json")), { mine: "not a portfolio" });
+  assert.equal(dav.get("sam", "K/Long Term.json"), foreign);
+  assert.deepEqual(JSON.parse(dav.get("sam", "K/Short.json")), { mine: "not a portfolio" });
   assert.equal((await pfFile("Long Term 2.json")).walletAddress, WALLET_A);
   assert.equal((await pfFile("Short 2.json")).walletAddress, WALLET_A);
   assert.equal(portfolios.local.portfolios.length, 2, "another account's isn't merged in");
@@ -765,9 +765,9 @@ test("portfolio: another device's edits and deletions come in, and a renamed por
   portfolios.local = pfState([pfRow(PF_LONG, "Long Term")]);
   await runPortfolioBackup();
   portfolios.local = pfState([pfRow(PF_LONG, "Renamed", 1_780_000_000_000, 1_790_000_000_000)]);
-  dav.put("sam", "KaChat/Other.json", await sealFor(WALLET_A, pfJson([pfRow(PF_SHORT, "Other")], [pfTx("t9", PF_SHORT)])));
+  dav.put("sam", "K/Other.json", await sealFor(WALLET_A, pfJson([pfRow(PF_SHORT, "Other")], [pfTx("t9", PF_SHORT)])));
   await runPortfolioBackup();
-  assert.equal(dav.get("sam", "KaChat/Long Term.json"), undefined);
+  assert.equal(dav.get("sam", "K/Long Term.json"), undefined);
   assert.equal((await pfFile("Renamed.json")).portfolios[0].name, "Renamed");
   assert.deepEqual(portfolios.local.portfolios.map((p) => p.name).sort(), ["Other", "Renamed"]);
   assert.deepEqual(portfolios.local.transactions.map((t) => t.id), ["t9"]);
@@ -779,7 +779,7 @@ test("portfolio: a deleted one's file goes, and one this device doesn't know of 
   await runPortfolioBackup();
   portfolios.local = pfState([pfRow(PF_LONG, "Long Term")], [], [{ kind: "portfolio", id: PF_SHORT, deletedAt: 1_790_000_000_000 }]);
   await runPortfolioBackup();
-  assert.equal(dav.get("sam", "KaChat/Short.json"), undefined);
+  assert.equal(dav.get("sam", "K/Short.json"), undefined);
   assert.deepEqual((await pfFile("Long Term.json")).tombstones.map((t) => t.id), [PF_SHORT], "the other files carry the deletion");
 });
 
@@ -790,10 +790,10 @@ test("portfolio: with only the untouched seed left, the seed's file carries the 
   pfFake();
   portfolios.local = pfState([pfSeed(), pfRow(PF_LONG, "Long Term")]);
   await runPortfolioBackup();
-  assert.equal(dav.get("sam", "KaChat/Portfolio 1.json"), undefined, "a seed alone is never uploaded");
+  assert.equal(dav.get("sam", "K/Portfolio 1.json"), undefined, "a seed alone is never uploaded");
   portfolios.local = pfState([pfSeed()], [], [{ kind: "portfolio", id: PF_LONG, deletedAt: 1_790_000_000_000 }]);
   await runPortfolioBackup();
-  assert.equal(dav.get("sam", "KaChat/Long Term.json"), undefined);
+  assert.equal(dav.get("sam", "K/Long Term.json"), undefined);
   const carrier = await pfFile("Portfolio 1.json");
   assert.deepEqual(carrier.tombstones.map((t) => t.id), [PF_LONG], "another device hears of the deletion");
   dav.log = [];
@@ -808,7 +808,7 @@ test("portfolio: with nothing to carry a deletion, the deleted portfolio's file 
   portfolios.local = pfState([], [], [{ kind: "portfolio", id: PF_LONG, deletedAt: 1_790_000_000_000 }]);
   portfolios.backupOverride = () => portfolioSync.mergePortfolioSync([portfolios.local]);
   try { await runPortfolioBackup(); } finally { portfolios.backupOverride = null; }
-  assert.ok(dav.get("sam", "KaChat/Long Term.json"), "kept until some file carries the deletion");
+  assert.ok(dav.get("sam", "K/Long Term.json"), "kept until some file carries the deletion");
 });
 
 test("portfolio: an edit made during the upload is still owed afterwards", async () => {
@@ -835,26 +835,26 @@ test("portfolio: the file is the contacts' envelope, with a fresh nonce on every
   pfFake();
   portfolios.local = pfState([pfRow(PF_LONG, "Long Term")], [pfTx("t1", PF_LONG)]);
   await runPortfolioBackup();
-  const first = JSON.parse(dav.get("sam", "KaChat/Long Term.json"));
+  const first = JSON.parse(dav.get("sam", "K/Long Term.json"));
   assert.equal(first.kachatEncryptedBackup, 1);
   assert.equal(first.cipher, "aes-256-gcm");
   assert.equal(first.walletAddress, undefined, "nothing readable outside the envelope");
-  assert.ok(!dav.get("sam", "KaChat/Long Term.json").includes("Long Term\""), "the name is only in the file name");
+  assert.ok(!dav.get("sam", "K/Long Term.json").includes("Long Term\""), "the name is only in the file name");
   portfolios.local = pfState([pfRow(PF_LONG, "Long Term")], [pfTx("t1", PF_LONG), pfTx("t2", PF_LONG)]);
   await runPortfolioBackup();
-  const second = JSON.parse(dav.get("sam", "KaChat/Long Term.json"));
+  const second = JSON.parse(dav.get("sam", "K/Long Term.json"));
   assert.notEqual(second.nonce, first.nonce);
   assert.deepEqual((await pfFile("Long Term.json")).transactions.map((t) => t.id), ["t1", "t2"]);
 });
 
 test("portfolio: an earlier plain file of this account's is read, then written encrypted though unchanged", async () => {
   pfFake();
-  dav.put("sam", "KaChat/Long Term.json", pfJson([pfRow(PF_LONG, "Long Term")], [pfTx("t1", PF_LONG)]));
+  dav.put("sam", "K/Long Term.json", pfJson([pfRow(PF_LONG, "Long Term")], [pfTx("t1", PF_LONG)]));
   portfolios.local = pfState([]);
   await runPortfolioBackup();
   assert.deepEqual(portfolios.local.transactions.map((t) => t.id), ["t1"]);
-  assert.equal(JSON.parse(dav.get("sam", "KaChat/Long Term.json")).kachatEncryptedBackup, 1);
-  assert.equal(dav.get("sam", "KaChat/Long Term 2.json"), undefined);
+  assert.equal(JSON.parse(dav.get("sam", "K/Long Term.json")).kachatEncryptedBackup, 1);
+  assert.equal(dav.get("sam", "K/Long Term 2.json"), undefined);
   dav.log = [];
   await runPortfolioBackup();
   assert.deepEqual(pfPuts(), [], "encrypted now: nothing more to write");
@@ -863,22 +863,22 @@ test("portfolio: an earlier plain file of this account's is read, then written e
 test("portfolio: this account's damaged file is written over; an envelope naming no account is left alone", async () => {
   pfFake();
   const damaged = await sealBackupEnvelope(pfJson([pfRow(PF_LONG, "Long Term")]), "33".repeat(32), WALLET_A);
-  dav.put("sam", "KaChat/Long Term.json", damaged);
+  dav.put("sam", "K/Long Term.json", damaged);
   const anonymous = JSON.parse(await sealBackupEnvelope(pfJson([pfRow(PF_SHORT, "Short")]), "33".repeat(32), WALLET_A));
   delete anonymous.walletHint;
-  dav.put("sam", "KaChat/Short.json", JSON.stringify(anonymous));
+  dav.put("sam", "K/Short.json", JSON.stringify(anonymous));
   portfolios.local = pfState([pfRow(PF_LONG, "Long Term"), pfRow(PF_SHORT, "Short")]);
   await runPortfolioBackup();
-  assert.notEqual(dav.get("sam", "KaChat/Long Term.json"), damaged);
+  assert.notEqual(dav.get("sam", "K/Long Term.json"), damaged);
   assert.equal((await pfFile("Long Term.json")).portfolios[0].name, "Long Term");
-  assert.equal(dav.get("sam", "KaChat/Long Term 2.json"), undefined);
-  assert.equal(dav.get("sam", "KaChat/Short.json"), JSON.stringify(anonymous));
+  assert.equal(dav.get("sam", "K/Long Term 2.json"), undefined);
+  assert.equal(dav.get("sam", "K/Short.json"), JSON.stringify(anonymous));
   assert.equal((await pfFile("Short 2.json")).portfolios[0].name, "Short");
 });
 
 test("portfolio: without the key nothing is read or written", async () => {
   pfFake();
-  dav.put("sam", "KaChat/Long Term.json", pfJson([pfRow(PF_LONG, "Long Term")], [pfTx("t1", PF_LONG)]));
+  dav.put("sam", "K/Long Term.json", pfJson([pfRow(PF_LONG, "Long Term")], [pfTx("t1", PF_LONG)]));
   portfolios.local = pfState([pfRow(PF_SHORT, "Short")]);
   backupKeyAvailable = false;
   dav.log = [];
@@ -891,12 +891,12 @@ test("portfolio: without the key nothing is read or written", async () => {
 test("portfolio: the earlier single file is merged once and never written", async () => {
   pfFake(WALLET_A, { autoBackup: false, singlePortfolioMerged: false });
   const single = JSON.stringify({ version: 1, exportedAt: 700000000, portfolios: [{ id: PF_LONG, name: "Old", sortOrder: 0, createdAt: 700000000, updatedAt: 700000000 }], transactions: [], fees: [], tombstones: [] });
-  dav.put("sam", "KaChat/KaPay Portfolio.json", single);
+  dav.put("sam", "K/KaPay Portfolio.json", single);
   portfolios.local = pfState([]);
   await runPortfolioBackup();
   assert.deepEqual(portfolios.local.portfolios.map((p) => p.name), ["Old"]);
   assert.equal((await pfFile("Old.json")).portfolios[0].name, "Old");
-  assert.equal(dav.get("sam", "KaChat/KaPay Portfolio.json"), single, "stays where it is");
+  assert.equal(dav.get("sam", "K/KaPay Portfolio.json"), single, "stays where it is");
   dav.log = [];
   await runPortfolioBackup();
   assert.deepEqual(dav.log.filter((r) => r.method === "GET" && r.path.includes("KaPay Portfolio")), [], "not read again");
@@ -907,12 +907,12 @@ test("portfolio: a file that can't be read means nothing is written or deleted",
   portfolios.local = pfState([pfRow(PF_LONG, "Long Term")]);
   await runPortfolioBackup();
   portfolios.local = pfState([pfRow(PF_LONG, "Renamed", 1_780_000_000_000, 1_790_000_000_000)]);
-  dav.put("sam", "KaChat/Broken.json", "{}");
-  dav.hook = ({ method, path }) => (method === "GET" && path === "KaChat/Broken.json" ? new Response("", { status: 500 }) : undefined);
+  dav.put("sam", "K/Broken.json", "{}");
+  dav.hook = ({ method, path }) => (method === "GET" && path === "K/Broken.json" ? new Response("", { status: 500 }) : undefined);
   dav.log = [];
   await assert.rejects(runPortfolioBackup());
   assert.deepEqual(pfPuts(), []);
-  assert.ok(dav.get("sam", "KaChat/Long Term.json"));
+  assert.ok(dav.get("sam", "K/Long Term.json"));
 });
 
 test("portfolio: with Automatic Sync on a change uploads after the quiet time; a 401 stops automatic work", async () => {
@@ -923,7 +923,7 @@ test("portfolio: with Automatic Sync on a change uploads after the quiet time; a
   notePortfolioChanged();
   assert.deepEqual(pfPuts(), [], "not yet: a burst of edits is one upload");
   await sleep(5300);
-  assert.deepEqual(pfPuts(), ["KaChat/Long Term.json"]);
+  assert.deepEqual(pfPuts(), ["K/Long Term.json"]);
   dav.hook = () => new Response("", { status: 401 });
   portfolios.local = pfState([pfRow(PF_LONG, "Renamed", 1_780_000_000_000, 1_790_000_000_000)]);
   notePortfolioChanged();
@@ -956,13 +956,13 @@ test("a contacts file from a newer version of the app is refused, never merged o
 test("deleting the backup with the account takes the contacts file and the old chat backups", async () => {
   toFake(WALLET_A, { autoBackup: false });
   dav.put("sam", BACKUP_PATH, "{}");
-  dav.put("sam", "KaChat/kachat-backup.json", "{}");
-  dav.put("sam", "KaChat/kachat-backup-desktop.json", "{}");
+  dav.put("sam", "K/kachat-backup.json", "{}");
+  dav.put("sam", "K/kachat-backup-desktop.json", "{}");
   startModule();
   await deleteRemoteNextcloudBackup();
   assert.equal(dav.get("sam", BACKUP_PATH), undefined);
-  assert.equal(dav.get("sam", "KaChat/kachat-backup.json"), undefined);
-  assert.equal(dav.get("sam", "KaChat/kachat-backup-desktop.json"), undefined);
+  assert.equal(dav.get("sam", "K/kachat-backup.json"), undefined);
+  assert.equal(dav.get("sam", "K/kachat-backup-desktop.json"), undefined);
   // Nothing there is the state asked for.
   await deleteRemoteNextcloudBackup();
 });
@@ -973,25 +973,25 @@ const ncState = (address = WALLET_A) => JSON.parse(local.getItem(scopedKey("kach
 
 test("portfolio: after one encrypted backup a plain file is nobody's, and its name is taken", async () => {
   pfFake();
-  dav.put("sam", "KaChat/Long Term.json", pfJson([pfRow(PF_LONG, "Long Term")], [pfTx("t1", PF_LONG)]));
+  dav.put("sam", "K/Long Term.json", pfJson([pfRow(PF_LONG, "Long Term")], [pfTx("t1", PF_LONG)]));
   portfolios.local = pfState([]);
   await runPortfolioBackup();
   assert.deepEqual(portfolios.local.transactions.map((t) => t.id), ["t1"], "read while this account's files were still plain");
   assert.equal(ncState().plainPortfoliosRetired, true);
   // Anyone can write a plain file naming this account: it no longer counts.
   const planted = pfJson([pfRow(PF_SHORT, "Short")], [pfTx("t9", PF_SHORT)]);
-  dav.put("sam", "KaChat/Short.json", planted);
+  dav.put("sam", "K/Short.json", planted);
   portfolios.local = pfState([pfRow(PF_LONG, "Long Term"), pfRow("AAAAAAAA-0000-4000-8000-000000000003", "Short", 1_780_000_000_000, 1_790_000_000_000)], [pfTx("t1", PF_LONG)]);
   await runPortfolioBackup();
   assert.ok(!portfolios.local.transactions.some((t) => t.id === "t9"), "not merged in");
-  assert.equal(dav.get("sam", "KaChat/Short.json"), planted, "never written over or deleted");
+  assert.equal(dav.get("sam", "K/Short.json"), planted, "never written over or deleted");
   assert.equal((await pfFile("Short 2.json")).portfolios[0].name, "Short", "this account's goes beside it");
 });
 
 test("portfolio: the old single file without an owner goes to the first account on that login, once", async () => {
   const single = JSON.stringify({ version: 1, exportedAt: 700000000, portfolios: [{ id: PF_LONG, name: "Old", sortOrder: 0, createdAt: 700000000, updatedAt: 700000000 }], transactions: [], fees: [], tombstones: [] });
   pfFake(WALLET_A, { autoBackup: false, singlePortfolioMerged: false });
-  dav.put("sam", "KaChat/KaPay Portfolio.json", single);
+  dav.put("sam", "K/KaPay Portfolio.json", single);
   portfolios.local = pfState([]);
   await runPortfolioBackup();
   assert.deepEqual(portfolios.local.portfolios.map((p) => p.name), ["Old"]);
@@ -1000,7 +1000,7 @@ test("portfolio: the old single file without an owner goes to the first account 
   // A second account on the same login: not its portfolios.
   pfFake(WALLET_B, { autoBackup: false, singlePortfolioMerged: false });
   local.setItem("kachat-nextcloud-single-portfolio-logins-v1", logins);
-  dav.put("sam", "KaChat/KaPay Portfolio.json", single);
+  dav.put("sam", "K/KaPay Portfolio.json", single);
   portfolios.local = pfState([]);
   await runPortfolioBackup();
   assert.deepEqual(portfolios.local.portfolios, [], "the first account's, not this one's");
@@ -1008,7 +1008,7 @@ test("portfolio: the old single file without an owner goes to the first account 
   // One that names its owner goes to that account only, login or no login.
   pfFake(WALLET_B, { autoBackup: false, singlePortfolioMerged: false });
   local.setItem("kachat-nextcloud-single-portfolio-logins-v1", logins);
-  dav.put("sam", "KaChat/KaPay Portfolio.json", JSON.stringify({ ...JSON.parse(single), walletAddress: WALLET_B }));
+  dav.put("sam", "K/KaPay Portfolio.json", JSON.stringify({ ...JSON.parse(single), walletAddress: WALLET_B }));
   portfolios.local = pfState([]);
   await runPortfolioBackup();
   assert.deepEqual(portfolios.local.portfolios.map((p) => p.name), ["Old"]);
@@ -1019,36 +1019,36 @@ test("portfolio: an untouched seed uploaded to carry a deletion goes once real p
   const deletion = [{ kind: "portfolio", id: PF_LONG, deletedAt: 1_790_000_000_000 }];
   portfolios.local = pfState([pfSeed()], [], deletion);
   await runPortfolioBackup();
-  assert.ok(dav.get("sam", "KaChat/Portfolio 1.json"), "the carrier");
+  assert.ok(dav.get("sam", "K/Portfolio 1.json"), "the carrier");
   portfolios.local = pfState([pfSeed(), pfRow(PF_SHORT, "Short")], [], deletion);
   await runPortfolioBackup();
   assert.deepEqual((await pfFile("Short.json")).tombstones.map((t) => t.id), [PF_LONG], "the real file carries the deletion now");
-  assert.equal(dav.get("sam", "KaChat/Portfolio 1.json"), undefined, "the carrier has no job left");
+  assert.equal(dav.get("sam", "K/Portfolio 1.json"), undefined, "the carrier has no job left");
 });
 
 test("deleting the backup takes this account's damaged Portfolio files too, never another account's", async () => {
   pfFake();
   dav.put("sam", BACKUP_PATH, "{}");
-  dav.put("sam", "KaChat/Long Term.json", await sealFor(WALLET_A, pfJson([pfRow(PF_LONG, "Long Term")])));
-  dav.put("sam", "KaChat/Damaged.json", await sealBackupEnvelope(pfJson([pfRow(PF_SHORT, "Damaged")]), "33".repeat(32), WALLET_A));
+  dav.put("sam", "K/Long Term.json", await sealFor(WALLET_A, pfJson([pfRow(PF_LONG, "Long Term")])));
+  dav.put("sam", "K/Damaged.json", await sealBackupEnvelope(pfJson([pfRow(PF_SHORT, "Damaged")]), "33".repeat(32), WALLET_A));
   await pfForeign("Theirs.json", WALLET_B);
   await deleteRemoteNextcloudBackup();
   assert.equal(dav.get("sam", BACKUP_PATH), undefined);
-  assert.equal(dav.get("sam", "KaChat/Long Term.json"), undefined);
-  assert.equal(dav.get("sam", "KaChat/Damaged.json"), undefined, "its own, though it won't open");
-  assert.ok(dav.get("sam", "KaChat/Theirs.json"), "another account's stays");
+  assert.equal(dav.get("sam", "K/Long Term.json"), undefined);
+  assert.equal(dav.get("sam", "K/Damaged.json"), undefined, "its own, though it won't open");
+  assert.ok(dav.get("sam", "K/Theirs.json"), "another account's stays");
 });
 
 test("deleting the backup without the key takes the contacts file, then says the Portfolio files stayed", async () => {
   pfFake();
   dav.put("sam", BACKUP_PATH, "{}");
-  dav.put("sam", "KaChat/Long Term.json", await sealFor(WALLET_A, pfJson([pfRow(PF_LONG, "Long Term")])));
+  dav.put("sam", "K/Long Term.json", await sealFor(WALLET_A, pfJson([pfRow(PF_LONG, "Long Term")])));
   backupKeyAvailable = false;
   try {
     await assert.rejects(deleteRemoteNextcloudBackup(), /contacts backup was deleted, but the Portfolio files weren't/);
   } finally { backupKeyAvailable = true; }
   assert.equal(dav.get("sam", BACKUP_PATH), undefined);
-  assert.ok(dav.get("sam", "KaChat/Long Term.json"), "can't be told from anyone else's without the key");
+  assert.ok(dav.get("sam", "K/Long Term.json"), "can't be told from anyone else's without the key");
 });
 
 test("removing an account revokes the app password its stored login holds; a sealed one it can't open is left", async () => {

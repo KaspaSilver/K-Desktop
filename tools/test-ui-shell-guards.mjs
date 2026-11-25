@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createVoicePlaybackCoordinator } from "../ui/voice-coordinator.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = readFileSync(join(here, "..", "ui", "app.js"), "utf8");
@@ -142,6 +143,7 @@ function makeRecorder() {
     MediaRecorder: FakeMediaRecorder,
     pickVoiceMimeType: () => "audio/webm",
     VOICE_AUDIO_BITS_PER_SECOND: 6000,
+    voicePlayback: createVoicePlaybackCoordinator(),
   });
   const recorder = fns.createVoiceRecorder({ maxDurationSeconds: () => 25, onElapsed: () => {}, onFinish: (result) => finished.push(result) });
   return { mic, timers, finished, recorder };
@@ -233,6 +235,7 @@ function makeGroupVoice() {
     MediaRecorder: FakeMediaRecorder,
     pickVoiceMimeType: () => "audio/webm",
     VOICE_AUDIO_BITS_PER_SECOND: 6000,
+    voicePlayback: createVoicePlaybackCoordinator(),
     activeGroupId: "g1",
     groupVoiceRecorder: null,
     groupVoiceEncoding: false,

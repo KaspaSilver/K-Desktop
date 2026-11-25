@@ -18,13 +18,15 @@ export const TRACKED_ASK_INTERVAL_MS = 60 * 60 * 1000;
 
 /**
  * Whether to ask `base`'s `/broadcast-channels` now, given the last ask `{ base, at }` (or null):
- * at most once an hour per indexer; a different indexer is asked at once.
+ * at most once an hour per indexer (`maxAgeMs`: shorter where a new room is looked for, Edit
+ * Default Public Chats asking within a minute, K 961fc05a); a different indexer is asked at once.
  */
-export function shouldAskTrackedRooms(last, base, nowMs) {
+export function shouldAskTrackedRooms(last, base, nowMs, maxAgeMs = TRACKED_ASK_INTERVAL_MS) {
   const clean = String(base || "").trim();
   if (!clean) return false;
   if (!last || last.base !== clean) return true;
-  return nowMs - Number(last.at || 0) >= TRACKED_ASK_INTERVAL_MS;
+  const age = Number.isFinite(Number(maxAgeMs)) && Number(maxAgeMs) >= 0 ? Number(maxAgeMs) : TRACKED_ASK_INTERVAL_MS;
+  return nowMs - Number(last.at || 0) >= age;
 }
 
 /** The room names out of a `/broadcast-channels` answer (`{ "channels": [...] }`), or null. */
@@ -82,6 +84,13 @@ export function createIndexerTrackedRooms({
     contains(name) {
       load();
       return reported.has(name) || servedRecently(name, now());
+    },
+
+    /** The app-wide indexer's own list (not rooms learned from served rows), sorted (K 961fc05a
+     *  `IndexerTrackedRooms.reportedRooms`): the rooms added on the indexer come from it. */
+    reported() {
+      load();
+      return [...reported].sort();
     },
 
     /** Every room `contains` says yes to. */

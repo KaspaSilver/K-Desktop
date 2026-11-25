@@ -1257,8 +1257,8 @@ async function claimExpired(info, owner = "market") {
   if (gap) openClaimSheet({ name: info.name, gap, owner });
 }
 
-/** KachatLiveActivityPage: every registry event (iOS 0765ce0). Its Fees box is gone: fees live
- *  on KaChat Stats' Fees tab (iOS b6f55a5). */
+/** KachatLiveActivityPage: every registry event (iOS 0765ce0). Its Fees box is gone (iOS b6f55a5;
+ *  they moved to KaChat Stats, which the Explorer replaced in K 961fc05a). */
 function activityPageHtml() {
   const events = hub.activity.slice(0, 100);
   const list = events.length
@@ -4532,11 +4532,14 @@ export async function kachatRescanProfile(address) {
     if (link === profile?.avatar && fresh.avatar) pictures.push(fresh.avatar);
     if (link === profile?.banner && fresh.banner) pictures.push(fresh.banner);
   }
-  // Both pictures downloaded again: the browser's copy is replaced, a relayed copy is fetched anew.
+  // Both pictures checked: the browser's copy is revalidated with a conditional GET (its stored
+  // ETag / Last-Modified), so only a picture that changed comes down again; it used to be
+  // downloaded in full every hour (K 961fc05a refreshIfChanged, audit 2026-11-25 B17). A picture
+  // whose link changed downloads by itself when it next shows. A relayed copy is fetched anew.
   for (const url of pictures) {
     const safe = httpsImageUrl(url);
     if (!safe) continue;
-    try { await fetch(safe, { cache: "reload", mode: "no-cors", referrerPolicy: "no-referrer" }); } catch { /* the old copy stays */ }
+    try { await fetch(safe, { cache: "no-cache", mode: "no-cors", referrerPolicy: "no-referrer" }); } catch { /* the old copy stays */ }
     cachedImages.delete(safe);
     for (const blobKey of [...socialImageBlobs.keys()]) if (blobKey.endsWith(`|${safe}`)) socialImageBlobs.delete(blobKey);
     if (typeof document !== "undefined") {

@@ -208,6 +208,22 @@ export function applyResults({ results, expected = [], now = Date.now(), isHeld 
 
 // MARK: - Received (iOS TokenWallet.announceNewCoins)
 
+/** Whether a "Received kUSDT" rings or only goes to the bell (K 961fc05a TokenWallet.ringWindow): it
+ *  rings when any of the coins came within `windowMs` (6 minutes: Trestly lists new coins late, and
+ *  a coin on the Chatting Address waits for its chat notice), an unknown time counting as now. Coins
+ *  that came while K was closed or this account was signed out go to the bell quietly, dated when the
+ *  newest came. Returns `{ ring, happenedAtMs }` (`happenedAtMs` null when no time is known). */
+export function receivedRing(received, { windowMs, now = Date.now() }) {
+  let ring = false;
+  let newest = null;
+  for (const r of received || []) {
+    const at = Number(r?.at) > 0 ? Number(r.at) : null;
+    if (at == null || now - at <= windowMs) ring = true;
+    if (at != null) newest = Math.max(newest ?? at, at);
+  }
+  return { ring, happenedAtMs: newest };
+}
+
 /** Whether the transaction that made a coin was your own (iOS `isOwnTransfer`): it spent a coin of
  *  yours, or an input came from one of your addresses. `inputs`: `[{ hash, index, address }]` of
  *  its inputs' previous outpoints, or null when the REST API can't say: then `fallback`. */
@@ -220,6 +236,15 @@ export function isOwnTransfer(inputs, { known, ownAddresses, fallback }) {
   return false;
 }
 
+/** `fetchTransactionInputs` answers the inputs, or `{ inputs, blockTimeMs }` with the transaction's
+ *  block time (K 961fc05a isOwnTransfer's `at`): the inputs list, and when it happened (ms, null when
+ *  unknown). */
+export function transactionLookup(answer) {
+  if (Array.isArray(answer) || answer == null) return { inputs: answer ?? null, at: null };
+  const at = Number(answer.blockTimeMs);
+  return { inputs: Array.isArray(answer.inputs) ? answer.inputs : null, at: Number.isFinite(at) && at > 0 ? at : null };
+}
+
 /** A token coin doesn't land on your address (it sits at its own contract address), so the Kaspa
  *  watch never sees it arrive. Each refresh compares the coins it found with the ones known before
  *  (kusdt-store) and returns the new ones as received, recording them in the history. Never
@@ -227,9 +252,10 @@ export function isOwnTransfer(inputs, { known, ownAddresses, fallback }) {
  *  (the caller remembers those with `store.rememberSeen` instead), and coins from your own
  *  transfers (the transaction spent a coin of yours, paid from one of your addresses, or was made
  *  here). `current`: `[{ holdingId, coins }]` now; `previous`: the coins of the refresh before;
- *  `fetchTransactionInputs(txid)` -> `[{ hash, index, address }]` | null (REST, resolved previous
- *  outpoints); `ownAddresses`: every address of the account. Returns
- *  `{ received: [{ holdingId, units, transactionId, index }], firstLook }`. */
+ *  `fetchTransactionInputs(txid)` -> `[{ hash, index, address }]` | `{ inputs, blockTimeMs }` | null
+ *  (REST, resolved previous outpoints); `ownAddresses`: every address of the account. Returns
+ *  `{ received: [{ holdingId, units, transactionId, index, at }], firstLook }`: `at` is when the coin
+ *  came (its transaction's block time, ms), null when unknown; the history row is dated by it. */
 export async function findReceived({ store, current, previous = [], fetchTransactionInputs = async () => null, ownAddresses = [], now = Date.now(), holdForNotice = () => false }) {
   const keyOf = (c) => outpointKey(c.transactionId, c.index);
   const all = current.flatMap((h) => h.coins ?? []);
@@ -255,24 +281,26 @@ export async function findReceived({ store, current, previous = [], fetchTransac
     for (const h of current) {
       for (const coin of h.coins ?? []) {
         if (!freshKeys.has(keyOf(coin))) continue;
-        let mine = checked.get(coin.transactionId);
-        if (mine === undefined) {
-          if (madeHere.has(String(coin.transactionId).toLowerCase())) mine = true;
+        let looked = checked.get(coin.transactionId);
+        if (looked === undefined) {
+          if (madeHere.has(String(coin.transactionId).toLowerCase())) looked = { mine: true, at: null };
           else {
-            let inputs = null;
-            try { inputs = await fetchTransactionInputs(coin.transactionId); } catch { inputs = null; }
-            mine = isOwnTransfer(inputs, { known, ownAddresses: own, fallback: ownCoinSpent });
+            let lookup = { inputs: null, at: null };
+            try { lookup = transactionLookup(await fetchTransactionInputs(coin.transactionId)); } catch { lookup = { inputs: null, at: null }; }
+            looked = { mine: isOwnTransfer(lookup.inputs, { known, ownAddresses: own, fallback: ownCoinSpent }), at: lookup.at };
           }
-          checked.set(coin.transactionId, mine);
+          checked.set(coin.transactionId, looked);
         }
+        const { mine, at } = looked;
         if (!mine && coin.state.amount > 0n) {
           let wait = false;
           try { wait = Boolean(holdForNotice(coin, h.holdingId)); } catch { wait = false; }
           if (wait) { held.add(keyOf(coin)); continue; }
-          received.push({ holdingId: h.holdingId, units: coin.state.amount, transactionId: coin.transactionId, index: coin.index });
+          received.push({ holdingId: h.holdingId, units: coin.state.amount, transactionId: coin.transactionId, index: coin.index, at });
           store.record({
             id: `${String(coin.transactionId).toLowerCase()}:${h.holdingId}:received`, kind: "received",
-            units: coin.state.amount, counterparty: "", date: now, holdingId: h.holdingId,
+            // dated when it came (K 961fc05a), not when this look found it
+            units: coin.state.amount, counterparty: "", date: at ?? now, holdingId: h.holdingId,
           });
         }
       }
@@ -286,6 +314,7 @@ export async function findReceived({ store, current, previous = [], fetchTransac
 /** The notification for what `findReceived` found (iOS `postReceived`): `{ title, body }` with
  *  `labels` the received-on addresses' names in order. */
 export function receivedNotification(received, labels, formatAmount) {
+  // labels unused since K b0f0a4e6; `ring` and the date are receivedRing's
   const total = received.reduce((s, r) => s + r.units, 0n);
   // Just "Received 1.00 kUSDT" (K b0f0a4e6): no "On your Chatting Address" line.
   return { title: `Received ${formatAmount(total)}`, body: "" };

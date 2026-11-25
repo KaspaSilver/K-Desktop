@@ -26,9 +26,6 @@ import {
   PRICE_REQUEST_SPACING_MS,
 } from "../engine/prices.js";
 import { getEndpoint } from "../engine/endpoints.js";
-import {
-  fetchNetworkStats, peekNetworkStats, formatHashrate, estimateDailyKas,
-} from "../engine/network-stats.js";
 import { ADDRESS_PREFIX, ADDRESS_HRP, KAS_UNIT, isValidKaspaAddress } from "../engine/network.js";
 import { looksLikeName, notFoundMessage } from "../engine/name-services.js";
 import { closeActiveScanner, scanKaspaAddress } from "./qr-scan.js";
@@ -116,12 +113,11 @@ let addressImport = null;
 // The running background price backfill loop's token (null: none). An account switch clears it,
 // which retires that loop, so the next account's loop starts at once instead of waiting it out.
 let priceBackfillTimer = null;
-let view = "main";         // "main" | "price" | "value" | "hashrate" — which screen is showing
-/// What the mining estimate has been typed into. Held here rather than in the DOM so the figure
-/// survives the re-render each keystroke triggers.
-let hashrateInput = "";
+// "main" | "price" | "value" — which screen is showing. The hashrate screen and its card left for
+// the Explorer's Hashrate chart, Mining Estimate included (K 961fc05a, owner 2026-11-25).
+let view = "main";
 
-// Thousands grouping for a number being typed (iOS DecimalInputFormat): a six-figure hashrate
+// Thousands grouping for a number being typed (iOS DecimalInputFormat): a six-figure amount
 // arrives as "1200000" and has to be counted by eye. Regrouped after every keystroke, handed
 // back ungrouped to whatever computes with it; the fraction is left exactly as typed.
 const DECIMAL_SEPARATORS = (() => {
@@ -168,23 +164,12 @@ function regroupField(input) {
   while (pos < after.length && seen < digitsBefore) { if (/\d/.test(after[pos])) seen += 1; pos += 1; }
   try { input.setSelectionRange(pos, pos); } catch {}
 }
-const HASHRATE_RANGES = [{ days: 30, label: "1M" }, { days: 90, label: "3M" }, { days: 365, label: "1Y" }, { days: 0, label: "All" }];
-let hashrateRangeDays = 90;
 /// The converter's two fields. Only the one being TYPED IN is authoritative - the other is
 /// derived - so a rounded value can never be fed back through the rate and drift (iOS
 /// KasConverterCard keeps the same rule).
 /// The order being edited, which is NOT the live one until Done - the same reason Customize Dock
 /// edits a draft: committing on every arrow press would re-render the cards underneath the sheet.
 let reorderDraft = [];
-/// The unit the mining estimate is entered in. A picker rather than parsing what someone types:
-/// "120" alone is ambiguous, and guessing TH/s puts the answer out by three orders of magnitude
-/// when they meant GH/s.
-const HASHRATE_UNITS = [
-  { key: "gh", label: "GH/s", scale: 1e9 },
-  { key: "th", label: "TH/s", scale: 1e12 },
-  { key: "ph", label: "PH/s", scale: 1e15 },
-];
-let hashrateUnit = "th";
 /// Which card's settings overlay is open, and which step of it.
 let cardModalId = null;
 let cardModalMode = "menu"; // "menu" | "rename" | "delete"
@@ -671,27 +656,6 @@ function bigChartSvg(points, { height = 240, stroke = "var(--kaspa)", chart = nu
     </div>`;
 }
 
-function sparklineSvg(points, { height = 130, width = 560, stroke = "var(--kaspa)", chart = null, lineWidth = 2 } = {}) {
-  if (!points || points.length < 2) return `<div class="portfolio-chart-empty">No data yet</div>`;
-  const values = points.map((p) => p[1]);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  const step = width / (points.length - 1);
-  const coords = points.map((p, i) => {
-    const x = (i * step).toFixed(1);
-    const y = (height - 8 - ((p[1] - min) / span) * (height - 16)).toFixed(1);
-    return `${x},${y}`;
-  });
-  const scrubAttr = chart ? ` data-portfolio-chart="${chart}"` : "";
-  return `
-    <div class="portfolio-chart-wrap"${scrubAttr} style="height:${height}px">
-      <svg class="portfolio-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
-        <polyline points="${coords.join(" ")}" fill="none" stroke="${stroke}" stroke-width="${lineWidth}" stroke-linejoin="round" stroke-linecap="round"/>
-      </svg>
-      ${chart ? `<div class="portfolio-scrub-line" hidden></div><div class="portfolio-scrub-dot" hidden style="background:${stroke}"></div>` : ""}
-    </div>`;
-}
 
 /** Hover-to-scrub, matching iOS SparklineChart's drag crosshair: a vertical line + dot track
  *  the pointer, and the associated readout labels update live. Direct DOM updates only — no
@@ -1176,7 +1140,7 @@ function renderPortfolioActionSheet() {
     // With a Nextcloud account connected (iOS aa5d783).
     ...(isNextcloudConnected() ? [
       { action: "nc-import", icon: "cloudIn", title: "Import from Nextcloud", subtitle: "Pick a CSV file from your Nextcloud." },
-      { action: "nc-export", icon: "cloudOut", title: "Export to Nextcloud", subtitle: "Save the CSV to the KaChat folder in your Nextcloud." },
+      { action: "nc-export", icon: "cloudOut", title: "Export to Nextcloud", subtitle: "Save the CSV to the K folder in your Nextcloud." },
     ] : []),
   ];
   body.innerHTML = `
@@ -1197,50 +1161,8 @@ function openPortfolioActionSheet() {
   window.setTimeout(() => modal.querySelector("[data-portfolio-action]")?.focus(), 0);
 }
 
-/// What was typed, in H/s, using the unit the picker has selected.
-function typedHashrateHs() {
-  const amount = decimalInputValue(hashrateInput);
-  if (!Number.isFinite(amount) || amount <= 0) return null;
-  return amount * (HASHRATE_UNITS.find((u) => u.key === hashrateUnit)?.scale ?? 1e12);
-}
 
-/// One payout period: what it pays in KAS, with the fiat value beneath it (iOS `payoutRow`).
-///
-/// Stacked rather than side by side because the two numbers answer the same question in two
-/// currencies - putting them in separate columns invites reading them as separate figures.
-function payoutRowHtml(label, kas) {
-  // Never masked: an estimate of the network's payout, not your holdings (iOS payoutRow).
-  const fiat = price && price.price > 0 ? currencyText(kas * price.price) : "";
-  return `
-    <div class="portfolio-payout-row">
-      <span class="portfolio-payout-label">${label}</span>
-      <span class="portfolio-payout-values">
-        <span class="portfolio-payout-kas">${kasPlain(kas)}</span>
-        ${fiat ? `<span class="portfolio-payout-fiat">${fiat}</span>` : ""}
-      </span>
-    </div>`;
-}
 
-/// Day, week and month, from the one daily figure (iOS's three `payoutRow` calls).
-///
-/// A day is the unit the arithmetic produces, but nobody buys a rig to earn a day's worth. The
-/// week and month are the horizons people actually compare against an electricity bill, and
-/// making the reader do the multiplication is the kind of small friction that stops them looking.
-function payoutBlockHtml(daily) {
-  if (daily === null) {
-    return `<p class="field-hint">Enter your hashrate to estimate earnings.</p>`;
-  }
-  const stats = peekNetworkStats();
-  // 30 days, not a calendar month: the reward steps down monthly anyway, so precision past
-  // "about a month" would be false. iOS makes the same call for the same reason.
-  return `
-    <div class="portfolio-payout-rows">
-      ${payoutRowHtml("Per day", daily)}
-      ${payoutRowHtml("Per week", daily * 7)}
-      ${payoutRowHtml("Per month", daily * 30)}
-    </div>
-    ${stats?.blockRewardKas ? `<p class="field-hint">At ${formatHashrate(stats.currentHashrate)} network hashrate and a ${stats.blockRewardKas.toFixed(4)} ${KAS_UNIT} block reward. Before pool fees, power and luck, and both figures move.</p>` : ""}`;
-}
 
 /// One stat: label on the left, value on the right, with a divider between rows (iOS `statRow`).
 /// A two-column grid squeezed four figures into two lines and left the reader matching labels to
@@ -1484,40 +1406,8 @@ function marketStatsHtml() {
     </div>`;
 }
 
-// A proper pickaxe (iOS 62288c2): a filled bowed head over a tapered handle, rotated to the
-// diagonal like the old strokes were.
-const PICKAXE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><g transform="rotate(-40 12 12)"><path d="M1.2 9.6C6 1 18 1 22.8 9.6C18 6.6 6 6.6 1.2 9.6Z" fill="currentColor" stroke="none"/><path d="M10.5 5.4h3l-.4 16a1.1 1.1 0 0 1-2.2 0Z" fill="currentColor" stroke="none"/></g></svg>`;
 
-/** The points the hashrate chart draws for the selected range; a short window with nothing in
- *  it would draw an empty chart, so it falls back to the whole series (iOS visiblePoints). */
-function hashrateVisiblePoints(stats) {
-  const all = stats?.history || [];
-  const cutoff = hashrateRangeDays > 0 ? Date.now() - hashrateRangeDays * 86_400_000 : 0;
-  const ranged = cutoff ? all.filter((pt) => pt[0] >= cutoff) : all;
-  return ranged.length >= 2 ? ranged : all;
-}
 
-/// Network hashrate, full width under the two squares (iOS `hashrateCard`).
-///
-/// Full width rather than a third square: it is one series with a long history, and it reads far
-/// better wide than squeezed into a third of a row. The sparkline says which way it is going
-/// without anyone having to open it.
-function hashrateCardHtml() {
-  const stats = peekNetworkStats();
-  const spark = stats && stats.history.length >= 2
-    ? sparklineSvg(stats.history.slice(-90), { width: 96, height: 34 })
-    : "";
-  return `
-    <button class="portfolio-hashrate-card" type="button" data-portfolio-open="hashrate">
-      <span class="portfolio-hashrate-ico" aria-hidden="true">${PICKAXE_SVG}</span>
-      <span class="portfolio-hashrate-copy">
-        <span class="portfolio-hashrate-label">Network Hashrate</span>
-        <span class="portfolio-hashrate-value">${stats ? formatHashrate(stats.currentHashrate) : "--"}</span>
-      </span>
-      ${spark}
-      <span class="portfolio-square-chev">›</span>
-    </button>`;
-}
 
 const CHECK_OUTLINE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"/><path d="m8 12.4 2.6 2.6L16 9.6"/></svg>`;
 const CHECK_FILLED_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="m8 12.4 2.6 2.6L16 9.6" stroke="var(--on-accent, #000)"/></svg>`;
@@ -1530,7 +1420,7 @@ function fmtFeeKas(value) {
   return `${(Number(value) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 })} ${KAS_UNIT}`;
 }
 
-/// Two cards under Network Hashrate, for the active portfolio (iOS 61eff0f):
+/// Two cards under the squares, for the active portfolio (iOS 61eff0f):
 /// - Realized P&L <year>: this calendar year's sells against the cost of the KAS they sold,
 ///   oldest buys first (FIFO, computeRealizedPL). Masked with the eye.
 /// - Fees Spent: network fees the portfolio's imported addresses paid, in KAS and in the app
@@ -1609,66 +1499,7 @@ function chartSpinnerHtml(height) {
   return `<div class="portfolio-chart-loading" style="height:${height}px"><span class="initial-sync-spinner" aria-hidden="true"></span></div>`;
 }
 
-/// iOS PortfolioFormat.kas: up to four decimals, grouped, never masked (network figures).
-function kasPlain(value) {
-  return `${(Number(value) || 0).toLocaleString("en-US", { maximumFractionDigits: 4 })} ${KAS_UNIT}`;
-}
 
-/// Full-screen network hashrate screen (iOS HashrateChartScreen): the chart, what a block pays
-/// now and after the next step down, an estimate of what a given hashrate earns, and what the
-/// number actually means.
-function hashrateViewHtml() {
-  const stats = peekNetworkStats();
-  const daily = estimateDailyKas({
-    yourHashrateHs: typedHashrateHs(),
-    networkHashrateHs: stats?.currentHashrate,
-    blockRewardKas: stats?.blockRewardKas,
-  });
-  const halvingDate = stats?.nextHalving
-    ? new Date(stats.nextHalving.at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-    : null;
-  const ranged = hashrateVisiblePoints(stats);
-  return `
-    ${screenHeaderHtml("Network Hashrate")}
-    <div class="profile-card">
-      <div class="portfolio-detail-head">
-        <span class="portfolio-hashrate-ico" aria-hidden="true">${PICKAXE_SVG}</span>
-        <span class="portfolio-detail-name">Kaspa Network</span>
-      </div>
-      <div class="portfolio-detail-date" data-portfolio-hashrate-date hidden></div>
-      ${rangeSummarySlotHtml()}
-      <div class="portfolio-detail-price-row">
-        <span class="portfolio-detail-price" data-portfolio-hashrate-value>${stats ? formatHashrate(stats.currentHashrate) : "--"}</span>
-      </div>
-      ${ranged.length >= 2 ? bigChartSvg(ranged, { height: 240, chart: "hashrate" }) : chartSpinnerHtml(240)}
-      <div class="portfolio-ranges portfolio-ranges-wide">
-        ${HASHRATE_RANGES.map((r) => `<button class="portfolio-range${r.days === hashrateRangeDays ? " active" : ""}" type="button" data-portfolio-hashrate-range="${r.days}">${r.label}</button>`).join("")}
-      </div>
-    </div>
-
-    <div class="profile-card portfolio-summary">
-      ${statRowHtml("Block Reward", stats?.blockRewardKas ? kasPlain(stats.blockRewardKas) : "--")}
-      ${statRowHtml("Next Block Reward", stats?.nextHalving ? kasPlain(stats.nextHalving.amountKas) : "--")}
-      ${statRowHtml("Next Block Reward Reduction", halvingDate ? deps.escapeHtml(halvingDate) : "--")}
-    </div>
-
-    <div class="profile-card">
-      <p class="portfolio-card-heading">Mining Estimate</p>
-      <div class="portfolio-hashrate-entry">
-        <input class="field-input portfolio-hashrate-field" type="text" inputmode="decimal" placeholder="0" aria-label="Your hashrate" data-portfolio-hashrate-input value="${deps.escapeHtml(hashrateInput)}" />
-        <div class="settings-segmented" role="group" aria-label="Hashrate unit">
-          ${HASHRATE_UNITS.map((unit) => `
-            <button type="button" class="settings-segmented-option ${hashrateUnit === unit.key ? "active" : ""}" data-portfolio-hashrate-unit="${unit.key}">${unit.label}</button>`).join("")}
-        </div>
-      </div>
-      <div data-portfolio-payouts>${payoutBlockHtml(daily)}</div>
-    </div>
-
-    <div class="profile-card portfolio-about">
-      <p class="portfolio-card-heading">About Hashrate</p>
-      <p class="portfolio-about-text">Hashrate is how much computing power miners are pointing at Kaspa. A higher hashrate means more work securing the chain, and it moves with mining profitability rather than with the price directly. Figures come from the Kaspa REST API set in Connection Settings, at one sample per day.</p>
-    </div>`;
-}
 
 /// iOS KasConverterCard.format: eight decimals - Kaspa's own precision - with the trailing zeros
 /// dropped down to two, grouped.
@@ -1831,11 +1662,6 @@ function render() {
     wireScrubbing();
     return;
   }
-  if (view === "hashrate") {
-    rootEl.innerHTML = hashrateViewHtml();
-    wireScrubbing();
-    return;
-  }
 
   const transactions = [...scoped].sort((a, b) => b.timestamp - a.timestamp);
   const allPicked = transactions.length > 0 && selectedTxIds.size === transactions.length;
@@ -1864,8 +1690,6 @@ function render() {
     </div>
 
     ${squaresHtml(summary)}
-
-    ${hashrateCardHtml()}
 
     ${insightCardsHtml(portfolio)}
 
@@ -1911,7 +1735,7 @@ function rangeSummaryHtml(a, b, valueText) {
 
 /// One chart screen's live readout: a scrubbed point puts its date and value up and hides the
 /// range's change; a dragged span shows its summary above the big number instead (iOS
-/// KasPriceChartScreen / PortfolioValueChartScreen / HashrateChartScreen headers).
+/// KasPriceChartScreen / PortfolioValueChartScreen headers).
 function wireChartReadout({ chart, points, dateAttr, valueAttr, changeAttr, current, valueText, dateOptions }) {
   const wrap = rootEl.querySelector(`[data-portfolio-chart="${chart}"]`);
   const el = (attr) => (attr ? rootEl.querySelector(`[${attr}]`) : null);
@@ -1956,19 +1780,6 @@ function wireScrubbing() {
       current: () => priceBigNumber(inPair),
       valueText: (v) => (flipped ? fmtPairAmount(v, { perKas: true }) : fmtPrice(v)),
       dateOptions: withTime,
-    });
-    return;
-  }
-  if (view === "hashrate") {
-    const stats = peekNetworkStats();
-    wireChartReadout({
-      chart: "hashrate",
-      points: hashrateVisiblePoints(stats),
-      dateAttr: "data-portfolio-hashrate-date",
-      valueAttr: "data-portfolio-hashrate-value",
-      current: () => (stats ? formatHashrate(stats.currentHashrate) : "--"),
-      valueText: (v) => formatHashrate(v),
-      dateOptions: dateOnly,
     });
     return;
   }
@@ -2127,7 +1938,7 @@ async function exportCsv() {
   }
 }
 
-/** Same CSV as Export CSV, uploaded into the KaChat folder of the connected Nextcloud. */
+/** Same CSV as Export CSV, uploaded into the K folder of the connected Nextcloud. */
 async function exportToNextcloud() {
   const built = buildCsvExport();
   if (!built) return;
@@ -3059,9 +2870,6 @@ let attemptedRanges = new Set();
 
 async function refreshData({ force = false } = {}) {
   if (loading) return;
-  // The hashrate card sits on the main screen, so its series is pulled with everything else -
-  // best-effort, and it repaints itself when it lands rather than holding up the price refresh.
-  fetchNetworkStats({ force }).then((stats) => { if (stats && view === "main") render(); }).catch(() => {});
   syncCurrencyState();
   if (force) attemptedRanges = new Set();
   const currency = historyCurrency;
@@ -3266,8 +3074,7 @@ export function initPortfolio(dependencies) {
     }, 0);
   });
 
-  // The converter and the mining estimate write into module state and refresh only the DERIVED
-  // figure. Re-rendering the whole screen on each keystroke would take the caret with it.
+  // The converter writes into module state and refreshes only the DERIVED figure. Re-rendering the whole screen on each keystroke would take the caret with it.
   rootEl?.addEventListener("input", (event) => {
     const target = event.target;
     if (target.matches("[data-portfolio-conv-kas]") || target.matches("[data-portfolio-conv-fiat]")) {
@@ -3289,20 +3096,6 @@ export function initPortfolio(dependencies) {
       if (other) other.value = text;
       if (typingKas) converterFiat = text; else converterKas = text;
       return;
-    }
-    if (target.matches("[data-portfolio-hashrate-input]")) {
-      regroupField(target);
-      hashrateInput = target.value;
-      const stats = peekNetworkStats();
-      const daily = estimateDailyKas({
-        yourHashrateHs: typedHashrateHs(),
-        networkHashrateHs: stats?.currentHashrate,
-        blockRewardKas: stats?.blockRewardKas,
-      });
-      // The block is replaced wholesale rather than patched cell by cell: an empty field shows a
-      // prompt where the three rows would be, so there is not always a cell to write into.
-      const block = rootEl.querySelector("[data-portfolio-payouts]");
-      if (block) block.innerHTML = payoutBlockHtml(daily);
     }
   });
 
@@ -3358,7 +3151,6 @@ export function initPortfolio(dependencies) {
       render();
       // Each screen pulls only what it needs, and repaints when it lands. Both are best-effort:
       // the screen stands without them rather than showing an error for a figure nobody asked for.
-      if (view === "hashrate") fetchNetworkStats().then(() => { if (view === "hashrate") render(); }).catch(() => {});
       if (view === "price") {
         fetchKasMarketStats({ currency: deps.currencyCode?.().toLowerCase() || "usd" })
           .then(() => { if (view === "price") render(); }).catch(() => {});
@@ -3368,12 +3160,6 @@ export function initPortfolio(dependencies) {
 
     if (event.target.closest("[data-portfolio-back]")) { view = "main"; render(); return; }
 
-
-    const unit = event.target.closest("[data-portfolio-hashrate-unit]");
-    if (unit) { hashrateUnit = unit.dataset.portfolioHashrateUnit; render(); return; }
-
-    const hashrateRange = event.target.closest("[data-portfolio-hashrate-range]");
-    if (hashrateRange) { hashrateRangeDays = Number(hashrateRange.dataset.portfolioHashrateRange) || 0; render(); return; }
     const gear = event.target.closest("[data-portfolio-pair-gear]");
     if (gear) { openPairPicker(); return; }
     const flip = event.target.closest("[data-portfolio-pair-flip]");

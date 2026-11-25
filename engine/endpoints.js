@@ -254,7 +254,9 @@ export async function isRelayRateLimit(response) {
 // carries that host for 5 minutes; a relay that failed too (the server is down) isn't asked again
 // for that host for a minute, so an outage never doubles into relay calls. A POST isn't repeated:
 // it may have reached the server.
-const DIRECT_FIRST_HOST_RE = /^indexer\.kachat\.app$|^api(-tn\d+)?\.kaspa\.org$|^api\.gateio\.ws$/i;
+// kaspa.stream's REST API (the Explorer, K 961fc05a) sends "*" too (checked 2026-11-25), and exposes
+// x-next-page-before, which an address page's Load More reads; its seed servers stay relayed.
+const DIRECT_FIRST_HOST_RE = /^indexer\.kachat\.app$|^api(-tn\d+)?\.kaspa\.org$|^api\.gateio\.ws$|^api(-tn\d+)?\.kaspa\.stream$/i;
 const DIRECT_FIRST_RELAY_MS = 5 * 60_000;
 const DIRECT_FIRST_NO_RELAY_MS = 60_000;
 const directFirstRelayUntil = new Map();

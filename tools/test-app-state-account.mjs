@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { accountGuard } from "../ui/account-guard.js";
+import { voiceInfoKey, createVoiceInfoCache } from "../ui/voice-info-cache.js";
 
 const app = readFileSync(new URL("../ui/app.js", import.meta.url), "utf8");
 const between = (start, end) => {
@@ -143,6 +144,11 @@ function activityHarness({ switchDuring = null } = {}) {
     makeOutputAddressLookup: () => async () => null,
     fetchRecentFullTransactionsFor: async () => { if (switchDuring === "fetch") engine.address = "kaspa:new"; return [tx]; },
     catchUpCandidates: (txs) => ({ nextFloor: 1000, candidates: txs }),
+    transactionBelongsInHistory: () => true,
+    // K 961fc05a: only a receive from the last few minutes rings; this one has no block time (now)
+    txBlockTimeMs: () => 0,
+    isRecentForBanner: () => true,
+    bellTimestamp: (at, now = Date.now()) => at || now,
     loadActivityFloor: () => 0,
     saveActivityFloor: (address, ms) => writes.push(["floor", engine.address, address, ms]),
     pushShowsReceive: () => false,
@@ -201,11 +207,12 @@ function waveformHarness(decodeFails) {
     }
     async close() { this.closed = true; }
   }
-  const source = between("async function decodeWaveform(", "// `chatStyle` (1:1 and group threads");
+  const source = between("function decodeWaveform(", "// `chatStyle` (1:1 and group threads");
   const { decodeWaveform } = build(source, {
     fetch: async () => ({ arrayBuffer: async () => new ArrayBuffer(8) }),
     window: { AudioContext: FakeAudioContext },
-    voiceWaveformCache: new Map(),
+    voiceWaveformCache: createVoiceInfoCache(),
+    voiceInfoKey,
     VOICE_WAVEFORM_BARS: 40,
   }, "{ decodeWaveform }");
   return { decodeWaveform, contexts };

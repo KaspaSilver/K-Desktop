@@ -141,8 +141,8 @@ await test("the app is K: page title, home-screen name and the sentences that me
 await test("KaChat stays where it names something real", () => {
   assert.match(app, /"Shared a KaChat profile"/);
   assert.match(app, /kachatLink: "KaChat Link"/);
-  assert.match(app, /"kachat-stats": "KaChat Stats"/);
-  assert.match(read("ui", "nextcloud.js"), /const DEFAULT_BACKUP_FOLDER = "KaChat";/);
+  // the Nextcloud folder is "K" since K 961fc05a; "KaChat" is the old one it moves from
+  assert.match(read("ui", "nextcloud.js"), /const DEFAULT_BACKUP_FOLDER = "K";\nconst LEGACY_BACKUP_FOLDER = "KaChat";/);
   assert.match(read("engine", "sync.js"), /export const DEFAULT_KASIA_ALIAS = "KaChat";/);
   assert.match(read("engine", "name-services.js"), /serviceName: "KaChat Names"/);
   // the hidden username password managers file the password under is unchanged

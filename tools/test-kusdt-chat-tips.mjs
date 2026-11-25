@@ -288,7 +288,8 @@ await check("no second \"Received kUSDT\" banner for a transfer a chat's notice 
   assert.deepEqual(notes, [], "a coin with no notice yet waits for one (K b0f0a4e6)");
   tick(W.KUSDT_NOTICE_WAIT_MS + 1000);
   await wallet.refresh();
-  assert.deepEqual(notes, [{ title: "Received 2.00 kUSDT", body: "" }], "one no notice filed still rings, after the wait");
+  // no block time known: it counts as now, so it rings (K 961fc05a)
+  assert.deepEqual(notes, [{ title: "Received 2.00 kUSDT", body: "", ring: true, happenedAtMs: null }], "one no notice filed still rings, after the wait");
 });
 
 // MARK: - Tip In

@@ -48,7 +48,13 @@ const BACKUP_FILENAME = "kachat-contacts.json";
 // Where chat history used to go, and the pre-4.0 desktop-only file before that. Never read or written
 // now; they stay on the server until the account is deleted (deleteRemoteNextcloudBackup).
 const RETIRED_BACKUP_FILENAMES = ["kachat-backup.json", "kachat-backup-desktop.json"];
-const DEFAULT_BACKUP_FOLDER = "KaChat";
+// The folder is "K" since K 961fc05a (owner, 2026-11-25; NextcloudService.backupFolderName), media in
+// K/Media. An account with the old "KaChat" folder has it moved to "K" the first time the app touches
+// Nextcloud (migrateLegacyFolderIfNeeded).
+const DEFAULT_BACKUP_FOLDER = "K";
+const LEGACY_BACKUP_FOLDER = "KaChat";
+// Chat media's fixed folder, whatever the backup folder is (iOS NextcloudService.mediaFolderPath).
+const MEDIA_FOLDER = `${DEFAULT_BACKUP_FOLDER}/Media`;
 // Heartbeat: a sync even when no contact changed, so a device that missed a change still catches up.
 const AUTO_BACKUP_MIN_MS = 3600_000;
 const AUTO_CATCHUP_MS = 86_400_000;
@@ -442,11 +448,12 @@ function backupFolderPath() {
   return nc?.backupFolder || DEFAULT_BACKUP_FOLDER;
 }
 
-/** Finds the KaChat folder this account already has, instead of assuming there isn't one (iOS
- *  discoverExistingBackupFolder). A folder holding the contacts file wins; a folder merely NAMED
- *  KaChat (any case, anywhere in the first few levels) is the fallback. Either way it is stored as
- *  the backup folder, so Settings names it rather than "KaChat (default)", and nothing makes a second
- *  KaChat folder beside it. A folder you picked yourself is never replaced. Breadth-first and
+/** Finds the K folder this account already has, instead of assuming there isn't one (iOS
+ *  discoverExistingBackupFolder). A folder holding the contacts file wins; a folder merely NAMED for
+ *  the app is the fallback, and only at the files root with the exact name "K" or "KaChat" (K
+ *  961fc05a, audit 2026-11-25 C7: a "k" three levels down is someone's own folder). Either way it is
+ *  stored as the backup folder, and the folder move that follows (migrateLegacyFolderIfNeeded) takes
+ *  a "KaChat" one to "K". A folder you picked yourself is never replaced. Breadth-first and
  *  bounded: a WebDAV walk of someone's whole drive is not a thing to do on connect. Automatic Sync
  *  stays as it is (off after connecting). */
 const BACKUP_FOLDER_SCAN_VERSION = 3; // 3: looks for the contacts file; connections scanned before it get it once
@@ -468,7 +475,7 @@ async function discoverExistingBackupFolder() {
     }
     for (const entry of entries) {
       if (!entry.isDirectory) continue;
-      if (!namedCandidate && entry.name.toLowerCase() === DEFAULT_BACKUP_FOLDER.toLowerCase()) namedCandidate = entry.path;
+      if (!namedCandidate && !path && [DEFAULT_BACKUP_FOLDER, LEGACY_BACKUP_FOLDER].includes(entry.name)) namedCandidate = entry.path;
       // Depth cap: a backup folder buried deeper than this is not something the app put there.
       if (entry.path.split("/").length < FOLDER_DISCOVERY_MAX_DEPTH) queue.push(entry.path);
     }
@@ -489,14 +496,222 @@ async function adoptExistingBackupFolder() {
     nc.backupFolder = found.path;
     delete nc.lastBackupEtag;
     saveState();
+    // "KaChat" -> "K" settled before saying which folder is used (K 961fc05a: connect runs the move
+    // straight after linking the folder it found).
+    await migrateLegacyFolderIfNeeded({ force: true });
+    if (!nc || nc !== account) return;
     renderSettings();
+    const folder = backupFolderPath();
     if (found.hasBackup && !nc.autoBackup) {
-      deps.showToast?.(`Found your K contacts in "${found.path}". Turn on Automatic Sync to bring them in.`);
+      deps.showToast?.(`Found your K contacts in "${folder}". Turn on Automatic Sync to bring them in.`);
     } else if (!found.hasBackup) {
-      deps.showToast?.(`Using your existing "${found.path}" folder for backups.`);
+      deps.showToast?.(`Using your existing "${folder}" folder for backups.`);
     }
   } else {
     saveState();
+    await migrateLegacyFolderIfNeeded({ force: true });
+  }
+}
+
+// --- The "KaChat" folder moves to "K" (K 961fc05a, owner 2026-11-25) ---------------------------
+// NextcloudService.migrateLegacyFolderIfNeeded: the first time this account touches Nextcloud since
+// the rename, a root "KaChat" folder is moved to "K" with one WebDAV MOVE, so the contacts backup,
+// exports and media all come along (public share links follow the file, not the path). Only for the
+// default folder (or one discovery linked at the root "KaChat"): a folder the user picked stays.
+// When "K" already exists the old folder stays put: a contacts backup "K" lacks is moved in, and one
+// both hold is read and merged into the contacts (mergeLegacyContactsFile), which the next sync
+// writes to "K". Failures leave everything as it was and the next call tries again, except a MOVE
+// refused with only "KaChat" there, which keeps using "KaChat" and is tried again after a day.
+//
+// One run per account at a time, registered before its first await: every later caller awaits that
+// run, so two callers (a backup, the watcher, a media send, the picker) never MOVE twice. Once
+// settled it is remembered in the account's stored connection and looked at again weekly, in case a
+// device on an older build made "KaChat" again. The records live in the account-scoped connection
+// (`nc`), so they go with the account and with Disconnect (iOS audit 2026-11-25 M9).
+const LEGACY_FOLDER_RECHECK_MS = 7 * 24 * 3600_000;
+const LEGACY_FOLDER_RETRY_MS = 24 * 3600_000;
+const legacyFolderChecked = new Set();       // account keys looked at this session
+const legacyFolderMigrations = new Map();    // account key -> the run in flight
+
+function legacyFolderAccountKey(account = nc) {
+  if (!account) return "";
+  const wallet = String(addressBookWalletAddress() || "").trim().toLowerCase();
+  return `${wallet}|${String(account.server || "")}|${String(account.userId || account.username || "")}`;
+}
+
+/** Exported for tools/test-nextcloud-k-folder.mjs. `force` (connect) looks now, past the weekly
+ *  record and the day's wait after a refused MOVE. */
+export async function migrateLegacyFolderIfNeeded({ force = false } = {}) {
+  const account = nc;
+  if (!account || NC_OFF || needsReconnect) return;
+  const accountKey = legacyFolderAccountKey(account);
+  const running = legacyFolderMigrations.get(accountKey);
+  if (running) { await running; return; }
+  if (!force) {
+    if (legacyFolderChecked.has(accountKey)) return;
+    const checkedAt = Number(account.kFolderCheckedAt || 0);
+    if (checkedAt && Date.now() - checkedAt < LEGACY_FOLDER_RECHECK_MS) { legacyFolderChecked.add(accountKey); return; }
+    // a MOVE refused lately: "KaChat" is in use meanwhile, tried again after a day
+    if (Number(account.kFolderRetryAt || 0) > Date.now()) return;
+  }
+  const run = runLegacyFolderMigration(account, accountKey).catch((error) => {
+    deps.appendEngineLog?.(`[Nextcloud] Moving the KaChat folder to K failed (tried again later): ${error?.message || error}`);
+  });
+  legacyFolderMigrations.set(accountKey, run);
+  try { await run; } finally { if (legacyFolderMigrations.get(accountKey) === run) legacyFolderMigrations.delete(accountKey); }
+}
+
+/** Settled for this account: not looked at again this session, nor for a week. */
+function markLegacyFolderSettled(account, accountKey) {
+  legacyFolderChecked.add(accountKey);
+  if (nc !== account) return;
+  nc.kFolderCheckedAt = Date.now();
+  delete nc.kFolderRetryAt;
+  saveState();
+}
+
+/** The backup folder the move leaves in use (null = the default "K"). `sameFile`: the contacts file
+ *  there is the one this device last read or wrote (a MOVE keeps it), so its ETag still stands. */
+function setMigratedBackupFolder(account, path, { sameFile = false } = {}) {
+  if (nc !== account) return;
+  const next = path || null;
+  if ((nc.backupFolder || null) === next) return;
+  nc.backupFolder = next;
+  if (!sameFile) delete nc.lastBackupEtag;
+  saveState();
+  renderSettings();
+}
+
+/** WebDAV MOVE of `from` to `to` (paths under the user's files), never overwriting. The Destination
+ *  is the real server's own URL, never the relay's (Nextcloud only accepts its own). */
+async function moveDavPath(from, to) {
+  const encode = (path) => String(path).split("/").filter(Boolean).map(encodeURIComponent).join("/");
+  const user = davUser();
+  try {
+    const response = await ncFetch(`${apiBase()}/remote.php/dav/files/${user}/${encode(from)}`, {
+      method: "MOVE",
+      headers: {
+        Authorization: authHeader(),
+        Destination: `${String(nc?.server || "").replace(/\/+$/, "")}/remote.php/dav/files/${user}/${encode(to)}`,
+        Overwrite: "F",
+      },
+    });
+    return response.status >= 200 && response.status < 300;
+  } catch { return false; }
+}
+
+/** The migration itself. Everything here acts on the CURRENT connection, so it is re-checked after
+ *  every await: an account switch (or a disconnect) mid-move drops the rest, and the next account
+ *  runs its own. */
+async function runLegacyFolderMigration(account, accountKey) {
+  const wallet = addressBookWalletAddress();
+  const stillCurrent = () => nc === account && (!wallet || addressBookHoldsWallet(wallet));
+  // exact case: "k" or "kachat" at the root is someone's own folder
+  const rootFolders = async () => {
+    let root;
+    try { root = await listFolder(""); } catch { return null; }
+    if (!stillCurrent()) return null;
+    const has = (name) => root.some((entry) => entry.isDirectory && entry.name === name && !entry.path.includes("/"));
+    return { legacy: has(LEGACY_BACKUP_FOLDER), fresh: has(DEFAULT_BACKUP_FOLDER) };
+  };
+  const chosen = account.backupFolder || null;
+  if (chosen && chosen !== LEGACY_BACKUP_FOLDER && chosen !== DEFAULT_BACKUP_FOLDER) {
+    markLegacyFolderSettled(account, accountKey);
+    return;
+  }
+  let root = await rootFolders();
+  if (!root) return;
+  if (!root.legacy) {
+    // nothing to move: the default "K" from here on (a linked "K" is the default spelled out)
+    setMigratedBackupFolder(account, null, { sameFile: chosen !== LEGACY_BACKUP_FOLDER });
+    markLegacyFolderSettled(account, accountKey);
+    return;
+  }
+  if (!root.fresh) {
+    if (await moveDavPath(LEGACY_BACKUP_FOLDER, DEFAULT_BACKUP_FOLDER)) {
+      if (!stillCurrent()) return;
+      deps.appendEngineLog?.("[Nextcloud] Moved the KaChat folder to K");
+      setMigratedBackupFolder(account, null, { sameFile: true });
+      markLegacyFolderSettled(account, accountKey);
+      return;
+    }
+    // A failed MOVE may still mean the folder moved (another device, or an answer lost on the way
+    // back): look again before deciding which folder to use.
+    root = await rootFolders();
+    if (!root) return;
+    if (!root.legacy) {
+      if (root.fresh) {
+        setMigratedBackupFolder(account, null, { sameFile: true });
+        markLegacyFolderSettled(account, accountKey);
+      }
+      return;
+    }
+    if (!root.fresh) {
+      // really still only "KaChat": keep using it, and try again in a day
+      if (!chosen) setMigratedBackupFolder(account, LEGACY_BACKUP_FOLDER, { sameFile: true });
+      if (nc === account) { nc.kFolderRetryAt = Date.now() + LEGACY_FOLDER_RETRY_MS; saveState(); }
+      return;
+    }
+    // both there now: on to the merge
+  }
+  // Both there: "K" is the folder. Bring the contacts backup over if "K" has none, else merge the
+  // old one in.
+  setMigratedBackupFolder(account, null);
+  let fresh;
+  let old;
+  try {
+    fresh = await listFolder(DEFAULT_BACKUP_FOLDER);
+    if (!stillCurrent()) return;
+    old = await listFolder(LEGACY_BACKUP_FOLDER);
+    if (!stillCurrent()) return;
+  } catch { return; }
+  const holdsBackup = (listing) => listing.some((entry) => !entry.isDirectory && entry.name === BACKUP_FILENAME);
+  if (!holdsBackup(old)) { markLegacyFolderSettled(account, accountKey); return; }
+  const oldPath = `${LEGACY_BACKUP_FOLDER}/${BACKUP_FILENAME}`;
+  if (!holdsBackup(fresh)) {
+    if (await moveDavPath(oldPath, `${DEFAULT_BACKUP_FOLDER}/${BACKUP_FILENAME}`)) {
+      if (!stillCurrent()) return;
+      markLegacyFolderSettled(account, accountKey);
+      return;
+    }
+    let again;
+    try { again = await listFolder(DEFAULT_BACKUP_FOLDER); } catch { return; }
+    if (!stillCurrent() || !holdsBackup(again)) return;
+    // "K" has one after all: merge the old one in below
+  }
+  // The same old file as last time is merged already: no download (iOS audit 2026-11-25 M3). A file
+  // whose ETag can't be read is merged anyway; merging again changes nothing.
+  let oldETag = null;
+  try { oldETag = await fetchETagOf(oldPath); } catch { oldETag = null; }
+  if (!stillCurrent()) return;
+  if (oldETag && account.kFolderMergedEtag === oldETag) { markLegacyFolderSettled(account, accountKey); return; }
+  if (await mergeLegacyContactsFile(oldPath, stillCurrent)) {
+    if (oldETag && nc === account) { nc.kFolderMergedEtag = oldETag; saveState(); }
+    markLegacyFolderSettled(account, accountKey);
+  }
+}
+
+/** Reads the old folder's contacts file and merges it into this account's contacts by the usual
+ *  rules (newest edit or deletion wins per address; the change watcher's mergeSharedContactsFile).
+ *  What it adds reaches "K" on the next sync. The old file stays (a device on an older build may
+ *  still be writing it; merging again changes nothing). True once it has been dealt with, a file
+ *  that isn't this account's included; false to try again later (no key yet, a failed download). */
+async function mergeLegacyContactsFile(path, stillCurrent) {
+  if (deps.backupKeyAvailable && !deps.backupKeyAvailable()) return false;
+  let raw;
+  try { raw = await downloadNextcloudText(path); } catch { return false; }
+  if (!stillCurrent()) return false;
+  try {
+    if (!parseBackupEnvelope(raw)) throw new Error("It isn't encrypted by KaChat.");
+    const plain = await deps.openBackupPayload(raw);
+    if (!stillCurrent()) return false;
+    const result = mergeSharedContactsFile(plain);
+    deps.appendEngineLog?.("[Nextcloud] Merged the KaChat folder's contacts into K");
+    if (result.changedHere || result.serverIsBehind) noteContactActivity();
+    return true;
+  } catch (error) {
+    deps.appendEngineLog?.(`[Nextcloud] Skipped the KaChat folder's contacts file: ${error.message}`);
+    return true;
   }
 }
 
@@ -516,9 +731,9 @@ async function ensureFolder(davRoot, parts) {
   return url;
 }
 
-// --- Plain files in the KaChat folder (Portfolio CSV export / import, iOS aa5d783) ---
+// --- Plain files in the K folder (Portfolio CSV export / import, iOS aa5d783) ---
 
-/** Uploads `body` as `filename` into the KaChat folder (backupFolderPath - beside the contacts
+/** Uploads `body` as `filename` into the K folder (backupFolderPath - beside the contacts
  *  backup), creating the folder chain if needed, and returns the stored path. A file of the same
  *  name is replaced; exports carry a timestamp in their name, so each one is a new file.
  *  `keepSpaces` keeps a name the user gave (a portfolio's, "KaChat Contacts") readable in
@@ -527,6 +742,8 @@ async function ensureFolder(davRoot, parts) {
  *  asked right before the write, stops a body built for an account that has since been switched
  *  away from. */
 export async function uploadToKaChatFolder(body, filename, contentType, { keepSpaces = false, folder: folderOverride = null, stillCurrent = null } = {}) {
+  if (!nc) throw new Error("Nextcloud is not connected.");
+  await migrateLegacyFolderIfNeeded();
   if (!nc) throw new Error("Nextcloud is not connected.");
   await ensureDavUser();
   const folder = folderOverride ?? backupFolderPath();
@@ -902,7 +1119,7 @@ export async function revokeNextcloudLogins(logins) {
 }
 
 let pickerAllowedExtensions = null;
-/** Browses the account and hands back the file picked - no share link. Starts in the KaChat
+/** Browses the account and hands back the file picked - no share link. Starts in the K
  *  folder (where Export to Nextcloud puts files) with All Files for the root; only files whose
  *  extension is allowed can be picked, the rest show dimmed (iOS NextcloudFileSelectView). */
 export function openNextcloudFilePicker({ allowedExtensions = [], onPicked = null } = {}) {
@@ -913,20 +1130,23 @@ export function openNextcloudFilePicker({ allowedExtensions = [], onPicked = nul
   return true;
 }
 
-/** Uploads media bytes to KaChat/Media/ and returns the public /s/TOKEN share link. */
+/** Uploads media bytes to K/Media/ (KaChat/Media/ before K 961fc05a) and returns the public
+ *  /s/TOKEN share link. */
 export async function uploadNextcloudMedia(blob, filename, contentType) {
+  if (!nc) throw new Error("Nextcloud is not connected.");
+  await migrateLegacyFolderIfNeeded();
   if (!nc) throw new Error("Nextcloud is not connected.");
   const safeName = String(filename || "file").replace(/[^\w.\-]+/g, "_");
   const unique = `${Math.random().toString(36).slice(2, 10)}_${safeName}`;
   const davRoot = `${apiBase()}/remote.php/dav/files/${davUser()}`;
-  const folderURL = await ensureFolder(davRoot, ["KaChat", "Media"]);
+  const folderURL = await ensureFolder(davRoot, MEDIA_FOLDER.split("/"));
   const put = await ncFetch(`${folderURL}/${encodeURIComponent(unique)}`, {
     method: "PUT",
     headers: { Authorization: authHeader(), "Content-Type": contentType || "application/octet-stream" },
     body: blob,
   });
   if (!put.ok) throw new Error(`Media upload failed (HTTP ${put.status}).`);
-  return createPublicShareLink(`KaChat/Media/${unique}`);
+  return createPublicShareLink(`${MEDIA_FOLDER}/${unique}`);
 }
 
 /** Uploads the merged archive. Returns the uploaded file's ETag when the server sent one on the
@@ -1059,6 +1279,7 @@ export function runBackup() {
 // - THIS wallet's envelope that fails to decrypt is replaced in place. Nextcloud's own version history
 //   keeps its earlier contents.
 async function performBackup() {
+  await migrateLegacyFolderIfNeeded();
   const account = nc;
   const wallet = addressBookWalletAddress();
   if (!account || !wallet) throw new Error("Open a wallet first.");
@@ -1102,7 +1323,7 @@ async function performBackup() {
   // way) would read as damaged on the next sync; say so plainly instead of looping. Only our own
   // write counts: another device may have replaced the file in between.
   const expectedBytes = new TextEncoder().encode(payload).length;
-  const stored = await fetchBackupInfo();
+  const stored = await fetchBackupInfo({ migrate: false });
   const storedBytes = Number(stored?.size || 0);
   if (stored && storedBytes && storedBytes !== expectedBytes) {
     const currentETag = await fetchBackupETag().catch(() => null);
@@ -1113,7 +1334,10 @@ async function performBackup() {
   }
 }
 
-async function fetchBackupInfo() {
+/** The contacts file's listing (null = none yet). `migrate` false: the folder move was settled
+ *  already (performBackup; iOS audit 2026-11-25 M3: a backup used to run it twice). */
+async function fetchBackupInfo({ migrate = true } = {}) {
+  if (migrate) await migrateLegacyFolderIfNeeded();
   try {
     const listing = await listFolder(backupFolderPath());
     return listing.find((f) => !f.isDirectory && f.name === BACKUP_FILENAME) || null;
@@ -1197,9 +1421,14 @@ function parseETagFromMultistatus(xmlText) {
  *  request with no body download.
  *  null = no backup file yet (404); throws on any other failure. */
 async function fetchBackupETag() {
+  return fetchETagOf(`${backupFolderPath()}/${BACKUP_FILENAME}`);
+}
+
+/** Any file's ETag (path under the user's files), the same way. null = no such file. */
+async function fetchETagOf(path) {
   if (!nc) return null;
   const davRoot = `${apiBase()}/remote.php/dav/files/${davUser()}`;
-  const url = `${davRoot}/${backupFolderPath().split("/").map(encodeURIComponent).join("/")}/${encodeURIComponent(BACKUP_FILENAME)}`;
+  const url = `${davRoot}/${String(path).split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
   const response = await ncFetch(url, {
     method: "PROPFIND",
     headers: { Authorization: authHeader(), Depth: "0", "Content-Type": "application/xml" },
@@ -1319,6 +1548,9 @@ function stopChangeWatcher() {
 }
 
 async function runChangeWatcher(epoch) {
+  // The watcher reads the contacts file in the backup folder: "KaChat" -> "K" is settled first, or
+  // it polls a folder the move is about to change (K 961fc05a, audit 2026-11-25 M3).
+  await migrateLegacyFolderIfNeeded();
   let backoffFactor = 1;
   while (watcherEpoch === epoch) {
     const interval = Math.min(CHANGE_WATCH_MS * backoffFactor, CHANGE_WATCH_BACKOFF_MAX_MS);
@@ -1587,10 +1819,16 @@ async function loadPickerFolder() {
   pickerError = null;
   pickerFiles = [];
   renderPicker();
+  // "KaChat" -> "K" settled before anything is listed, so the picker never shows (or starts in) the
+  // old folder a move is about to rename (K 961fc05a, audit 2026-11-25 M3). At once when settled.
+  const startedIn = backupFolderPath();
+  await migrateLegacyFolderIfNeeded();
+  if (!nc) { pickerLoading = false; closePicker(); return; }
+  if (pickerMode === "file" && !pickerStack.length && pickerPath === startedIn) pickerPath = backupFolderPath();
   try {
     pickerFiles = await listFolder(pickerPath);
   } catch (error) {
-    // The KaChat folder doesn't exist until something is first saved to it: that reads as empty.
+    // The K folder doesn't exist until something is first saved to it: that reads as empty.
     if (!(pickerMode === "file" && error?.status === 404)) pickerError = corsHint(error);
   }
   pickerLoading = false;
@@ -1737,7 +1975,7 @@ function chooseCurrentFolder() {
   if (pickerMode === "folder-start") {
     nc.startFolder = chosen;
   } else if (pickerMode === "folder-backup") {
-    nc.backupFolder = chosen; // null = default KaChat folder
+    nc.backupFolder = chosen; // null = default K folder
     // A different folder means a different file: the remembered ETag describes the old one, so
     // drop it and let the watcher take a fresh look.
     delete nc.lastBackupEtag;
@@ -2003,6 +2241,8 @@ export function resetNextcloudForAccount() {
   loadState();
   renderSettings();
   armAutoBackup();
+  // As at launch: a connection saved before this version of the folder scan gets it once.
+  if (nc && nc.backupFolderScanned !== BACKUP_FOLDER_SCAN_VERSION) adoptExistingBackupFolder().catch(() => {});
 }
 
 export function initNextcloud(dependencies) {

@@ -1,7 +1,8 @@
 // The Chats dock tab's unread count (KaChat-iPhone 64d63846 AppTabBadge, KaPosts-iPhone eec2e30
-// PublicChatUnreadBadge). iOS badges Chats, Groups and KaPost's Public Chats separately; Desktop
-// has one Chats screen holding all three (groups and rooms are the circles above the chats), so its
-// dock tab carries their sum. No DOM in here, so tools/test-chat-unread.mjs runs it under node.
+// PublicChatUnreadBadge). The dock's KaChat badge carries chats and groups only since K 961fc05a
+// (owner, 2026-11-25): the bell-on rooms count on the Chats / Public Chats button beside the title
+// and on the app icon, so ui/app.js passes no `rooms` here any more. No DOM in here, so
+// tools/test-chat-unread.mjs runs it under node.
 
 /** Unread messages across the chats the Chats list shows (iOS ChatService.chatListUnreadCount).
  *  `isListed(conversation)` is iOS's isConversationVisibleInChatList: Message Requests, blocked and

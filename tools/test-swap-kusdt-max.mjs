@@ -64,7 +64,9 @@ test("the form shows Available and Max only on kUSDT swaps, the note only on a b
   assert.match(src, /\$\{kusdt && kasIsSendSide \? `<p class="swap-max-note">/);
   assert.match(src, /<span class="swap-available">Available: /);
   assert.match(src, /data-swap-max>Max<\/button>/);
-  assert.match(src, /refreshKusdtBalances\(\{ force: true \}\), 4500\)/, "read again after a trade");
+  // read again after each of the trade's follow-up lookups (K 961fc05a), once with no txid
+  assert.match(src, /deps\.kusdt\.followTrade\(txid, \(\) => refreshKusdtBalances\(\{ force: true \}\)\)/, "read again as the trade is followed");
+  assert.match(src, /refreshKusdtBalances\(\{ force: true \}\), 4500\)/, "one look for a trade with no txid");
 });
 
 test("the address's KAS leaves out coins a trade can't spend; kUSDT is that address's own", () => {

@@ -897,8 +897,12 @@ async function executeKusdtSwap() {
       receiveAmountText = "";
       kusdtQuote = null;
       estimateState = IDLE_ESTIMATE;
-      // the address's KAS and kUSDT moved: read them again once the node has the trade
-      window.setTimeout(() => refreshKusdtBalances({ force: true }), 4500);
+      // The address's KAS and kUSDT moved: read again after each of the wallet's lookups, which
+      // follow the trade until its coins show (K 961fc05a TokenWallet.followTrade); a trade with
+      // no txid gets one look.
+      const txid = typeof done?.result?.txid === "string" ? done.result.txid : null;
+      if (txid && deps.kusdt?.followTrade) deps.kusdt.followTrade(txid, () => refreshKusdtBalances({ force: true }));
+      else window.setTimeout(() => refreshKusdtBalances({ force: true }), 4500);
     }
     createState = { status: "idle", result: null, errorMessage: null };
   } catch (error) {

@@ -405,6 +405,16 @@
     return type === "group_message" || type === "group_control";
   }
 
+  /** A room push while a window of the app is in front waits for it (K 961fc05a "room push waits
+   *  for its message", PublicChatService.fetchBeforePushBanner): the app fetches the room's message
+   *  first, so the Public Chats list and the room have it when the notification shows - never the
+   *  other way round. Held at most ROOM_PUSH_WAIT_MS (the app gives up then too). */
+  const ROOM_PUSH_WAIT_MS = 4000;
+  function roomPushWaitsForApp(payload) {
+    const p = payload && typeof payload === "object" ? payload : {};
+    return String(p.type || "") === "broadcast" && Boolean(lower(p.channel));
+  }
+
   /** The route a focused screen is showing, in the same terms a push's route uses, so the worker
    *  can tell "this is the chat you are looking at" (iOS willPresent's active-conversation rule). */
   function routeKey(route) {
@@ -478,5 +488,5 @@
     return next.length > 500 ? next.slice(next.length - 500) : next;
   }
 
-  root.KaChatPushMap = { isTrue, kapostsKindEnabled, holdsBackWhileOpen, noteHiddenRequest, notificationFromPush, routeKey, shortAddress, kasFromSompi, partBurstKey, applyPartBurst, PART_BURST_MS, kaspaAddressFromXOnly, kapostsKind, noteArrival, recordPushArrival, isTipPush, PUSH_ARRIVAL_MS };
+  root.KaChatPushMap = { isTrue, kapostsKindEnabled, holdsBackWhileOpen, roomPushWaitsForApp, ROOM_PUSH_WAIT_MS, noteHiddenRequest, notificationFromPush, routeKey, shortAddress, kasFromSompi, partBurstKey, applyPartBurst, PART_BURST_MS, kaspaAddressFromXOnly, kapostsKind, noteArrival, recordPushArrival, isTipPush, PUSH_ARRIVAL_MS };
 })(typeof self !== "undefined" ? self : globalThis);

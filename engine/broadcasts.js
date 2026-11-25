@@ -1,7 +1,7 @@
 // Broadcasts — public, unencrypted, many-to-many channels riding on Kaspa self-send
 // transactions (payload `kchat:1:bcast:<channel>:<content>`; the legacy `ciph_msg:1:bcast:`
 // root is read, never written), desktop port of the iOS/
-// Android 4.0 feature. The curated rooms (#kaspa, #kachat-bugs and the eleven per-language
+// Android 4.0 feature. The curated rooms (#kaspa, #report-bugs and the eleven per-language
 // rooms), and any room the operator adds on the indexer (iOS 21c480d), are backed by the KaChat
 // broadcast indexer (BROADCAST_INDEXER.md): it watches the chain 24/7 and serves history over
 // REST, so clients backfill on room open and poll while the room stays visible. Messages are
@@ -15,8 +15,21 @@ import { sendPayloadTransaction } from "./transactions.js";
 import { createIndexerTrackedRooms, parseTrackedChannelsResponse, shouldAskTrackedRooms } from "./indexer-tracked-rooms.js";
 
 /// Curated rooms that are AUTO-JOINED for every account and pinned at the top of the Popular
-/// section. Matches iOS `BroadcastService.featuredChannels`.
-export const FEATURED_BROADCAST_CHANNELS = Object.freeze(["kaspa", "kachat-bugs"]);
+/// section. Matches iOS `BroadcastService.featuredChannels`. #report-bugs replaced #kachat-bugs
+/// (owner, 2026-11-25, K 961fc05a).
+export const FEATURED_BROADCAST_CHANNELS = Object.freeze(["kaspa", "report-bugs"]);
+
+/// Default rooms retired for a new name, old -> new (K 961fc05a `PublicChatService.retiredChannels`,
+/// owner 2026-11-25: #kachat-bugs is now #report-bugs). An account that had the old room is moved
+/// over once (bell, pin and switched-off state) and the old room is left; joining the old name (a
+/// link, the New Public Chat sheet) opens the new room.
+export const RETIRED_BROADCAST_CHANNELS = Object.freeze({ "kachat-bugs": "report-bugs" });
+
+/** The room that replaced a retired default room's name, or the name itself (normalized). */
+export function replacementBroadcastChannel(name) {
+  const clean = normalizeBroadcastChannel(name);
+  return Object.prototype.hasOwnProperty.call(RETIRED_BROADCAST_CHANNELS, clean) ? RETIRED_BROADCAST_CHANNELS[clean] : clean;
+}
 
 /// Curated per-language rooms, listed behind the collapsible "Other Languages" row under
 /// Popular. Indexer-tracked exactly like the featured rooms (30-day retention, indexer history,
@@ -44,9 +57,11 @@ export const LANGUAGE_BROADCAST_CHANNELS = Object.freeze([
   "kaspa-hebrew",
 ]);
 
-/// The rooms the app ships as defaults (Popular + the language rooms): always in the list,
-/// switched off rather than left, "Popular" in Room Info. Only auto-join and the pinned Popular
-/// list use `FEATURED_BROADCAST_CHANNELS` alone. Mirrors iOS `curatedChannels` (iOS 21c480d).
+/// The rooms the app ships as defaults (Popular + the language rooms), K 961fc05a's
+/// `builtInCuratedChannels`. With the rooms added on the indexer (`indexerDefaultBroadcastChannels`)
+/// they are the default rooms (`curatedBroadcastChannels`, `isCuratedBroadcastChannel`): always in
+/// the list, switched off rather than left, "Popular" in Room Info. Only auto-join and the pinned
+/// Popular list use `FEATURED_BROADCAST_CHANNELS` alone.
 export const CURATED_BROADCAST_CHANNELS = Object.freeze([
   ...FEATURED_BROADCAST_CHANNELS,
   ...LANGUAGE_BROADCAST_CHANNELS,
@@ -94,10 +109,50 @@ export function isValidBroadcastChannel(name) {
   return name.length > 0 && name.length <= 36 && !/[\s:]/.test(name);
 }
 
-/** True for the rooms the app ships (featured + curated language rooms). */
+/** True for the default rooms: the ones the app ships (featured + curated language rooms) and the
+ *  ones added on the indexer (K 961fc05a). */
 export function isCuratedBroadcastChannel(name) {
-  return CURATED_BROADCAST_CHANNELS.includes(normalizeBroadcastChannel(name));
+  const clean = normalizeBroadcastChannel(name);
+  return CURATED_BROADCAST_CHANNELS.includes(clean) || indexerDefaultBroadcastChannels().includes(clean);
 }
+
+/// Rooms the indexer tracks that are machinery, never chats (K 961fc05a `hiddenIndexerRooms`: the
+/// chess arena, the bot games, the arcade): Desktop's service rooms.
+export const HIDDEN_INDEXER_ROOMS = SERVICE_BROADCAST_CHANNELS;
+
+/**
+ * Rooms the operator added on the indexer (owner, 2026-11-25, K 961fc05a `indexerDefaultChannels`):
+ * what the app-wide indexer's `GET /broadcast-channels` reports beyond the built-in rooms, so a
+ * room added in the indexer's panel becomes a default room - joined with its bell off, with a
+ * switch under More Rooms in Edit Default Public Chats - with no app update. The machinery rooms and
+ * retired names are left out, and so are rooms learned only from served rows. A room the indexer
+ * drops stops being a default: on, it stays as an ordinary room; switched off, it's left once it has
+ * been missing for `DROPPED_ROOM_GRACE_MS` (ui/broadcasts.js). Sorted.
+ */
+export function indexerDefaultBroadcastChannels() {
+  return indexerDefaultChannelsFrom(indexerTrackedRooms.reported());
+}
+/** The rule itself, over a reported list (tools/test-public-chats-page.mjs checks it). */
+export function indexerDefaultChannelsFrom(reported) {
+  const out = [];
+  for (const raw of Array.isArray(reported) ? reported : []) {
+    const name = normalizeBroadcastChannel(raw);
+    if (!isValidBroadcastChannel(name) || out.includes(name)) continue;
+    if (CURATED_BROADCAST_CHANNELS.includes(name) || HIDDEN_INDEXER_ROOMS.includes(name)) continue;
+    if (Object.prototype.hasOwnProperty.call(RETIRED_BROADCAST_CHANNELS, name)) continue;
+    out.push(name);
+  }
+  return out.sort();
+}
+
+/** Every default room: the built-in ones, then those added on the indexer (K `curatedChannels`). */
+export function curatedBroadcastChannels() {
+  return [...CURATED_BROADCAST_CHANNELS, ...indexerDefaultBroadcastChannels()];
+}
+
+/** How long a switched-off room may be missing from the indexer's list before it's forgotten
+ *  (K 961fc05a `droppedRoomGrace`: one short `/broadcast-channels` answer mustn't turn it back on). */
+export const DROPPED_ROOM_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Rooms the indexer tracks (iOS 21c480d)
@@ -167,15 +222,22 @@ let trackedRoomsAskedAt = null; // { base, at }: when the app-wide indexer was l
 /**
  * Asks the app-wide broadcast indexer which rooms it tracks, at most once an hour per indexer -
  * on app open, on coming back to the app and on wallet switch. An indexer without the endpoint
- * answers nothing and the set keeps what it learned from served rows.
+ * answers nothing and the set keeps what it learned from served rows. `maxAgeMs` is shorter where
+ * a new room is looked for (Edit Default Public Chats asks within a minute, K 961fc05a).
  */
-export async function refreshIndexerTrackedRooms() {
+export async function refreshIndexerTrackedRooms({ maxAgeMs } = {}) {
   const base = String(getEndpoint("broadcastIndexer") || "").trim();
   const nowMs = Date.now();
-  if (!shouldAskTrackedRooms(trackedRoomsAskedAt, base, nowMs)) return;
+  if (!shouldAskTrackedRooms(trackedRoomsAskedAt, base, nowMs, maxAgeMs)) return;
   trackedRoomsAskedAt = { base, at: nowMs };
   const channels = await fetchTrackedBroadcastChannels({ baseUrl: base });
-  if (channels) indexerTrackedRooms.setReported(channels);
+  if (channels) setReportedBroadcastChannels(channels);
+}
+
+/** The app-wide indexer's list as `/broadcast-channels` answered it. The listeners hear of a change
+ *  (a room added on the indexer joins at once, K 961fc05a `IndexerTrackedRooms.didChange`). */
+export function setReportedBroadcastChannels(channels) {
+  return indexerTrackedRooms.setReported(channels);
 }
 
 /** Native display name for a curated language room, or "" for any other channel. */

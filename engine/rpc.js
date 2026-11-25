@@ -136,13 +136,22 @@ function withTimeout(promise, timeoutMs, label) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+/// A public resolver node serves the same RPC at `/wrpc/borsh` and `/wrpc/json`. This client speaks
+/// Borsh, so a pasted `/wrpc/json` path is taken as its `/wrpc/borsh` sibling (K 961fc05a takes a
+/// `/wrpc/borsh` path as `/wrpc/json`, because K speaks JSON). Anything else is left as it is.
+export function borshEndpoint(url) {
+  const raw = String(url || "").trim();
+  const match = /^(wss?:\/\/[^?#]*\/wrpc\/)json(\/?)([?#].*)?$/i.exec(raw);
+  return match ? `${match[1]}borsh${match[2]}${match[3] || ""}` : raw;
+}
+
 /// Every connection names its endpoint - ours, the user's, or one the public resolver handed out
 /// a moment earlier. (Constructing a Resolver once broke the built site because the minifier
 /// renamed the class; esbuild keeps class names now, so it is safe again.)
 function makeRpc(kaspa, { endpoint = "" } = {}) {
   const { RpcClient, Encoding } = kaspa;
   if (!endpoint) throw new Error("No node endpoint to connect to.");
-  return new RpcClient({ url: endpoint, encoding: Encoding?.Borsh, networkId: NETWORK_ID });
+  return new RpcClient({ url: borshEndpoint(endpoint), encoding: Encoding?.Borsh, networkId: NETWORK_ID });
 }
 
 async function connectCandidate(kaspa, {

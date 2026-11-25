@@ -1345,8 +1345,9 @@ function dagParents(column, row) {
  * apart at 60px/s, 18px blocks each pointing back at one or two blocks of the column before. With
  * the highlight on, the block entering on the right then is the transaction's: filled in the
  * accent with a pulsing glow, and the blocks after it point back at it in the same colour.
+ * `minIntervalMs` caps the frame rate (the Explorer's live card draws at 30 fps, K 961fc05a).
  */
-function blockDagAnimation(canvas) {
+export function blockDagAnimation(canvas, { minIntervalMs = 0 } = {}) {
   const SPACING = 54;
   const SPEED = 60;
   const BLOCK = 18;
@@ -1361,9 +1362,12 @@ function blockDagAnimation(canvas) {
     if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
     else ctx.rect(x, y, w, h);
   }
+  let lastDrawn = 0;
   function draw(now) {
     frame = 0;
     if (!running || !canvas.isConnected) { running = false; return; }
+    if (minIntervalMs > 0 && now - lastDrawn < minIntervalMs) { frame = requestAnimationFrame(draw); return; }
+    lastDrawn = now;
     const ratio = window.devicePixelRatio || 1;
     const width = canvas.clientWidth;
     const heightPx = canvas.clientHeight;

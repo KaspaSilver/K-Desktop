@@ -11,6 +11,7 @@ import { IS_TESTNET, KAS_UNIT } from "../engine/network.js";
 import { isKaChatSiteLink } from "./kaposts-format.js";
 import { allowsPreview } from "../engine/link-preview-policy.js";
 import { stripBidiControls } from "./kaposts-markdown.js";
+import { onForegroundBeat, BEAT_MS } from "./foreground-beat.js";
 import { sompiFromUserText, kasTextFromSompi } from "../engine/amounts.js";
 import {
   BROADCAST_RETENTION_MS,
@@ -28,7 +29,13 @@ import {
   normalizeBroadcastChannel,
   sendBroadcastMessage,
   broadcastPayloadBytes,
+  RETIRED_BROADCAST_CHANNELS,
+  replacementBroadcastChannel,
+  curatedBroadcastChannels,
+  indexerDefaultBroadcastChannels,
+  DROPPED_ROOM_GRACE_MS,
 } from "../engine/broadcasts.js";
+import { ROOM_PINS_KEY, parseRoomPins } from "./room-pins.js";
 import { isIndexerDown, onIndexerAvailabilityChange, indexerKey, INDEXER_RECOVERY_MARGIN_MS } from "../engine/indexer-health.js";
 import { getEndpoint } from "../engine/endpoints.js";
 import { confirmDialog, promptDialog, PROMPT_EXTRA, alertDialog, chooseDialog, userFacingError } from "./dialogs.js";
@@ -326,7 +333,7 @@ function curatedChannelOn(name) {
 }
 /** Off: the room leaves the list and its bell goes off. On: it is joined if it wasn't, so it is
  *  in the list and the circles row at once (iOS d128773), and comes back silenced, as every room
- *  starts since K 8cb4c88e (#kaspa and #kachat-bugs no longer get their bell back). */
+ *  starts since K 8cb4c88e (#kaspa and #report-bugs no longer get their bell back). */
 function setCuratedChannel(name, shown) {
   if (!isCuratedBroadcastChannel(name)) return;
   if (shown) hiddenCurated.delete(name); else hiddenCurated.add(name);
@@ -374,6 +381,15 @@ export function openPublicChatsSettings() {
     return `<label class="settings-toggle-row public-settings-row"><span class="settings-row-copy"><strong>Languages</strong></span><span class="switch-control"><input type="checkbox" data-public-languages ${on ? "checked" : ""}><span></span></span></label>`
       + (on ? LANGUAGE_BROADCAST_CHANNELS.map(row).join("") : "");
   };
+  // Rooms added on the indexer (K 961fc05a `indexerDefaultChannels`): they come and go with it, so
+  // the section is drawn again when the indexer's list changes while the sheet is up.
+  const moreRoomsHtml = () => {
+    const more = indexerDefaultBroadcastChannels();
+    if (!more.length) return "";
+    return `<p class="settings-group-label">More Rooms</p>
+          <div class="settings-list-card">${more.map(row).join("")}</div>
+          <p class="settings-group-footer">Rooms added on the indexer K reads public chats from.</p>`;
+  };
   const host = document.createElement("div");
   host.className = "modal-backdrop broadcast-settings-backdrop";
   host.innerHTML = `
@@ -393,10 +409,16 @@ export function openPublicChatsSettings() {
           <div class="settings-list-card" data-public-languages-card>${languagesCardHtml()}</div>
           <p class="settings-group-footer">Off takes every language room out of Public Chats. On, switch off the ones you don't want.</p>
         </section>
+        <section class="settings-group" data-public-more-rooms>${moreRoomsHtml()}</section>
       </div>
     </section>`;
   document.body.appendChild(host);
-  const close = () => host.remove();
+  const moreRoomsEl = host.querySelector("[data-public-more-rooms]");
+  const redrawMoreRooms = () => { if (moreRoomsEl) moreRoomsEl.innerHTML = moreRoomsHtml(); };
+  const stopWatching = onIndexerTrackedRoomsChange(redrawMoreRooms);
+  // a room just added on the indexer shows here within a minute (K 961fc05a: maxAge 60)
+  refreshIndexerTrackedRooms({ maxAgeMs: 60_000 }).catch(() => {});
+  const close = () => { stopWatching(); host.remove(); };
   host.addEventListener("click", (event) => {
     if (event.target === host || event.target.closest("[data-public-settings-close]")) close();
   });
@@ -493,19 +515,154 @@ function loadState({ caches = true } = {}) {
   // on. (Desktop used to leave the language rooms unjoined, behind an "Other Languages" row.)
   // Like iOS PublicChatStore (joinedAt = Date() when a room is first stored), an auto-joined
   // room is stamped too, so Room Info shows its "Joined" row.
-  let stamped = false;
-  for (const name of [...FEATURED_BROADCAST_CHANNELS, ...LANGUAGE_BROADCAST_CHANNELS]) {
-    if (!FEATURED_BROADCAST_CHANNELS.includes(name) && !curatedShown(name)) continue;
-    if (!joinedChannels.includes(name)) joinedChannels.push(name);
-    if (!joinedAtByChannel[name]) { joinedAtByChannel[name] = Date.now(); stamped = true; }
-  }
-  if (stamped) { try { saveJoinedAt(); } catch {} }
+  // #kachat-bugs became #report-bugs (K 961fc05a): moved over once, before the defaults join.
+  moveRetiredChannels();
+  joinDefaultRooms();
   migrateCachedReactionRows();
   pruneCache();
 }
 
+/** Joins every default room that isn't switched off (K 961fc05a ensureDefaultChannelsJoined): the
+ *  featured rooms always, the language rooms and the rooms added on the indexer unless switched
+ *  off, all with their bell off. A room added on the indexer is saved as joined, so it stays as an
+ *  ordinary room once the indexer drops it; then any switched-off room the indexer dropped a week
+ *  ago is left. */
+function joinDefaultRooms() {
+  let stamped = false;
+  let joinedAdded = false;
+  for (const name of curatedBroadcastChannels()) {
+    if (!FEATURED_BROADCAST_CHANNELS.includes(name) && !curatedShown(name)) continue;
+    if (!joinedChannels.includes(name)) {
+      joinedChannels.push(name);
+      if (!CURATED_BUILT_IN.has(name)) joinedAdded = true;
+    }
+    if (!joinedAtByChannel[name]) { joinedAtByChannel[name] = Date.now(); stamped = true; }
+  }
+  const owned = Boolean(deps?.engine?.address);
+  if (stamped) { try { saveJoinedAt(); } catch {} }
+  if (joinedAdded && owned) saveChannels();
+  forgetDroppedDefaultRooms();
+}
+const CURATED_BUILT_IN = new Set([...FEATURED_BROADCAST_CHANNELS, ...LANGUAGE_BROADCAST_CHANNELS]);
+
+/** A room's data on this device goes, with no redraw (leaving a room, a retired or dropped room):
+ *  its place in the list, its bell and settings, its cached messages, reactions and edits. */
+function forgetRoom(name) {
+  joinedChannels = joinedChannels.filter((c) => c !== name);
+  saveChannels();
+  delete messageCache[name];
+  saveCache();
+  delete reactionsCache[name];
+  appliedRowsByChannel.delete(name); // rejoining must apply its reactions and edits again
+  saveReactions();
+  delete listenByChannel[name];
+  saveListen();
+  delete indexerByChannel[name];
+  saveIndexerOverrides();
+  delete joinedAtByChannel[name];
+  saveJoinedAt();
+  if (notifyByChannel[name]) { delete notifyByChannel[name]; saveNotify(); }
+  // its edits and paging state go with it (KaPost 369794e: leaving a room deletes its data)
+  delete editsCache[name];
+  saveEdits();
+  for (const key of [...failedRoomEdits.keys()]) if (String(key).startsWith(`${name}:`)) failedRoomEdits.delete(key);
+  deepBackfilled.delete(name);
+  deepBackfillFloor.delete(name);
+  deepBackfillDone.delete(name);
+  deepBackfillResume.delete(name);
+  roomNewestSeen.delete(name);
+}
+
+function saveHiddenCurated() {
+  try { localStorage.setItem(deps.accountScopedKey(HIDDEN_CURATED_KEY), JSON.stringify([...hiddenCurated])); } catch { /* fine */ }
+}
+
+// The retired default rooms this account has been moved off, once each (K 961fc05a
+// moveRetiredChannels). Desktop never saved the featured rooms as joined (they are joined on every
+// load), so "had the old room" can't be read from the joined list: every account had it.
+const RETIRED_MOVED_KEY = "kachat-broadcast-retired-moved-v1"; // account-scoped: ["kachat-bugs", ...]
+
+/** Moves this account off each retired default room, once: the new room gets the old one's bell
+ *  (when it wasn't joined already), its pin in the Public Chats circles and its switched-off state;
+ *  then the old room is left (its messages go from this device; they stay on chain). */
+function moveRetiredChannels() {
+  if (!deps?.engine?.address) return;
+  const key = deps.accountScopedKey(RETIRED_MOVED_KEY);
+  let moved;
+  try { moved = JSON.parse(localStorage.getItem(key) || "[]"); } catch { moved = []; }
+  if (!Array.isArray(moved)) moved = [];
+  let changed = false;
+  for (const [old, replacement] of Object.entries(RETIRED_BROADCAST_CHANNELS)) {
+    if (moved.includes(old)) continue;
+    moved.push(old);
+    changed = true;
+    const replacementJoined = joinedChannels.includes(replacement);
+    if (hiddenCurated.has(old)) {
+      hiddenCurated.delete(old);
+      hiddenCurated.add(replacement);
+      saveHiddenCurated();
+    } else if (!replacementJoined) {
+      joinedChannels.push(replacement);
+      if (!joinedAtByChannel[replacement]) joinedAtByChannel[replacement] = Date.now();
+      if (notifyByChannel[old]) { notifyByChannel[replacement] = true; saveNotify(); }
+    }
+    // its circle on the Public Chats page (the app's room pins, ui/room-pins.js)
+    try {
+      const pinsKey = deps.accountScopedKey(ROOM_PINS_KEY);
+      const pins = parseRoomPins(localStorage.getItem(pinsKey) || "[]");
+      const at = pins.indexOf(old);
+      if (at >= 0) {
+        if (pins.includes(replacement)) pins.splice(at, 1); else pins[at] = replacement;
+        localStorage.setItem(pinsKey, JSON.stringify(pins));
+      }
+    } catch { /* pins are best-effort */ }
+    if (readMarkerByChannel[old] != null || markedUnread[old]) { delete readMarkerByChannel[old]; delete markedUnread[old]; saveRead(); }
+    if (activeChannel === old) activeChannel = null;
+    forgetRoom(old);
+  }
+  if (changed) { try { localStorage.setItem(key, JSON.stringify(moved)); } catch { /* moved again next load: nothing left to move */ } }
+}
+
+// Since when each switched-off room has been missing from the default rooms, per account (K
+// 961fc05a kachat_broadcast_hidden_missing_<wallet>).
+const HIDDEN_MISSING_KEY = "kachat-broadcast-hidden-missing-v1"; // account-scoped: { [channel]: ms }
+
+/** A switched-off room the indexer no longer reports: nothing would ever show it again (no switch
+ *  for it any more), so it's left - once it has been missing for DROPPED_ROOM_GRACE_MS, so one short
+ *  `/broadcast-channels` answer doesn't forget it was switched off (K 961fc05a). One still on stays,
+ *  as an ordinary room you can leave. */
+function forgetDroppedDefaultRooms(now = Date.now()) {
+  if (!deps?.engine?.address) return;
+  const curated = new Set(curatedBroadcastChannels());
+  const absent = [...hiddenCurated].filter((name) => !curated.has(name));
+  const key = deps.accountScopedKey(HIDDEN_MISSING_KEY);
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem(key) || "{}"); } catch { saved = {}; }
+  if (!saved || typeof saved !== "object" || Array.isArray(saved)) saved = {};
+  // back on the indexer's list, or switched on again: its clock stops
+  const missing = {};
+  for (const name of absent) missing[name] = Number(saved[name]) > 0 ? Number(saved[name]) : now;
+  const dropped = Object.keys(missing).filter((name) => now - missing[name] >= DROPPED_ROOM_GRACE_MS);
+  for (const name of dropped) delete missing[name];
+  if (JSON.stringify(missing) !== JSON.stringify(saved)) {
+    try {
+      if (Object.keys(missing).length) localStorage.setItem(key, JSON.stringify(missing));
+      else localStorage.removeItem(key);
+    } catch { /* asked again next load */ }
+  }
+  if (!dropped.length) return;
+  for (const name of dropped) hiddenCurated.delete(name);
+  saveHiddenCurated();
+  for (const name of dropped) {
+    if (!joinedChannels.includes(name)) continue;
+    if (activeChannel === name) activeChannel = null;
+    forgetRoom(name);
+    try { deps.onRoomRemoved?.(name); } catch { /* the app's pins */ }
+  }
+}
+
 // Every room starts silenced, bell off (K 8cb4c88e, owner 2026-11-24, for new installs): #kaspa and
-// #kachat-bugs no longer get their bell switched on once per wallet (iOS 865c9ab
+// #kachat-bugs (#report-bugs since K 961fc05a) no longer get their bell switched on once per wallet (iOS 865c9ab
 // applyDefaultNotificationsOnce, Desktop's applyDefaultBellsOnce, key
 // kaposts_broadcast_default_bells, both removed). An account that already had those bells switched
 // on keeps them: they are its own saved bells (NOTIFY_KEY) like any other, and nothing here turns them off.
@@ -2585,6 +2742,9 @@ async function probeIndexerForRoom(channel) {
 // that turned out to be tracked gets its history and the 8 s poll, as a default room does.
 function handleTrackedRoomsChanged() {
   if (!deps) return;
+  // a room the operator just added on the indexer joins (bell off), and a switched-off one it
+  // dropped a week ago is left (K 961fc05a IndexerTrackedRooms.didChange)
+  if (deps.engine?.address) joinDefaultRooms();
   syncScanWanted();
   renderChannelList();
   if (!activeChannel) return;
@@ -2629,7 +2789,8 @@ export function broadcastJoinError(rawName) {
 /** Joins (or reopens) the room and opens it, as the join card does. */
 export function joinBroadcastChannelFromSheet(rawName) {
   if (!deps) return false;
-  const name = normalizeBroadcastChannel(rawName);
+  // a retired room's name opens the room that replaced it (K 961fc05a)
+  const name = replacementBroadcastChannel(rawName);
   if (broadcastJoinProblem(name)) return false;
   joinChannel(name);
   return true;
@@ -2645,7 +2806,8 @@ function addJoinedChannel(name) {
 }
 
 function joinChannel(rawName) {
-  const name = normalizeBroadcastChannel(rawName);
+  // a retired room's name (#kachat-bugs) opens the room that replaced it (K 961fc05a)
+  const name = replacementBroadcastChannel(rawName);
   const problem = broadcastJoinProblem(name);
   if (problem) {
     alertDialog(problem);
@@ -2661,28 +2823,7 @@ function leaveChannel(name) {
   // list screen, so no UI offers it; this guards stray paths. A room added on the indexer is
   // tracked but stays one you can leave (iOS 21c480d).
   if (isCuratedBroadcastChannel(name)) return;
-  joinedChannels = joinedChannels.filter((c) => c !== name);
-  saveChannels();
-  delete messageCache[name];
-  saveCache();
-  delete reactionsCache[name];
-  appliedRowsByChannel.delete(name); // rejoining must apply its reactions and edits again
-  saveReactions();
-  delete listenByChannel[name];
-  saveListen();
-  delete indexerByChannel[name];
-  saveIndexerOverrides();
-  delete joinedAtByChannel[name];
-  saveJoinedAt();
-  // its edits and paging state go with it (KaPost 369794e: leaving a room deletes its data)
-  delete editsCache[name];
-  saveEdits();
-  for (const key of [...failedRoomEdits.keys()]) if (String(key).startsWith(`${name}:`)) failedRoomEdits.delete(key);
-  deepBackfilled.delete(name);
-  deepBackfillFloor.delete(name);
-  deepBackfillDone.delete(name);
-  deepBackfillResume.delete(name);
-  roomNewestSeen.delete(name);
+  forgetRoom(name);
   if (activeChannel === name) closeRoom();
   // left: its pin in the Chats row goes too (K 518fdc8c dropRoomPin)
   try { deps.onRoomRemoved?.(name); } catch { /* the app's pins */ }
@@ -3081,15 +3222,17 @@ export function resetBroadcastsForAccount() {
  *  polling AND stops counting as wanted; always-listen rooms keep their block scan. */
 // Closed rooms are swept from the indexer while the app is on screen (iOS 3c14b46): every
 // listed room the indexer tracks (iOS 21c480d) with its bell on that is not open asks for its
-// newest rows every 20 s - one small request per room, sequential. The block scan stays the fast path and misses blocks
+// newest rows on the shared foreground beat (30 s, 60 s on an expensive connection; it was 20 s on
+// its own timer: K 961fc05a ForegroundBeat, ui/foreground-beat.js) - one small request per room,
+// sequential. The block scan stays the fast path and misses blocks
 // around a stream reconnect; the open room keeps its own 8 s poll. New live rows get the same
 // ping the scan gives; a room's first pass is history, not news, and stays quiet.
-const SWEEP_MS = 20_000;
+const SWEEP_MS = BEAT_MS;
 let sweepTimer = null;
 let sweepRunning = false;
 function startClosedRoomSweep() {
   if (sweepTimer) return;
-  sweepTimer = window.setInterval(() => { sweepClosedRooms().catch(() => {}); }, SWEEP_MS);
+  sweepTimer = onForegroundBeat(() => sweepClosedRooms(), { offsetMs: 0 });
 }
 async function sweepClosedRooms() {
   // not while signed out; an account change ends a sweep under way (KaPost b78fdb0)
@@ -3109,6 +3252,53 @@ async function sweepClosedRooms() {
   } finally { sweepRunning = false; }
 }
 
+// A room push that came while K is open (K 961fc05a fetchBeforePushBanner, "room push waits for its
+// message"): its message is fetched before the notification shows, so it never announces a message
+// the Public Chats list and the room don't have yet (the next 20 s sweep used to bring it). Asks
+// again until the push's transaction is here (the indexer can push a moment before it serves the
+// row), giving up after `timeoutMs` so the notification is never held long. Each fetch races the
+// time left: one that takes longer keeps running and merges when it answers, but nobody waits for
+// it. An indexer marked down isn't asked. public/sw.js holds the notification for the answer.
+const ROOM_PUSH_WAIT_MS = 4000;
+const roomPushFetches = new Map(); // channel -> the fetch under way, so two asks share one
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+export function fetchRoomBeforePushBanner(rawChannel, txId = "", { timeoutMs = ROOM_PUSH_WAIT_MS } = {}) {
+  if (!deps || !deps.engine?.address) return Promise.resolve(false);
+  const name = normalizeBroadcastChannel(rawChannel);
+  // only a room you're in: a push never joins one (KaPost b78fdb0)
+  if (!name || !joinedChannels.includes(name)) return Promise.resolve(false);
+  const baseUrl = indexerOverrideFor(name) || null;
+  if (!baseUrl && !hasBroadcastIndexer()) return Promise.resolve(false);
+  if (isIndexerDown(roomIndexerBase(name))) return Promise.resolve(false);
+  const running = roomPushFetches.get(name);
+  if (running) return running;
+  const wanted = /^[0-9a-f]{64}$/i.test(String(txId || "")) ? String(txId).toLowerCase() : "";
+  const generation = roomAccountGeneration;
+  const arrived = () => (messageCache[name] || []).some((m) => String(m.txId || "").toLowerCase() === wanted)
+    || (reactionsCache[name]?.txIds || []).some((id) => String(id).toLowerCase() === wanted);
+  const job = (async () => {
+    const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+    for (;;) {
+      const left = deadline - Date.now();
+      if (left <= 0) return false;
+      const fetched = fetchBroadcastHistory({ channel: name, limit: 50, baseUrl })
+        .then((result) => {
+          if (generation !== roomAccountGeneration) return false;
+          if (mergeMessages(name, result.messages) > 0) renderChannelList();
+          return true;
+        })
+        .catch(() => false);
+      const ok = await Promise.race([fetched, pause(left).then(() => false)]);
+      if (!ok || generation !== roomAccountGeneration) return false;
+      if (!wanted || arrived()) return true;
+      if (Date.now() + 800 >= deadline) return false;
+      await pause(800);
+    }
+  })().finally(() => roomPushFetches.delete(name));
+  roomPushFetches.set(name, job);
+  return job;
+}
+
 export function stopBroadcastPolling() {
   stopPolling();
   roomOnScreen = false;
@@ -3124,16 +3314,19 @@ export function stopBroadcastPolling() {
 export function openBroadcastRoomFromLink(channel) {
   if (!deps) return;
   loadState({ caches: false });
-  const name = normalizeBroadcastChannel(channel);
+  // a link to a retired room opens the room that replaced it (K 961fc05a)
+  const name = replacementBroadcastChannel(channel);
   const listed = isCuratedBroadcastChannel(name) || joinedChannels.includes(name);
   // A name that can't be a room goes straight to joinChannel, which says so.
+  // (joinChannel maps a retired name itself)
   if (listed || !isValidBroadcastChannel(name)) { joinChannel(channel); return; }
   confirmDialog(roomLinkJoinPrompt(name)).then((join) => { if (join) joinChannel(channel); });
 }
 
 export function openBroadcastChannelFromNotification(channel) {
   if (!deps) return;
-  const clean = normalizeBroadcastChannel(channel);
+  // a push for a retired room opens the room that replaced it (K 961fc05a)
+  const clean = replacementBroadcastChannel(channel);
   if (!clean) return;
   loadState({ caches: false });
   // A push opens only a room you're in, and never joins one (KaPost b78fdb0): a room left since
@@ -3180,6 +3373,8 @@ export function initBroadcasts(dependencies) {
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refreshIndexerTrackedRooms().catch(() => {});
   });
+  // and hourly while the app stays open (K 961fc05a: rooms added on the indexer, asked hourly)
+  window.setInterval(() => { if (!document.hidden) refreshIndexerTrackedRooms().catch(() => {}); }, 60 * 60_000);
 
   composerInput?.addEventListener("input", () => { syncComposerButtons(); scheduleBroadcastFeeEstimate({ typing: true }); });
   document.querySelector("[data-broadcast-fee]")?.addEventListener("click", editBroadcastFee);

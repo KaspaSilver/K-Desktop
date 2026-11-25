@@ -5,9 +5,11 @@ import { SEND_ACCOUNT_CHANGED } from "../engine/messages.js";
 import { installBannerImageFit } from "./banner-fit.js";
 import { installGroupedAmountInputs } from "./grouped-amount.js";
 import { contractPurgePlan, contractSuppressionRecovery } from "./contract-purge.js";
-import { RAIL_ORDER, dockLayoutFor } from "./dock-arrangement.js";
+import { RAIL_ORDER, dockLayoutFor, currentTabId } from "./dock-arrangement.js";
 import { initAddressDomainsTab, renderAddressDomainsTab } from "./address-domains-tab.js";
-import { catchUpCandidates, spendsOwnFunds, markOwnTransaction, isMarkedOwnTransaction } from "./address-activity.js";
+import { catchUpCandidates, spendsOwnFunds, markOwnTransaction, isMarkedOwnTransaction, txBlockTimeMs } from "./address-activity.js";
+import { isRecentForBanner, bellTimestamp, KUSDT_RING_WINDOW_MS } from "./notification-recency.js";
+import { ownHistoryAmount } from "../engine/history-amounts.js";
 import { isHiddenPlaceholder, isHiddenPlaceholderMessage, newestVisibleMessage, upgradesPlaceholder, isCallSignal } from "./message-placeholders.js";
 import { accountGuard, accountScopedValue, accountStillSaved } from "./account-guard.js";
 import { NETWORK, IS_TESTNET, ADDRESS_PREFIX, KAS_UNIT, kasLabel, preferredNetwork, setPreferredNetwork, isNetworkAddress, isOnActiveNetwork, toActiveNetworkAddress, canonicalAccountAddress, reencodeAddress } from "../engine/network.js";
@@ -25,6 +27,9 @@ import { KASIA_PROTOCOL } from "../engine/kasia-protocol.js";
 import { mediaFrameByteLength, mediaFrameForEnvelope } from "../engine/media-frame.js";
 import { groupParts, isLaterPart, VOICE_PATHS, voicePartSizes, PHOTO_TIERS, photoEstimatedFeeSompi, photoTierMaxBytes } from "../engine/voice-parts.js";
 import * as VoiceNotes from "./voice-notes.js";
+import { voicePlayback } from "./voice-coordinator.js";
+import { voiceInfoKey, createVoiceInfoCache } from "./voice-info-cache.js";
+import { chessClockShouldRun, chessClockNextTickMs, CHESS_CLOCK_SAVE_MS } from "./chess-clock.js";
 import { loadPhotoSource, prepareJpegForTiers } from "./photo-tiers.js";
 import { isAnimatedGif, prepareGifForTiers, GifNotAnimatedError } from "./gif.js";
 import { setGuardedImageSrc, planForDataUrl } from "./image-guard.js";
@@ -33,7 +38,7 @@ import { allowsPreviewPage, allowsPreviewImage, socialPreviewBrand, isSameSiteHo
 import { SOCIAL_LOGOS } from "./social-logos.js";
 import { kapostsFiatFieldText, kapostsKasFieldText, kapostsTipFieldAmount, kapostsSwitchTipText, kapostsDefaultTipSompi, KAPOSTS_TIP_MIN_SOMPI } from "./kaposts-format.js";
 import { requesterPubkeyFor, KAPOSTS_PROTOCOL, KACHAT_MARKER as KAPOSTS_MARKER, utf8ToBase64 as kapostsUtf8ToBase64, buildKaPostTipPayload } from "../engine/kaposts.js";
-import { initBroadcasts, refreshBroadcasts, repaintBroadcastIdentities, resetBroadcastsForAccount, stopBroadcastPolling, openBroadcastChannelFromNotification, openBroadcastRoomFromLink, openPublicChatsSettings, broadcastNotifyingUnreadTotal, broadcastJoinError, joinBroadcastChannelFromSheet, chatListRooms, openBroadcastRoom, closeBroadcastRoom, markBroadcastRooms, removeBroadcastRooms, setBroadcastRoomNotify, copyBroadcastRoomLink } from "./broadcasts.js";
+import { initBroadcasts, refreshBroadcasts, repaintBroadcastIdentities, resetBroadcastsForAccount, stopBroadcastPolling, openBroadcastChannelFromNotification, openBroadcastRoomFromLink, openPublicChatsSettings, broadcastNotifyingUnreadTotal, broadcastJoinError, joinBroadcastChannelFromSheet, chatListRooms, openBroadcastRoom, closeBroadcastRoom, markBroadcastRooms, removeBroadcastRooms, setBroadcastRoomNotify, copyBroadcastRoomLink, fetchRoomBeforePushBanner } from "./broadcasts.js";
 import { initChessTournaments, showChessTournaments, hideChessTournaments, resetChessTournamentsForAccount, chessTournamentsMayLeave, openChessBotChallenge, openArcadeChallenge } from "./chess-tournaments.js";
 import { parseBotChallengeLink, botChallengeFromLaunchSearch } from "../engine/chess-bot-links.js";
 import { parseArcadeChallengeLink, arcadeChallengeFromLaunchSearch } from "../engine/arcade-services.js";
@@ -43,7 +48,7 @@ import { createProfileRescans } from "./profile-rescan.js";
 import { kachatHeroProfile, kachatCachedOwnedNameCount, onKachatSocialChange, kachatCachedIdentity, kachatCachedLabel, kachatCachedDisplayLabel, kachatNameDisplay, kachatShowsEndings, setKachatShowsEndings, kachatCachedAvatarUrl, kachatCachedProfilePieces, onKachatIdentityChange, kachatRetryImage, kachatOwnersOfNames, kachatRescanProfile, kachatOwnedNameCount, onKachatRegistryChange, kachatClearProfileCache, kachatExpiredNames, startKachatUnnamedIdentitySweep, setKachatSocialLookupGate, kachatProfileOpened } from "./kachat-names-live.js";
 import { startKachatNamesNotifier, openKachatNameFromNotification as openKachatNameFromBell, removeKachatNameReminders, kachatNamesNotificationSettingsChanged } from "./kachat-names-notifier.js";
 import { initKachatMarket, showKachatMarket, hideKachatMarket, openKachatProfileEditor, openKachatSetupGuide, KACHAT_WORDMARK_SVG, kachatAddressDomainsHtml, renderKachatLiveDomainsTab, openKachatMarketSheet } from "./kachat-market.js";
-import { initKachatStats, showKachatStats, hideKachatStats } from "./kachat-stats.js";
+import { initExplorer, showExplorer, hideExplorer, explorerToHome } from "./explorer.js";
 // Closed-app notifications (Web Push) and the app icon's badge.
 import { initWebPush, scheduleWebPushSync, webPushStatus, webPushStatusText, webPushSignOut, webPushForgetAccount, setAppIconBadge, takePendingNotificationClick, needsHomeScreenInstall, pushArrivedRecently } from "./web-push.js";
 import { authorKeyFromAddress, compressedPubkeyHex, PUSH_LIMITS } from "./web-push-core.js";
@@ -57,6 +62,10 @@ import { openKaPostComposerWithText, openKaPostQuickComposer } from "./kaposts.j
 // Terms of Use, Block and tapped room links (KaPosts-iPhone 9e22075); Feed to its top (45de945).
 import { blockKaPostAccount, closeKaPostCovers, kaPostsBlockedAddresses, kaPostsFeedToTop } from "./kaposts.js";
 import { setKaPostsRootMode, syncKaPostsBell, kaPostsUnseenCount } from "./kaposts.js";
+// KaPost notifications like X (K 961fc05a): a KaPost push asks for a poll.
+import { pollKaPostNotificationsSoon } from "./kaposts.js";
+// Kaspa Hub card links (K 961fc05a): kachat.app/hub/<slug> opens that screen here.
+import { parseHubLink, hubCardForSlug, hubLinkUrl, hubSlugForAppTab } from "./hub-links.js";
 import { broadcastBlockedAccountsChanged } from "./broadcasts.js";
 import { kaPostTermsHtml } from "./kapost-moderation.js";
 // No Terms of Use to agree to on the website (owner, 2026-11-21): iOS asks because the App Store
@@ -125,7 +134,7 @@ import {
 } from "../engine/conversations.js";
 import { onIndexerAvailabilityChange, indexerKey, isIndexerDown, INDEXER_RECOVERY_MARGIN_MS, indexerConnectionState, checkIndexerNow } from "../engine/indexer-health.js";
 import { createSavedAccountAvatars, savedAvatarSourceFor } from "./saved-account-avatars.js";
-import { accountChipLabel, switcherAccounts, hasKeysOnThisDevice } from "./account-switcher.js";
+import { accountChipLabel, switcherAccounts, hasKeysOnThisDevice, runAccountSwitch } from "./account-switcher.js";
 import { getEndpoint, getEndpoints, getEndpointOverride, setEndpoint, ENDPOINT_DEFAULTS, DEFAULT_TRUSTED_NODE, DEFAULT_MAINNET_INDEXER, setVerboseApiLogging, isProxyAvailable, proxiedUrl } from "../engine/endpoints.js";
 import { isBip39Word, bip39Matches } from "./bip39-english.js";
 import { createAccountBackupStatus, nextDefaultAccountName, accountHasFunds } from "./account-backup-status.js";
@@ -162,6 +171,7 @@ import { forgetAccount as forgetKusdtStorage, activityId as kusdtActivityId } fr
 import { createKusdtWallet, holdingIdFor as kusdtHoldingIdFor, manageAddressesHideRefusal, reshowListedHidden, hideAllKeepingListed, KUSDT_LISTED_HIDE_MESSAGE, KUSDT_LISTED_ALERT_TITLE, kasAmountText as kusdtKasAmountText } from "./kusdt-wallet.js";
 import { initKusdtScreens, openManageKusdt, openWalletSend, openKusdtGuide, receiveNotesHtml, closeKusdtForAccountSwitch, openKusdtSend, openTipAssetChooser, kusdtTotalText, kusdtLooking } from "./kusdt-screens.js";
 import { kusdtCoinIconHtml } from "./kusdt-icons.js";
+import { verifiedCoins as verifiedKusdtCoins } from "../engine/kusdt-balances.js";
 // Send Dollars in a 1:1 chat (KaChat iOS 5b7c772c): the token_payment_notice and its chain check.
 import { validTokenPaymentNotice, encodeTokenPaymentNotice, tokenPaymentText, unverifiedTokenPaymentText, tokenOfPaymentText, checkTokenNoticeOnChain } from "../engine/token-payment-notice.js";
 // KaPost Settings > Tip In (KaPost iOS f954738).
@@ -2153,12 +2163,13 @@ const URL_IN_TEXT_RE = /https?:\/\/[^\s<>"']+/g;
 //   kachat://broadcast/<channel>  https://kachat.app/broadcast/<channel>
 //   kachat://profile/<address>    https://kachat.app/u/<address>       (iOS 863b0e9; a missing kaspa: prefix means mainnet)
 //   kachat://pay/<address>?...    https://kachat.app/pay/<address>?... (iOS c6851d6 / 7c71a98, engine/payment-request.js)
+//   kachat://hub/<card>           https://kachat.app/hub/<card>        (K 961fc05a, ui/hub-links.js: opens that screen)
 // and KaPlay's bot challenge, kachatchess://bot/<level>?... (KaPlay ddec987, engine/chess-bot-links.js),
 // and its arcade score challenge, kachatarcade://<game>?score=... (K 518fdc8c, engine/arcade-services.js).
 // Those have no card in a chat: INTERNAL_LINK_IN_TEXT_RE leaves them out, and only a KaPost draws them.
 // Everything a pasted link carries is untrusted, so the payload is re-validated here rather
 // than trusted from the URL's text.
-const INTERNAL_LINK_IN_TEXT_RE = /(?:kachat:\/\/(?:kapost|broadcast|profile|pay)\/[^\s<>"']+|kaposts:\/\/kapost\/[^\s<>"']+|https?:\/\/(?:www\.)?kachat\.app\/(?:post|broadcast|u|pay)\/[^\s<>"']+)/i;
+const INTERNAL_LINK_IN_TEXT_RE = /(?:kachat:\/\/(?:kapost|broadcast|profile|pay|hub)\/[^\s<>"']+|kaposts:\/\/kapost\/[^\s<>"']+|https?:\/\/(?:www\.)?kachat\.app\/(?:post|broadcast|u|pay|hub)\/[^\s<>"']+)/i;
 // A payment request's link checked once (iOS matchCache, 427f19b): its signature check runs on
 // every message render otherwise. Keyed by the link text; the network is fixed for the page.
 var paymentRequestLinkCache = new Map();
@@ -2192,6 +2203,8 @@ function parseKaChatInternalLink(raw) {
     const request = parsePaymentRequestLinkCached(text);
     return request ? { kind: "pay", request } : null;
   }
+  // A Kaspa Hub card (K 961fc05a KaChatInternalLink.hubSection): only its fixed slugs.
+  if (/^(?:kachat:\/\/hub\/|https?:\/\/(?:www\.)?kachat\.app\/hub\/)/i.test(text)) return parseHubLink(text);
   // A query after the path is allowed and ignored here: KaPosts' Chat button sends a profile link
   // with `?chat=1` (iOS 724d477e), which opens the chat only when it comes from outside the app;
   // inside it, it is the person's profile link like any other.
@@ -2235,8 +2248,9 @@ function firstInternalLinkIn(text) {
   const match = String(text || "").match(INTERNAL_LINK_IN_TEXT_RE);
   if (!match) return null;
   let candidate = match[0];
-  // Trailing prose punctuation is not part of a payment request ("... pay kachat.app/pay/...?amount=1.").
-  if (/\/pay\//i.test(candidate)) candidate = candidate.replace(/[.,;:!?)\]}'"]+$/, "");
+  // Trailing prose punctuation is not part of a payment request ("... pay kachat.app/pay/...?amount=1.")
+  // or a Hub card's link ("open kachat.app/hub/kaplay!").
+  if (/\/(?:pay|hub)\//i.test(candidate)) candidate = candidate.replace(/[.,;:!?)\]}'"]+$/, "");
   const link = parseKaChatInternalLink(candidate);
   return link ? { ...link, raw: candidate } : null;
 }
@@ -2245,13 +2259,64 @@ function openKaChatInternalLink(link) {
   if (!link) return;
   // Simple Mode hides KaPosts and Public Chats; a profile opens User Info, which Chats keeps, and a
   // payment request opens Send Kaspa, which it keeps too.
-  if (isChildModeEnabled() && link.kind !== "profile" && link.kind !== "pay") { showCopyToast("Not available in Simple Mode."); return; }
+  // A Hub card's link decides for itself: Contacts, Portfolio and the rest stay in Simple Mode.
+  if (isChildModeEnabled() && link.kind !== "profile" && link.kind !== "pay" && link.kind !== "hub") { showCopyToast("Not available in Simple Mode."); return; }
+  if (link.kind === "hub") { openHubCardLink(link); return; }
   if (link.kind === "kapost") { setActiveAppTab("kaposts"); try { openKaPostFromNotification(link.txId); } catch {} }
   else if (link.kind === "broadcast") { closeOpenSheets(); openPublicChatsTab(); try { openBroadcastRoomFromLink(link.channel); } catch {} }
   else if (link.kind === "profile") openProfileLink(link.address);
   else if (link.kind === "pay") openPaymentRequest(link.request);
   else if (link.kind === "kaplayBot") openKaPlayChallenge(link.challenge).catch(() => {});
   else if (link.kind === "kaplayArcade") openKaPlayArcadeChallenge(link.challenge, link.author || null);
+}
+/** A Kaspa Hub card's link (K 961fc05a `.openHubSection`): Desktop has no Hub, so it opens that
+ *  card's screen from the dock. A screen this build doesn't have (the Explorer before it lands, or
+ *  one Simple Mode hides) says so and leaves you where you are, rather than showing an empty tab. */
+function openHubCardLink(link) {
+  const card = hubCardForSlug(link?.slug);
+  if (!card) return;
+  if (isChildModeEnabled() && CHILD_HIDDEN_TABS.includes(card.tab)) { showCopyToast("Not available in Simple Mode."); return; }
+  if (!appTabExists(card.tab)) { showCopyToast(`${hubCardInfo(card.slug).label} isn't in this version of K yet.`); return; }
+  closeOpenSheets();
+  setActiveAppTab(card.tab);
+  applyDockLayout();
+}
+/** True when `tab` is a screen this build has: in the dock or under More, with its screen in the
+ *  page. setActiveAppTab would otherwise switch to a tab with nothing to show. */
+function appTabExists(tab) {
+  if (!tab || !(dockPrefs.dock.includes(tab) || dockPrefs.hub.includes(tab))) return false;
+  try { return Boolean(document.querySelector(`[data-app-tab-screen="${CSS.escape(tab)}"]`)); } catch { return false; }
+}
+/** A Hub card's name, line and icon for its card: K's name for the card (the link is shared between
+ *  K and Desktop, so both say the same), and the dock item's own glyph as the card's icon (K
+ *  961fc05a draws the card's own icon). Read only from the page, so the chats list can ask while
+ *  the app is still starting. */
+function hubCardInfo(slug) {
+  const card = hubCardForSlug(slug);
+  if (!card) return null;
+  // A screen with no dock item yet (the Explorer before it lands) wears the Hub's own grid.
+  const iconHtml = tabIconMarkup(card.tab)
+    || '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/></svg>';
+  return { slug: card.slug, tab: card.tab, label: card.label, blurb: card.blurb, iconHtml };
+}
+/** Right-click on a dock item or a More tile that is a Hub card on K: Copy Link and Open (K
+ *  961fc05a: a hold on a Hub card opens that half sheet). Nothing for the other items. */
+async function openDockItemLinkMenu(tab) {
+  const slug = hubSlugForAppTab(tab);
+  const url = slug ? hubLinkUrl(slug) : null;
+  if (!url) return false;
+  const info = hubCardInfo(slug);
+  const choice = await chooseDialog({
+    title: info.label,
+    layout: "tiles",
+    options: [
+      { id: "copy", title: "Copy Link", subtitle: "A link that opens this card in K.", icon: ACTION_TILE_ICONS.link },
+      { id: "open", title: "Open", subtitle: "Opens this card.", icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="M10 14l5.5-5.5M10.5 8.5h5v5"/></svg>' },
+    ],
+  });
+  if (choice === "copy") copyTextToClipboard(url).then(() => showCopyToast("Link copied")).catch(() => {});
+  else if (choice === "open") openHubCardLink({ slug });
+  return true;
 }
 /** An arcade score challenge opens that game's home in KaPlay with the score to beat (K 518fdc8c
  *  ArcadeLinkRouter.open). `author` is the signer of the post whose card was clicked: the game names
@@ -2317,6 +2382,7 @@ function buildHiddenPhotoTile(senderName) {
 // The native in-app card (iOS KaChatInternalLinkCardView): glyph, eyebrow, title, what a tap does.
 function buildInternalLinkCard(link) {
   if (link?.kind === "pay") return buildPaymentRequestCard(link.request);
+  if (link?.kind === "hub") return buildHubLinkCard(link);
   const card = document.createElement("button");
   card.type = "button";
   card.className = "message-link-card internal-link-card";
@@ -2353,6 +2419,23 @@ function buildInternalLinkCard(link) {
       <span class="message-link-card-site">${escapeHtml(eyebrow)}</span>
       <strong>${escapeHtml(title)}</strong>
       <small>${escapeHtml(subtitle)}</small>
+    </span>`;
+  card.addEventListener("click", (event) => { event.stopPropagation(); openKaChatInternalLink(link); });
+  return card;
+}
+// A Kaspa Hub card's link in a chat (K 961fc05a KaChatInternalLinkCardView .hubSection): the card's
+// own icon (its dock glyph here), "Kaspa Hub", its name, what it holds, and a click that opens it.
+function buildHubLinkCard(link) {
+  const info = hubCardInfo(link.slug);
+  if (!info) return null;
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = "message-link-card internal-link-card hub-link-card";
+  card.innerHTML = `<span class="internal-link-icon hub-link-icon">${info.iconHtml || ""}</span>
+    <span class="message-link-card-meta">
+      <span class="message-link-card-site">Kaspa Hub</span>
+      <strong>${escapeHtml(info.label)}</strong>
+      <small>${escapeHtml(info.blurb)}<br>Tap to open it in K.</small>
     </span>`;
   card.addEventListener("click", (event) => { event.stopPropagation(); openKaChatInternalLink(link); });
   return card;
@@ -3471,12 +3554,16 @@ function buildLinkPreviewCard(url, { autoLoad = false, outgoing = false } = {}) 
 // audio when the bytes are readable (on-chain data: URLs, same-origin blobs); a file the browser
 // cannot read cross-origin gets a steady placeholder pattern instead of nothing.
 const VOICE_WAVEFORM_BARS = 40;
-const voiceWaveformCache = new Map(); // src -> { samples, duration }
+// One decode per note, shared by every draw of its bubble (K 961fc05a VoiceNoteInfoCache): keyed by
+// voiceInfoKey(src), at most 500 notes, a failed one tried again.
+const voiceWaveformCache = createVoiceInfoCache(); // key -> Promise<{ samples, duration } | null>
 function placeholderWaveform() {
   return Array.from({ length: VOICE_WAVEFORM_BARS }, (_, i) => 0.25 + 0.35 * Math.abs(Math.sin(i * 0.9)) + 0.15 * Math.abs(Math.cos(i * 2.3)));
 }
-async function decodeWaveform(src) {
-  if (voiceWaveformCache.has(src)) return voiceWaveformCache.get(src);
+function decodeWaveform(src) {
+  return voiceWaveformCache.load(voiceInfoKey(src), () => decodeWaveformNow(src));
+}
+async function decodeWaveformNow(src) {
   try {
     const response = await fetch(src);
     const bytes = await response.arrayBuffer();
@@ -3497,9 +3584,7 @@ async function decodeWaveform(src) {
       samples.push(Math.sqrt(sum / step));
     }
     const peak = Math.max(...samples, 0.0001);
-    const decoded = { samples: samples.map((v) => Math.max(0.12, v / peak)), duration: buffer.duration };
-    voiceWaveformCache.set(src, decoded);
-    return decoded;
+    return { samples: samples.map((v) => Math.max(0.12, v / peak)), duration: buffer.duration };
   } catch { return null; }
 }
 // `chatStyle` (1:1 and group threads, iOS AudioBubble): the total length as "00:07" whether or not
@@ -3547,15 +3632,18 @@ function buildVoicePlayer(src, { outgoing = false, durationHint = null, chatStyl
   audio.addEventListener("durationchange", paint);
   audio.addEventListener("timeupdate", paint);
   audio.addEventListener("play", paint);
-  audio.addEventListener("pause", paint);
-  audio.addEventListener("ended", () => { audio.currentTime = 0; paint(); });
-  audio.addEventListener("error", () => { time.textContent = chatStyle ? "--:--" : "Unavailable"; });
+  audio.addEventListener("pause", () => { voicePlayback.didStop(audio); paint(); });
+  audio.addEventListener("ended", () => { voicePlayback.didStop(audio); audio.currentTime = 0; paint(); });
+  audio.addEventListener("error", () => { voicePlayback.didStop(audio); time.textContent = chatStyle ? "--:--" : "Unavailable"; });
   toggle.addEventListener("click", (event) => {
     event.stopPropagation();
-    // One voice at a time, like iOS: starting this one pauses any other.
+    // One voice at a time, like iOS: starting this one stops any other, a composer's preview
+    // included; while a voice message is being recorded nothing plays (K 961fc05a
+    // VoicePlaybackCoordinator).
     if (audio.paused) {
-      document.querySelectorAll(".voice-player audio").forEach((other) => { if (other !== audio && !other.paused) other.pause(); });
+      if (!voicePlayback.willStart(audio, () => audio.pause())) return;
       audio.play().catch((error) => {
+        voicePlayback.didStop(audio);
         if (chatStyle) appendEngineLog(`Voice message playback failed: ${error?.message || error}`);
         else time.textContent = "Failed to play audio.";
       });
@@ -3923,6 +4011,11 @@ const selectedGroupIds = new Set();
 const selectedRoomNames = new Set();
 // The rooms as their rows last drew them, so a poll that changed nothing leaves the list alone.
 let chatRoomsLastSignature = "";
+// The KaChat list's two pages (K 961fc05a ListPage, owner 2026-11-25), switched by the cycle button
+// beside the title: "chats" (chats, groups, bots and Message Requests) or "publicChats" (the rooms
+// by latest activity, pinned rooms as circles above them). Not saved: it opens on Chats, as K's
+// @State does.
+let chatListPage = "chats";
 // A public room open in the detail pane (broadcasts.js reports it); owns the pane like a chat.
 let publicRoomOpen = false;
 // Decoded group photos for the circles, keyed by group id + photo fingerprint.
@@ -4320,6 +4413,10 @@ function maybeNotifyIncoming(conversationEntry, contact, message) {
   // Nothing at all from a blocked address; one "New message request" per requester, then
   // silence until accepted (NO_HANDSHAKE_MESSAGING.md §4).
   if (isChatBlocked(contact?.address)) return;
+  // Only something that just happened rings (K 961fc05a InAppBanner.isRecent): a message more than
+  // three minutes old when it arrives (the tab slept, a sweep caught it up late) is listed, not
+  // rung. Its block time; none yet counts as now.
+  const recent = isRecentForBanner(messageEventTime(message));
   if (isMessageRequest(conversationEntry)) {
     const s = chatRequestState();
     const key = String(contact?.address || "").toLowerCase();
@@ -4327,6 +4424,8 @@ function maybeNotifyIncoming(conversationEntry, contact, message) {
     // Who Can Message You? hides it (no .kachat name known): no ring, not counted as rung, and
     // filed so it rings once their name lands (K 518fdc8c, audit 2026-11-24 #13).
     if (isHiddenMessageRequest(conversationEntry)) { fileHiddenRequest(key); return; }
+    // not counted as rung either: their next message, if it's news, still rings the request
+    if (!recent) return;
     s.notified.add(key);
     saveChatRequestState(s);
     // iOS wording (NotificationService "%@ wants to chat with you."); the tag is the one a closed-app
@@ -4342,6 +4441,7 @@ function maybeNotifyIncoming(conversationEntry, contact, message) {
     }).catch(() => { /* best-effort */ });
     return;
   }
+  if (!recent) return;
   // Don't notify for the conversation you're already looking at in a focused window (iOS: the
   // active conversation while the app is active - a visible window behind another app still rings).
   if (chatOnScreen(conversationEntry.id) && appIsInFront()) return;
@@ -6753,6 +6853,7 @@ function webLinkPreviewLabel(text) {
   if (internal?.kind === "profile") return "Shared a KaChat profile";
   if (internal?.kind === "broadcast") return `Public chat room #${internal.channel}`;
   if (internal?.kind === "pay") return kasLabel(`Payment request: ${paymentRequestAmountText(internal.request)} KAS`);
+  if (internal?.kind === "hub") return `Kaspa Hub: ${hubCardInfo(internal.slug)?.label || ""}`;
   return WEB_LINK_RE.test(String(text || "")) ? "📎 Sent a link" : null;
 }
 function chatListPreviewText(message) {
@@ -6772,6 +6873,8 @@ function chatListPreviewText(message) {
     if (internal.kind === "profile") return "Shared a KaChat profile";
     if (internal.kind === "broadcast") return `Public chat room #${internal.channel}`;
     if (internal.kind === "pay") return kasLabel(`Payment request: ${paymentRequestAmountText(internal.request)} KAS`);
+    // "Kaspa Hub: KaPlay" (K 961fc05a ChatListView)
+    if (internal.kind === "hub") return `Kaspa Hub: ${hubCardInfo(internal.slug)?.label || ""}`;
   }
   const linkSafe = (text) => (WEB_LINK_RE.test(text) ? "📎 Sent a link" : text);
   // "Sent 1 KAS: memo" (K b0f0a4e6)
@@ -9731,7 +9834,7 @@ async function attributeAndNotifyAddressActivity(increases, wallet = engine.addr
     const isChatting = kind === "chatting";
     // Only receives newer than what an earlier catch-up already looked at (or than when the address
     // started being tracked); the chatting address counts plain transfers only (iOS 56b75c8).
-    const { nextFloor, candidates } = catchUpCandidates(recentTxs, loadActivityFloor(address), { chatting: isChatting });
+    const { nextFloor, candidates } = catchUpCandidates(recentTxs, loadActivityFloor(address), { chatting: isChatting, belongsInHistory: transactionBelongsInHistory });
     if (nextFloor) saveActivityFloor(address, nextFloor);
     // The neutral fallback: not for the chatting address, whose balance moves with every chat
     // payment too (iOS 56b75c8), nor while the push announces receives (KaPay 34f4b45).
@@ -9765,7 +9868,12 @@ async function attributeAndNotifyAddressActivity(increases, wallet = engine.addr
         continue;
       }
       remaining -= toAddress < remaining ? toAddress : remaining;
-      postDesktopNotification({
+      // Only a receive from the last few minutes rings (K 961fc05a): the catch-up also finds what
+      // came while K was closed or this account was signed out (switching accounts announced a
+      // week of receives as if they had just come). Those go to the bell, quietly, dated when they
+      // happened. An unknown block time counts as now.
+      const happenedAt = txBlockTimeMs(tx);
+      if (isRecentForBanner(happenedAt)) postDesktopNotification({
         title: `Received ${formatSompiForNotification(toAddress)} ${KAS_UNIT}`,
         body: describeActivityAddress(kind, address),
         tag: `kachat-addr-activity-${txid}`,
@@ -9784,21 +9892,15 @@ async function attributeAndNotifyAddressActivity(increases, wallet = engine.addr
         source: "wallet",
         title: `Received ${formatSompiForNotification(toAddress)} ${KAS_UNIT}`,
         body: describeActivityAddress(kind, address),
-        timestamp: Date.now(),
+        timestamp: bellTimestamp(happenedAt),
         ...addressActivityCenterTarget(kind, address),
       });
       appendEngineLog(`Address activity: external receive ${txid.slice(0, 12)}… on ${shortAddress(address)}`);
     }
     if (!attributed && mayFallBack) {
       // Balance grew but no fetched recent tx pays this address (deep history
-      // page or indexer lag) — neutral fallback rather than staying silent.
-      postDesktopNotification({
-        title: `Balance increased by ${formatSompiForNotification(delta)} ${KAS_UNIT}`,
-        body: describeActivityAddress(kind, address),
-        tag: `kachat-addr-activity-bal-${address.slice(-12)}-${Date.now()}`,
-        route: addressActivityRoute(kind, address),
-        onClick: () => openAddressActivityTarget(kind, address),
-      });
+      // page or indexer lag) — neutral fallback rather than staying silent. The bell only (K
+      // 961fc05a): when the Kaspa came is unknown and may be long ago, so it never rings.
       recordGlobalNotification({
         id: `wallet-bal-${address.slice(-12)}-${Date.now()}`,
         source: "wallet",
@@ -11583,19 +11685,23 @@ function kusdtRevealSpendingSlot(index, owner = engine.address) {
   try { if (spendingManageScreen && !spendingManageScreen.hidden) renderSpendingList(); } catch { /* repaints on the next open */ }
   try { refreshSpendingSummary(); } catch { /* the Wallet repaints on show */ }
 }
-/// A transaction's inputs, resolved (findReceived's own-transfer check): null when the REST API
-/// can't say.
+/// A transaction's inputs, resolved (findReceived's own-transfer check), and its block time (when a
+/// received coin came, K 961fc05a): null when the REST API can't say.
 async function kusdtTransactionInputs(txid) {
   const base = String(getEndpoint("kaspaApi") || "").replace(/\/+$/, "");
   const response = await fetch(`${base}/transactions/${encodeURIComponent(txid)}?resolve_previous_outpoints=light`, { headers: { Accept: "application/json" }, cache: "no-store" });
   if (!response.ok) return null;
   const tx = await response.json();
-  if (!Array.isArray(tx?.inputs)) return null;
-  return tx.inputs.map((input) => ({
-    hash: input?.previous_outpoint_hash ?? input?.previousOutpoint?.transactionId ?? null,
-    index: input?.previous_outpoint_index ?? input?.previousOutpoint?.index ?? null,
-    address: input?.previous_outpoint_address || input?.previous_outpoint_resolved?.script_public_key_address || null,
-  }));
+  const blockTimeMs = txBlockTimeMs(tx) || null;
+  if (!Array.isArray(tx?.inputs)) return { inputs: null, blockTimeMs };
+  return {
+    inputs: tx.inputs.map((input) => ({
+      hash: input?.previous_outpoint_hash ?? input?.previousOutpoint?.transactionId ?? null,
+      index: input?.previous_outpoint_index ?? input?.previousOutpoint?.index ?? null,
+      address: input?.previous_outpoint_address || input?.previous_outpoint_resolved?.script_public_key_address || null,
+    })),
+    blockTimeMs,
+  };
 }
 /// The key of a kUSDT address ({ spendingIndex, address }) for one build or trade, or null: the
 /// Chatting Address's is engine.privateKeyHex; a regular spending address's is derived from the
@@ -11629,9 +11735,13 @@ function swapKusdtDeps() {
       secretFor: (target) => kusdtSecretKeyFor(target),
       noteSpentOutpoints: (keys) => noteSpentOutpoints(keys),
       markOwnTransaction: (txid) => markOwnTransaction(txid),
-      afterTrade: () => {
+      // The swap's coins show once Trestly lists them: looked up again on a widening schedule until
+      // one does (K 961fc05a TokenWallet.followTrade). A trade with no txid (it may have gone out)
+      // gets the one look 4 s later, as before.
+      afterTrade: ({ txid = null } = {}) => {
+        if (txid) kusdtWallet?.followTrade(txid);
         window.setTimeout(() => {
-          kusdtWallet?.refresh().catch(() => {});
+          if (!txid) kusdtWallet?.refresh().catch(() => {});
           refreshBalanceOnly().catch(() => {});
         }, 4000);
       },
@@ -11686,6 +11796,8 @@ function swapKusdtDeps() {
       const units = held ? held.filter((h) => h.address === address).reduce((s, h) => s + BigInt(h.units || 0), 0n) : null;
       return { kasSompi, units };
     },
+    // Swap's Available follows the trade's lookups (K 961fc05a): `onLook` after each one.
+    followTrade: (txid, onLook) => kusdtWallet?.followTrade(txid, { onLook }),
     // The kUSDT side in that address's history, and a line in the bell (K TrestlyTrade.recordSwap).
     noteSwap: ({ record, target, owner }) => {
       if (!record || !owner) return;
@@ -11719,14 +11831,17 @@ function initKusdt() {
     fetchTransactionInputs: kusdtTransactionInputs,
     // Settings > Notifications > Address Activity, as Kaspa's receives (KaPay 3d126db).
     notificationsEnabled: () => addressActivityFeatureEnabled(),
-    notify: ({ title, body }) => {
+    // `ring` false: none of the coins came in the last six minutes (KUSDT_RING_WINDOW_MS, K 961fc05a
+    // TokenWallet.ringWindow), so the bell only, dated when the newest came (`happenedAtMs`).
+    notify: ({ title, body, ring = true, happenedAtMs = null }) => {
       const stamp = Date.now();
-      postDesktopNotification({
+      if (ring) postDesktopNotification({
         title, body, tag: `kachat-kusdt-received-${stamp}`, route: { kind: "tab", tab: "wallet" },
         onClick: () => { setActiveAppTab("wallet"); openManageKusdt(); },
       });
-      recordGlobalNotification({ id: `kusdt-${stamp}`, source: "wallet", title, body, timestamp: stamp, targetKind: "kusdt" });
+      recordGlobalNotification({ id: `kusdt-${stamp}`, source: "wallet", title, body, timestamp: bellTimestamp(happenedAtMs, stamp), targetKind: "kusdt" });
     },
+    ringWindowMs: KUSDT_RING_WINDOW_MS,
     markOwnTransaction: (txid) => markOwnTransaction(txid),
     // a contact's Send Dollars its chat already filed and announced (KaChat iOS 5b7c772c)
     isNoticeFiled: (txid) => isTokenNoticeFiled(txid),
@@ -12265,7 +12380,8 @@ const UI_SPOT_TAB_KEY = "kachat-ui-spot-tab-v1";
 function restoreLastAppTab() {
   let tab = "chats";
   try {
-    const saved = localStorage.getItem(UI_SPOT_TAB_KEY);
+    // A spot saved on a screen since replaced (KaChat Stats -> Explorer, K 961fc05a) opens its successor.
+    const saved = currentTabId(localStorage.getItem(UI_SPOT_TAB_KEY));
     if (saved && document.querySelector(`.sidebar-tab[data-app-tab="${saved}"]`)) tab = saved;
   } catch { /* restoring the spot is best-effort */ }
   // Always applied, Chats included. Skipping Chats because the markup "already shows it" left the
@@ -12298,12 +12414,14 @@ function setActiveAppTab(tab) {
   // Child Mode choke point: every tab switch (dock click, restore, deep link,
   // programmatic) funnels through here, so gated tabs simply become Chats.
   if (isChildModeEnabled() && CHILD_HIDDEN_TABS.includes(tab)) tab = "chats";
-  // Public Chats is no screen of its own any more: its rooms are rows in Chats (KaChat 148a5331;
-  // owner, 2026-11-21). A saved spot or an old link asking for it lands on Chats.
+  // Public Chats is no screen of its own any more: its rooms are KaChat's second page (K 961fc05a;
+  // rows in Chats since KaChat 148a5331). A saved spot or an old link asking for it lands on KaChat.
   if (tab === "broadcasts") tab = "chats";
   // Leaderboard is a card inside KaPlay > Chess again (K 428a797b): a saved spot asking for the
   // old dock item opens KaPlay.
   if (tab === "leaderboard") tab = "chess";
+  // KaChat Stats was replaced by the Explorer (K 961fc05a): anything asking for it opens the Explorer.
+  tab = currentTabId(tab);
   // A tab that lives in the Hub is REACHED through the Hub, so asking for it directly - a deep
   // link, a notification tap, the restored spot - opens it there rather than failing.
   if (tab !== "hub" && !dockPrefs.dock.includes(tab) && dockPrefs.hub.includes(tab)) {
@@ -12371,7 +12489,7 @@ function setActiveAppTab(tab) {
     stopKaPostsPolling();
     if (screenTab === "profile") { try { setKaPostsRootMode("myProfile"); } catch { /* not started */ } }
   }
-  // The rooms are rows in Chats (KaChat 148a5331): they stay live while Chats is up, and
+  // The rooms are KaChat's Public Chats page (K 961fc05a): they stay live while KaChat is up, and
   // syncPublicChatsPane gives the pane to the open chat, group or room. Simple Mode hides them.
   if (isChats && !isChildModeEnabled()) { refreshBroadcasts({ onScreen: true }); syncPublicChatsPane(); }
   else { stopBroadcastPolling(); syncPublicChatsPane(); }
@@ -12382,7 +12500,7 @@ function setActiveAppTab(tab) {
   if (screenTab === "chess") showChessTournaments();
   else hideChessTournaments();
   try { if (screenTab === "kachat-names") showKachatMarket(); else hideKachatMarket(); } catch { /* not started */ }
-  try { if (screenTab === "kachat-stats") showKachatStats(); else hideKachatStats(); } catch { /* not started */ }
+  try { if (screenTab === "explorer") showExplorer(); else hideExplorer(); } catch { /* not started */ }
   try { if (screenTab === "address-book") showAddressBook(); else hideAddressBook(); } catch { /* not started */ }
   syncSettingsTab(screenTab === "settings");
 }
@@ -12411,13 +12529,27 @@ sidebarTabButtons.forEach((button) => {
     // returns to the grid, so the button that opened a section is the one that leaves it.
     if (tab === "hub" && currentAppTab === "hub" && hubSection) hubSection = null;
     const wasOnKaPost = tab === "kaposts" && currentAppTab === "kaposts";
+    const wasOnExplorer = tab === "explorer" && currentAppTab === "explorer";
     const wasOnChats = tab === "chats" && currentAppTab === "chats";
     setActiveAppTab(tab);
     applyDockLayout();
     // KaChat on the dock, tapped again from inside a chat, goes back to the chats list.
     if (wasOnChats) backToChatsListFromDock();
+    // Explorer on the dock, clicked again from a transaction, block, address or chart, goes home.
+    if (wasOnExplorer) { try { explorerToHome(); } catch { /* not started */ } }
     // KaPost on the dock takes the feed back to its top (KaPosts-iPhone 45de945).
     if (tab === "kaposts" && currentAppTab === "kaposts") { try { kaPostsFeedToTop({ animated: wasOnKaPost }); } catch { /* not started */ } }
+  });
+});
+
+// A right-click on a dock item that is a Kaspa Hub card on K (Contacts, Portfolio, Cold Storage,
+// Usernames, KaPost, KaPlay, Websites, the Explorer) offers its link: Copy Link and Open (K 961fc05a,
+// a hold on a Hub card). Desktop has no Hub to hold a card in, so the dock item stands in for it.
+sidebarTabButtons.forEach((button) => {
+  button.addEventListener("contextmenu", (event) => {
+    if (!hubSlugForAppTab(button.dataset.appTab)) return;
+    event.preventDefault();
+    openDockItemLinkMenu(button.dataset.appTab);
   });
 });
 
@@ -12448,7 +12580,7 @@ function backToChatsListFromDock() {
 // ---------------------------------------------------------------------------
 
 /** Full names, used in the More grid where a dock label is too short. */
-const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "Swap", chess: "KaPlay", "kachat-names": "Usernames", "kachat-stats": "KaChat Stats" };
+const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "Swap", chess: "KaPlay", "kachat-names": "Usernames" };
 
 function tabFullName(tab) {
   if (TAB_FULL_NAMES[tab]) return TAB_FULL_NAMES[tab];
@@ -12585,9 +12717,10 @@ function tabUnreadCount(tab) {
   } catch {}
   return 0;
 }
-/** Chats: unread messages in the chats the list shows and in the group chats (iOS 64d63846, the
- *  Chats and Groups tabs: Desktop has no Groups tab), and across the public rooms (KaPosts-iPhone
- *  eec2e30's Public Chats tab: the rooms live under Chats here). Simple Mode hides the rooms. */
+/** KaChat's dock badge: unread messages in the chats the list shows and in the group chats (iOS
+ *  64d63846, the Chats and Groups tabs: Desktop has no Groups tab). Not the public rooms (owner,
+ *  2026-11-25, K 961fc05a AppTabBadge .chats): their count is on the Chats / Public Chats button
+ *  beside KaChat's title, and the app icon adds them in (scheduleAppBadgeUpdate). */
 function chatsTabUnreadTotal() {
   if (!engine.address) return 0;
   const chats = chatListUnreadCount(state.conversations, (conversationEntry) => {
@@ -12596,11 +12729,7 @@ function chatsTabUnreadTotal() {
     return Boolean(contact?.address) && contact.relationshipState !== "declined"
       && !isChatBlocked(contact.address) && !isMessageRequest(conversationEntry);
   });
-  // Rooms are rows in Chats again (KaChat 148a5331 AppTabBadge .chats): the ones with their bell on
-  // count. Simple Mode hides the rooms.
-  let rooms = 0;
-  if (!isChildModeEnabled()) { try { rooms = broadcastNotifyingUnreadTotal(); } catch { rooms = 0; } }
-  return chatsTabUnreadCount({ chats, groups: totalGroupUnread(), rooms });
+  return chatsTabUnreadCount({ chats, groups: totalGroupUnread() });
 }
 /** Recounts the Chats badge a moment after anything that moves it - a message, a read, a group's
  *  or a room's change - and redraws only when the number changed (iOS PublicChatUnreadBadge's
@@ -12662,6 +12791,14 @@ hubGrid?.addEventListener("click", (event) => {
   if (!tile) return;
   hubSection = tile.dataset.hubTile;
   setActiveAppTab("hub");
+});
+// More's tiles are the Hub's cards on a narrow window: a right-click (Android's hold) offers the
+// card's link, as K's hold does (K 961fc05a).
+hubGrid?.addEventListener("contextmenu", (event) => {
+  const tile = event.target.closest("[data-hub-tile]");
+  if (!tile || !hubSlugForAppTab(tile.dataset.hubTile)) return;
+  event.preventDefault();
+  openDockItemLinkMenu(tile.dataset.hubTile);
 });
 
 applyDockLayout();
@@ -13140,7 +13277,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 337;
+const APP_BUILD = 338;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -14973,10 +15110,26 @@ async function loadManageAddressTransactions(address, listEl = manageAddressTran
     }
     listEl.replaceChildren();
     for (const tx of transactions) {
-      const info = manageAddressTxDirection(tx, address);
+      let info = manageAddressTxDirection(tx, address);
       // An outgoing row counts what went to other people as Sent, and each of this wallet's other
       // addresses that got change on its own line; all of it to your own addresses is Moved.
-      const breakdown = info?.isOutgoing ? outgoingTxBreakdown(tx, address) : null;
+      let breakdown = info?.isOutgoing ? outgoingTxBreakdown(tx, address) : null;
+      // A swap also spends the pool's coins: only what left this wallet counts, and a swap that
+      // paid it Kaspa is Received (K 961fc05a ownHistoryAmount; several of its addresses funding
+      // one send each show the whole send).
+      if (breakdown) {
+        const own = ownHistoryAmount(tx, address, {
+          toOthers: breakdown.toOthers, ownChange: breakdown.changeTotal,
+          isOwnAddress: (other) => Boolean(ownAddressLabelFor(other)),
+        });
+        if (own?.isOutgoing) {
+          breakdown.toOthers = own.amountSompi;
+          breakdown.moved = breakdown.toOthers === 0n && breakdown.changeTotal > 0n;
+        } else if (own) {
+          info = { isOutgoing: false, amountSompi: own.amountSompi };
+          breakdown = null;
+        }
+      }
       if (breakdown) info.amountSompi = breakdown.moved ? breakdown.changeTotal : breakdown.toOthers;
       const row = document.createElement("button");
       row.type = "button";
@@ -16998,6 +17151,8 @@ function updateChatsListTabBadges() {
 // The conversations currently shown in the chat list, honoring the search filter. Shared by
 // renderChats and the Select All action so both agree.
 function visibleChatConversations() {
+  // the chats are the Chats page's (K 961fc05a): the Public Chats page lists rooms alone
+  if (onPublicChatsPage()) return [];
   const query = searchInput.value.trim().toLowerCase();
   const pinnedChatIds = new Set(chatCirclePins().filter((id) => id.startsWith("c:")));
   return sortedConversations().filter((conversationEntry) => {
@@ -17076,6 +17231,7 @@ function conversationRowHtml(conversationEntry, { selecting = false, selected = 
 /** The groups the list shows: all but those pinned up into the circles, and while searching, every
  *  match, pinned or not (iOS d1844582). */
 function visibleChatGroups() {
+  if (onPublicChatsPage()) return [];
   let mgr = null;
   try { mgr = getGroupManager(); } catch { mgr = null; }
   if (!mgr) return [];
@@ -17085,15 +17241,82 @@ function visibleChatGroups() {
 }
 
 /** The public rooms in the list, by name while searching. Simple Mode hides them. A room pinned to
- *  the top row is its circle instead, except while searching (K 518fdc8c displayedRooms). */
+ *  the top row is its circle instead, except while searching (K 518fdc8c displayedRooms). They are
+ *  the Public Chats page's rows, never the Chats page's (K 961fc05a). */
 function visibleChatRooms() {
   if (isChildModeEnabled()) return [];
+  if (!onPublicChatsPage()) return [];
   let rooms = [];
   try { rooms = chatListRooms(); } catch { rooms = []; }
   const query = String(searchInput?.value || "").trim().toLowerCase();
   if (query) return rooms.filter((room) => `#${room.name}`.toLowerCase().includes(query));
   const pinned = new Set(chatRoomPins());
   return pinned.size ? rooms.filter((room) => !pinned.has(room.name)) : rooms;
+}
+
+/** True while the KaChat list shows its Public Chats page (K 961fc05a). Never in Simple Mode, which
+ *  hides public chats. */
+function onPublicChatsPage() {
+  if (chatListPage !== "publicChats") return false;
+  try { return !isChildModeEnabled(); } catch { return true; }
+}
+
+// The cycle button beside the KaChat title (K 961fc05a pageCycleButton): Chats or Public Chats,
+// each click fading to the other page. Its red count is the public chats' unread (rooms with their
+// bell on), on either page; the dock's KaChat badge counts the chats and groups (owner, 2026-11-25).
+// (Functions, not consts: the boot-time renderChats reaches here before a const below would exist.)
+function chatListPageOptions() { return [{ id: "chats", title: "Chats" }, { id: "publicChats", title: "Public Chats" }]; }
+function chatListPageHint() { return "Switches between your chats and public chats"; }
+/** Unread in the public rooms with their bell on: the cycle button's count, and part of the app
+ *  icon's (K 961fc05a AppTabBadge.publicRoomUnreadCount). None in Simple Mode. */
+function publicRoomUnreadCount() {
+  try { return isChildModeEnabled() ? 0 : Math.max(0, Number(broadcastNotifyingUnreadTotal()) || 0); } catch { return 0; }
+}
+/** The cycle button, its count, the search prompt and the page's gear: DOM-only, safe during the
+ *  boot render. Simple Mode has no Public Chats, so no button and the Chats page. */
+function syncChatListPageControls() {
+  let simple = false;
+  try { simple = isChildModeEnabled(); } catch { /* not started */ }
+  if (simple && chatListPage !== "chats") chatListPage = "chats";
+  const button = document.querySelector("[data-chats-page-cycle]");
+  if (button) {
+    button.hidden = simple;
+    if (button.dataset.cycleValue !== chatListPage || !button.querySelector(".cycle-button-title")) {
+      updateCycleButton(button, { options: chatListPageOptions(), value: chatListPage, hint: chatListPageHint() });
+    }
+    const count = simple ? 0 : publicRoomUnreadCount();
+    const holder = button.parentElement;
+    let badge = holder?.querySelector(".chats-page-cycle-badge");
+    if (count > 0 && holder) {
+      if (!badge) { badge = document.createElement("b"); badge.className = "chats-page-cycle-badge"; holder.appendChild(badge); }
+      const label = count > 99 ? "99+" : String(count);
+      if (badge.textContent !== label) badge.textContent = label;
+      badge.setAttribute("aria-label", countedText(count, "1 unread public chat message", "{n} unread public chat messages"));
+    } else if (badge) badge.remove();
+  }
+  const input = document.querySelector(".chats-pinned-search .search-input");
+  const prompt = chatListPage === "publicChats" ? "Search public chats" : "Search chats";
+  if (input && input.placeholder !== prompt) input.placeholder = prompt;
+  const sidebar = document.querySelector("[data-app-sidebar]");
+  if (sidebar) sidebar.dataset.chatListPage = chatListPage;
+  const fab = document.querySelector("[data-new-chat-fab]");
+  const fabLabel = chatListPage === "publicChats" ? "New Public Chat" : "New";
+  if (fab && fab.getAttribute("aria-label") !== fabLabel) { fab.title = fabLabel; fab.setAttribute("aria-label", fabLabel); }
+  const strip = document.querySelector("[data-chat-circles]");
+  const stripLabel = chatListPage === "publicChats" ? "Pinned public chats" : "Bots and pinned chats";
+  if (strip && strip.getAttribute("aria-label") !== stripLabel) strip.setAttribute("aria-label", stripLabel);
+  syncChatsPublicSettingsGear();
+}
+/** Shows `page` ("chats" or "publicChats"). Select ends on a page change (K 961fc05a: the page's
+ *  own selection), the list fades in, and an open chat, group or room stays in the pane. */
+function setChatListPage(page) {
+  const next = page === "publicChats" && !isChildModeEnabled() ? "publicChats" : "chats";
+  if (next === chatListPage) { syncChatListPageControls(); return; }
+  chatListPage = next;
+  if (chatSelectionModeActive) setChatSelectionMode(false);
+  lastChatListHtml = null;
+  renderChats();
+  restartFade(document.querySelector("[data-app-sidebar] .sidebar-scroll"));
 }
 
 function chatRoomsSignature() {
@@ -17161,6 +17384,9 @@ function renderChats() {
   // The app icon's badge follows the same counts (iOS ChatService.updateAppBadge).
   scheduleAppBadgeUpdate();
   setChatToolRowsForGroupsTab(false);
+  // the page switch beside the title, its count and the page's search prompt (K 961fc05a)
+  syncChatListPageControls();
+  const roomsPage = onPublicChatsPage();
 
   const visibleConversations = visibleChatConversations();
   const visibleGroups = visibleChatGroups();
@@ -17171,8 +17397,8 @@ function renderChats() {
 
   // People who wrote first and haven't been accepted: one row, always there, right above your
   // own chat - hidden only while searching or selecting (iOS 74bd52c). It stays with no chats
-  // too: the empty state sits below it (iOS emptyStateView overlay).
-  const showsRequestsRow = !searching && !chatSelectionModeActive;
+  // too: the empty state sits below it (iOS emptyStateView overlay). The Chats page's only (K 961fc05a).
+  const showsRequestsRow = !roomsPage && !searching && !chatSelectionModeActive;
   const requestCount = showsRequestsRow ? messageRequestConversations().length + pendingGroupInvites().length : 0;
   const requestsRowHtml = showsRequestsRow ? `
         <button class="chat-row message-requests-row" type="button" data-open-message-requests>
@@ -17187,9 +17413,13 @@ function renderChats() {
 
   // No chats and no search: the empty state, under the circles and the requests row. A search
   // with no match shows nothing at all (iOS has no "no results" card).
-  const anyPinnedGroup = chatCirclePins().some((id) => id.startsWith("g:") && getGroupManager()?.getGroup(id.slice(2)));
-  const anyPinnedRoom = pinnedChatRooms().length > 0;
-  emptyState.hidden = !(noRows && !anyPinnedGroup && !anyPinnedRoom && !searching);
+  // Each page has its own: no chats, or no public chats (K 961fc05a emptyRoomsView).
+  const anyPinnedGroup = !roomsPage && chatCirclePins().some((id) => id.startsWith("g:") && getGroupManager()?.getGroup(id.slice(2)));
+  const anyPinnedRoom = roomsPage && pinnedChatRooms().length > 0;
+  const showsEmpty = noRows && !anyPinnedGroup && !anyPinnedRoom && !searching;
+  emptyState.hidden = !(showsEmpty && !roomsPage);
+  const emptyRoomsState = document.querySelector("[data-empty-rooms-state]");
+  if (emptyRoomsState) emptyRoomsState.hidden = !(showsEmpty && roomsPage);
   chatList.hidden = !requestsRowHtml && noRows;
   if (noRows) {
     lastChatListHtml = null;
@@ -17198,9 +17428,9 @@ function renderChats() {
     return;
   }
 
-  // Chats, groups and rooms share the one list, by latest activity (iOS d1844582) - except your
-  // own chat, "Your Address", which always sits first, right under Message Requests (the owner's
-  // call, 2026-11-12; iOS sorts it by date with the rest).
+  // Chats and groups share the Chats page, by latest activity (iOS d1844582) - except your own chat,
+  // "Your Address", which always sits first, right under Message Requests (the owner's call,
+  // 2026-11-12; iOS sorts it by date with the rest). The rooms are the Public Chats page's (K 961fc05a).
   const rows = [
     ...visibleConversations.map((conversationEntry, order) => ({ pinned: isSelfConversation(conversationEntry), at: conversationRecency(conversationEntry), order, html: () => conversationRowHtml(conversationEntry, {
       selecting: chatSelectionModeActive,
@@ -17212,16 +17442,16 @@ function renderChats() {
       selected: selectedGroupIds.has(g.groupId),
       active: g.groupId === activeGroupId,
     }) })),
-    // A room by its newest message; one nobody has written in yet goes below every chat, keeping
-    // its place among the others (KaChat 148a5331 roomActivity: the default rooms are all joined
-    // at once, and by join time they sat above every chat).
-    ...visibleRooms.map((room, order) => ({ at: room.lastMessageAt || -1, order, html: () => roomRowHtml(room, {
+    // The Public Chats page: the rooms by latest activity (K 961fc05a), each by its newest message;
+    // one nobody has written in keeps its place (a language room its place in the list, any other
+    // its join time: ui/broadcasts.js roomActivityAt). Rooms aren't rows on the Chats page.
+    ...visibleRooms.map((room, order) => ({ at: Number(room.lastAt) || -1, order, html: () => roomRowHtml(room, {
       selecting: chatSelectionModeActive,
       selected: selectedRoomNames.has(room.name),
     }) })),
   ].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.at - a.at || a.order - b.order);
-  // iOS: "{n} chat(s)" under the list.
-  const countLineHtml = `<p class="chat-list-count">${countedText(rows.length, "1 chat", "{n} chats")}</p>`;
+  // iOS: "{n} chat(s)" under the list - the Chats page's only (K 961fc05a).
+  const countLineHtml = roomsPage ? "" : `<p class="chat-list-count">${countedText(rows.length, "1 chat", "{n} chats")}</p>`;
   const listHtml = requestsRowHtml + rows.map((row) => row.html()).join("") + countLineHtml;
   if (listHtml !== lastChatListHtml) {
     chatList.innerHTML = listHtml;
@@ -21263,18 +21493,36 @@ function updateChatSelectionBar() {
   if (markUnread) markUnread.disabled = disabled;
   if (deleteButton) deleteButton.disabled = disabled;
   // Mute acts on the picked rooms (KaPosts-iPhone eec2e30): their bells off, or back on once every
-  // picked room is already off. No rooms in Simple Mode, so no Mute either.
+  // picked room is already off. Rooms are picked on the Public Chats page only (K 961fc05a), so Mute
+  // and Pin show there; none in Simple Mode.
+  const roomsPage = onPublicChatsPage();
   const mute = document.querySelector("[data-chat-mute-rooms]");
   if (mute) {
     const rooms = selectedRoomsForBulk();
     const allMuted = rooms.length > 0 && rooms.every((room) => !room.notify);
     const label = allMuted ? "Unmute" : "Mute";
-    mute.hidden = isChildModeEnabled();
+    mute.hidden = !roomsPage;
     mute.disabled = rooms.length === 0;
     if (mute.getAttribute("aria-label") !== label) {
       mute.setAttribute("aria-label", label);
       mute.title = label;
       mute.innerHTML = allMuted ? ACTION_TILE_ICONS.bell : ACTION_TILE_ICONS.bellSlash;
+    }
+  }
+  // Pin or unpin the picked rooms to the circles above them (K 961fc05a roomSelectionButtons): all
+  // pinned, they're unpinned; otherwise the others are pinned.
+  const pin = document.querySelector("[data-chat-pin-rooms]");
+  if (pin) {
+    const names = selectedRoomsForBulk().map((room) => room.name);
+    const pins = chatRoomPins();
+    const allPinned = names.length > 0 && names.every((name) => pins.includes(name));
+    const label = allPinned ? "Unpin" : "Pin";
+    pin.hidden = !roomsPage;
+    pin.disabled = names.length === 0;
+    if (pin.getAttribute("aria-label") !== label) {
+      pin.setAttribute("aria-label", label);
+      pin.title = label;
+      pin.innerHTML = allPinned ? ACTION_TILE_ICONS.unpin : ACTION_TILE_ICONS.pin;
     }
   }
   if (chatSelectAll) {
@@ -21350,11 +21598,9 @@ function syncPublicChatsPane() {
   const onChats = currentAppTab === "chats";
   const roomEl = document.querySelector("[data-broadcast-room]");
   if (roomEl) roomEl.hidden = !(onChats && publicRoomOpen);
-  // The floating + is the same on every tab: it opens the New sheet (iOS 5da8ccf).
-  if (newChatFab) {
-    newChatFab.title = "New";
-    newChatFab.setAttribute("aria-label", "New");
-  }
+  // The floating + opens the New sheet (iOS 5da8ccf); on the Public Chats page it is New Public
+  // Chat (K 961fc05a). syncChatListPageControls keeps the label.
+  syncChatListPageControls();
   // Looked up here: the startup tab restore runs this before `groupChatScreen` is initialised.
   const groupScreenEl = document.querySelector("[data-group-chat-screen]");
   let paneOpen = null;
@@ -21398,9 +21644,10 @@ function closeOpenSheets() {
 
 function openPublicChatsTab() {
   if (isChildModeEnabled()) return false;
-  // Rooms are rows in Chats (KaChat 148a5331): the room about to open takes the pane from the open
-  // chat or group (onRoomVisibility).
+  // Rooms are KaChat's Public Chats page (K 961fc05a): a room link or push switches to it, and the
+  // room about to open takes the pane from the open chat or group (onRoomVisibility).
   setActiveAppTab("chats");
+  setChatListPage("publicChats");
   return true;
 }
 
@@ -21410,8 +21657,8 @@ function openPublicChatsTab() {
 // (long-press on touch) opens its half sheet; in Select mode a click on a group selects it. Pinned
 // circles come first, newest pin first, then the rest by latest activity. Pins are saved per wallet
 // as "g:<groupId>", and a 1:1 chat pinned up into the row (Pin to Top Row, iOS 7abc06e8) as
-// "c:<address>". Public rooms are rows in the list until pinned: since K 518fdc8c a pinned room is a
-// "#" circle after the pinned groups, its pins kept apart per account (ui/room-pins.js), and its
+// "c:<address>". Public rooms are rows of the Public Chats page until pinned: since K 518fdc8c a pinned
+// room is a "#" circle (on that page alone since K 961fc05a), its pins kept apart per account (ui/room-pins.js), and its
 // circle id "r:<room>". An old "r:<room>" left among these pins from before is forgotten on the next
 // save. Everything here reads the DOM and module state at call time: the boot-time renderChats
 // reaches it before the code below has run.
@@ -21484,8 +21731,13 @@ function groupMatchesChatSearch(g, query) {
   return groupMessages(g.groupId).some((m) => String(m.text || "").slice(0, 4096).toLowerCase().includes(query));
 }
 
-/** The circles the row shows, in its order. Shared by the row, Select All and the select bar. */
+/** The circles the row shows, in its order. Shared by the row, Select All and the select bar. Each
+ *  page has its own (K 961fc05a): the bots and pinned chats and groups on Chats, the pinned rooms
+ *  on Public Chats. */
 function visibleChatCircles() {
+  if (onPublicChatsPage()) {
+    return pinnedChatRooms().map((room) => ({ id: `r:${room.name}`, kind: "room", key: room.name, title: `#${room.name}`, unread: Number(room.unread || 0), at: Number(room.lastMessageAt || 0), room }));
+  }
   const items = [];
   const query = String(searchInput?.value || "").trim().toLowerCase();
   let mgr = null;
@@ -21530,10 +21782,9 @@ function visibleChatCircles() {
   const pinned = pinIds.map((id) => byId.get(id)).filter(Boolean).sort((a, b) => Number(b.kind === "group") - Number(a.kind === "group"));
   const pinnedIds = new Set(pinned.map((item) => item.id));
   const rest = items.filter((item) => !pinnedIds.has(item.id)).sort((a, b) => b.at - a.at);
-  // Pinned public rooms right after the pinned groups (K 518fdc8c ChatCirclesStrip), in pin order.
-  const rooms = pinnedChatRooms().map((room) => ({ id: `r:${room.name}`, kind: "room", key: room.name, title: `#${room.name}`, unread: Number(room.unread || 0), at: Number(room.lastMessageAt || 0), room }));
-  const groupCount = pinned.filter((item) => item.kind === "group").length;
-  return [...pinned.slice(0, groupCount), ...rooms, ...pinned.slice(groupCount), ...rest];
+  // Pinned groups lead, then the other pins; pinned rooms are the Public Chats page's circles now
+  // (K 961fc05a), not this row's.
+  return [...pinned, ...rest];
 }
 
 // --- KaChat Bots in the circles row (iOS 5fcf755) -------------------------------------------------
@@ -21612,8 +21863,10 @@ function chatCircleGroupPhotoUrl(g) {
 }
 
 function renderChatCircles() {
-  // Every change to a group's or a room's unread comes through here: the Chats tab recounts.
-  scheduleChatsTabBadge();
+  // Every change to a group's or a room's unread comes through here: the dock's KaChat badge and
+  // the app icon recount, and the page button's room count is drawn again (K 961fc05a).
+  scheduleAppBadgeUpdate();
+  syncChatListPageControls();
   const strip = document.querySelector("[data-chat-circles]");
   if (!strip) return;
   let items = [];
@@ -21788,15 +22041,15 @@ async function openRoomRowSheet(name) {
       ? { id: "read", title: "Mark as Read", subtitle: "Clears the unread badge on this room.", icon: ACTION_TILE_ICONS.envelopeOpen }
       : { id: "unread", title: "Mark as Unread", subtitle: "Puts the unread badge back so you come across it again.", icon: ACTION_TILE_ICONS.envelopeBadge },
     chatRoomPins().includes(name)
-      ? { id: "pin", title: "Unpin", subtitle: "Moves it back into your chats.", icon: ACTION_TILE_ICONS.unpin }
-      : { id: "pin", title: "Pin to Top Row", subtitle: "Moves it into the row above your chats.", icon: ACTION_TILE_ICONS.pin },
+      ? { id: "pin", title: "Unpin", subtitle: "Moves it back into your public chats.", icon: ACTION_TILE_ICONS.unpin }
+      : { id: "pin", title: "Pin to Top Row", subtitle: "Moves it into the row above your public chats.", icon: ACTION_TILE_ICONS.pin },
     room.notify
       ? { id: "silence", title: "Turn Off Notifications", subtitle: "No notification for new messages in this room.", icon: ACTION_TILE_ICONS.bellSlash }
       : { id: "silence", title: "Turn On Notifications", subtitle: room.tracked ? "Notifies you of new messages, even when the app is closed." : "Notifies you of new messages while the app is open.", icon: ACTION_TILE_ICONS.bell },
     { id: "copy", title: "Copy Room Link", subtitle: "A kachat.app link that opens this room.", icon: ACTION_TILE_ICONS.link },
   ];
   if (room.indexed) {
-    options.push({ id: "delete", title: "Delete", subtitle: "Switches this default room off. Turn it back on in Public Chats settings.", destructive: true, icon: ACTION_TILE_ICONS.trash });
+    options.push({ id: "delete", title: "Delete", subtitle: "Switches this default room off. Turn it back on in Edit Default Public Chats.", destructive: true, icon: ACTION_TILE_ICONS.trash });
   } else if (room.joined) {
     options.push({ id: "delete", title: "Delete", subtitle: "Removes this room and its messages from this device.", destructive: true, icon: ACTION_TILE_ICONS.trash });
   }
@@ -21814,12 +22067,12 @@ async function openPinnedRoomSheet(name) {
     room.unread > 0
       ? { id: "read", title: "Mark as Read", subtitle: "Clears the unread badge on this public chat.", icon: ACTION_TILE_ICONS.envelopeOpen }
       : { id: "unread", title: "Mark as Unread", subtitle: "Puts the unread badge back so you come across it again.", icon: ACTION_TILE_ICONS.envelopeBadge },
-    { id: "pin", title: "Unpin", subtitle: "Moves it back into your chats.", icon: ACTION_TILE_ICONS.unpin },
+    { id: "pin", title: "Unpin", subtitle: "Moves it back into your public chats.", icon: ACTION_TILE_ICONS.unpin },
     room.notify
       ? { id: "silence", title: "Mute", subtitle: "No notifications from this public chat.", icon: ACTION_TILE_ICONS.bellSlash }
       : { id: "silence", title: "Unmute", subtitle: "Notifications from this public chat resume.", icon: ACTION_TILE_ICONS.bell },
   ];
-  if (room.indexed || room.joined) options.push({ id: "delete", title: "Delete", subtitle: "Removes this public chat from your chats.", destructive: true, icon: ACTION_TILE_ICONS.trash });
+  if (room.indexed || room.joined) options.push({ id: "delete", title: "Delete", subtitle: "Removes this public chat from your public chats.", destructive: true, icon: ACTION_TILE_ICONS.trash });
   const choice = await chooseDialog({ title: `#${name}`, layout: "tiles", options });
   if (choice) await runRoomRowChoice(name, choice);
 }
@@ -21959,6 +22212,19 @@ document.querySelector("[data-chat-mute-rooms]")?.addEventListener("click", () =
     : countedText(rooms.length, "Notifications off for 1 public chat", "Notifications off for {n} public chats"));
 });
 
+document.querySelector("[data-chat-pin-rooms]")?.addEventListener("click", () => {
+  const names = selectedRoomsForBulk().map((room) => room.name);
+  if (!names.length) return;
+  let pins = chatRoomPins();
+  const allPinned = names.every((name) => pins.includes(name));
+  for (const name of names) {
+    if (pins.includes(name) === allPinned) pins = toggleRoomPin(pins, name).pins;
+  }
+  saveChatRoomPins(pins);
+  setChatSelectionMode(false);
+  showCopyToast(allPinned ? "Unpinned" : "Pinned to the top row");
+});
+
 document.querySelector("[data-chat-delete-selected]")?.addEventListener("click", async () => {
   const chats = selectedChatConversationIds.size;
   const groups = selectedGroupIds.size;
@@ -21974,7 +22240,7 @@ document.querySelector("[data-chat-delete-selected]")?.addEventListener("click",
   const parts = [];
   if (chats) parts.push("This permanently deletes every message in each selected chat from this device. This cannot be undone.");
   if (groups) parts.push(`This removes each selected group and its messages from this device. This cannot be undone. ${groupDeleteMembersLine([...selectedGroupIds])}`);
-  if (rooms) parts.push("Rooms you added are removed with their messages. Default rooms are only switched off - turn them back on any time in Public Chats settings (the gear).");
+  if (rooms) parts.push("Default public chats are switched off (turn them back on in Edit Default Public Chats). Rooms you added are deleted with their messages on this device.");
   if (!await confirmDialog({ title, message: parts.join("\n\n"), confirmLabel: "Delete", destructive: true })) return;
   const chatIds = [...selectedChatConversationIds];
   const groupIds = [...selectedGroupIds];
@@ -24456,8 +24722,8 @@ const chessClockThemValue = document.querySelector("[data-chess-clock-them-value
 const chessClockMeEl = document.querySelector("[data-chess-clock-me]");
 const chessClockMeValue = document.querySelector("[data-chess-clock-me-value]");
 const chessTcMenu = document.querySelector("[data-chess-tc-menu]");
-// { gameId, summary, selected, legalDests, pendingPromo, turnMoveCount, turnElapsedMs,
-//   lastTick, timeoutSent }
+// { gameId, summary, selected, legalDests, pendingPromo, turnMoveCount, turnBankedMs,
+//   clockRunStart, clockSavedAt, timeoutSent }
 let chessState = null;
 
 // --- Timed games: local clock bookkeeping (port of iOS ChessClockStore + ChessGameView) ---
@@ -24491,7 +24757,6 @@ function clearChessClock(gameId) {
 }
 
 let chessClockTimer = 0;
-const CHESS_CLOCK_TICK_MS = 200;
 
 function chessMyBaseClockMs() {
   const s = chessState?.summary;
@@ -24503,12 +24768,19 @@ function chessOpponentClockMs() {
   if (!s?.timeControl) return null;
   return opposite2(s.viewerColor || "white") === "white" ? s.whiteClockMs : s.blackClockMs;
 }
+// My open-board thinking time this turn as of `at`: what's banked plus the stretch running now
+// (K 961fc05a: worked out from when the stretch began, so nothing has to tick to keep it).
+function chessTurnElapsedMs(at = Date.now()) {
+  if (!chessState) return 0;
+  const banked = chessState.turnBankedMs || 0;
+  return chessState.clockRunStart ? banked + Math.max(0, at - chessState.clockRunStart) : banked;
+}
 // My chip: authoritative base (clockMs from my own last move, else the initial allotment) minus
-// the open-board thinking time accumulated this turn.
-function chessMyDisplayClockMs() {
+// the open-board thinking time this turn.
+function chessMyDisplayClockMs(at = Date.now()) {
   const base = chessMyBaseClockMs();
   if (base == null) return null;
-  return Math.max(base - (chessState?.turnElapsedMs || 0), 0);
+  return Math.max(base - chessTurnElapsedMs(at), 0);
 }
 function chessMyClockRunning() {
   const s = chessState?.summary;
@@ -24521,54 +24793,96 @@ function chessMyClockRunning() {
 function syncChessTurnElapsed() {
   const s = chessState?.summary;
   if (!s) return;
-  if (!s.timeControl) { chessState.turnMoveCount = -1; chessState.turnElapsedMs = 0; chessState.lastTick = 0; return; }
+  if (!s.timeControl) { chessState.turnMoveCount = -1; chessState.turnBankedMs = 0; chessState.clockRunStart = 0; syncChessClock(); return; }
   if (Chess.isChessGameOver(s.status)) {
     clearChessClock(chessState.gameId);
     chessState.turnMoveCount = -1;
-    chessState.turnElapsedMs = 0;
-    chessState.lastTick = 0;
+    chessState.turnBankedMs = 0;
+    chessState.clockRunStart = 0;
+    syncChessClock();
     return;
   }
   const moveCount = s.moveHistory.length;
-  if (chessState.turnMoveCount === moveCount) return;
-  chessState.turnMoveCount = moveCount;
-  chessState.turnElapsedMs = chessClockElapsedMs(chessState.gameId, moveCount);
-  chessState.lastTick = 0;
-}
-
-function tickChessClock() {
-  const s = chessState?.summary;
-  if (!s?.timeControl || Chess.isChessGameOver(s.status)) { if (chessState) chessState.lastTick = 0; return; }
-  if (!chessMyClockRunning()) { chessState.lastTick = 0; return; }
-  const now = Date.now();
-  if (chessState.lastTick) {
-    const delta = now - chessState.lastTick;
-    // A delta far beyond the tick cadence means the page was frozen (tab backgrounded, machine
-    // asleep) — that gap is away-from-the-board time and must NOT count as thinking time.
-    if (delta > 0 && delta < 2000) {
-      chessState.turnElapsedMs += delta;
-      setChessClockElapsedMs(chessState.gameId, s.moveHistory.length, chessState.turnElapsedMs);
-    }
+  if (chessState.turnMoveCount !== moveCount) {
+    // a new turn: any stretch running was banked against the old one (refreshChessOverlay)
+    chessState.turnMoveCount = moveCount;
+    chessState.turnBankedMs = chessClockElapsedMs(chessState.gameId, moveCount);
+    chessState.clockRunStart = 0;
   }
-  chessState.lastTick = now;
-  renderChessClocks();
-  if ((chessMyDisplayClockMs() ?? 1) <= 0) sendChessTimeoutResign();
+  syncChessClock();
 }
 
-function startChessClockTimer() {
-  if (chessClockTimer) return;
-  chessClockTimer = window.setInterval(tickChessClock, CHESS_CLOCK_TICK_MS);
+// The clock runs only with the board open, the page showing, and my turn in a timed game in
+// progress (K 961fc05a): away-from-the-board time isn't thinking time. See ui/chess-clock.js.
+function chessClockShouldRunNow() {
+  const s = chessState?.summary;
+  return chessClockShouldRun({
+    timed: Boolean(s?.timeControl),
+    over: !s || Chess.isChessGameOver(s.status),
+    myTurn: chessMyClockRunning(),
+    timeoutSent: Boolean(chessState?.timeoutSent),
+    boardShown: Boolean(chessOverlay && !chessOverlay.hidden),
+    pageVisible: typeof document === "undefined" || !document.hidden,
+  });
 }
+/** Starts or stops the running stretch to match; stopping banks and saves it. Then the chips. */
+function syncChessClock() {
+  if (!chessState) { stopChessClockTimer(); return; }
+  if (chessClockShouldRunNow()) {
+    if (!chessState.clockRunStart) { chessState.clockRunStart = Date.now(); chessState.clockSavedAt = Date.now(); }
+  } else if (chessState.clockRunStart) {
+    bankChessClock();
+  }
+  renderChessClocks();
+  scheduleChessClockTick();
+}
+function bankChessClock() {
+  if (!chessState) return;
+  chessState.turnBankedMs = chessTurnElapsedMs(Date.now());
+  chessState.clockRunStart = 0;
+  persistChessClock();
+}
+function persistChessClock() {
+  const s = chessState?.summary;
+  if (!s?.timeControl || Chess.isChessGameOver(s.status)) return;
+  setChessClockElapsedMs(chessState.gameId, s.moveHistory.length, chessTurnElapsedMs(Date.now()));
+  chessState.clockSavedAt = Date.now();
+}
+// While my clock runs: the chip is redrawn just after its shown second (or tenth) changes, the
+// time is saved every 5 s, and reaching zero flags. Nothing is scheduled while it's stopped.
+function scheduleChessClockTick() {
+  stopChessClockTimer();
+  if (!chessState?.clockRunStart) return;
+  const remaining = chessMyDisplayClockMs(Date.now());
+  const wait = remaining == null ? CHESS_CLOCK_SAVE_MS : chessClockNextTickMs(remaining);
+  chessClockTimer = window.setTimeout(tickChessClock, Math.max(1, wait) + 4);
+}
+function tickChessClock() {
+  chessClockTimer = 0;
+  if (!chessState?.clockRunStart) return;
+  if (!chessClockShouldRunNow()) { syncChessClock(); return; }
+  if (Date.now() - (chessState.clockSavedAt || 0) >= CHESS_CLOCK_SAVE_MS) persistChessClock();
+  renderChessClocks();
+  if ((chessMyDisplayClockMs(Date.now()) ?? 1) <= 0) {
+    bankChessClock();
+    sendChessTimeoutResign();
+    return;
+  }
+  scheduleChessClockTick();
+}
+
 function stopChessClockTimer() {
   if (!chessClockTimer) return;
-  clearInterval(chessClockTimer);
+  clearTimeout(chessClockTimer);
   chessClockTimer = 0;
 }
+// Hiding the page stops my clock (banked and saved); showing it again starts it.
+document.addEventListener("visibilitychange", () => { if (chessState) syncChessClock(); });
 
 // Flagging: my clock hit zero on my turn. Sends a resign carrying reason "timeout"; the result then
 // renders through the normal derived-state pipeline ("You lost on time"). A send that fails is
 // tried again, a little later each time (iOS 3942a5b7): dropped once, the opponent waited on a
-// move that could never come. If every try fails, the next clock tick starts over.
+// move that could never come. If every try fails, the clock starts again and flags anew.
 function sendChessTimeoutResign() {
   if (!chessState || chessState.timeoutSent) return;
   chessState.timeoutSent = true;
@@ -24594,7 +24908,8 @@ function retryChessTimeoutResign(conversationId, messageId, gameId, attempt = 0)
       return;
     }
     if (attempt >= CHESS_TIMEOUT_RESIGN_RETRY_MS.length) {
-      if (chessState?.gameId === gameId) chessState.timeoutSent = false;
+      // every try failed: the clock starts again and flags anew (K 961fc05a)
+      if (chessState?.gameId === gameId) { chessState.timeoutSent = false; syncChessClock(); }
       return;
     }
     window.setTimeout(() => {
@@ -24704,16 +25019,19 @@ function openChessGame(preferGameId = null, timeControl = null) {
   if (!summary) { showCopyToast("Could not open the chess game."); return; }
   chessState = {
     gameId: summary.gameId, summary, selected: null, legalDests: [], pendingPromo: null,
-    turnMoveCount: null, turnElapsedMs: 0, lastTick: 0, timeoutSent: false,
+    turnMoveCount: null, turnBankedMs: 0, clockRunStart: 0, clockSavedAt: 0, timeoutSent: false,
   };
   syncChessTurnElapsed();
   if (chessPromoEl) chessPromoEl.hidden = true;
   renderChess();
   if (chessOverlay) chessOverlay.hidden = false;
-  startChessClockTimer();
+  // the board is open now: my clock starts if it's my turn in a timed game
+  syncChessClock();
 }
 function closeChess() {
   if (chessOverlay) chessOverlay.hidden = true;
+  // closing the board stops my clock, the stretch banked and saved
+  if (chessState?.clockRunStart) bankChessClock();
   chessState = null;
   if (chessUnconfirmedTimer) { window.clearTimeout(chessUnconfirmedTimer); chessUnconfirmedTimer = 0; }
   stopChessClockTimer();
@@ -24944,9 +25262,10 @@ function doChessMove(move) {
   // — the opponent reads their view of my clock straight off this field. Untimed games send no
   // clockMs at all, which is exactly the legacy envelope shape.
   const tc = chessState.summary?.timeControl || null;
-  const remaining = chessMyDisplayClockMs();
+  const remaining = chessMyDisplayClockMs(Date.now());
   const clockMs = tc && remaining != null ? remaining + tc.incSeconds * 1000 : null;
-  chessState.lastTick = 0;
+  // The move is made: my clock stops here (K 961fc05a).
+  if (chessState.clockRunStart) { bankChessClock(); stopChessClockTimer(); }
   chessSendEnvelope(Chess.chessMove(chessState.gameId, from, to, promo, clockMs));
   refreshChessOverlay();
 }
@@ -25014,7 +25333,14 @@ function refreshChessOverlay() {
   const { contact, messages } = chessConversationContext();
   if (!contact) return;
   const summary = Chess.summarizeChessGame(chessState.gameId, messages, engine.address, contact.address);
-  if (summary) { chessState.summary = summary; syncChessTurnElapsed(); renderChess(); }
+  if (summary) {
+    // A running stretch is banked against the turn it belongs to before the summary moves on
+    // (K 961fc05a refreshCache).
+    if (chessState.clockRunStart && (summary.moveHistory.length !== chessState.turnMoveCount || Chess.isChessGameOver(summary.status))) bankChessClock();
+    chessState.summary = summary;
+    syncChessTurnElapsed();
+    renderChess();
+  }
 }
 
 // "Play Chess" opens a second menu to pick a time control first (matching iOS's second
@@ -25647,6 +25973,7 @@ function createVoiceRecorder({ maxDurationSeconds, onElapsed, onFinish }) {
     stream?.getTracks().forEach((track) => track.stop());
     stream = null;
     clearTimer();
+    if (recorder) voicePlayback.recordingDidEnd(recorder);
     const mimeType = recorder?.mimeType || "audio/webm";
     const recorded = chunks;
     recorder = null;
@@ -25694,6 +26021,8 @@ function createVoiceRecorder({ maxDurationSeconds, onElapsed, onFinish }) {
     });
     recorder.addEventListener("stop", handleStopped);
     recorder.start();
+    // any voice playing stops, and none starts until this recording ends (K 961fc05a)
+    voicePlayback.recordingWillStart(recorder);
     startedAt = Date.now();
     onElapsed?.(0);
     timer = window.setInterval(() => {
@@ -25751,23 +26080,36 @@ function setVoicePreview(panel, { blob, mimeType, seconds, parts = null, recordi
   clearVoicePreview(panel);
   const audio = new Audio(URL.createObjectURL(blob));
   const entry = { blob, mimeType, seconds, audio, playing: false, prefix, parts, recording, recordingMime };
-  audio.addEventListener("ended", () => { entry.playing = false; renderVoicePanel(panel, "preview", { prefix, seconds: entry.seconds }); });
+  audio.addEventListener("ended", () => { voicePlayback.didStop(entry); entry.playing = false; renderVoicePanel(panel, "preview", { prefix, seconds: entry.seconds }); });
   audio.addEventListener("timeupdate", () => { if (entry.playing) renderVoicePanel(panel, "preview", { prefix, seconds: entry.seconds }); });
   voicePreviews.set(panel, entry);
   renderVoicePanel(panel, "preview", { prefix, seconds });
 }
 function clearVoicePreview(panel) {
   const entry = voicePreviews.get(panel);
-  if (entry) { try { entry.audio.pause(); URL.revokeObjectURL(entry.audio.src); } catch {} }
+  if (entry) { voicePlayback.didStop(entry); try { entry.audio.pause(); URL.revokeObjectURL(entry.audio.src); } catch {} }
   voicePreviews.delete(panel);
   if (panel) { panel.hidden = true; panel.classList.remove("preview"); }
 }
+// The preview is one more voice (K 961fc05a): playing it stops a note playing in the thread, and
+// a note started meanwhile stops the preview.
 function toggleVoicePreviewPlayback(panel) {
   const entry = voicePreviews.get(panel);
   if (!entry) return;
-  if (entry.playing) { entry.audio.pause(); entry.playing = false; }
-  else { entry.audio.currentTime = 0; entry.audio.play().catch(() => showCopyToast("Failed to play audio.")); entry.playing = true; }
-  renderVoicePanel(panel, "preview", { prefix: entry.prefix, seconds: entry.seconds });
+  const repaint = () => renderVoicePanel(panel, "preview", { prefix: entry.prefix, seconds: entry.seconds });
+  if (entry.playing) { entry.audio.pause(); entry.playing = false; voicePlayback.didStop(entry); }
+  else {
+    const stop = () => {
+      try { entry.audio.pause(); } catch { /* gone */ }
+      entry.playing = false;
+      if (voicePreviews.get(panel) === entry) repaint();
+    };
+    if (!voicePlayback.willStart(entry, stop)) return;
+    entry.audio.currentTime = 0;
+    entry.audio.play().catch(() => { voicePlayback.didStop(entry); entry.playing = false; repaint(); showCopyToast("Failed to play audio."); });
+    entry.playing = true;
+  }
+  repaint();
 }
 
 const chatVoiceRecorder = createVoiceRecorder({
@@ -29858,13 +30200,28 @@ async function openAccountSwitcher() {
 
 /** Log Out, then sign in to `account`, the same two steps as going through the sign-in screen (K
  *  8cb4c88e WalletManager.switchToSavedAccount), so everything Log Out puts away is put away and
- *  the account's own password is asked as there. Cancelling the password leaves the sign-in screen. */
+ *  the account's own password is asked as there. Cancelling the password leaves the sign-in screen.
+ *  Between the two the launch screen's globe shows, never the sign-in screen (K 961fc05a
+ *  isSwitchingAccount): the password prompt sits over the globe, and the reload's own launch screen
+ *  follows it. */
 async function switchToSavedAccount(account) {
   if (!account?.address || savedAccountActionRunning) return false;
   if (sameStoredAccountAddress(account.address, engine.address)) return true;
-  await performLogout();
-  if (engine.address) return false; // Log Out didn't finish: nothing else changes
-  return signInToSavedAccount({ address: account.address, name: account.name });
+  return runAccountSwitch({
+    setSwitching: setAccountSwitching,
+    logOut: () => performLogout(),
+    signedOut: () => !engine.address, // Log Out didn't finish: nothing else changes
+    signIn: () => signInToSavedAccount({ address: account.address, name: account.name }),
+  });
+}
+/** The globe over everything but the password prompt and dialogs while an account switch runs
+ *  (html.account-switching, ui/styles.css). Left on once the reload starts; should the reload be
+ *  held back (a "Leave site?" answered Stay), it comes off after a while so the page isn't stuck. */
+let accountSwitchBackstop = 0;
+function setAccountSwitching(on) {
+  document.documentElement.classList.toggle("account-switching", Boolean(on));
+  if (accountSwitchBackstop) { window.clearTimeout(accountSwitchBackstop); accountSwitchBackstop = 0; }
+  if (on) accountSwitchBackstop = window.setTimeout(() => { accountSwitchBackstop = 0; setAccountSwitching(false); }, 60_000);
 }
 
 profileAccountChip?.addEventListener("click", () => { openAccountSwitcher(); });
@@ -30421,7 +30778,9 @@ function chatListConversationsForPush() {
 }
 
 // The app icon's badge: unread 1:1 chats the list shows plus unread group messages (iOS
-// ChatService.updateAppBadge - requests and blocked chats never count).
+// ChatService.updateAppBadge - requests and blocked chats never count), plus the public rooms with
+// their bell on, which left the dock's KaChat badge but still count here (K 961fc05a
+// AppTabBadge.appIconCount). Desktop never added KaPost's unseen activity to it.
 // (The timer lives on the function: renderChats runs during boot, before a `let` here would exist.)
 function scheduleAppBadgeUpdate() {
   // The dock's Chats count moves with the icon's (iOS 64d63846: updateAppBadge syncs the dock).
@@ -30434,6 +30793,7 @@ function scheduleAppBadgeUpdate() {
       if (engine.address) {
         for (const conversationEntry of chatListConversationsForPush()) total += Math.max(0, Number(conversationEntry.unreadCount || 0));
         total += totalGroupUnread();
+        total += publicRoomUnreadCount();
       }
     } catch { /* counted again on the next render */ }
     setAppIconBadge(total);
@@ -30660,13 +31020,24 @@ initWebPush({
   focusKey: webPushFocusKey,
   log: (text) => appendEngineLog(text),
   onStatus: () => renderWebPushStatus(),
-  onPush: () => {
+  onPush: (data = {}) => {
+    // A KaPost push is the notice; the poll brings the bell's count and the list (K 961fc05a pollSoon).
+    if (data.type === "kaposts") { try { pollKaPostNotificationsSoon(); } catch { /* KaPost not started */ } return; }
+    // A room push brings its room's newest rows, not a 1:1 refresh (K 961fc05a); a window in front
+    // is asked through onRoomPush as well, and the two share one fetch.
+    if (data.type === "broadcast") {
+      if (data.channel && engine.address) fetchRoomBeforePushBanner(data.channel, data.txId).catch(() => {});
+      return;
+    }
     if (pushFetchTimer || !engine.address) return;
     pushFetchTimer = window.setTimeout(() => {
       pushFetchTimer = 0;
       refreshAllConversations({ quiet: true }).catch(() => { /* the sweep catches up */ });
     }, 1200);
   },
+  // A room push held by the worker until the room has its message (K 961fc05a
+  // fetchBeforePushBanner): resolves once it's here, or after 4 s.
+  onRoomPush: (data = {}) => (engine.address && data.channel ? fetchRoomBeforePushBanner(data.channel, data.txId) : false),
 });
 routePendingNotificationClick();
 
@@ -30911,6 +31282,10 @@ queueMicrotask(async () => {
       // A KaChat link from a post opens in the app (iOS 5090ad9); returns whether it was one.
       // `author`: the post's signer, for an arcade challenge card (K 518fdc8c, audit 2026-11-24 #21).
       openKaChatLink: (raw, { author = null } = {}) => { const link = parseKaChatInternalLink(raw); if (!link) return false; openKaChatInternalLink(author ? { ...link, author } : link); return true; },
+      // A Kaspa Hub card's name, line and dock icon, for its card in a post (K 961fc05a).
+      hubCardInfo,
+      // Push on and this browser registered: KaPost's poll is only a safety net (K 961fc05a).
+      kaPostsPushRegistered: () => pushNotificationsEnabled() && webPushStatus()?.state === "on",
       engine,
       escapeHtml,
       shortAddress,
@@ -31101,6 +31476,9 @@ queueMicrotask(async () => {
         if (open) {
           try { if (activeGroupId) closeGroupChat(); } catch { /* groups not started */ }
           if (activeConversationId) setActiveConversationId(null);
+          // A room opening, however it was opened, shows the Public Chats page beside it (K
+          // 961fc05a openRoomFromHandoff: listPage = .publicChats).
+          setChatListPage("publicChats");
         }
         syncPublicChatsPane();
       },
@@ -31330,7 +31708,7 @@ queueMicrotask(async () => {
 
   // Chess Online is one screen: whatever goes wrong there must not stop the rest of startup.
   try { initChessTournamentsSafe(); routeLaunchChallengeLink(); } catch (error) { appendEngineLog(`Chess Online did not start: ${error?.message || error}`); }
-  // Kaspa Hub, 5.2: the .kachat marketplace (UI only) and KaChat Stats (the indexers' numbers).
+  // Kaspa Hub, 5.2: the .kachat marketplace (UI only).
   try {
     // .kachat names are live on testnet-10 (iOS 5df42b4): one shared service/registry/actions runtime.
     initKachatNamesRuntime(engine, {
@@ -31454,22 +31832,43 @@ queueMicrotask(async () => {
     if (marketScreen && !marketScreen.closest("[hidden]")) showKachatMarket();
   } catch (error) { appendEngineLog(`.kachat did not start: ${error?.message || error}`); }
   try {
-    initKachatStats({
+    // The Explorer (K 961fc05a): kaspa.stream, live blocks from K's node while its home shows,
+    // K Activity from K's indexer, fees from Kaspalytics. It replaced KaChat Stats.
+    initExplorer({
       escapeHtml,
-      infoSheet,
-      // Every KaChat indexer the app is configured with; the screen asks each once.
-      // iOS KaChatStatsView.indexerBases: indexer, public chat (broadcast) indexer, KaPost indexer.
-      indexerUrls: () => ["kasiaIndexer", "broadcastIndexer", "kapostIndexer"].map((key) => getEndpoint(key)).filter(Boolean),
-      // The Usernames cards (iOS f5d34f4, 4924787: Transactions and Fees): the registry's own
-      // totals, wherever names are live.
-      kachatTotals: async () => {
-        const registry = kachatNamesLaunched() ? kachatNames()?.registry : null;
-        if (!registry) return null;
-        try { await registry.refreshIfStale(); } catch { /* use what we have */ }
-        return registry.activityTotals();
+      showToast: showCopyToast,
+      copyText: copyTextToClipboard,
+      ownAddress: () => engine.address || "",
+      avatarHtml: (address, className) => avatarHtmlForAnyAddress(address, className),
+      // block-added from K's own node, subscribed only while a client is listening
+      addBlockClient: (fn) => engine.addBlockScanClient(fn),
+      addressOfOutput: (output) => {
+        const script = output?.scriptPublicKey ?? output?.script_public_key ?? null;
+        if (script == null || typeof engine.kaspa?.addressFromScriptPublicKey !== "function") return "";
+        try { return String(engine.kaspa.addressFromScriptPublicKey(script, NETWORK_ID) ?? ""); } catch { return ""; }
       },
+      nodeMempoolSize: async () => {
+        const info = await engine.withRpc((rpc) => rpc.getInfo(), { retries: 0, label: "Node info" });
+        return Number(info?.mempoolSize ?? 0);
+      },
+      // an address's .kachat name, as names are shown (Show .kachat Endings)
+      nameFor: async (address) => {
+        const runtime = kachatProfiles();
+        if (!runtime) return null;
+        const identity = await runtime.registry.identity(address);
+        return identity?.label ? kachatNameDisplay(identity.label) : null;
+      },
+      cachedNameFor: (address) => kachatCachedDisplayLabel(address),
+      resolveName: async (text) => {
+        const { resolution } = await engine.lookUpName(text);
+        return resolution?.ownerAddress ? { address: resolution.ownerAddress, name: kachatNameDisplay(resolution.domain) } : null;
+      },
+      // kUSDT from Trestly, each coin checked on the node (as the wallet reads it)
+      kusdtUnits: async (address) => (await verifiedKusdtCoins({ engine, address, network: NETWORK_ID })).units,
+      drawQr: (canvas, text) => engine.drawQrFor(canvas, text, { dark: "#06110f", light: "#ffffff" }),
+      indexerBase: () => getEndpoint("kasiaIndexer"),
     });
-  } catch (error) { appendEngineLog(`KaChat Stats did not start: ${error?.message || error}`); }
+  } catch (error) { appendEngineLog(`Explorer did not start: ${error?.message || error}`); }
   try {
     // Address Book (iOS 00767a4 / cda0d99 / 98f3728 / 1be4f6e): Kaspa Hub > Address Book, the
     // add / edit sheet and the picker. A change repaints names (chat list, open thread, User Info)
@@ -31840,6 +32239,8 @@ function maybeNotifyGroupIncoming(groupId, senderAddress, text, id, createdAt) {
   if (GROUP_MENTIONS_ENABLED && textMentionsMe(text)) { maybeRecordGroupMention(groupId, senderAddress, text, id, createdAt); return; }
   if (GROUP_MENTIONS_ENABLED && mode !== "all" && !isReplyToMyGroupMessage(text)) return;
   if (!groupOsPingAllowed(groupId)) return;
+  // Only news rings: a message more than three minutes old is listed, not rung (K 961fc05a).
+  if (!isRecentForBanner(createdAt)) return;
   // Ordinary group traffic is higher volume than a mention, so it uses the same rule as the
   // 1:1 path: a real OS notification or nothing. (postDesktopNotification would otherwise fall
   // back to an in-app toast per message when browser notifications are denied.)
@@ -31877,7 +32278,8 @@ function maybeRecordGroupMention(groupId, senderAddress, text, id, createdAt) {
     targetKind: "group",
     targetId: groupId,
   });
-  if (!groupOsPingAllowed(groupId)) return;
+  // in the bell whatever its age; rung only while it's news (K 961fc05a)
+  if (!groupOsPingAllowed(groupId) || !isRecentForBanner(createdAt)) return;
   postDesktopNotification({
     title: "Group mention",
     body: `${senderName} mentioned you in ${groupName}`,
@@ -32445,20 +32847,28 @@ function setChatToolRowsForGroupsTab(isGroups) {
   syncChatsPublicSettingsGear();
 }
 
-/** The gear at the top left of Chats (K 8cb4c88e): Edit Default Public Chats, moved out of the +
- *  sheet. Only on Chats, not while selecting (iOS hides it in edit mode), and not in Simple Mode,
- *  which hides Public Chats. DOM-only, like the Select row above: safe during the boot render. */
+/** The gear at the top left of KaChat (K 8cb4c88e): Edit Default Public Chats, moved out of the +
+ *  sheet. Only on the Public Chats page (K 961fc05a), not while selecting (iOS hides it in edit
+ *  mode), and not in Simple Mode, which hides Public Chats. DOM-only, like the Select row above:
+ *  safe during the boot render. */
 function syncChatsPublicSettingsGear() {
   const gear = document.querySelector("[data-chats-public-settings]");
   if (!gear) return;
   let simple = false;
   try { simple = isChildModeEnabled(); } catch { /* not started */ }
   gear.hidden = !document.body.classList.contains("chats-tab")
+    || chatListPage !== "publicChats"
     || Boolean(document.querySelector("[data-app-sidebar]")?.classList.contains("selecting-chats"))
     || simple;
 }
 document.querySelector("[data-chats-public-settings]")?.addEventListener("click", () => {
   try { openPublicChatsSettings(); } catch { /* rooms not started */ }
+});
+// Chats / Public Chats beside the title (K 961fc05a): each click fades to the other page; the arrow
+// keys step too (ui/cycle-button.js swaps in data-cycle-prev for them).
+document.querySelector("[data-chats-page-cycle]")?.addEventListener("click", (event) => {
+  const next = event.currentTarget.dataset.cycleNext || (chatListPage === "chats" ? "publicChats" : "chats");
+  setChatListPage(next);
 });
 
 const GROUP_AVATAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M2.5 19.5c.6-3.9 3-6.3 6.5-6.3s5.9 2.4 6.5 6.3"/><path d="M16.3 6.2a3.2 3.2 0 1 1 1.9 5.8"/><path d="M15.8 13.3c2.9.4 4.7 2.3 5.2 5.4"/></svg>';
@@ -34619,7 +35029,8 @@ function applyGroupSyncResult(result, { catchUp = false } = {}) {
     const lineAt = evMs || Date.now();
     // Being added to a group is a request: it waits in Message Requests (iOS bfe9f022).
     if (ev.kind === "invite") {
-      if (isNews) notifyGroupInvite(ev);
+      // rung only within three minutes, as every group banner (K 961fc05a)
+      if (isNews && isRecentForBanner(evMs)) notifyGroupInvite(ev);
       refreshMessageRequestsSheet();
       continue;
     }
@@ -34803,11 +35214,11 @@ function actionRowsSheetHtml(title, rows) {
     </div>`;
 }
 
-function newChatSheetJoinHtml() {
+function newChatSheetJoinHtml({ back = true } = {}) {
   return `
-    <button class="new-chat-sheet-back" type="button" data-new-chat-sheet-back aria-label="Back">
+    ${back ? `<button class="new-chat-sheet-back" type="button" data-new-chat-sheet-back aria-label="Back">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg>
-    </button>
+    </button>` : ""}
     <button class="modal-close" type="button" data-new-chat-sheet-close aria-label="Close">×</button>
     <h2 class="new-chat-sheet-title">New Public Chat</h2>
     <p class="new-chat-sheet-caption">Anyone who joins the same channel name can see and post messages there - there is no owner and no invite.</p>
@@ -34823,7 +35234,9 @@ function closeNewChatSheet() {
   document.querySelector("[data-new-chat-sheet]")?.closeSheet?.();
 }
 
-function openNewChatSheet() {
+/** `publicRoom`: the Public Chats page's +, which is New Public Chat itself (K 961fc05a), with no
+ *  menu to go back to. */
+function openNewChatSheet({ publicRoom = false } = {}) {
   closeNewChatSheet();
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop new-chat-sheet-backdrop";
@@ -34839,7 +35252,7 @@ function openNewChatSheet() {
   const showJoin = () => {
     sheet.classList.add("is-join");
     sheet.setAttribute("aria-label", "New Public Chat");
-    sheet.innerHTML = newChatSheetJoinHtml();
+    sheet.innerHTML = newChatSheetJoinHtml({ back: !publicRoom });
     sheet.querySelector("[data-new-chat-room-input]")?.focus();
   };
   const setJoinError = (text) => {
@@ -34898,7 +35311,7 @@ function openNewChatSheet() {
   });
   document.addEventListener("keydown", onKey, true);
   document.body.append(backdrop);
-  showMenu();
+  if (publicRoom) showJoin(); else showMenu();
 }
 
 // A create modal opened from the sheet has closed: Cancel goes back to the menu (iOS AddContactView
@@ -34910,8 +35323,10 @@ function settleNewChatSheetCreate(kind, cancelled) {
   renderChats();
 }
 
+// On the Public Chats page the + is New Public Chat; on the Chats page it opens the New sheet, which
+// keeps New Public Chat among its rows (K 961fc05a).
 document.querySelectorAll("[data-new-chat-fab]").forEach((button) => {
-  button.addEventListener("click", openNewChatSheet);
+  button.addEventListener("click", () => openNewChatSheet({ publicRoom: onPublicChatsPage() }));
 });
 
 groupMemberPicker?.addEventListener("click", (event) => {
@@ -35880,8 +36295,11 @@ async function startGroupVoice() {
     groupVoiceRecorder = new MediaRecorder(stream, groupVoiceMime ? { mimeType: groupVoiceMime, audioBitsPerSecond: voiceCaptureBitsPerSecond() } : undefined);
     groupVoiceChunks = [];
     groupVoiceRecorder.ondataavailable = (e) => { if (e.data?.size) groupVoiceChunks.push(e.data); };
-    groupVoiceRecorder.onstop = () => stream.getTracks().forEach((t) => t.stop());
+    const recorderToken = groupVoiceRecorder;
+    groupVoiceRecorder.onstop = () => { stream.getTracks().forEach((t) => t.stop()); voicePlayback.recordingDidEnd(recorderToken); };
     groupVoiceRecorder.start();
+    // any voice playing stops, and none starts until this recording ends (K 961fc05a)
+    voicePlayback.recordingWillStart(recorderToken);
     groupVoiceStartMs = Date.now();
     clearVoicePreview(groupVoicePanel);
     renderGroupVoiceRow();
@@ -35895,6 +36313,7 @@ async function startGroupVoice() {
   } catch (error) {
     // iOS PublicChatAudioRecording's failure, shown as the composer's red caption.
     stream?.getTracks().forEach((t) => t.stop());
+    if (groupVoiceRecorder) voicePlayback.recordingDidEnd(groupVoiceRecorder);
     groupVoiceRecorder = null;
     if (!stream) showMicrophoneAccessAlert();
     else setGroupSendError("Could not start voice recording.");

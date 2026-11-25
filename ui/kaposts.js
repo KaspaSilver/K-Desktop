@@ -84,6 +84,7 @@ import { decodeAddress, AddressVersion } from "../engine/kachat-names/registry-s
 import { kasTextFromSompi } from "../engine/amounts.js";
 import { renderKaPostsMarkdown, applyKaPostsMarkdownAction } from "./kaposts-markdown.js";
 import { accountGuard } from "./account-guard.js";
+import { isRecentForBanner, bellTimestamp, KAPOST_BANNER_MAX_AGE_MS } from "./notification-recency.js";
 import {
   kapostsOwnedAction, dropKaPostsHeldActions, kapostsCanReplyTo, KAPOSTS_REPLY_NOT_ON_NETWORK,
   KAPOSTS_ACCOUNT_CHANGED, kapostsAccountChangedError,
@@ -115,6 +116,14 @@ import "./kaposts-drawer.css";
 // Following / Feed / Popular, Posts / Replies and Search's Posts / People: the cycle button (K 518fdc8c).
 import { cycleButtonHtml, updateCycleButton, restartFade } from "./cycle-button.js";
 import "./kapost-terms.css";
+// Conversations like X, View thread for the poster's own replies, notifications like X (K 961fc05a).
+import "./kaposts-conversation.css";
+import {
+  nextSelfThreadSegment, pageHasPosterReply, createReplyOrderMemo, focusedTimestamp, replyingToAddress,
+  kaPostsNotifPollDue, kaPostsNotifPollSoonDue,
+} from "./kaposts-x-rules.js";
+// Kaspa Hub card links in a post and the composer (K 961fc05a KaspaHubLinkCard).
+import { hubLinkIn, hubLinkUrl } from "./hub-links.js";
 import { postReportBody, sendContentReport, withBlockedAccount } from "./kapost-moderation.js";
 // Who a poster is: their .kachat name, avatar, banner and bio (iOS 3d6fb7c, KachatLive.identityName /
 // profileBanner / profileBio). Profiles are on every network (mainnet: profile-only identities).
@@ -1988,7 +1997,9 @@ function fillSiteLinkCards(root) {
   }
 }
 
-function postCellHtml(post, { inThread = false, isRoot = false, replyInline = true, openByRemote = false, truncates = false, showReply = true, profileOf = "" } = {}) {
+// `focused`: the post you opened, drawn as X's focused post (K 961fc05a). `replyingTo`: a reply
+// shown outside its conversation (a profile's rows, Bookmarks) says whom it answers.
+function postCellHtml(post, { inThread = false, isRoot = false, replyInline = true, openByRemote = false, truncates = false, showReply = true, profileOf = "", focused = false, replyingTo = false } = {}) {
   const pid = deps.escapeHtml(String(post.id)); // DSK-015: never trust an id inside markup
   const name = posterName(post.posterAddress);
   const isMine = post.posterAddress === deps.engine.address;
@@ -2012,7 +2023,10 @@ function postCellHtml(post, { inThread = false, isRoot = false, replyInline = tr
   // And a KaPlay arcade score challenge (K 518fdc8c KaPostArcadeChallengeCard).
   const textBeforeArcade = botChallenge ? botChallenge.bodyText : payLink ? payLink.bodyText : postDisplayText(post);
   const arcadeChallenge = arcadeChallengeIn(textBeforeArcade);
-  const textWithoutCards = arcadeChallenge ? arcadeChallenge.bodyText : textBeforeArcade;
+  const textBeforeHub = arcadeChallenge ? arcadeChallenge.bodyText : textBeforeArcade;
+  // And a Kaspa Hub card's link (K 961fc05a KaspaHubLinkCard): a card with Open, not the link's text.
+  const hubLink = hubLinkIn(textBeforeHub);
+  const textWithoutCards = hubLink ? hubLink.bodyText : textBeforeHub;
   // And a link drawn as its preview card, or the link itself if that can't load: KaChat's own site
   // (KaPost f81c467) or an allowed site's link, only for a poster with a .kachat name (KaPost
   // b78fdb0); anyone else's links stay plain text.
@@ -2061,10 +2075,8 @@ function postCellHtml(post, { inThread = false, isRoot = false, replyInline = tr
        </div>`
     : "";
 
-  return `
-    <article class="kaposts-cell${isRoot ? " root" : ""}${!isRoot ? " openable" : ""}${deleting ? " deleting" : ""}" data-kaposts-post="${pid}"${post.remoteId ? ` data-kaposts-remote-id="${deps.escapeHtml(post.remoteId)}"` : ""}${!isRoot ? (openByRemote && post.remoteId ? ` data-kaposts-open-remote="${deps.escapeHtml(post.remoteId)}"` : ` data-kaposts-open="${pid}"`) : ""}>
-      <span data-kaposts-profile="${pid}" class="kaposts-avatar-tap">${posterAvatarHtml(post.posterAddress)}</span>
-      <div class="kaposts-cell-main">
+  const avatarHtml = `<span data-kaposts-profile="${pid}" class="kaposts-avatar-tap">${posterAvatarHtml(post.posterAddress)}</span>`;
+  const headHtml = `
         <div class="kaposts-cell-head">
           <strong class="kaposts-cell-name" data-kaposts-profile="${pid}">${deps.escapeHtml(name)}</strong>
           ${showFollow ? `<button class="kaposts-follow${isFollowing ? " following" : ""}" type="button" data-kaposts-follow="${pid}">${isFollowing ? "Following" : "Follow"}</button>` : ""}
@@ -2073,16 +2085,19 @@ function postCellHtml(post, { inThread = false, isRoot = false, replyInline = tr
             <svg viewBox="0 0 24 24"><path d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z"/></svg>
           </button>
         </div>
-        ${bellNote ? `<div class="kaposts-bell-note">${deps.escapeHtml(bellNote)}</div>` : ""}
+        ${bellNote ? `<div class="kaposts-bell-note">${deps.escapeHtml(bellNote)}</div>` : ""}`;
+  const contentHtml = `
         ${shownText ? `<div class="kaposts-cell-text${foldText ? " folded" : ""}">${linkifyPostText(foldText ? kapostsFoldedPrefix(shownText) : shownText)}</div>` : ""}
         ${(!inThread || truncates) && isLong ? `<button class="kaposts-show-more" type="button" data-kaposts-expand="${pid}">${foldText ? "Show more" : "Show less"}</button>` : ""}
         ${payLink ? paymentRequestCardHtml(payLink.request, pid) : ""}
+        ${hubLink ? hubLinkCardHtml(hubLink.slug, pid) : ""}
         ${botChallenge ? botChallengeCardHtml(botChallenge.challenge, pid) : ""}
         ${arcadeChallenge ? arcadeChallengeCardHtml(arcadeChallenge.challenge, pid) : ""}
         ${siteLink ? `<div class="kaposts-site-card" data-kaposts-site-card="${deps.escapeHtml(siteLink.url)}"><a href="${deps.escapeHtml(siteLink.url)}" target="_blank" rel="noopener noreferrer">${deps.escapeHtml(siteLink.raw)}</a></div>` : ""}
         ${translateAffordanceHtml(post)}
         ${pollCardHtml(post)}
-        ${quotedHtml}
+        ${quotedHtml}`;
+  const actionsHtml = `
         <div class="kaposts-actions">
           ${/* The focused post of a thread has no reply button of its own: its reply box is pinned
                under the thread (iOS threadCell onComment: isRoot ? nil). */ ""}
@@ -2108,11 +2123,96 @@ function postCellHtml(post, { inThread = false, isRoot = false, replyInline = tr
                A tap lists who tipped. */ ""}
           ${tips > 0 && post.remoteId ? `<button class="kaposts-action kaposts-tips-count${isMine ? " own" : ""}" type="button" data-kaposts-tippers="${pid}" aria-label="Who tipped this post" title="Who tipped this post">${isMine ? `<img class="kaposts-tip-logo" src="${kaspaLogoUrl}" alt="" aria-hidden="true" />` : ""}<span>${tips}</span></button>` : ""}
           ${deliveryHtml}
-        </div>
-        <div class="kaposts-cell-foot"><span class="kaposts-cell-stamp">${deps.escapeHtml(postTimestamp(post.timestamp))}${post.editedAt ? ` <span class="kaposts-cell-edited" title="Edited">· edited</span>` : ""}</span></div>
+        </div>`;
+  const editedHtml = post.editedAt ? ` <span class="kaposts-cell-edited" title="Edited">· edited</span>` : "";
+  const articleAttrs = `class="kaposts-cell${isRoot ? " root" : ""}${focused ? " focused" : ""}${!isRoot ? " openable" : ""}${deleting ? " deleting" : ""}" data-kaposts-post="${pid}"${post.remoteId ? ` data-kaposts-remote-id="${deps.escapeHtml(post.remoteId)}"` : ""}${!isRoot ? (openByRemote && post.remoteId ? ` data-kaposts-open-remote="${deps.escapeHtml(post.remoteId)}"` : ` data-kaposts-open="${pid}"`) : ""}`;
+
+  if (focused) {
+    // X's focused post (K 961fc05a KaPostCellView.focusedLayout): the avatar and name on one line,
+    // the text full width and larger under them, the full time ("12:00 PM · Nov 25, 2026"), then
+    // the actions between two rules.
+    return `
+    <article ${articleAttrs}>
+      <div class="kaposts-focused-head">
+        ${avatarHtml}
+        <div class="kaposts-focused-name">${headHtml}</div>
+      </div>
+      <div class="kaposts-cell-main kaposts-focused-body">
+        ${contentHtml}
+        <div class="kaposts-focused-stamp"><span class="kaposts-cell-stamp">${deps.escapeHtml(focusedTimestamp(post.timestamp))}${editedHtml}</span></div>
+        <div class="kaposts-focused-actions">${actionsHtml}</div>
+      </div>
+    </article>`;
+  }
+
+  // "Replying to Alice" above a reply shown outside its conversation (K 961fc05a replyingToLabel);
+  // inside a conversation the post it answers is right above it.
+  const replyingToName = replyingTo ? replyingToName_(post) : null;
+  const replyingToHtml = replyingToName
+    ? `<div class="kaposts-replying-to">Replying to <span class="kaposts-replying-to-name">${deps.escapeHtml(replyingToName)}</span></div>`
+    : "";
+  // Feed rows keep the full date under the actions (K 961fc05a).
+  return `
+    <article ${articleAttrs}>
+      ${avatarHtml}
+      <div class="kaposts-cell-main">
+        ${replyingToHtml}
+        ${headHtml}
+        ${contentHtml}
+        ${actionsHtml}
+        <div class="kaposts-cell-foot"><span class="kaposts-cell-stamp">${deps.escapeHtml(postTimestamp(post.timestamp))}${editedHtml}</span></div>
         ${!inThread && isThreadRootPost(post) ? `<button class="kaposts-view-thread" type="button" data-kaposts-open="${pid}">⤷ View thread</button>` : ""}
       </div>
     </article>`;
+}
+
+/// Who a reply answers, by name, for "Replying to" (K 961fc05a replyingToLabel): the parent's
+/// author when it's known (this session's reply carries the key, or the parent is loaded), else
+/// the reply's first signed mention other than the poster, which K writes as the parent's author.
+/// Null for a post.
+function replyingToName_(post) {
+  if (!post?.parentRemoteId) return null;
+  const address = replyingToAddress(post, {
+    addressFromPubkey: (pubkey) => kaspaAddressFromPubkey(deps.engine, pubkey),
+    findParentAuthor: (parentId) => replyParentAuthor(parentId),
+  });
+  return address ? posterName(address) : null;
+}
+
+/// Parent post id -> its author's address. A miss is asked again after 15 seconds, not on every
+/// redraw: the search walks every loaded list, and the parent may load later (K ReplyParentAuthors).
+const replyParentAuthors = new Map();
+const replyParentMisses = new Map();
+function replyParentAuthor(parentId) {
+  if (replyParentAuthors.has(parentId)) return replyParentAuthors.get(parentId);
+  const missedAt = replyParentMisses.get(parentId);
+  if (missedAt && Date.now() - missedAt < 15_000) return null;
+  const parent = findPostByRemoteId(parentId);
+  if (!parent?.posterAddress) { replyParentMisses.set(parentId, Date.now()); return null; }
+  replyParentAuthors.set(parentId, parent.posterAddress);
+  replyParentMisses.delete(parentId);
+  return parent.posterAddress;
+}
+
+const HUB_CARD_OPEN_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg>`;
+/// A Kaspa Hub card's link in a post (K 961fc05a KaspaHubLinkCard), in KaPost's own card style: the
+/// card's icon, "Kaspa Hub", its name and what it holds, and Open. A click opens that screen; a
+/// right-click offers Copy Link and Open, as K's hold does. `pid` null draws it inert (the
+/// composer's preview: nothing opens or copies there).
+function hubLinkCardHtml(slug, pid) {
+  const info = deps.hubCardInfo?.(slug);
+  if (!info) return "";
+  const inner = `
+      <span class="kaposts-hub-card-icon" aria-hidden="true">${info.iconHtml || ""}</span>
+      <span class="kaposts-hub-card-copy">
+        <span class="kaposts-hub-card-eyebrow">Kaspa Hub</span>
+        <span class="kaposts-hub-card-title">${deps.escapeHtml(info.label)}</span>
+        <span class="kaposts-hub-card-blurb">${deps.escapeHtml(info.blurb)}</span>
+      </span>
+      <span class="kaposts-hub-card-pill">${HUB_CARD_OPEN_SVG}Open</span>`;
+  return pid == null
+    ? `<div class="kaposts-hub-card" inert>${inner}</div>`
+    : `<button type="button" class="kaposts-hub-card" data-kaposts-hub-card="${deps.escapeHtml(info.slug)}" title="Opens it in K.">${inner}</button>`;
 }
 
 // A post's popularity score. Every interaction counts - a post people argue with is popular in
@@ -2353,8 +2453,31 @@ function syncReplyBarGate() {
 // of the replies list can drop the observers of the old ones.
 const inlinePagerKeys = new Set();
 
+// Each open post's reply order, kept while it's open (K 961fc05a CommentOrderMemo).
+const replyOrderMemo = createReplyOrderMemo();
+
+/**
+ * The opened post's replies without its thread's segments (segment 2 IS a direct reply, but it
+ * belongs to the poster's continuation above), in X's order (K 961fc05a commentsExcludingThread):
+ * the poster's own replies first, then yours, then people you follow, then everyone else; within
+ * each the most liked first, then the oldest. Ranked when the replies first show and then kept
+ * while the post is open, so rows don't move as pages and likes land.
+ */
+function commentsExcludingThread(post) {
+  const chainIds = new Set((threadChains.get(post.id) || []).map((segment) => segment.remoteId).filter(Boolean));
+  const replies = (post.comments || []).filter((c) => !isHiddenAuthor(c.posterAddress)
+    && !(c.remoteId && chainIds.has(c.remoteId)));
+  return replyOrderMemo.ordered(replies, post.id, {
+    posterAddress: post.posterAddress,
+    me: deps.engine.address || "",
+    isFollowing: (address) => prefs.following.includes(address),
+  });
+}
+
 function renderThread() {
   syncReplyBarGate();
+  // Closed posts are ranked afresh next time, with the likes as they are then.
+  replyOrderMemo.retain(new Set(threadStack));
   const post = currentThreadPost();
   // A thread whose post cannot be resolved says so instead of falling back to the feed (iOS
   // postDetailSheet's "This post could not be loaded").
@@ -2379,9 +2502,7 @@ function renderThread() {
   // Thread segments are the author's own continuation - they render as a connected section
   // under the root and are excluded from the replies list (segment 2 IS a direct reply).
   const chain = threadChains.get(post.id) || [];
-  const chainIds = new Set(chain.map((segment) => segment.remoteId).filter(Boolean));
-  const comments = post.comments.filter((c) => !isHiddenAuthor(c.posterAddress)
-    && !(c.remoteId && chainIds.has(c.remoteId)));
+  const comments = commentsExcludingThread(post);
   if (threadRootEl) {
     // Ancestors render as the posts they are - full cells, every action live - connected to the
     // post below by a rail down the avatar column, the way X draws a conversation. Tapping one
@@ -2396,27 +2517,22 @@ function renderThread() {
           .map((entry) => `<div class="kaposts-ancestor" data-kaposts-ancestor="${deps.escapeHtml(String(entry.id))}">${postCellHtml(entry, { inThread: true, replyInline: true, truncates: true })}</div>`)
           .join("")}</div>`
       : "";
-    // "Thread" is what an author calls their OWN continuation; once the chain carries other
-    // people's replies it is a conversation, and calling it a thread credits them to the author.
-    const isSelfThread = chain.every((segment) => segment.posterAddress === post.posterAddress);
+    // The post you opened is drawn as X's focused post (K 961fc05a KaPostCellView.focusedLayout),
+    // and the poster's own continuation follows it, joined by the line down the avatar column, with
+    // no "Thread" header (owner, 2026-11-25: "match X"). Everyone else's replies come after.
     threadRootEl.innerHTML = ancestorsHtml
-      + postCellHtml(post, { inThread: true, isRoot: true, replyInline: true, showReply: false })
+      + `<div class="kaposts-focused-wrap">${postCellHtml(post, { inThread: true, isRoot: true, replyInline: true, showReply: false, focused: true })}</div>`
       + (chain.length ? `
       <div class="kaposts-thread-chain">
-        <div class="kaposts-thread-chain-header">${isSelfThread ? "Thread" : "Conversation"} · ${chain.length + 1} posts</div>
-        ${chain.map((segment) => `<div class="kaposts-thread-chain-item">${postCellHtml(segment, { inThread: true, replyInline: true })}</div>`).join("")}
+        ${chain.map((segment, index) => `<div class="kaposts-thread-chain-item${index < chain.length - 1 ? " continues" : ""}">${postCellHtml(segment, { inThread: true, replyInline: true })}</div>`).join("")}
       </div>` : "");
   }
   if (threadRepliesEl) {
-    // An unbranched exchange is rendered in full ABOVE, and its members are filtered out of
-    // this list - so "no comments yet" would contradict the replies the reader can already see.
-    const emptyCommentsHtml = comments.length ? "" : `
-      <p class="kaposts-comments-empty">${chain.length ? "Every reply is in the conversation above." : "No comments yet - be the first to reply."}</p>`;
+    // Replies follow straight on, as on X: no heading, and nothing at all while there are none
+    // (K 961fc05a).
     for (const key of inlinePagerKeys) clearPagerSentinel(key);
     inlinePagerKeys.clear();
     threadRepliesEl.innerHTML = `
-      <div class="kaposts-comments-header">${comments.length ? `Comments (${comments.length})` : "Comments"}</div>
-      ${emptyCommentsHtml}
       <div class="kaposts-thread-replies">
         ${comments.map((comment) => {
           const nested = (comment.comments || []).filter((c) => !isHiddenAuthor(c.posterAddress));
@@ -2712,6 +2828,11 @@ function threadRootAnswerFresh(remoteId) {
 }
 // root post local id -> [segment posts] (the author's own continuation, in order).
 const threadChains = new Map();
+/** How long a "no thread" answer holds: the post's age, at least 10 minutes, at most a day. */
+function threadRootNoLifetime(post) {
+  const age = Math.max(0, Date.now() - (Number(post?.timestamp) || Date.now()));
+  return Math.min(Math.max(age, 600_000), 86_400_000);
+}
 
 function isThreadRootPost(post) {
   if (post?.isThreadRoot) return true;
@@ -2737,10 +2858,7 @@ function probeThreadRoots(posts) {
           return mapped && mapped.posterAddress === post.posterAddress;
         });
         if (isThread) { threadRootProbe.set(post.remoteId, true); found = true; }
-        else {
-          const age = Math.max(0, Date.now() - (Number(post.timestamp) || Date.now()));
-          threadRootNoUntil.set(post.remoteId, Date.now() + Math.min(Math.max(age, 600_000), 86_400_000));
-        }
+        else threadRootNoUntil.set(post.remoteId, Date.now() + threadRootNoLifetime(post));
       } catch {
         // No answer: the claim mustn't stop a later render from asking (iOS 33095ac unclaim).
         if (threadRootProbe.get(post.remoteId) === false) threadRootProbe.delete(post.remoteId);
@@ -2751,38 +2869,42 @@ function probeThreadRoots(posts) {
   })();
 }
 
-// Walks the author's self-reply chain from an opened root (root <- seg2 <- seg3 ... by the
-// same author), fetching each next link. Capped defensively.
+// Walks the poster's own chain from an opened root (root <- seg2 <- seg3 ... by the same poster),
+// fetching each next link. Capped defensively.
 async function loadSelfThreadChain(post) {
   if (!post?.remoteId) return;
   const chain = [];
   let candidates = (post.comments || [])
-    .filter((c) => c.remoteId && !isHiddenAuthor(c.posterAddress))
-    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    .filter((c) => c.remoteId && !isHiddenAuthor(c.posterAddress));
   let hops = 0;
   while (hops < 25) {
-    // An UNBRANCHED continuation is the conversation, whoever wrote it: a back-and-forth between
-    // two people is one thread to read, and following only the root author's replies left every
-    // other message behind a tap - one tap down per message, and as many back to leave.
-    //
-    // With SEVERAL replies there is a real branch, and picking one would hide the others, so that
-    // case keeps the old rule (the author's own continuation, which they wrote deliberately) and
-    // everything else stays in the replies list below.
-    const current = candidates.length === 1
-      ? candidates[0]
-      : candidates.filter((reply) => reply.posterAddress === post.posterAddress)[0] || null;
-    if (!current || !current.remoteId) break;
+    // A thread is the poster's own posts, each under their previous one, as on X (K 961fc05a,
+    // owner 2026-11-25): someone else's reply is a comment, never part of the thread, even when
+    // it's the only reply. Following any lone reply made a post with one comment from someone
+    // else show "View thread" and put that comment in the Thread section.
+    const current = nextSelfThreadSegment(candidates, post.posterAddress);
+    if (!current) break;
     chain.push(current);
     hops += 1;
     let page = null;
     try { page = await fetchReplies({ engine: deps.engine, postId: current.remoteId, limit: 25 }); }
     catch { break; }
     candidates = (page?.posts || []).map(mapRemotePost).filter(Boolean)
-      .filter((reply) => reply.remoteId && !isHiddenAuthor(reply.posterAddress))
-      .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      .filter((reply) => reply.remoteId && !isHiddenAuthor(reply.posterAddress));
   }
   threadChains.set(post.id, chain);
-  if (chain.length) threadRootProbe.set(post.remoteId, true);
+  if (chain.length) { threadRootProbe.set(post.remoteId, true); threadRootNoUntil.delete(post.remoteId); return; }
+  if (threadRootProbe.get(post.remoteId) !== true) return;
+  // Marked as a root, but no reply of the poster's was found: it would show "View thread" for good
+  // (K 961fc05a, audit 2026-11-25 L6). The loaded replies may be only part of them, or failed to
+  // load, so the indexer's first page is asked once more, as the probe asks it; only an answer with
+  // no reply by the poster unmarks it, held as long as a fresh probe's "no".
+  let page = null;
+  try { page = await fetchReplies({ engine: deps.engine, postId: post.remoteId, limit: 25 }); } catch { return; }
+  const replies = (page?.posts || []).map(mapRemotePost).filter(Boolean);
+  if (pageHasPosterReply(replies, post.posterAddress)) return;
+  threadRootProbe.set(post.remoteId, false);
+  threadRootNoUntil.set(post.remoteId, Date.now() + threadRootNoLifetime(post));
 }
 
 // --- X-style thread posting --------------------------------------------------
@@ -3466,6 +3588,7 @@ function openComposer(quoteTarget = null, { replyTarget = null, editTarget = nul
   renderComposerExtras();
   renderComposerThreadUi();
   composerEl.hidden = false;
+  renderComposerHubCard();
   composerInput.focus();
 }
 
@@ -3545,6 +3668,34 @@ function renderQuickComposerCard() {
   }
   holder.hidden = false;
   holder.innerHTML = arcadeChallengeCardHtml(quickCompose.challenge, null);
+}
+
+/// A Kaspa Hub card's link in the text being written, drawn under it as the post will draw it (K
+/// 961fc05a: KaspaHubLinkCard in the composer, inert there), with an x that takes the link out.
+function renderComposerHubCard() {
+  if (!composerEl || !composerInput) return;
+  const found = composerEl.hidden ? null : hubLinkIn(composerInput.value);
+  let holder = composerEl.querySelector("[data-kaposts-composer-hub-card]");
+  if (!found) { if (holder) { holder.hidden = true; holder.dataset.slug = ""; } return; }
+  if (!holder) {
+    holder = document.createElement("div");
+    holder.className = "kaposts-composer-link-card kaposts-composer-hub-card";
+    holder.dataset.kapostsComposerHubCard = "";
+    holder.addEventListener("click", (event) => {
+      if (!event.target.closest("[data-kaposts-composer-hub-remove]")) return;
+      const link = hubLinkIn(composerInput.value);
+      if (!link) return;
+      composerInput.value = composerInput.value.split(link.raw).join("").trim();
+      composerInput.dispatchEvent(new Event("input", { bubbles: true }));
+      composerInput.focus();
+    });
+    composerInput.after(holder);
+  }
+  holder.hidden = false;
+  // Only when the card itself changes, so typing stays cheap.
+  if (holder.dataset.slug === found.slug) return;
+  holder.dataset.slug = found.slug;
+  holder.innerHTML = `${hubLinkCardHtml(found.slug, null)}<button type="button" class="kaposts-composer-hub-remove" data-kaposts-composer-hub-remove aria-label="Remove"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="m9 9 6 6M15 9l-6 6"/></svg></button>`;
 }
 
 /// Post in the quick composer: sent now, the link back on the end.
@@ -3710,6 +3861,7 @@ async function closeComposer({ keepDraft = null } = {}) {
 
   closeScheduleSheet();
   composerEl.hidden = true;
+  renderComposerHubCard();
   composerPoll = null;
   composerScheduleAt = null;
   composerQuoteTarget = null;
@@ -3875,6 +4027,8 @@ export function setKaPostsRootMode(mode) {
   document.querySelector('[data-app-tab-screen="kaposts"]')?.classList.toggle("kaposts-root-profile", next === "myProfile");
   closeFeedDrawer();
   if (next === "myProfile") {
+    // Profile's bell shows: its count and banners catch up now (K 961fc05a pollForBell).
+    pollKaPostNotificationsSoon();
     if (!changed && isRootProfilePanel(activePanel) && threadStack.length === 0) { renderPanel(); return; }
     threadStack = [];
     threadGeneration += 1;
@@ -4192,7 +4346,7 @@ function renderPanel() {
                 panel.tab === "replies" ? "No replies yet" : "No posts yet",
                 isMine ? (panel.tab === "replies" ? "Replies you post will show up here." : "Your posts will show up here.") : null,
               )
-            : feedItems.map((post) => postCellHtml(post, { inThread: true, openByRemote: true, profileOf: address })).join("")}
+            : feedItems.map((post) => postCellHtml(post, { inThread: true, openByRemote: true, profileOf: address, replyingTo: true })).join("")}
       </div>`;
     // The banner, picture and name stay as they are when only the page under them changes (Posts /
     // Replies, a page of rows landing): drawing them again reloaded the banner, which sizes itself
@@ -4375,7 +4529,7 @@ function renderPanel() {
       const bookmarks = bookmarkedPostsAndComments();
       panelBodyEl.innerHTML = bookmarks.length === 0
         ? panelEmptyHtml("bookmark", "No bookmarks yet", "Tap the bookmark on any post to save it here.")
-        : bookmarks.map((post) => postCellHtml(post, { inThread: true, openByRemote: true })).join("");
+        : bookmarks.map((post) => postCellHtml(post, { inThread: true, openByRemote: true, replyingTo: true })).join("");
       // iOS bookmarksSheet: the card tap stays inert and the name/avatar open nothing
       // (onOpenProfile: {}); the post's own buttons and a quoted post's embed still work.
       panelBodyEl.querySelectorAll(".kaposts-cell").forEach((cell) => {
@@ -4929,8 +5083,13 @@ function loadMoreProfile(tab) {
 // ---------------------------------------------------------------------------
 
 const KAPOSTS_SEEN_NOTIFS_KEY = "kachat-kaposts-seen-notifications-v1";
-const KAPOSTS_NOTIF_POLL_MS = 90_000;
+// KaPost notifications work like X (K 961fc05a, owner 2026-11-25): with push registered the push is
+// the notice and asks for a poll (pollKaPostNotificationsSoon); the poll also runs when K opens or
+// comes back, when Profile (the bell) shows, and every 5 minutes as a safety net. Without push, the
+// usual 90 s poll (ui/kaposts-x-rules.js). The timer only checks every 30 s; the rules decide.
+const KAPOSTS_NOTIF_TICK_MS = 30_000;
 let kaPostsNotifPollTimer = 0;
+let kaPostsNotifLastPollAt = 0;
 
 // Unseen KaPosts activity, per account (iOS KaPostsNotificationCenter). Bumped by the poller
 // for every arrival that passes the same filters as a ping, cleared the moment the list opens:
@@ -5029,7 +5188,7 @@ async function pollKaPostNotificationsForPings() {
       id: `kaposts-${n.id}`,
       title: `${posterName(actorAddress)} ${kaPostsNotificationAction(n, centerText)}`,
       body: centerText ? `"${centerText.slice(0, 90)}${centerText.length > 90 ? "…" : ""}"` : "",
-      timestamp: Number(n.timestamp) || Date.now(),
+      timestamp: bellTimestamp(n.timestamp),
       targetKind: "kaposts",
       // Clicking the bell row deep-opens the exact post/comment (same per-kind
       // target rule as the in-app notifications panel).
@@ -5052,6 +5211,9 @@ async function pollKaPostNotificationsForPings() {
     // A tip is a payment in the tipper's chat: that chat's notification says "Received a tip" and
     // opens the chat, so this would be a second one for it (K b0f0a4e6).
     if (n.contentType === "tip") continue;
+    // Only news rings (K 961fc05a): activity more than ten minutes old when a poll finds it (a
+    // return after a long absence, an account switch) is in the bell, not a stack of banners.
+    if (!isRecentForBanner(n.timestamp, { maxAgeMs: KAPOST_BANNER_MAX_AGE_MS })) continue;
     if (!claimKaPostsBanner(`${actorAddress}|${target || n.postId || ""}|${n.contentType || ""}|${n.voteType || ""}`)) continue;
     deps.postDesktopNotification?.({
       title: "KaPost",
@@ -5183,10 +5345,38 @@ export function openKaPostFromNotification(txId) {
   else openNotificationsPanel();
 }
 
+/** Push is on and this browser is registered: KaPost activity arrives as pushes. */
+function kaPostsPushBringsActivity() {
+  try { return Boolean(deps?.kaPostsPushRegistered?.()); } catch { return false; }
+}
+function runKaPostNotificationPoll() {
+  kaPostsNotifLastPollAt = Date.now();
+  return pollKaPostNotificationsForPings();
+}
 function startKaPostsNotificationPolling() {
   if (kaPostsNotifPollTimer) window.clearInterval(kaPostsNotifPollTimer);
-  kaPostsNotifPollTimer = window.setInterval(() => { if (!document.hidden) pollKaPostNotificationsForPings(); }, KAPOSTS_NOTIF_POLL_MS);
-  window.setTimeout(pollKaPostNotificationsForPings, 10_000);
+  kaPostsNotifPollTimer = window.setInterval(() => {
+    if (document.hidden) return;
+    // Asked each tick, so registering or losing push takes effect at once.
+    if (!kaPostsNotifPollDue({ now: Date.now(), lastPollAt: kaPostsNotifLastPollAt, pushRegistered: kaPostsPushBringsActivity() })) return;
+    runKaPostNotificationPoll();
+  }, KAPOSTS_NOTIF_TICK_MS);
+  // At once, or nearly: K just opened (the engine needs a moment for its address).
+  window.setTimeout(runKaPostNotificationPoll, 10_000);
+  if (!startKaPostsNotificationPolling.visibilityWired) {
+    startKaPostsNotificationPolling.visibilityWired = true;
+    // K came back to the front: its count and banners catch up now.
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) pollKaPostNotificationsSoon(); });
+  }
+}
+
+/** A KaPost push arrived while K is open, K came back, or Profile's bell showed: poll now (the
+ *  bell's count comes from the poll), unless one ran in the last 15 s (K pollSoon). A hidden page
+ *  waits until it shows: the push itself is the notice meanwhile. */
+export function pollKaPostNotificationsSoon() {
+  if (!deps || document.hidden) return;
+  if (!kaPostsNotifPollSoonDue({ now: Date.now(), lastPollAt: kaPostsNotifLastPollAt })) return;
+  runKaPostNotificationPoll();
 }
 
 /** One indexer notification -> one panel row, or null when it must not be shown. */
@@ -6598,6 +6788,13 @@ export function resetKaPostsForAccount() {
   // searched by findPost now — they must not survive the switch.
   threadChains.clear();
   threadRootProbe.clear();
+  threadRootNoUntil.clear();
+  // The reply order and "Replying to" authors were the previous wallet's reading (K 961fc05a), and
+  // the next account's notifications are asked at the next tick, not after the last one's wait.
+  replyOrderMemo.clear();
+  replyParentAuthors.clear();
+  replyParentMisses.clear();
+  kaPostsNotifLastPollAt = 0;
   renderedFeedIds = new Set();
   lastFeedLoadAt = 0;
   // Nothing loaded belongs to the new identity (iOS loadGates.reset, loadedFeedSource = nil).
@@ -7110,6 +7307,7 @@ export function initKaPosts(dependencies) {
 
   composerInput?.addEventListener("input", () => {
     updateMeter(composerInput, composerMeter, composerSubmit);
+    renderComposerHubCard();
     // Runs AFTER updateMeter: the meter disables Post on empty input, but with stacked
     // thread segments "Post All (n)" must stay enabled - the thread UI has the final say.
     renderComposerThreadUi();
@@ -7288,6 +7486,17 @@ export function initKaPosts(dependencies) {
   const screen = document.querySelector('[data-app-tab-screen="kaposts"]');
   // The challenge card's Copy Link (KaPost 9e22075 contextMenu): the card stands in for the link.
   screen?.addEventListener("contextmenu", (event) => {
+    // A Kaspa Hub card's right-click: Copy Link and Open, as K's hold on it (K 961fc05a).
+    const hubCard = event.target.closest("[data-kaposts-hub-card]");
+    const hubUrl = hubCard ? hubLinkUrl(hubCard.dataset.kapostsHubCard) : null;
+    if (hubUrl) {
+      event.preventDefault();
+      openPopover(hubCard, `
+        <button type="button" class="kaposts-pop-row" data-kaposts-link-copy="${deps.escapeHtml(hubUrl)}"><strong>Copy Link</strong><small>A link that opens this card in K.</small></button>
+        <button type="button" class="kaposts-pop-row" data-kaposts-link-open="${deps.escapeHtml(hubUrl)}"><strong>Open</strong><small>Opens this card.</small></button>`);
+      setKaPostsScrollLock(true);
+      return;
+    }
     const botCard = event.target.closest("[data-kaposts-bot-challenge]");
     const arcadeCard = botCard ? null : event.target.closest("[data-kaposts-arcade-challenge]");
     const post = botCard ? findPost(botCard.dataset.kapostsBotChallenge) : arcadeCard ? findPost(arcadeCard.dataset.kapostsArcadeChallenge) : null;
@@ -7313,6 +7522,14 @@ export function initKaPosts(dependencies) {
       const post = findPost(payCard.dataset.kapostsPayCard);
       const link = post ? postPaymentRequestLink(post) : null;
       if (link) deps.openPaymentRequest?.(link.request);
+      return;
+    }
+    // A post's Kaspa Hub card (K 961fc05a KaspaHubLinkCard): that card's screen, from the dock.
+    const hubCard = event.target.closest("[data-kaposts-hub-card]");
+    if (hubCard) {
+      event.stopPropagation();
+      const url = hubLinkUrl(hubCard.dataset.kapostsHubCard);
+      if (url) deps.openKaChatLink?.(url);
       return;
     }
     // A post's KaPlay challenge card (KaPost 9e22075): KaPlay, on that bot.

@@ -21,18 +21,34 @@ export function txBlockTimeMs(tx) {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+/** How long a skipped block reward may still be accepted, so the floor waits below it (K 961fc05a,
+ *  audit 2026-11-25 C1). */
+export const UNACCEPTED_HOLD_MS = 10 * 60_000;
+
 /** One catch-up look at an address (KaPay 34f4b45): `floor` is the newest block time (ms) already
  *  looked at (0 = none yet: the balance increase alone bounds it). Gives the floor to store (the
  *  newest fetched block time, never below `floor`; `floor` when nothing has one) and the txs that
  *  may count, newest first (one with no block time yet is the newest): those newer than the floor,
- *  and for the chatting address plain transfers only. */
-export function catchUpCandidates(txs, floor, { chatting = false } = {}) {
+ *  and for the chatting address plain transfers only.
+ *
+ *  `belongsInHistory` (engine/sync.js transactionBelongsInHistory): no block reward the network
+ *  didn't accept counts (K 961fc05a). A block a miner finds is merged by many later blocks, each
+ *  carrying a coinbase paying them, and only the chain block's is accepted, so announcing them all
+ *  pinged once per merging block. And the floor never moves past one this look skipped from the
+ *  last ten minutes, which may still be accepted, so the next look sees it again (audit C1). */
+export function catchUpCandidates(txs, floor, { chatting = false, belongsInHistory = () => true, now = Date.now() } = {}) {
   const list = Array.isArray(txs) ? txs : [];
   const previous = Number(floor) > 0 ? Number(floor) : 0;
+  const belongs = (tx) => { try { return belongsInHistory(tx) !== false; } catch { return true; } };
   const times = list.map(txBlockTimeMs).filter((time) => time > 0);
-  const nextFloor = times.length ? Math.max(Math.max(...times), previous) : previous;
+  let nextFloor = times.length ? Math.max(...times) : previous;
+  const held = list.filter((tx) => !belongs(tx)).map(txBlockTimeMs)
+    .filter((time) => time > previous && now - Math.min(now, time) < UNACCEPTED_HOLD_MS);
+  if (held.length) nextFloor = Math.min(nextFloor, Math.min(...held) - 1);
+  nextFloor = Math.max(nextFloor, previous);
   const rank = (tx) => txBlockTimeMs(tx) || Number.MAX_SAFE_INTEGER;
   const candidates = list
+    .filter(belongs)
     .filter((tx) => !(previous && txBlockTimeMs(tx) && txBlockTimeMs(tx) <= previous))
     .filter((tx) => !chatting || isPlainTransferTx(tx))
     .sort((a, b) => rank(b) - rank(a));

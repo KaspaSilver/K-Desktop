@@ -36,6 +36,8 @@ const make = new Function("env", `
   const deps = { engine: {} };
   const sendAmountSompi = () => env.send?.amount ?? null;
   const sendFeeRateOverride = () => env.rate;
+  // the recipient, so a quantum source's preview prices its real script (K 961fc05a)
+  const sendEffectiveAddress = () => "";
   const renderSendFlow = () => { env.renders += 1; };
   const previewAutomaticSelection = ({ feeRateSompiPerGram }) => new Promise((resolve) => {
     env.previews.push({ rate: feeRateSompiPerGram, resolve });

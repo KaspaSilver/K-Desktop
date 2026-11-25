@@ -30,9 +30,11 @@ test("a saved spot or link for Public Chats opens Chats", () => {
   assert.doesNotMatch(app, /listShowsRooms/);
 });
 
-test("rooms sit in the one list; an unwritten room goes below every chat", () => {
-  assert.match(app, /function visibleChatRooms\(\) \{\n  if \(isChildModeEnabled\(\)\) return \[\];/);
-  assert.match(app, /visibleRooms\.map\(\(room, order\) => \(\{ at: room\.lastMessageAt \|\| -1, order,/);
+// K 961fc05a moved the rooms to KaChat's second page (tools/test-public-chats-page.mjs): they are
+// rows of the Public Chats page by latest activity, never of the Chats page.
+test("rooms are the Public Chats page's rows, by latest activity", () => {
+  assert.match(app, /function visibleChatRooms\(\) \{\n  if \(isChildModeEnabled\(\)\) return \[\];\n  if \(!onPublicChatsPage\(\)\) return \[\];/);
+  assert.match(app, /visibleRooms\.map\(\(room, order\) => \(\{ at: Number\(room\.lastAt\) \|\| -1, order,/);
 });
 
 test("a chat, a group and a room share Chats' pane", () => {
@@ -41,9 +43,11 @@ test("a chat, a group and a room share Chats' pane", () => {
   assert.match(app, /onRoomVisibility: \(open\) => \{\n        publicRoomOpen = open;\n        if \(open\) \{\n          try \{ if \(activeGroupId\) closeGroupChat\(\); \}/);
 });
 
-test("the Chats badge counts rooms whose bell is on", () => {
+// K 961fc05a split the badge: bell-on rooms count on the page button and the app icon, not the dock.
+test("bell-on rooms count on the page button and the app icon, not the dock", () => {
   assert.match(rooms, /export function broadcastNotifyingUnreadTotal\(\) \{[\s\S]*?if \(notifyByChannel\[name\]\) total \+= unreadFor\(name\);/);
-  assert.match(app, /rooms = broadcastNotifyingUnreadTotal\(\);/);
+  assert.match(app, /Math\.max\(0, Number\(broadcastNotifyingUnreadTotal\(\)\) \|\| 0\)/);
+  assert.match(app, /return chatsTabUnreadCount\(\{ chats, groups: totalGroupUnread\(\) \}\);/);
   assert.match(app, /for \(const tab of \["profile", "kaposts", "chats"\]\)/);
 });
 

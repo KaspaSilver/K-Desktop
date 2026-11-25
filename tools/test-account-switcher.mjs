@@ -123,8 +123,9 @@ await test("the Accounts sheet: Signed in, Recovery Phrase Needed, Add Another A
 
 await test("switching is Log Out, then the sign-in screen's own sign-in, password and all", () => {
   const sw = between(app, "async function switchToSavedAccount(", "profileAccountChip?.addEventListener");
-  assert.ok(sw.indexOf("await performLogout()") < sw.indexOf("signInToSavedAccount("), "logs out first");
-  assert.match(sw, /if \(engine\.address\) return false;/);
+  // through runAccountSwitch (K 961fc05a, tools/test-account-switch-no-flash.mjs): Log Out, then the sign-in
+  assert.ok(sw.indexOf("logOut: () => performLogout()") >= 0 && sw.indexOf("logOut: () => performLogout()") < sw.indexOf("signInToSavedAccount("), "logs out first");
+  assert.match(sw, /signedOut: \(\) => !engine\.address,/);
   const signIn = between(app, "async function signInToSavedAccount(account)", "function savedAccountAvatarHtml(");
   assert.match(signIn, /if \(isAppLocked\(address\)\) \{\n\s+if \(!\(await unlockAppWithPassword\(undefined, \{ autoBiometric: true, address \}\)\)\) return false;/);
   assert.match(signIn, /accountShellPrefs\.passwordForLogin && hasAppPassword\(address\)/);

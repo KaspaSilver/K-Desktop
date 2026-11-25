@@ -155,7 +155,9 @@ export function swapRecord(done) {
  * @param {function} deps.secretFor         (target) => hex | Uint8Array | null: the address's key
  * @param {function} [deps.noteSpentOutpoints] (keys) => void
  * @param {function} [deps.markOwnTransaction] (txid) => void
- * @param {function} [deps.afterTrade]      () => void: balances looked up again (after 4 s)
+ * @param {function} [deps.afterTrade]      ({ txid, address }) => void: balances looked up again until
+ *                                           the trade's coins show (K 961fc05a followTrade); no txid
+ *                                           for a trade that may have gone out
  */
 export function createTrestlyTrade(deps) {
   const now = deps.now || (() => Date.now());
@@ -302,7 +304,7 @@ export function createTrestlyTrade(deps) {
             // it may have gone out: hold this address's coins and its trades (iOS audit 2026-11-21 #1)
             hold(address, coinsBefore);
             if (coinsBefore.length) { try { deps.noteSpentOutpoints?.(coinsBefore); } catch { /* best effort */ } }
-            try { deps.afterTrade?.(); } catch { /* the screen's */ }
+            try { deps.afterTrade?.({ txid: null, address }); } catch { /* the screen's */ }
           }
           throw error;
         } finally {
@@ -328,7 +330,7 @@ export function createTrestlyTrade(deps) {
         const result = done.result;
         if (!result || typeof result !== "object") throw new TradeError(TRADE_CODE.failed, TRADE_MESSAGES.noResult);
         if (typeof result.txid === "string") { try { deps.markOwnTransaction?.(result.txid); } catch { /* best effort */ } }
-        try { deps.afterTrade?.(); } catch { /* the screen's */ }
+        try { deps.afterTrade?.({ txid: typeof result.txid === "string" ? result.txid : null, address }); } catch { /* the screen's */ }
         return { result, prepared, fee: done.fee ?? null };
       }
     } finally {

@@ -191,7 +191,7 @@ async function handlePush(event) {
   }
   // Open pages fetch straight away rather than at their next poll.
   for (const client of clients) {
-    try { client.postMessage({ type: "kachat:push", data: { type: String(payload.type || ""), txId: String(payload.tx_id || "") } }); } catch { /* best-effort */ }
+    try { client.postMessage({ type: "kachat:push", data: { type: String(payload.type || ""), txId: String(payload.tx_id || ""), channel: String(payload.channel || "") } }); } catch { /* best-effort */ }
   }
   // The stream you are looking at, in a focused window, does not ring (iOS willPresent).
   if (!suppress && appInFront) {
@@ -200,6 +200,14 @@ async function handlePush(event) {
       const key = self.KaChatPushMap?.routeKey(mapped.options?.data?.route);
       if (key && focus && focus.key === key && Date.now() - Number(focus.at || 0) < 12 * 3600 * 1000) suppress = true;
     } catch { /* ring */ }
+  }
+  // A room push with the app in front (K 961fc05a "room push waits for its message"): the open app
+  // fetches that room's message first, so the Public Chats list and the room have it when this
+  // shows - at most ROOM_PUSH_WAIT_MS later, never the other way round.
+  if (!suppress && appInFront) {
+    let waits = false;
+    try { waits = Boolean(self.KaChatPushMap?.roomPushWaitsForApp(payload)); } catch { waits = false; }
+    if (waits) await askOpenAppToFetchRoom(clients, payload);
   }
   if (suppress) {
     const tag = `kachat-quiet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -229,6 +237,31 @@ async function handlePush(event) {
   }
   if (!options.tag) delete options.renotify;
   await self.registration.showNotification(mapped.title || "K", options);
+}
+
+/** Asks the app's windows in front to fetch a pushed room message (ui/web-push.js answers
+ *  "kachat:room-push" on the port once the room has it or it gave up). Resolves on the first answer,
+ *  or after the wait, whichever comes first. */
+function askOpenAppToFetchRoom(clients, payload) {
+  const front = clients.filter((client) => client.focused && client.visibilityState === "visible");
+  if (!front.length || typeof MessageChannel !== "function") return Promise.resolve();
+  const wait = Number(self.KaChatPushMap?.ROOM_PUSH_WAIT_MS) || 4000;
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    // a little over the app's own limit, so its answer (not this timer) normally ends the wait
+    setTimeout(finish, wait + 500);
+    let asked = 0;
+    for (const client of front) {
+      try {
+        const port = new MessageChannel();
+        port.port1.onmessage = finish;
+        client.postMessage({ type: "kachat:room-push", data: { channel: String(payload.channel || ""), txId: String(payload.tx_id || "") } }, [port.port2]);
+        asked += 1;
+      } catch { /* that window can't be asked */ }
+    }
+    if (!asked) finish();
+  });
 }
 
 // The subscription was renewed or revoked by the browser. Subscribe again with the same server key

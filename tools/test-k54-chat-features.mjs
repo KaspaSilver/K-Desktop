@@ -285,12 +285,14 @@ await test("switching a default room off, or leaving your own, drops its pin", (
   assert.match(app, /onRoomRemoved: \(name\) => dropChatRoomPin\(name\),/);
 });
 
-await test("a pinned room is a # circle after the pinned groups, out of the list but in search results", () => {
+// K 961fc05a: the pinned rooms are the Public Chats page's circles, alone (tools/test-public-chats-page.mjs).
+await test("a pinned room is a # circle on the Public Chats page, out of the list but in search results", () => {
   const list = fnSource(app, "visibleChatRooms");
   assert.match(list, /if \(query\) return rooms\.filter/);
   assert.match(list, /rooms\.filter\(\(room\) => !pinned\.has\(room\.name\)\)/);
   const circles = fnSource(app, "visibleChatCircles");
-  assert.match(circles, /\.\.\.pinned\.slice\(0, groupCount\), \.\.\.rooms, \.\.\.pinned\.slice\(groupCount\), \.\.\.rest/);
+  assert.match(circles, /if \(onPublicChatsPage\(\)\) \{\n    return pinnedChatRooms\(\)\.map\(/);
+  assert.match(circles, /return \[\.\.\.pinned, \.\.\.rest\];/);
   assert.match(fnSource(app, "pinnedChatRooms"), /isChildModeEnabled\(\) \|\| String\(searchInput\?\.value \|\| ""\)\.trim\(\)/);
   assert.match(fnSource(app, "chatCirclesHtml"), /chat-circle-glyph chat-circle-room">#</);
   // its hold: Mark as Read, Unpin, Mute and Delete
@@ -307,7 +309,7 @@ await test("a pinned room is a # circle after the pinned groups, out of the list
 await test("#20: a profile link (?chat=1 too) opens User Info; nothing saves the stranger as a contact", () => {
   const parse = fnSource(app, "parseKaChatInternalLink");
   const sandbox = {
-    parseBotChallengeLink: () => null, parsePaymentRequestLinkCached: () => null,
+    parseBotChallengeLink: () => null, parsePaymentRequestLinkCached: () => null, parseHubLink: () => null,
     toActiveNetworkAddress: (a) => a, isValidKaspaAddressString: () => true, isUnsafeObjectKey: () => false,
   };
   vm.runInNewContext(`${parse}; this.parse = parseKaChatInternalLink;`, sandbox);

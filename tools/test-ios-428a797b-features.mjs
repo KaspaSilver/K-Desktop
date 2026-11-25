@@ -45,7 +45,9 @@ test("hidden cold addresses stay quiet, and the push list follows the switches",
   assert.match(cold, /\$\{a\.id\}:\$\{a\.maxIndex\}:\$\{a\.hidden\.join\("\."\)\}/);
   assert.match(app, /if \(entry\.notify === false \|\| entry\.hidden\) continue;/);
   assert.match(app, /if \(entry\.notify === false \|\| entry\.hidden\) muted\.add\(entry\.address\);/);
-  assert.equal((cold.match(/deps\.onWatchedAddressesChanged\?\.\(\);/g) || []).length, 3);
+  // 3, plus (K 961fc05a) a quantum address added, one no longer watched, one hidden or shown, and
+  // an account removed
+  assert.equal((cold.match(/deps\.onWatchedAddressesChanged\?\.\(\);/g) || []).length, 7);
   assert.match(app, /onWatchedAddressesChanged: \(\) => \{ try \{ scheduleWebPushSync\(\); \}/);
 });
 

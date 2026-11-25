@@ -553,6 +553,15 @@ export function initWebPush(dependencies) {
       const type = event.data?.type;
       if (type === "kachat:push-subscription-changed") scheduleWebPushSync({ force: true, delayMs: 500 });
       else if (type === "kachat:push") { try { deps.onPush?.(event.data.data || {}); } catch { /* next poll */ } }
+      // A room push held by public/sw.js until this window has its message (K 961fc05a): answered
+      // on the port once the room has it, or the fetch gave up.
+      else if (type === "kachat:room-push") {
+        const port = event.ports?.[0];
+        const reply = () => { try { port?.postMessage({ done: true }); } catch { /* the worker's timer ends it */ } };
+        let job = null;
+        try { job = deps.onRoomPush?.(event.data.data || {}); } catch { job = null; }
+        Promise.resolve(job).catch(() => {}).finally(reply);
+      }
     });
   }
   document.addEventListener("visibilitychange", () => {

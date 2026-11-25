@@ -24,8 +24,15 @@ import {
   calculateMass, calculateFee, fetchQuotedFeeRateSompiPerGram,
   buildUnsignedTransaction, previewAutomaticSelection, estimateMaxAmount,
   compoundInputs, unsignedToKsptBytes, broadcastSigned, isValidKaspaAddress,
-  fetchSpendableUtxos, utxoKey,
+  fetchSpendableUtxos, utxoKey, isScriptHashAddress, KCC3_SIG_SCRIPT_LEN, QUANTUM_COMPOUND_NEEDS_FRESH_ADDRESS,
 } from "./kspt.js";
+// KasSigner v1.1's quantum-resistant (KCC-3) addresses (K 961fc05a): records, names, the change pick.
+import {
+  COLD_QUANTUM_INDEX_BASE, isColdQuantumIndex, normalizeQuantumRecords, unitMarksAsChange, quantumDefaultLabel,
+  quantumAddressInput, parseUnitNumber, quantumIndexOf, afterQuantumRemoval, pickFreshQuantumChange,
+  ownChangeHistoryAmount, QUANTUM_CHAIN_RECEIVE, QUANTUM_CHAIN_CHANGE,
+} from "./cold-quantum.js";
+import { quantumSpentFromHistory } from "../engine/quantum.js";
 import { closeActiveScanner, scanKaspaAddress, scanQrCode } from "./qr-scan.js";
 import { transactionBelongsInHistory } from "../engine/sync.js";
 import {
@@ -74,6 +81,8 @@ let addrToken = 0;
 // Addresses of the open account that hold a .kachat name (iOS 881ada6 ownersOfNames, where the
 // registry is launched) — drives the "Contains username" row tag and list ordering.
 let detailDomainOwning = new Set();
+/// The open account's quantum addresses whose key a spend has put on chain (the slashed shield).
+let detailQuantumSpent = new Set();
 /// What the last discover on this account turned up, shown in the Address Actions sheet.
 let detailDiscoverySummary = null;
 /// Live scan position while discovering (iOS DiscoveryProgress): `{ checkingIndex, foundCount }`.
@@ -99,6 +108,12 @@ function normalizeAccount(raw) {
     hidden: Array.isArray(raw.hidden) ? raw.hidden : [],
     // Per-account receive notifications (iOS notifyOnReceive); older records read as on.
     receiveNotifications: raw.receiveNotifications !== false,
+    // The KasSigner's quantum-resistant (KCC-3, m/22') addresses watched in this account, in the
+    // order added, each `{ address, unitIndex, chain, addedAt }` (K 961fc05a
+    // ColdStorageAccount.quantumAddresses). A unit never exports a 22' kpub, so each is scanned or
+    // pasted from the unit's address screen. They sit at COLD_QUANTUM_INDEX_BASE + position in the
+    // account's index space (labels, hidden).
+    quantumAddresses: normalizeQuantumRecords(raw.quantumAddresses),
   };
 }
 
@@ -148,6 +163,20 @@ function dropColdUtxoLabelsFor(account) {
   for (const entry of addresses) {
     const address = typeof entry === "string" ? entry : entry?.address;
     if (address && map[address]) { delete map[address]; changed = true; }
+  }
+  if (!changed) return;
+  try { localStorage.setItem(deps.accountScopedKey(COLD_UTXO_LABELS_KEY), JSON.stringify(map)); } catch { /* kept */ }
+}
+
+/** Removes the coin labels of `account`'s quantum addresses that no remaining account watches. */
+function dropColdQuantumUtxoLabels(account) {
+  const kept = new Set(accounts.flatMap((a) => (a.quantumAddresses || []).map((q) => q.address)));
+  const map = loadColdUtxoLabelsMap();
+  let changed = false;
+  for (const { address } of account.quantumAddresses || []) {
+    if (kept.has(address) || !map[address]) continue;
+    delete map[address];
+    changed = true;
   }
   if (!changed) return;
   try { localStorage.setItem(deps.accountScopedKey(COLD_UTXO_LABELS_KEY), JSON.stringify(map)); } catch { /* kept */ }
@@ -244,7 +273,175 @@ function shortColdAddress(address) {
 
 function displayLabelFor(account, index) {
   const custom = account.labels?.[index] ?? account.labels?.[String(index)];
-  return custom || `Address #${index}`;
+  if (custom) return custom;
+  if (isColdQuantumIndex(index)) {
+    const record = account.quantumAddresses?.[index - COLD_QUANTUM_INDEX_BASE];
+    return quantumDefaultLabel(record?.chain, record?.unitIndex);
+  }
+  return `Address #${index}`;
+}
+
+// ---------------------------------------------------------------------------
+// Quantum-resistant (KCC-3) addresses (K 961fc05a ColdStorageManager / ColdStorageSendEngine)
+// ---------------------------------------------------------------------------
+
+// What is known for good about a quantum address, per wallet: `spent` - a spend put its key on
+// chain (the slashed shield; never change); `used` - it took a send's change or a compound, which
+// the history API may not show yet. Both only grow.
+const COLD_QUANTUM_MARKS_KEY = "kachat-cold-quantum-marks-v1"; // account-scoped: { used: [], spent: [] }
+
+function loadQuantumMarks() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(deps.accountScopedKey(COLD_QUANTUM_MARKS_KEY)) || "{}") || {};
+    return { used: new Set(raw.used || []), spent: new Set(raw.spent || []) };
+  } catch { return { used: new Set(), spent: new Set() }; }
+}
+
+function markQuantumAddress(kind, address) {
+  const lowered = String(address || "").toLowerCase();
+  if (!lowered) return;
+  const marks = loadQuantumMarks();
+  if (marks[kind].has(lowered)) return;
+  marks[kind].add(lowered);
+  try {
+    localStorage.setItem(deps.accountScopedKey(COLD_QUANTUM_MARKS_KEY), JSON.stringify({ used: [...marks.used], spent: [...marks.spent] }));
+  } catch { /* the history says the same, later */ }
+}
+
+/// Whether a quantum address has ever SPENT, the one event that puts its key on chain (K
+/// ChatService.quantumAddressSpentState, as the hot wallet's): true is marked here for good; false
+/// means no spend in its whole history (reused for a minute, so a list redraw doesn't ask again);
+/// null when the history can't be read right now - never "not spent" then.
+const coldQuantumUnspentSeenAt = new Map();
+async function coldQuantumSpentState(address) {
+  const lowered = String(address || "").toLowerCase();
+  if (!lowered) return null;
+  if (loadQuantumMarks().spent.has(lowered)) return true;
+  if (Date.now() - (coldQuantumUnspentSeenAt.get(lowered) || 0) < 60_000) return false;
+  const base = String(getEndpoint("kaspaApi") || "https://api.kaspa.org").replace(/\/+$/, "");
+  const spent = await quantumSpentFromHistory(lowered, async (offset, limit) => {
+    const url = `${base}/addresses/${encodeURIComponent(lowered)}/full-transactions?limit=${limit}&offset=${offset}&resolve_previous_outpoints=light`;
+    const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
+    if (!response.ok) return null;
+    return response.json();
+  });
+  if (spent === true) markQuantumAddress("spent", lowered);
+  else if (spent === false) coldQuantumUnspentSeenAt.set(lowered, Date.now());
+  return spent;
+}
+
+/// Whether a quantum address has been used, read fresh (K spendingAddressUsedState with
+/// skipSessionCache): a mark answers at once, else its history count. null when it can't be read.
+async function coldQuantumUsedState(address) {
+  const lowered = String(address || "").toLowerCase();
+  const marks = loadQuantumMarks();
+  if (marks.used.has(lowered) || marks.spent.has(lowered)) return true;
+  return addressHasHistory(lowered);
+}
+
+/// Change addresses handed to a request built this session and not released: a second send built
+/// before the first one's change shows on chain must not pick the same address (K
+/// reservedQuantumChange). Lowercased.
+const reservedQuantumChange = new Set();
+
+/** The account and record holding quantum address `address`, if any. */
+function quantumRecordFor(address) {
+  const lowered = String(address || "").toLowerCase();
+  for (const account of accounts) {
+    const position = (account.quantumAddresses || []).findIndex((q) => q.address === lowered);
+    if (position >= 0) return { account, record: account.quantumAddresses[position], position };
+  }
+  return null;
+}
+
+/** The name a quantum address shows: the person's label, else its default by chain and number. */
+function quantumDisplayLabel(address) {
+  const found = quantumRecordFor(address);
+  if (!found) return "Quantum Address";
+  return displayLabelFor(found.account, COLD_QUANTUM_INDEX_BASE + found.position);
+}
+
+/// Where a send from quantum address `fromAddress` puts its change, and where Compound moves its
+/// coins (K freshQuantumChangeAddress, ui/cold-quantum.js pickFreshQuantumChange): another quantum
+/// address of the same account that holds nothing, was never used and never spent, change-chain
+/// #0-4 first. Probed fresh, reserved until releaseQuantumChange (or for good once sent). Null when
+/// there is none.
+async function freshQuantumChangeAddress(fromAddress) {
+  const found = quantumRecordFor(fromAddress);
+  if (!found) return null;
+  return pickFreshQuantumChange({
+    records: found.account.quantumAddresses,
+    source: fromAddress,
+    reserved: reservedQuantumChange,
+    fundedAddresses: async (candidates) => {
+      const balances = await fetchBalancesBatch(candidates);
+      return new Set(candidates.filter((a) => (balances.get(a) || 0) > 0));
+    },
+    usedState: coldQuantumUsedState,
+    spentState: coldQuantumSpentState,
+  });
+}
+
+/** Hands back a change address freshQuantumChangeAddress reserved, for a request rebuilt, failed
+ *  or abandoned before it went out. */
+function releaseQuantumChange(address) {
+  if (address) reservedQuantumChange.delete(String(address).toLowerCase());
+}
+
+/** A KasSigner KCC-3 address (P2SH) of this network, as typed, scanned or pasted. */
+function isColdQuantumAddressText(address) {
+  return isValidKaspaAddress(deps.engine, address) && isScriptHashAddress(deps.engine, address);
+}
+
+/// Adds a KasSigner KCC-3 address to `account` (K ColdStorageManager.addQuantumAddress). Only a
+/// pay-to-script-hash address of this network reads: the text can't say what is behind the hash, so
+/// the unit is the one that checks it holds the key, when it signs. Returns an error message, or
+/// null when added.
+function addQuantumAddress(account, text, unitIndex, chain) {
+  const address = quantumAddressInput(text);
+  if (!isColdQuantumAddressText(address)) return "That isn't a quantum-resistant address. Scan the KCC-3 address KasSigner shows.";
+  if (account.quantumAddresses.some((q) => q.address === address)) return "That address is already in this account.";
+  // One address, one account: watched twice, its coins would count in both totals and a send from
+  // one could pick it as the other's change.
+  const other = accounts.find((a) => a.id !== account.id && (a.quantumAddresses || []).some((q) => q.address === address));
+  if (other) return `That address is already in your Cold Storage account “${other.label}”.`;
+  account.quantumAddresses.push({ address, unitIndex, chain: chain === QUANTUM_CHAIN_CHANGE ? QUANTUM_CHAIN_CHANGE : QUANTUM_CHAIN_RECEIVE, addedAt: Date.now() });
+  saveState();
+  coldWatchedCache.fingerprint = "";
+  deps.onWatchedAddressesChanged?.();
+  return null;
+}
+
+/// Stops watching a quantum address (its coins stay where they are on chain). Labels and hidden
+/// flags are kept by index: the ones after it move up a place with their addresses.
+function removeQuantumAddress(account, address) {
+  const position = account.quantumAddresses.findIndex((q) => q.address === String(address || "").toLowerCase());
+  if (position < 0) return;
+  account.quantumAddresses.splice(position, 1);
+  const moved = afterQuantumRemoval({ labels: account.labels, hidden: account.hidden.map(Number) }, position);
+  account.labels = moved.labels;
+  account.hidden = moved.hidden;
+  saveState();
+  coldWatchedCache.fingerprint = "";
+  deps.onWatchedAddressesChanged?.();
+}
+
+/// The index an edit of this row files under now: a quantum entry's moves when an earlier quantum
+/// address stops being watched, and the row may be from before that.
+function currentIndexOf(account, entry) {
+  return isColdQuantumIndex(entry.index) ? quantumIndexOf(account.quantumAddresses, entry.address) : entry.index;
+}
+
+// The hot wallet's shield (ui/app.js quantumShieldHtml, iOS quantumShield): green while the key has
+// never been on chain, slashed once the address spent - orange with coins on it again, gray empty.
+const COLD_QUANTUM_SHIELD_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2 4 5.3v6.2c0 5 3.4 9.3 8 10.5 4.6-1.2 8-5.5 8-10.5V5.3Z"/></svg>';
+const COLD_QUANTUM_SHIELD_SLASH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><defs><mask id="cold-quantum-shield-cut"><rect width="24" height="24" fill="#fff"/><path d="M3.5 3.5 20.5 20.5" stroke="#000" stroke-width="5.4" stroke-linecap="round"/></mask></defs><path mask="url(#cold-quantum-shield-cut)" d="M12 2.2 4 5.3v6.2c0 5 3.4 9.3 8 10.5 4.6-1.2 8-5.5 8-10.5V5.3Z"/><path class="quantum-shield-slash" d="M3.5 3.5 20.5 20.5"/></svg>';
+function coldQuantumShieldHtml(entry) {
+  if (detailQuantumSpent.has(String(entry.address || "").toLowerCase())) {
+    const funded = (entry.balanceSompi || 0) > 0;
+    return `<span class="quantum-shield spent${funded ? " funded" : ""}" role="img" aria-label="Key revealed by a spend" title="Key revealed by a spend">${COLD_QUANTUM_SHIELD_SLASH_SVG}</span>`;
+  }
+  return `<span class="quantum-shield safe" role="img" aria-label="Quantum-safe" title="Quantum-safe">${COLD_QUANTUM_SHIELD_SVG}</span>`;
 }
 
 async function fetchBalance(address) {
@@ -347,7 +544,13 @@ const CUBE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8 
 const WARNING_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.9 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4.5M12 17h.01"/></svg>`;
 const REFRESH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>`;
 /// A list's loading state: a spinner, as iOS's ProgressView row, not a "Loading…" line.
-const COLD_LIST_SPINNER = '<div class="cold-detail-spinner"><span class="initial-sync-spinner" aria-hidden="true"></span></div>';
+// K 961fc05a's quantum rows: "shield", "number", "minus.circle".
+const SHIELD_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8 19.6 5.7v5.8c0 4.6-3.2 8.3-7.6 9.7-4.4-1.4-7.6-5.1-7.6-9.7V5.7z"/></svg>`;
+const HASH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3.5 7.5 20.5M16.5 3.5l-2 17M4 8.5h16.5M3.5 15.5H20"/></svg>`;
+const MINUS_CIRCLE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg>`;
+const MOVED_ICON = "⇄";
+
+const COLD_LIST_SPINNER ='<div class="cold-detail-spinner"><span class="initial-sync-spinner" aria-hidden="true"></span></div>';
 
 const CHECKLIST_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 6 2 2 3-3"/><path d="M11 6h10"/><path d="m3 12.5 2 2 3-3"/><path d="M11 12.5h10"/><path d="m3 19 2 2 3-3"/><path d="M11 19h10"/></svg>`;
 
@@ -413,7 +616,7 @@ function addressRowHtml(account, entry) {
   return `
     <div class="spending-address-row cold-address-row" data-cold-address-row="${entry.index}">
       <button type="button" class="spending-address-row-main" data-cold-addr-open="${entry.index}">
-        <span class="spending-address-label cold-addr-label">${deps.escapeHtml(displayLabelFor(account, entry.index))}</span>
+        <span class="spending-address-label cold-addr-label">${deps.escapeHtml(displayLabelFor(account, entry.index))}${isColdQuantumIndex(entry.index) ? coldQuantumShieldHtml(entry) : ""}</span>
         <span class="spending-address-value">${deps.escapeHtml(shortColdAddress(entry.address))}</span>
         <span class="spending-address-balance" data-cold-balance-cell="${entry.index}">${deps.escapeHtml(balanceText)}</span>
         <span class="cold-address-badges" data-cold-badges="${entry.index}">${usageBadge}${detailDomainOwning.has(entry.address) ? '<span class="cold-address-domain-tag">Contains username</span>' : ""}</span>
@@ -446,10 +649,16 @@ function renderDetail() {
   // Funded-or-username-holding addresses first (the username tag promotes a row into
   // the active group), lowest index first within each group — same sort as the
   // spending-chain Manage Addresses list.
+  // The quantum addresses added by scan list after the regular ones in each group, in the order
+  // added (K 961fc05a).
   const sorted = [...visible].sort((a, b) => {
     const aActive = (a.balanceSompi || 0) > 0 || detailDomainOwning.has(a.address);
     const bActive = (b.balanceSompi || 0) > 0 || detailDomainOwning.has(b.address);
     if (aActive !== bActive) return aActive ? -1 : 1;
+    const aQuantum = isColdQuantumIndex(a.index);
+    const bQuantum = isColdQuantumIndex(b.index);
+    if (aQuantum !== bQuantum) return aQuantum ? 1 : -1;
+    if (aQuantum) return a.index - b.index;
     return b.index - a.index;
   });
 
@@ -520,6 +729,7 @@ function renderColdSheet() {
   if (coldSheet.kind === "transaction") return renderColdTransactionSheet();
   if (coldSheet.kind === "portfolio-pick") return renderColdPortfolioPicker();
   if (coldSheet.kind === "portfolio-details") return renderColdPortfolioDetails();
+  if (coldSheet.kind === "quantum-add" || coldSheet.kind === "quantum-number") return renderColdQuantumSheet();
   renderColdActionsSheet();
 }
 
@@ -774,7 +984,87 @@ function renderColdAddressSheet() {
         ? coldSheetRow({ attr: `data-cold-addr-action="hide" data-index="${i}"`, title: "Hide Address",
             subtitle: "Removes it from this list. Re-enable it in Address Visibility.", icon: EYE_SLASH_ICON, warn: true })
         : ""}
+      ${isColdQuantumIndex(i)
+        // A wrong number (or a change address given as a receive one) makes the unit refuse the
+        // request: the person can put it right, or clear it to let the unit search. A quantum
+        // address added by mistake goes from the account; its coins stay on chain (K 961fc05a).
+        ? `${coldSheetRow({ attr: `data-cold-addr-action="edit-number" data-index="${i}"`, title: "Edit Address Number",
+              subtitle: "The number and chain KasSigner shows for this address.", icon: HASH_ICON })}
+           ${coldSheetRow({ attr: `data-cold-addr-action="stop-watching" data-index="${i}"`, title: "Stop Watching",
+              subtitle: "Removes this quantum address from the account. Scan it again to add it back.", icon: MINUS_CIRCLE_ICON, warn: true })}`
+        : ""}
     </div>`;
+}
+
+/// Add Quantum-Resistant Address (K ColdQuantumAddressAddSheet) and Edit Address Number (K
+/// ColdQuantumAddressNumberSheet): the address (scan or paste; add only), which of the unit's KCC-3
+/// chains it is on, and its number there, optional. Typed values live in `coldSheet.form`, so a
+/// redraw (the chain picked) keeps them.
+function renderColdQuantumSheet() {
+  const body = modalsEl?.querySelector("[data-cold-actions-body]");
+  if (!body || !coldSheet?.form) return;
+  const esc = deps.escapeHtml;
+  const form = coldSheet.form;
+  const adding = coldSheet.kind === "quantum-add";
+  const chainOption = (value, label) => `<button type="button" class="settings-segmented-option${form.chain === value ? " active" : ""}" role="radio" aria-checked="${form.chain === value}" data-cold-q-chain="${value}">${label}</button>`;
+  body.innerHTML = `
+    <div class="modal-head">
+      <div><h2>${adding ? "Add Quantum Address" : "Edit Address Number"}</h2></div>
+      <button class="modal-close" type="button" data-cold-actions-close aria-label="Close">×</button>
+    </div>
+    <form class="cold-quantum-form" data-cold-q-form novalidate>
+      ${adding
+        ? `<label class="field-label">
+             <span>Quantum-Resistant Address</span>
+             <textarea class="field-input cold-quantum-address-field" data-cold-q-address rows="3" placeholder="kaspa:p..." autocomplete="off" autocapitalize="off" spellcheck="false">${esc(form.address)}</textarea>
+           </label>
+           <div class="cold-quantum-input-actions">
+             <button type="button" class="secondary-button" data-cold-q-scan>Scan QR</button>
+             <button type="button" class="secondary-button" data-cold-q-paste>Paste</button>
+           </div>
+           <p class="field-hint">On KasSigner, open the KCC-3 address you want and scan its QR code. Its key stays on the unit until the address spends.</p>`
+        : `<p class="cold-quantum-address-text">${esc(form.address)}</p>`}
+      <p class="cold-quantum-section">Address Number on KasSigner</p>
+      <div class="settings-segmented full" role="radiogroup" aria-label="Chain">
+        ${chainOption(QUANTUM_CHAIN_RECEIVE, "Receive Address")}${chainOption(QUANTUM_CHAIN_CHANGE, "Change Address")}
+      </div>
+      <label class="field-label">
+        <span>Number</span>
+        <input class="field-input" data-cold-q-number type="text" inputmode="numeric" placeholder="Optional" autocomplete="off" value="${esc(form.number)}" />
+      </label>
+      <p class="field-hint">The number KasSigner shows for this address, and whether it is a receive or a change address. With it the unit finds the key at once when signing; without it the unit searches for it. KasSigner marks change sent to its change addresses #0 to #4 as change; any other address it shows as a payment.</p>
+      ${form.error ? `<p class="field-error">${esc(form.error)}</p>` : ""}
+      <div class="modal-actions">
+        <button class="secondary-button" type="button" data-cold-actions-close>Cancel</button>
+        <button class="primary-button" type="submit" data-cold-q-save ${adding && !form.address.trim() ? "disabled" : ""}>${adding ? "Add" : "Save"}</button>
+      </div>
+    </form>`;
+}
+
+/// Add or Save in the quantum sheet.
+function saveColdQuantumSheet() {
+  const account = activeAccount();
+  const form = coldSheet?.form;
+  if (!account || !form) return;
+  const number = parseUnitNumber(form.number);
+  if (!number.ok) { form.error = number.message; renderColdQuantumSheet(); return; }
+  if (coldSheet.kind === "quantum-add") {
+    const error = addQuantumAddress(account, form.address, number.value, form.chain);
+    if (error) { form.error = error; renderColdQuantumSheet(); return; }
+    closeColdActionsSheet();
+    deps.showToast?.("Quantum-resistant address added.");
+    loadDetail();
+    return;
+  }
+  // Edit Address Number: the stored record, by address (the row may be from before an earlier edit)
+  const record = account.quantumAddresses.find((q) => q.address === String(form.address).toLowerCase());
+  if (record) {
+    record.unitIndex = number.value;
+    record.chain = form.chain === QUANTUM_CHAIN_CHANGE ? QUANTUM_CHAIN_CHANGE : QUANTUM_CHAIN_RECEIVE;
+    saveState();
+  }
+  closeColdActionsSheet();
+  render();
 }
 
 function renderColdActionsSheet() {
@@ -802,6 +1092,9 @@ function renderColdActionsSheet() {
       : `<div class="cold-action-rows">
            ${row("generate", "Generate More Addresses", "Reveals the next unused address in this account.",
                  '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>')}
+           ${/* KasSigner never exports its quantum (22') kpub - it would show every key those addresses
+                hide - so each is scanned from the unit, one at a time (K 961fc05a). */
+             row("add-quantum", "Add Quantum-Resistant Address", "Scan a KCC-3 address from KasSigner's address screen.", SHIELD_ICON)}
            ${row("discover", "Discover Addresses", "Finds addresses holding a balance or a username.",
                  '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>')}
            ${row("open-visibility", "Address Visibility", "Check off every address you want on the list, in one sitting.",
@@ -914,6 +1207,37 @@ function renderVisibility() {
       </div>`;
   }).join("");
 
+  // The account's scanned quantum-resistant addresses, their own section on the first page, apart
+  // from the kpub's pager (K 961fc05a ColdStorageAddressVisibilityView).
+  const quantumRecords = account.quantumAddresses || [];
+  const quantumRowsHtml = visibilityPage === 0 ? quantumRecords.map((record, position) => {
+    const index = COLD_QUANTUM_INDEX_BASE + position;
+    const isVisible = !hiddenSet.has(index);
+    const entry = detailEntries.find((e) => e.index === index);
+    const funded = (entry?.balanceSompi || 0) > 0;
+    const customLabel = (account.labels?.[index] ?? account.labels?.[String(index)] ?? "").toString().trim();
+    const usage = entry?.balanceSompi === undefined ? "…"
+      : funded ? `${(entry.balanceSompi / 1e8).toFixed(4)} ${KAS_UNIT}`
+      : entry.everUsed === undefined ? "…" : entry.everUsed ? "Used" : "Unused";
+    const usageClass = funded || entry?.everUsed === true ? " used" : entry?.everUsed === false ? " unused" : "";
+    const checkSvg = isVisible
+      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path class="spending-vis-check" d="m7.5 12.5 3 3 6-6.5"/></svg>'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.2"/></svg>';
+    return `
+      <div class="spending-visibility-row${isVisible ? "" : " off"}" data-cold-vis-qrow="${deps.escapeHtml(record.address)}">
+        <button type="button" class="spending-visibility-toggle${isVisible ? " on" : ""}${funded ? " locked" : ""}" aria-pressed="${isVisible}" aria-label="Toggle visibility of ${deps.escapeHtml(quantumDefaultLabel(record.chain, record.unitIndex))}">${checkSvg}</button>
+        <div class="spending-visibility-info">
+          <div class="spending-visibility-head">
+            <span class="quantum-shield safe" aria-hidden="true">${COLD_QUANTUM_SHIELD_SVG}</span>
+            <span class="spending-address-index">${deps.escapeHtml(quantumDefaultLabel(record.chain, record.unitIndex))}</span>
+            ${customLabel ? `<span class="spending-visibility-label">${deps.escapeHtml(customLabel)}</span>` : ""}
+            <span class="spending-address-usage spending-visibility-usage${usageClass}">${deps.escapeHtml(usage)}</span>
+          </div>
+          <span class="spending-address-value">${deps.escapeHtml(`${record.address.slice(0, 16)}…${record.address.slice(-6)}`)}</span>
+        </div>
+      </div>`;
+  }).join("") : "";
+
   rootEl.innerHTML = `
     <div class="kaposts-thread-header cold-detail-header">
       <button class="kaposts-icon-button" type="button" data-cold-vis-done aria-label="Back">
@@ -923,6 +1247,7 @@ function renderVisibility() {
       <button class="chatting-address-back spending-visibility-done" type="button" data-cold-vis-done>Done</button>
     </div>
     <div class="manage-address-list spending-visibility-list cold-visibility-list">
+      ${quantumRowsHtml ? `<p class="cold-visibility-section">Quantum-Resistant Addresses</p>${quantumRowsHtml}<p class="cold-visibility-section">Addresses</p>` : ""}
       ${rowsHtml || '<p class="cold-detail-note">Could not derive addresses for this kpub.</p>'}
     </div>
     <div class="manage-address-actions spending-visibility-pager">
@@ -962,6 +1287,34 @@ function renderVisibility() {
       }
     });
   })();
+}
+
+/// A quantum row of Address Visibility (K 961fc05a): its hidden flag at its CURRENT index (an earlier
+/// one may have stopped being watched since the page was drawn). Funded rows don't toggle; hiding
+/// needs a live zero-balance answer, as every other row's.
+async function toggleQuantumVisibility(address) {
+  const account = activeAccount();
+  if (!account) return;
+  const index = quantumIndexOf(account.quantumAddresses, address);
+  if (index === null) return;
+  if ((detailEntries.find((e) => e.address === address)?.balanceSompi || 0) > 0) return;
+  const hiddenSet = new Set(account.hidden.map(Number));
+  if (!hiddenSet.has(index)) {
+    if (!(await addressConfirmedEmpty(address))) return;
+    if (activeAccount() !== account || !showingVisibility) return;
+    const now = quantumIndexOf(account.quantumAddresses, address);
+    if (now === null) return;
+    const latest = new Set(account.hidden.map(Number));
+    latest.add(now);
+    account.hidden = [...latest];
+  } else {
+    hiddenSet.delete(index);
+    account.hidden = [...hiddenSet];
+  }
+  saveState();
+  coldWatchedCache.fingerprint = "";
+  renderVisibility();
+  deps.onWatchedAddressesChanged?.();
 }
 
 async function toggleVisibilityRow(index, address) {
@@ -1010,21 +1363,32 @@ function addressTxRowsHtml(entry) {
   if (addrTxs.state === "loading" && !addrTxs.txs.length) return COLD_LIST_SPINNER;
   if (addrTxs.state === "error") return `<div class="manage-address-empty cold-txs-failed"><span>Could not load transactions.</span><button type="button" class="cold-inline-link" data-cold-txs-retry>Try Again</button></div>`;
   if (!addrTxs.txs.length) return '<div class="manage-address-empty">No transactions yet.</div>';
+  // This account's addresses, for telling change to its own addresses apart from what was sent
+  // (K 961fc05a: a quantum send's change goes to a fresh quantum address of the account).
+  const own = new Set(detailEntries.map((e) => String(e.address || "").toLowerCase()));
   return addrTxs.txs.map((tx) => {
-    const info = deps.txDirectionForAddress(tx, entry.address);
+    let info = deps.txDirectionForAddress(tx, entry.address);
+    let moved = false;
+    if (info?.isOutgoing === true) {
+      const ownChange = ownChangeHistoryAmount(tx, entry.address, own);
+      if (ownChange) {
+        moved = ownChange.moved;
+        info = { isOutgoing: true, amountSompi: ownChange.amountSompi };
+      }
+    }
     const outgoing = info?.isOutgoing === true;
-    const dirClass = outgoing ? "outgoing" : "incoming";
+    const dirClass = moved ? "moved" : outgoing ? "outgoing" : "incoming";
     return `
       <button type="button" class="manage-address-row" data-cold-tx="${deps.escapeHtml(tx.transaction_id || "")}"
-        data-cold-tx-out="${outgoing ? "1" : "0"}"${info ? ` data-cold-tx-amount="${Number(info.amountSompi)}"` : ""}${tx.block_time ? ` data-cold-tx-time="${Number(tx.block_time)}"` : ""}>
-        <span class="manage-address-row-icon ${dirClass}">${outgoing ? "↑" : "↓"}</span>
+        data-cold-tx-out="${outgoing && !moved ? "1" : "0"}"${info ? ` data-cold-tx-amount="${Number(info.amountSompi)}"` : ""}${tx.block_time ? ` data-cold-tx-time="${Number(tx.block_time)}"` : ""}>
+        <span class="manage-address-row-icon ${dirClass}">${moved ? MOVED_ICON : outgoing ? "↑" : "↓"}</span>
         <span class="manage-address-row-meta">
-          <strong>${info == null ? "Transaction" : outgoing ? "Sent" : "Received"}</strong>
+          <strong>${info == null ? "Transaction" : moved ? "Moved" : outgoing ? "Sent" : "Received"}</strong>
           <span class="manage-address-row-txid">${deps.escapeHtml(tx.transaction_id || "")}</span>
           ${tx.block_time ? `<span class="manage-address-row-time">${deps.escapeHtml(new Date(Number(tx.block_time)).toLocaleString())}</span>` : ""}
         </span>
         <span class="manage-address-row-trailing">
-          ${info ? `<span class="manage-address-row-amounts"><span class="manage-address-row-amount ${dirClass}">${outgoing ? "-" : "+"}${fmtKasExact(Number(info.amountSompi))} ${KAS_UNIT}</span>${deps.transactionFeeText?.(tx) ? `<span class="manage-address-row-fee">${deps.escapeHtml(deps.transactionFeeText(tx))}</span>` : ""}</span>` : ""}
+          ${info ? `<span class="manage-address-row-amounts"><span class="manage-address-row-amount ${dirClass}">${moved ? "" : outgoing ? "-" : "+"}${fmtKasExact(Number(info.amountSompi))} ${KAS_UNIT}</span>${deps.transactionFeeText?.(tx) ? `<span class="manage-address-row-fee">${deps.escapeHtml(deps.transactionFeeText(tx))}</span>` : ""}</span>` : ""}
           <span class="manage-address-row-open" aria-hidden="true">${EXTERNAL_ICON}</span>
         </span>
       </button>`;
@@ -1041,13 +1405,19 @@ function addressUtxoRowsHtml(entry) {
       : '<div class="manage-address-empty">No UTXOs.</div>';
   }
   const labels = coldUtxoLabels(entry.address);
-  // Compound row above the list when >1 UTXO, matching iOS's UTXOs-tab section.
-  const compoundRow = addrUtxos.entries.length > 1
+  // Compound row above the list when >1 UTXO, matching iOS's UTXOs-tab section. Compound on a
+  // quantum address moves its coins to another quantum address of the account (the merge puts its
+  // key on chain), so it's offered only when the account has another (K 961fc05a canCompound).
+  const quantum = isColdQuantumIndex(entry.index);
+  const canCompound = !quantum || (activeAccount()?.quantumAddresses?.length || 0) > 1;
+  const compoundRow = addrUtxos.entries.length > 1 && canCompound
     ? `<button type="button" class="cold-compound-row" data-cold-compound>
          ${MERGE_ICON}
          Compound UTXOs
        </button>
-       <p class="cold-compound-note">Combines all UTXOs at this address into a single one, to reduce the number of inputs a future send needs.</p>`
+       <p class="cold-compound-note">${quantum
+         ? "Combines all UTXOs at this address into one at an unused quantum-resistant address of this account, since this puts this address's key on chain."
+         : "Combines all UTXOs at this address into a single one, to reduce the number of inputs a future send needs."}</p>`
     : "";
   // iOS utxoRow: icon, then the label, the amount and the outpoint stacked; "Coinbase" and the
   // rename pencil at the end.
@@ -1282,6 +1652,9 @@ function sendExceedsBalance() {
 /** Reference mass: fixed 1-input/2-output guess until the input count is known; the
  *  compound flow's fixed UTXO set uses its exact count (iOS referenceMass). */
 function sendReferenceMass() {
+  // A quantum source's inputs carry the 101-byte signature script and its outputs P2SH scripts
+  // (K 961fc05a): priced as such, or the fee shown would read short of the one built.
+  if (send.isQuantumSource) return calculateMass(Math.max(send.manualUtxoKeys?.length || 0, 1), [35, 35], 0, 1, KCC3_SIG_SCRIPT_LEN);
   if (send.manualUtxoKeys?.length) return calculateMass(send.manualUtxoKeys.length, [34, 34], 0);
   return REFERENCE_MASS_FOR_FEE_EDITOR;
 }
@@ -1356,20 +1729,30 @@ function sendAvailableSompi(entry) {
 async function openSendFlow({ compound = false } = {}) {
   const entry = detailEntries.find((e) => e.index === activeAddressIndex);
   if (!entry) return;
+  // A KasSigner quantum-resistant (KCC-3) address (K 961fc05a): every coin goes, the change (or a
+  // compound) goes to another quantum address of the account, and the request is KSPT 0x06.
+  const isQuantumSource = isColdQuantumIndex(entry.index) && isScriptHashAddress(deps.engine, entry.address);
+  // Compound into the address itself; a quantum address compounds into a fresh one instead, picked
+  // once the sheet is up (setupSendCompound).
+  const compoundsIntoItself = compound && !isQuantumSource;
   send = {
     // "to" | "amount" | "review" | "fee" | "coincontrol" | "qr" | "scanning" | "signed" | "failed"
     step: compound ? "review" : "to",
     isCompound: compound,
+    isQuantumSource,
+    // The quantum address this flow reserved for its change (or, compounding a quantum address, as
+    // the destination), handed back if the send never goes out.
+    reservedChange: null,
     fromAddress: entry.address,
     // What the address screen shows: its UTXOs' total once loaded, else the listed balance. The
     // Amount step says when the amount is more than this.
     availableSompi: sendAvailableSompi(entry),
-    toInput: compound ? entry.address : "",
+    toInput: compoundsIntoItself ? entry.address : "",
     resolvedAddress: null,
     resolvedDomain: null,
     nameError: null,
     resolvingName: false,
-    validAddress: compound,
+    validAddress: compoundsIntoItself,
     amountText: "",
     amountUnit: "kas", // "kas" | "fiat" — which unit the amount field is typed in
     price: null,       // live KAS price in the user's selected currency
@@ -1440,6 +1823,21 @@ async function openSendFlow({ compound = false } = {}) {
 async function setupSendCompound() {
   const flow = send;
   if (!flow) return;
+  if (flow.isQuantumSource && !flow.reservedChange) {
+    // Compounding reveals the key, so the merged coin must not stay here: it goes to an unused
+    // quantum address of the account, reserved now and kept for the flow (K 961fc05a).
+    const fresh = await freshQuantumChangeAddress(flow.fromAddress);
+    if (send !== flow) { releaseQuantumChange(fresh); return; }
+    if (!fresh) {
+      flow.step = "failed";
+      flow.error = QUANTUM_COMPOUND_NEEDS_FRESH_ADDRESS;
+      renderSendFlow();
+      return;
+    }
+    flow.reservedChange = fresh;
+    flow.toInput = fresh;
+    flow.validAddress = true;
+  }
   try {
     const { utxoKeys, hasMore } = await compoundInputs({ engine: deps.engine, fromAddress: flow.fromAddress });
     if (send !== flow) return;
@@ -1459,6 +1857,8 @@ function closeSendFlow() {
   stopSendScan();
   closeActiveScanner(); // a recipient scan opened from this sheet must not outlive it
   if (sendPreviewTimer) { clearTimeout(sendPreviewTimer); sendPreviewTimer = null; }
+  // Closed before the send went out: the change address goes back to the pool (K 961fc05a).
+  if (send && !send.sent) releaseQuantumChange(send.reservedChange);
   send = null;
   sendShownStep = null;
   sendSwipe?.reset();
@@ -1491,6 +1891,7 @@ function scheduleSendPreview() {
     if (send !== flow) return;
     const preview = await previewAutomaticSelection({
       engine: deps.engine, fromAddress: flow.fromAddress, amountSompi, feeRateSompiPerGram: rate,
+      toAddress: sendEffectiveAddress() || null,
     });
     if (send !== flow || !SEND_FORM_STEPS.has(flow.step)) return;
     if (sendAmountSompi() !== amountSompi) return; // superseded by newer input
@@ -1573,6 +1974,7 @@ async function sendSetMax({ refill = false } = {}) {
       fromAddress: flow.fromAddress,
       feeRateOverride: sendFeeRateOverride(),
       manualUtxoKeys: flow.manualUtxoKeys,
+      toAddress: sendEffectiveAddress() || null,
     });
     if (send !== flow) return;
     const maxKas = Number(maxSompi) / 1e8;
@@ -1666,7 +2068,21 @@ async function sendBuild() {
   flow.building = true;
   flow.error = null;
   renderSendFlow();
+  // A quantum source's change goes to a fresh quantum address of the account: this spend makes the
+  // source's key public, and the build refuses change back to it. A rebuild hands the earlier pick
+  // back and chooses again; a quantum compound's destination was reserved when it opened and stays
+  // (K 961fc05a buildTransaction).
+  const quantum = quantumRecordFor(flow.fromAddress);
+  const pickChange = flow.isQuantumSource && !flow.isCompound;
+  let changeAddress = null;
   try {
+    if (pickChange) {
+      releaseQuantumChange(flow.reservedChange);
+      flow.reservedChange = null;
+      changeAddress = await freshQuantumChangeAddress(flow.fromAddress);
+      if (send !== flow) { releaseQuantumChange(changeAddress); return; }
+      flow.reservedChange = changeAddress;
+    }
     // Real coin control (compound's fixed set) wins; else a fresh automatic preview's
     // exact set passes through so the shown fee and the built fee are the same number.
     const unsigned = await buildUnsignedTransaction({
@@ -1678,8 +2094,16 @@ async function sendBuild() {
       manualUtxoKeys: flow.manualUtxoKeys ?? flow.preview?.utxoKeys ?? null,
       // the preview's keys, not a coin-control pick: re-chosen if they miss the coin to lead with
       previewed: !flow.manualUtxoKeys && Boolean(flow.preview?.utxoKeys),
+      changeAddress,
+      quantumUnitIndex: flow.isQuantumSource ? (quantum?.record?.unitIndex ?? null) : null,
+      quantumUnitChain: quantum?.record?.chain ?? QUANTUM_CHAIN_RECEIVE,
     });
-    if (send !== flow) return;
+    if (send !== flow) { if (pickChange) releaseQuantumChange(changeAddress); return; }
+    // No change after all (a Max send): the address isn't taken.
+    if (pickChange && changeAddress && !unsigned.changeAddress) {
+      releaseQuantumChange(changeAddress);
+      flow.reservedChange = null;
+    }
     flow.unsigned = unsigned;
     flow.frames = chunkQrFrames(unsignedToKsptBytes(unsigned));
     flow.frameIndex = 0;
@@ -1696,6 +2120,10 @@ async function sendBuild() {
     startSendFrameTimer();
   } catch (error) {
     // A build that fails goes to the failed screen with Try Again (iOS buildTransaction).
+    if (pickChange) {
+      releaseQuantumChange(changeAddress);
+      if (send === flow) flow.reservedChange = null;
+    }
     if (send !== flow) return;
     flow.building = false;
     flow.step = "failed";
@@ -1799,6 +2227,11 @@ async function startSendScan() {
         if (progress && (send.scanProgress?.received !== progress.received || send.scanProgress?.total !== progress.total)) {
           send.scanProgress = { ...progress, indices: accumulator.receivedFrameIndices };
           renderSendScanProgress();
+        } else if (!progress && send.scanProgress) {
+          // A v1.1 set that failed its digest check starts over: the count goes back to the
+          // prompt and fills again (K 961fc05a MultiFrameQRScannerView).
+          send.scanProgress = null;
+          renderSendScanProgress();
         }
         if (complete) {
           stopSendScan();
@@ -1853,9 +2286,17 @@ async function sendBroadcast() {
   sendSwipe?.setBusy(true);
   try {
     const txId = await broadcastSigned({ engine: deps.engine, unsigned: flow.unsigned, decoded: flow.decoded });
+    if (flow.unsigned.isQuantumSource) {
+      // The quantum address that took the change (or the compound) is used from now on, whatever
+      // the history API says until it indexes the transaction; it stays reserved for the session.
+      // The source's key is on chain now: its shield is slashed and it is never change again.
+      markQuantumAddress("used", flow.isCompound ? flow.reservedChange : flow.unsigned.changeAddress);
+      markQuantumAddress("spent", flow.fromAddress);
+      detailQuantumSpent.add(String(flow.fromAddress).toLowerCase());
+    }
+    flow.sent = true;
     if (send !== flow) return;
     flow.txId = txId;
-    flow.sent = true;
     flow.broadcasting = false;
     sendSwipe?.setSent({
       txid: txId,
@@ -2009,8 +2450,46 @@ function sendReviewAmountHtml(amountSompi) {
 }
 
 function sendToRowValueHtml(recipient) {
-  if (send.isCompound) return deps.escapeHtml("This address (consolidating)");
-  return reviewAddressHtml({ name: recipient?.name || null, address: recipient?.address || "" });
+  // A quantum address compounds into a fresh quantum address of the account, named (K 961fc05a).
+  if (send.isCompound && !send.isQuantumSource) return deps.escapeHtml("This address (consolidating)");
+  if (send.isCompound && !recipient?.address) return '<span class="sk-spinner" aria-hidden="true"></span>';
+  const name = recipient?.name || (send.isQuantumSource && quantumRecordFor(recipient?.address) ? quantumDisplayLabel(recipient.address) : null);
+  return reviewAddressHtml({ name, address: recipient?.address || "" });
+}
+
+/// What is different about a send from a quantum-resistant address (K 961fc05a quantumSendNote): the
+/// unit must know KCC-3, every coin goes (this spend puts the address's key on chain), and where the
+/// change goes - named here, since KasSigner marks it as change only for its change addresses #0-4.
+function sendQuantumNoteHtml(unsigned) {
+  const esc = deps.escapeHtml;
+  // A quantum compound's only output is the fresh address it moves to.
+  const ownOutput = send.isCompound ? send.reservedChange : unsigned.changeAddress;
+  const found = ownOutput ? quantumRecordFor(ownOutput) : null;
+  const marked = unitMarksAsChange(found?.record);
+  return `
+    <div class="sk-card cold-quantum-note">
+      <p class="cold-quantum-note-line">${SHIELD_ICON}<span>Needs KasSigner v1.1 or later, which signs quantum-resistant (KCC-3) addresses.</span></p>
+      ${unsigned.coinsLeftBehind > 0
+        ? `<p class="cold-quantum-note-line warn">${WARNING_ICON}<span>This address holds more coins than one transaction can spend: ${unsigned.coinsLeftBehind} stay behind the key this send puts on chain. Send them on in another transaction right after.</span></p>`
+        : ""}
+      ${ownOutput
+        ? `<div class="cold-quantum-note-line"><span class="cold-quantum-note-turn" aria-hidden="true">↩</span><span>
+             ${send.isCompound ? "The coins move to your quantum address:" : "The change goes to your quantum address:"}
+             <strong class="cold-quantum-note-name">${esc(quantumDisplayLabel(ownOutput))}</strong>
+             <code class="cold-quantum-note-address">${esc(`${ownOutput.slice(0, 14)}...${ownOutput.slice(-8)}`)}</code>
+             ${marked
+               ? "<span>KasSigner shows this output as change.</span>"
+               : '<span class="cold-quantum-note-warn">KasSigner will show this output as an ordinary payment, not as change: check it is this address before you sign.</span>'}
+           </span></div>`
+        : ""}
+    </div>
+    ${Number.isInteger(unsigned.quantumUnitIndex)
+      // The request names the address's number on the unit. A wrong one (or the wrong chain) makes
+      // the unit refuse it; this shows the same transaction again with no number, and the unit
+      // searches its quantum addresses itself.
+      ? `<button type="button" class="secondary-button cold-quantum-no-number" data-cold-send-no-number>Sign Without the Address Number</button>
+         <p class="sk-caption cold-send-center">If KasSigner refuses this request, the address number may be wrong. Without it, the unit looks for the address itself. Edit Address Number puts it right for next time.</p>`
+      : ""}`;
 }
 
 /** To, From, the fee and the total, as built (iOS summaryCard). */
@@ -2091,15 +2570,19 @@ function sendStepHtml() {
               ${reviewRowHtml("From", reviewAddressHtml({ name: "Cold Storage", address: send.fromAddress }))}
               ${reviewRowHtml("Total", total)}
             </div>
-            ${send.isCompound ? `<p class="sk-caption cold-send-center">${send.compoundHasMore
+            ${send.isCompound ? `<p class="sk-caption cold-send-center">${send.isQuantumSource
+              ? "Moves all of this address's coins into one, at an unused quantum-resistant address of this account: this transaction puts this address's key on chain."
+              : send.compoundHasMore
               ? `This address has more than ${KSPT_MAX_INPUTS} UTXOs. KasSigner can sign at most ${KSPT_MAX_INPUTS} inputs per transaction, so this merges the largest ${KSPT_MAX_INPUTS} into one. Run Compound again afterward to keep combining the rest.`
               : "Merges all of this address's UTXOs into a single one, so future sends need fewer inputs."}</p>` : ""}
             ${feeControlsHtml({
               prefix: "cold-send",
               feeText: `~${formatSompiPlain(fee)} ${KAS_UNIT}`,
               tier: send.customExtraFeeSompi !== null ? null : send.feeTier,
-              // Compound manages its own input set (the largest KasSigner can sign at once).
-              showCoinControl: !send.isCompound,
+              // Compound manages its own input set (the largest KasSigner can sign at once). A
+              // quantum source spends every coin (none may stay behind its revealed key), so there
+              // is nothing to pick there either (K 961fc05a).
+              showCoinControl: !send.isCompound && !send.isQuantumSource,
               coinSummary: coinControlSummaryText(send.manualUtxoKeys?.length || 0),
               editPill: true,
             })}
@@ -2185,7 +2668,8 @@ function sendStepHtml() {
               <p class="cold-send-frame-counter" data-cold-send-frame-counter>Frame ${send.frameIndex + 1} / ${send.frames.length}</p>` : ""}
           </div>
           <p class="cold-send-footnote">KasSigner shows what it is signing. Check it matches, sign, then scan the signed transaction it shows.</p>
-          ${sendSummaryCardHtml()}`,
+          ${sendSummaryCardHtml()}
+          ${send.unsigned?.isQuantumSource ? sendQuantumNoteHtml(send.unsigned) : ""}`,
       });
 
     case "scanning":
@@ -2461,7 +2945,21 @@ function buildModals() {
   actionsModal.addEventListener("mousedown", (event) => { if (event.target === actionsModal) closeColdActionsSheet(); });
   // Typed values live in `coldSheet.details`, not only in the DOM: switching Buy/Sell re-renders
   // the step, and anything held only in an input would be wiped by that.
+  // The quantum sheet's fields (K 961fc05a), kept in `coldSheet.form` and updated in place.
+  actionsModal.addEventListener("submit", (event) => {
+    if (!event.target.matches("[data-cold-q-form]")) return;
+    event.preventDefault();
+    saveColdQuantumSheet();
+  });
   actionsModal.addEventListener("input", (event) => {
+    if (coldSheet?.form && (coldSheet.kind === "quantum-add" || coldSheet.kind === "quantum-number")) {
+      if (event.target.matches("[data-cold-q-address]")) coldSheet.form.address = event.target.value;
+      else if (event.target.matches("[data-cold-q-number]")) coldSheet.form.number = event.target.value;
+      else return;
+      const save = actionsModal.querySelector("[data-cold-q-save]");
+      if (save && coldSheet.kind === "quantum-add") save.disabled = !coldSheet.form.address.trim();
+      return;
+    }
     if (coldSheet?.kind !== "portfolio-details") return;
     const target = event.target;
     if (target.matches("[data-cold-pf-amount]")) coldSheet.details.amount = target.value;
@@ -2521,8 +3019,58 @@ function buildModals() {
       handleAddressAction(addrAction.dataset.coldAddrAction, Number(addrAction.dataset.index));
       return;
     }
-    const action = event.target.closest("[data-cold-generate], [data-cold-discover], [data-cold-refresh], [data-cold-open-visibility], [data-cold-copy-kpub]");
+    // --- Add Quantum-Resistant Address / Edit Address Number (K 961fc05a) ---
+    const chainPick = event.target.closest("[data-cold-q-chain]");
+    if (chainPick && coldSheet?.form) {
+      coldSheet.form.chain = Number(chainPick.dataset.coldQChain) === QUANTUM_CHAIN_CHANGE ? QUANTUM_CHAIN_CHANGE : QUANTUM_CHAIN_RECEIVE;
+      renderColdQuantumSheet();
+      return;
+    }
+    if (event.target.closest("[data-cold-q-paste]") && coldSheet?.form) {
+      const sheet = coldSheet;
+      (async () => {
+        try {
+          const text = (await navigator.clipboard.readText())?.trim();
+          if (!text || coldSheet !== sheet) return;
+          sheet.form.address = text;
+          sheet.form.error = null;
+          renderColdQuantumSheet();
+        } catch { deps.showToast?.("Clipboard unavailable. Paste into the field directly."); }
+      })();
+      return;
+    }
+    if (event.target.closest("[data-cold-q-scan]") && coldSheet?.form) {
+      const sheet = coldSheet;
+      (async () => {
+        let scanned = null;
+        // the address field takes a payment URI's query off itself; a frame that isn't a KCC-3
+        // address keeps scanning
+        try {
+          scanned = await scanQrCode({
+            title: "Scan a Quantum-Resistant Address",
+            hint: "Line up the KCC-3 address QR code KasSigner shows",
+            manualTitle: "Enter it manually",
+            manualLabel: "Quantum-resistant address",
+            manualPlaceholder: "kaspa:p...",
+            mono: true,
+            normalize: quantumAddressInput,
+            validate: (value) => (isColdQuantumAddressText(value) ? null : "That isn't a quantum-resistant address. Scan the KCC-3 address KasSigner shows."),
+          });
+        }
+        catch { deps.showToast?.("The QR scanner could not be opened. Paste or type the address instead."); return; }
+        if (!scanned || coldSheet !== sheet) return;
+        sheet.form.address = String(scanned).trim();
+        sheet.form.error = null;
+        renderColdQuantumSheet();
+      })();
+      return;
+    }
+    const action = event.target.closest("[data-cold-generate], [data-cold-add-quantum], [data-cold-discover], [data-cold-refresh], [data-cold-open-visibility], [data-cold-copy-kpub]");
     if (!action || action.disabled) return;
+    if (action.matches("[data-cold-add-quantum]")) {
+      openColdSheet({ kind: "quantum-add", form: { address: "", number: "", chain: QUANTUM_CHAIN_RECEIVE, error: null } });
+      return;
+    }
     if (action.matches("[data-cold-copy-kpub]")) {
       // the only place an account's kpub leaves the app (K b0f0a4e6); off the clipboard in 30 s
       const account = activeAccount();
@@ -2693,6 +3241,26 @@ function buildModals() {
       return;
     }
     if (event.target.closest("[data-cold-send-frame-play]")) { send.playing = !send.playing; drawSendFrame(); return; }
+    // Sign Without the Address Number (K 961fc05a signWithoutNumberButton): the same transaction,
+    // its 0x06 request with no KCC-3 hint, so the unit searches its quantum addresses itself.
+    if (event.target.closest("[data-cold-send-no-number]")) {
+      if (send.step !== "qr" || !send.unsigned?.isQuantumSource) return;
+      try {
+        const withoutHint = { ...send.unsigned, quantumUnitIndex: null };
+        send.frames = chunkQrFrames(unsignedToKsptBytes(withoutHint));
+        send.unsigned = withoutHint;
+        send.frameIndex = 0;
+        send.playing = true;
+        renderSendFlow();
+        startSendFrameTimer();
+      } catch (error) {
+        stopSendFrameTimer();
+        send.step = "failed";
+        send.error = error.message;
+        renderSendFlow();
+      }
+      return;
+    }
   });
   sendBody.addEventListener("input", (event) => {
     if (!send) return;
@@ -2883,19 +3451,43 @@ async function loadDetail({ useCache = true } = {}) {
   // account paints last-known balances/badges immediately instead of a wall of "…".
   const previous = new Map(detailEntries.map((e) => [e.address, e]));
   const persisted = useCache ? loadPersistedAccountCache(account.id) : null;
-  detailEntries = derived.map((address, index) => ({
+  const seeded = (index, address) => ({
     index,
     address,
     balanceSompi: useCache ? (balanceCache.get(address) ?? persisted?.balances?.[address]) : undefined,
     everUsed: useCache ? (previous.get(address)?.everUsed ?? persisted?.used?.[address]) : undefined,
-  }));
+  });
+  // The quantum addresses added by scan, after the regular ones, at base + their place in the
+  // order added (K 961fc05a ColdStorageManager.getAddressList).
+  const quantum = (account.quantumAddresses || []).map((q) => q.address);
+  detailEntries = [
+    ...derived.map((address, index) => seeded(index, address)),
+    ...quantum.map((address, position) => seeded(COLD_QUANTUM_INDEX_BASE + position, address)),
+  ];
+  const all = [...derived, ...quantum];
   detailLoading = true;
   render();
+
+  // Which quantum addresses have spent, putting their key on chain (the slashed shield): asked one
+  // at a time behind the list, marked for good once found.
+  if (quantum.length) {
+    detailQuantumSpent = new Set(quantum.filter((a) => loadQuantumMarks().spent.has(a)));
+    (async () => {
+      for (const address of quantum) {
+        if (detailQuantumSpent.has(address)) continue;
+        const spent = await coldQuantumSpentState(address);
+        if (detailToken !== token) return;
+        if (spent === true) { detailQuantumSpent.add(address); render(); }
+      }
+    })();
+  } else {
+    detailQuantumSpent = new Set();
+  }
 
   // All balances in one batched gRPC call (the same thing that makes iOS fast). The old
   // per-address REST loop survives only as the fallback for when the node pool is down.
   try {
-    const balances = await fetchBalancesBatch(derived);
+    const balances = await fetchBalancesBatch(all);
     if (detailToken !== token) return;
     for (const entry of detailEntries) {
       entry.balanceSompi = balances.get(entry.address) ?? 0;
@@ -3287,7 +3879,10 @@ async function handleAddressAction(action, index) {
       return;
     }
     if (activeAccount() !== account) return;
-    if (!account.hidden.includes(index)) account.hidden.push(index);
+    // a quantum row files under its index now (K 961fc05a currentIndex)
+    const at = currentIndexOf(account, entry);
+    if (at === null) return;
+    if (!account.hidden.map(Number).includes(at)) account.hidden.push(at);
     saveState();
     // Updated in place - the row just leaves the list; nothing else needs fetching again.
     render();
@@ -3302,11 +3897,36 @@ async function handleAddressAction(action, index) {
       required: false,
     });
     if (label === null) return;
+    const at = currentIndexOf(account, entry);
+    if (at === null) return;
     const trimmed = label.trim();
-    if (trimmed) account.labels[index] = trimmed;
-    else { delete account.labels[index]; delete account.labels[String(index)]; }
+    if (trimmed) account.labels[at] = trimmed;
+    else { delete account.labels[at]; delete account.labels[String(at)]; }
     saveState();
     render();
+  } else if (action === "edit-number" && isColdQuantumIndex(index)) {
+    // Edit Address Number (K ColdQuantumAddressNumberSheet): the stored record, not the row.
+    const record = account.quantumAddresses.find((q) => q.address === String(entry.address).toLowerCase());
+    if (!record) return;
+    openColdSheet({
+      kind: "quantum-number",
+      form: { address: record.address, number: Number.isInteger(record.unitIndex) ? String(record.unitIndex) : "", chain: record.chain, error: null },
+    });
+  } else if (action === "stop-watching" && isColdQuantumIndex(index)) {
+    // With coins on it, only after saying so: they stay on chain, on the unit (K 961fc05a).
+    if ((entry.balanceSompi || 0) > 0) {
+      const confirmed = await confirmModal({
+        title: "Stop Watching This Address?",
+        message: `Its ${fmtKasExact(entry.balanceSompi)} ${KAS_UNIT} stay on chain at this address, on your KasSigner; K only stops showing them. Scan the address again from KasSigner to watch it again.`,
+        okLabel: "Stop Watching",
+      });
+      if (!confirmed || activeAccount() !== account) return;
+    }
+    removeQuantumAddress(account, entry.address);
+    if (activeAddressIndex !== null) activeAddressIndex = null;
+    detailEntries = detailEntries.filter((e) => e.address !== entry.address);
+    render();
+    loadDetail();
   }
 }
 
@@ -3406,6 +4026,10 @@ async function removeActiveAccount() {
   dropPersistedAccountCache(account.id);
   // its coin labels go too (KaPay 5848fb0) - unless another account here watches the same key
   if (!accounts.some((a) => a.kpub === account.kpub)) dropColdUtxoLabelsFor(account);
+  // a quantum address's coin labels go with the last account watching it (K 961fc05a)
+  dropColdQuantumUtxoLabels(account);
+  coldWatchedCache.fingerprint = "";
+  deps.onWatchedAddressesChanged?.();
   saveColdSpot(null);
   activeAccountId = null;
   render();
@@ -3429,6 +4053,10 @@ export function openColdAccountForAddress(address) {
   const target = String(address || "").trim();
   if (!target) return false;
   for (const account of accounts) {
+    if ((account.quantumAddresses || []).some((q) => q.address === target.toLowerCase())) {
+      openAccount(account.id);
+      return true;
+    }
     try {
       const derived = deriveReceiveAddresses(account.kpub, 0, account.maxIndex + 1);
       if (!derived.includes(target)) continue;
@@ -3449,9 +4077,10 @@ export async function openColdAddressHistory(address) {
   if (!target) return false;
   for (const account of accounts) {
     let derived = [];
-    try { derived = deriveReceiveAddresses(account.kpub, 0, account.maxIndex + 1); } catch { continue; }
-    const index = derived.indexOf(target);
-    if (index < 0) continue;
+    try { derived = deriveReceiveAddresses(account.kpub, 0, account.maxIndex + 1); } catch { derived = []; }
+    // a quantum address added by scan sits at base + its place (K 961fc05a)
+    const index = derived.includes(target) ? derived.indexOf(target) : quantumIndexOf(account.quantumAddresses, target);
+    if (index === null || index < 0) continue;
     // A screen left open on another address must not repaint as this account's address.
     activeAddressIndex = null;
     const opening = openAccount(account.id);
@@ -3468,17 +4097,23 @@ export async function openColdAddressHistory(address) {
 export function listColdWatchedAddresses() {
   if (!deps) return [];
   loadState();
-  const fingerprint = `${deps.engine?.address || ""}|${accounts.map((a) => `${a.id}:${a.maxIndex}:${a.hidden.join(".")}`).join(",")}`;
+  const fingerprint = `${deps.engine?.address || ""}|${accounts.map((a) => `${a.id}:${a.maxIndex}:${a.hidden.join(".")}:${(a.quantumAddresses || []).map((q) => q.address).join("+")}`).join(",")}`;
   if (coldWatchedCache.fingerprint === fingerprint) return coldWatchedCache.list;
   const list = [];
   for (const account of accounts) {
+    // `hidden`: still ours (the self-send check), but only the addresses on screen notify
+    // (K 428a797b AddressActivityNotifier watches the visible ones).
+    const hidden = new Set(account.hidden.map(Number));
     try {
       const addresses = deriveReceiveAddresses(account.kpub, 0, account.maxIndex + 1);
-      // `hidden`: still ours (the self-send check), but only the addresses on screen notify
-      // (K 428a797b AddressActivityNotifier watches the visible ones).
-      const hidden = new Set(account.hidden.map(Number));
       addresses.forEach((address, index) => list.push({ address, index, label: account.label, notify: account.receiveNotifications !== false, hidden: hidden.has(index) }));
     } catch { /* a bad kpub just contributes nothing */ }
+    // the KasSigner quantum addresses added by scan, after the derived ones (K 961fc05a): watched
+    // for Received KAS like the rest
+    (account.quantumAddresses || []).forEach((q, position) => {
+      const index = COLD_QUANTUM_INDEX_BASE + position;
+      list.push({ address: q.address, index, label: account.label, notify: account.receiveNotifications !== false, hidden: hidden.has(index) });
+    });
   }
   coldWatchedCache.fingerprint = fingerprint;
   coldWatchedCache.list = list;
@@ -3589,6 +4224,8 @@ export function initColdStorage(dependencies) {
       renderVisibility();
       return;
     }
+    const visQRow = event.target.closest("[data-cold-vis-qrow]");
+    if (visQRow) { toggleQuantumVisibility(visQRow.dataset.coldVisQrow || ""); return; }
     const visRow = event.target.closest("[data-cold-vis-row]");
     if (visRow) {
       toggleVisibilityRow(Number(visRow.dataset.coldVisRow), visRow.dataset.address || "");

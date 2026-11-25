@@ -6123,7 +6123,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .portfolio-chart-area { fill-opacity: .12; }
 .portfolio-xaxis { display: flex; justify-content: space-between; margin-top: 6px; color: var(--muted); font-size: 11px; }
 
-.portfolio-about-text { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 
 /* Transactions ledger (iOS PortfolioTransactionsView) */
 .portfolio-tx-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
@@ -6651,18 +6650,6 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .portfolio-stat-row + .portfolio-stat-row { border-top: 1px solid var(--line); }
 .portfolio-stat-row .portfolio-stat-label { font-size: 13px; color: var(--muted); }
 .portfolio-stat-row .portfolio-stat-value { font-size: 15px; font-weight: 700; text-align: right; }
-/* Mining payouts: the period on the left, KAS over its fiat value on the right. Stacked so the
-   two numbers read as one answer in two currencies rather than as two separate figures. */
-.portfolio-payout-rows { margin-top: 4px; }
-.portfolio-payout-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 10px 0; }
-.portfolio-payout-row + .portfolio-payout-row { border-top: 1px solid var(--line); }
-.portfolio-payout-label { font-size: 13px; color: var(--muted); padding-top: 1px; }
-.portfolio-payout-values { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
-.portfolio-payout-kas { font-size: 15px; font-weight: 700; }
-.portfolio-payout-fiat { font-size: 12px; color: var(--muted); }
-.portfolio-hashrate-entry { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
-.portfolio-hashrate-entry .portfolio-editor-field { flex: 1 1 160px; }
-.portfolio-hashrate-entry .settings-segmented { flex: 0 0 auto; }
 /* Sub-screens stack cards too - the chart, the converter, the stats, the blurb - and they were
    as tight as the main screen's. */
 [data-portfolio-root] > .profile-card { margin-bottom: 18px; }
@@ -9105,7 +9092,6 @@ button.chess-t-row { cursor: pointer; }
 .portfolio-converter-row span { width: 44px; flex: 0 0 auto; font-size: 13px; font-weight: 650; color: var(--muted); }
 .portfolio-converter-row input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 20px; font-weight: 650; text-align: right; outline: none; }
 .portfolio-converter-row em { width: 44px; flex: 0 0 auto; text-align: right; font-style: normal; font-size: 13px; color: var(--muted); }
-.portfolio-hashrate-field { flex: 1 1 160px; font-size: 18px; font-weight: 650; }
 .portfolio-tx-icon-btn { display: inline-flex; align-items: center; gap: 3px; border: 0; background: transparent; padding: 2px; cursor: pointer; color: var(--kaspa-ink); font: inherit; font-size: 14px; font-weight: 650; }
 .portfolio-tx-icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .portfolio-tx-icon-btn.portfolio-select-delete { color: var(--ios-red); }
@@ -11928,6 +11914,22 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
 /* --- Chats list / Create chat / New Group / Add Members / Group Info / User Info (iOS parity) --- */
 /* The fixed "Chats" title over the fixed search field (iOS PinnedListHeader, KaChat-iPhone d063b897). */
 .chats-list-title { margin: 6px 16px 0; }
+/* KaChat's title with the Chats / Public Chats cycle button beside it (K 961fc05a pageCycleButton),
+   whose red count is the public chats' unread on either page. */
+.chats-title-row { display: flex; align-items: center; gap: 12px; min-width: 0; margin: 6px 16px 0; }
+.chats-title-row > .chats-list-title { flex: 0 0 auto; margin: 0; }
+/* The top bar is transparent and taller than its controls, and the Chats / Public Chats button sits
+   under its lower edge: only the bar's own controls take clicks, the rest falls through. */
+.app-topbar { pointer-events: none; }
+.app-topbar > * { pointer-events: auto; }
+.chats-page-cycle-wrap { position: relative; display: inline-flex; flex: 0 1 auto; min-width: 0; margin-top: 4px; }
+.chats-page-cycle-wrap > .chats-page-cycle { max-width: 100%; }
+.chats-page-cycle-badge {
+  position: absolute; top: -7px; right: -6px; box-sizing: border-box;
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  background: var(--ios-red); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px;
+  text-align: center; font-variant-numeric: tabular-nums; pointer-events: none;
+}
 .pinned-search { display: flex; align-items: center; gap: 10px; }
 .pinned-search input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
 .pinned-search-cancel { flex: 0 0 auto; padding: 0; border: 0; background: none; color: var(--kaspa-ink); font-size: 17px; cursor: pointer; }
@@ -12555,23 +12557,6 @@ button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid v
   /* The chatting balance (iOS 6e938ff: no Buy From pill) keeps clear of the trailing capsule. */
   body:has([data-app-tab-screen="kachat-names"]:not([hidden]) [data-kmkt-header-actions]) [data-toolbar-balance] { padding-right: 80px; }
 }
-/* iOS KaChatStatsView hero: chart.bar.xaxis filled at 34pt, the total at 44pt heavy rounded. */
-.kstats-hero-icon svg.filled { fill: currentColor; stroke: none; width: 40px; height: 40px; }
-.kstats-hero-total { font-size: clamp(26px, 11.7vw, 44px); }
-@media (max-width: 859px) {
-  /* Inline title under the balance; refresh (the web's stand-in for pull to refresh) and
-     "What counts" in the toolbar's trailing capsule. */
-  .kstats-header > .kaposts-title { display: none; }
-  .kstats-header { min-height: 0; margin: 0; padding: 0; }
-  .kstats-toolbar-actions {
-    position: fixed; z-index: 301; top: calc(10px + var(--safe-top, 0px)); right: calc(20px + var(--safe-right, 0px));
-    height: 40px; padding: 0 3px; gap: 0; display: flex; align-items: center; border-radius: 999px;
-    border: 1px solid var(--bar-separator, var(--line)); background: var(--fill-tertiary, rgba(255,255,255,.06));
-  }
-  .kstats-toolbar-actions .kaposts-icon-button { width: 34px; height: 36px; padding: 0; color: var(--kaspa-ink); background: none; border: 0; }
-  .kstats-toolbar-actions .kaposts-icon-button svg { width: 24px; height: 24px; }
-  body:has([data-app-tab-screen="kachat-stats"]:not([hidden]) .kstats-toolbar-actions) .toolbar-balance { padding-right: 56px; }
-}
 /* iOS PublicChatMessageRow: the name above the bubble (caption, semibold, accent; "You" on your
    own), a reply's quote as its own small box, then the bubble holding just the text, then the
    time line under it - the bubble is the text, not the whole stack. */
@@ -12777,6 +12762,10 @@ html.touch :is(button, [role="button"], a, .action-tile):focus-visible { outline
 .boot-splash-version { color: rgba(235, 235, 245, .55); font: 500 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-variant-numeric: tabular-nums; letter-spacing: .01em; }
 .boot-splash-version:empty { display: none; }
 html.app-ready .boot-splash { display: none; }
+/* Switching accounts (K 961fc05a isSwitchingAccount): the launch screen's globe between the Log Out
+   and the sign-in, never the sign-in screen. Under the password prompt (2100) and the dialogs
+   (3000), over everything else, and it takes the clicks meant for the screen under it. */
+html.app-ready.account-switching .boot-splash { display: flex; z-index: 2090; animation: none; pointer-events: auto; }
 @keyframes boot-splash-out { to { opacity: 0; visibility: hidden; } }
 /* Keyboard up: the dock and the home indicator are both under the keyboard, so nothing may keep
    room for them. Every screen reserves --dock-inset for the dock, and the conversation kept that
@@ -13419,11 +13408,11 @@ body.has-backup-banner .app-body { padding-top: calc(var(--topbar-h) + var(--bac
   body .sidebar-tabbar .sidebar-tab[data-app-tab="kaposts"],
   body .sidebar-tabbar .sidebar-tab[data-app-tab="wallet"],
   body .sidebar-tabbar .sidebar-tab[data-app-tab="chess"],
-  body .sidebar-tabbar .sidebar-tab[data-app-tab="kachat-stats"] { margin-top: 9px; }
+  body .sidebar-tabbar .sidebar-tab[data-app-tab="explorer"] { margin-top: 9px; }
   body .sidebar-tabbar .sidebar-tab[data-app-tab="kaposts"]::before,
   body .sidebar-tabbar .sidebar-tab[data-app-tab="wallet"]::before,
   body .sidebar-tabbar .sidebar-tab[data-app-tab="chess"]::before,
-  body .sidebar-tabbar .sidebar-tab[data-app-tab="kachat-stats"]::before {
+  body .sidebar-tabbar .sidebar-tab[data-app-tab="explorer"]::before {
     content: ""; position: absolute; top: -6px; left: 14px; right: 14px; height: 1px; background: var(--line);
   }
   /* Profile and Settings at the bottom. Not pinned there: pinned, they covered the last screen

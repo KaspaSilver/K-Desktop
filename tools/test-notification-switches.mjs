@@ -84,7 +84,7 @@ test("a room with its bell off is quiet unless the push @'s you (mention true, 1
 test("public rooms start silenced; bells an account already has stay on", () => {
   assert.doesNotMatch(rooms, /function applyDefaultBellsOnce/);
   assert.doesNotMatch(rooms, /applyDefaultBellsOnce\(\)/);
-  // a default room switched back on comes back silenced, #kaspa and #kachat-bugs too
+  // a default room switched back on comes back silenced, #kaspa and #report-bugs too
   const curated = rooms.slice(rooms.indexOf("function setCuratedChannel("), rooms.indexOf("export function anyLanguageRoomOn"));
   assert.doesNotMatch(curated, /notifyByChannel\[name\] = true/);
   // the push watch and the worker's room list are the bell-on rooms

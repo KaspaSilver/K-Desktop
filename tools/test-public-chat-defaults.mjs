@@ -1,5 +1,5 @@
 // Public Chats' default rooms (iOS 865c9ab / d37f64d): every default room joined from the start,
-// every room silenced (bell off) until you turn its bell on (K 8cb4c88e: #kaspa and #kachat-bugs
+// every room silenced (bell off) until you turn its bell on (K 8cb4c88e: #kaspa and #report-bugs
 // no longer get theirs switched on once per wallet; bells an account already has stay on), the
 // language rooms ordered as iOS lists them, and the Languages switch's helpers. Drives ui/broadcasts.js with the DOM stubbed out (no list
 // is mounted: the app draws the rooms as circles from chatListRooms). Run from the repo root:
@@ -59,7 +59,7 @@ const notifyStore = () => JSON.parse(localStorage.getItem(scoped("kachat-broadca
   r.eq(rooms.anyLanguageRoomOn(), true, "Languages reads on with every language room in");
 }
 
-// --- every room starts silenced, #kaspa and #kachat-bugs too (K 8cb4c88e) -------------------------
+// --- every room starts silenced, #kaspa and #report-bugs too (K 8cb4c88e) -------------------------
 {
   const listed = byName();
   for (const name of FEATURED_BROADCAST_CHANNELS) r.eq(listed.get(name).notify, false, `${name} bell off`);
@@ -96,7 +96,7 @@ const notifyStore = () => JSON.parse(localStorage.getItem(scoped("kachat-broadca
   rooms.setBroadcastRoomNotify("kaspa", false);
   rooms.refreshBroadcasts(); // reloads state from storage, as showing Chats does
   r.eq(byName().get("kaspa").notify, false, "#kaspa stays off after the user turned it off");
-  r.eq(byName().get("kachat-bugs").notify, true, "#kachat-bugs still on");
+  r.eq(byName().get("report-bugs").notify, true, "#report-bugs still on");
 }
 
 // --- the language rooms keep iOS's order while nobody has written in them -------------------------
@@ -137,7 +137,7 @@ const notifyStore = () => JSON.parse(localStorage.getItem(scoped("kachat-broadca
   rooms.resetBroadcastsForAccount();
   const listed = byName();
   r.eq(listed.get("kaspa").notify, false, "wallet two: #kaspa off");
-  r.eq(listed.get("kachat-bugs").notify, false, "wallet two: #kachat-bugs off");
+  r.eq(listed.get("report-bugs").notify, false, "wallet two: #report-bugs off");
   r.check(LANGUAGE_BROADCAST_CHANNELS.every((name) => listed.get(name)?.joined), "wallet two: every language room in (wallet one's switches are its own)");
   engine.address = "kaspa:qwalletone";
   rooms.resetBroadcastsForAccount();

@@ -20,16 +20,19 @@
 // The pure helpers below are what tools/test-kusdt-ui.mjs checks in Node.
 
 import { KUSDT_TOKEN, formatKusdt, canHoldKusdt, outpointKey } from "../engine/kusdt.js";
-import { verifiedCoins, applyResults, findReceived, receivedNotification } from "../engine/kusdt-balances.js";
+import { verifiedCoins, applyResults, findReceived, receivedNotification, receivedRing } from "../engine/kusdt-balances.js";
+import { KUSDT_RING_WINDOW_MS } from "./notification-recency.js";
 import { createKusdtStore, kusdtStorageKeys, forgetAccount as forgetKusdtStorage } from "../engine/kusdt-store.js";
 import { submitPrepared, adjustHoldingsAfterSend, isHeldByEngine } from "../engine/kusdt-transfer.js";
 import { isQuantumIndex, addressNumber } from "../engine/quantum.js";
+import { onForegroundBeat, BEAT_MS } from "./foreground-beat.js";
 
 // MARK: - Constants (iOS TokenWallet)
 
 /** While the app is open, an account that uses kUSDT is checked this often (iOS startPolling; 30 s
- *  since K b0f0a4e6, when a Received kUSDT came minutes late at 90). */
-export const KUSDT_POLL_MS = 30_000;
+ *  since K b0f0a4e6, when a Received kUSDT came minutes late at 90). Since K 961fc05a it runs on
+ *  the shared foreground beat (ui/foreground-beat.js: 30 s, 60 s on an expensive connection). */
+export const KUSDT_POLL_MS = BEAT_MS;
 /** ...unless the balances are younger than this (iOS refreshIfStale(maxAge: 25)). */
 export const KUSDT_POLL_MAX_AGE_MS = 25_000;
 /** A new coin on the Chatting Address waits this long for a contact's Send Dollars notice before
@@ -40,6 +43,21 @@ export const KUSDT_STALE_MS = 60_000;
 /** Send Dollars runs Discover as it opens, unless one ran this recently for the account (KaChat iOS
  *  5b7c772c DollarTokenChooser, discoverIfStale(maxAge: 300)). */
 export const KUSDT_DISCOVER_STALE_MS = 300_000;
+/** After a kUSDT trade the balances are looked up again on this widening schedule (3 s to about
+ *  1.5 minutes in all) until a coin from the trade shows (K 961fc05a TokenWallet.followTrade):
+ *  Trestly lists new coins late, and one look at 4 s left the balance old. */
+export const KUSDT_TRADE_FOLLOW_DELAYS_MS = [3, 4, 6, 8, 10, 15, 20, 30].map((s) => s * 1000);
+
+/** Whether any coin in `coinLists` (lists of `{ transactionId }`) was made by `txid`. */
+export function tradeCoinShown(coinLists, txid) {
+  const id = String(txid || "").trim().toLowerCase();
+  if (!id) return false;
+  for (const list of coinLists || []) {
+    for (const coin of list || []) if (String(coin?.transactionId || "").toLowerCase() === id) return true;
+  }
+  return false;
+}
+
 /** Lookups run this many at a time (iOS lookUp). */
 export const KUSDT_LOOKUP_BATCH = 4;
 /** Discover looks this far past the last revealed regular address (iOS discoverHoldings). */
@@ -285,13 +303,17 @@ export function makeHolding(spendingIndex, address, units, coinCount) {
  *   revealSpendingSlot(index, owner)    puts a slot on Manage Addresses' list (Discover, Generate)
  *   spendingLabel(index)        "Address #3" or the label given to it
  *   ownAddresses()              every address of the account (findReceived)
- *   fetchTransactionInputs(txid) -> [{ hash, index, address }] | null
+ *   fetchTransactionInputs(txid) -> [{ hash, index, address }] | { inputs, blockTimeMs } | null
  *   notificationsEnabled()      Settings > Notifications > Address Activity
- *   notify({ title, body })     the desktop notification and the bell
+ *   notify({ title, body, ring, happenedAtMs })  the desktop notification (only when `ring`: a coin
+ *                               from the last six minutes, K 961fc05a) and the bell (dated
+ *                               `happenedAtMs`, when the newest came)
+ *   ringWindowMs                how recent a coin rings (KUSDT_RING_WINDOW_MS)
  *   isNoticeFiled(txid)         a contact's Send Dollars the chat already filed and announced
  *                               (token_payment_notice): no second "Received kUSDT" banner
  *   markOwnTransaction(txid)    ui/address-activity.js: a send's KAS change isn't "Received KAS"
  *   isVisible()                 the page is showing (the poll)
+ *   setTimer(fn, ms) / clearTimer(id)   the trade follow-up's timers (tests; setTimeout by default)
  *   log(line)
  */
 export function createKusdtWallet(deps) {
@@ -313,6 +335,9 @@ export function createKusdtWallet(deps) {
   let applyGeneration = 0;
   let followUpTimer = null;
   let pollTimer = null;
+  let tradeFollow = null;      // { txid, owner, step, timer, listeners } (followTrade)
+  const setTimer = deps.setTimer || ((fn, ms) => setTimeout(fn, ms));
+  const clearTimer = deps.clearTimer || ((id) => clearTimeout(id));
   const stores = new Map();
 
   const account = () => String(deps.account?.() || "").trim();
@@ -344,6 +369,7 @@ export function createKusdtWallet(deps) {
     discoveryRuns = 0;
     loadedAccount = owner;
     if (followUpTimer) { clearTimeout(followUpTimer); followUpTimer = null; }
+    stopTradeFollow();
   }
   /** The figures in memory belong to the active account, or there are none. */
   function current() {
@@ -453,7 +479,8 @@ export function createKusdtWallet(deps) {
     const ids = [...new Set(announced.map((r) => r.holdingId))];
     const labels = (holdings || []).filter((h) => ids.includes(h.id)).map(labelOf);
     const note = receivedNotification(announced, labels.length ? labels : ids.map(() => "address"), (u) => formatKusdt(u));
-    try { deps.notify?.(note); } catch { /* the notification's own problem */ }
+    const { ring, happenedAtMs } = receivedRing(announced, { windowMs: deps.ringWindowMs ?? KUSDT_RING_WINDOW_MS, now: now() });
+    try { deps.notify?.({ ...note, ring, happenedAtMs }); } catch { /* the notification's own problem */ }
   }
 
   function scheduleFollowUp(ms, owner) {
@@ -726,18 +753,60 @@ export function createKusdtWallet(deps) {
     return result;
   }
 
+  // MARK: Trades
+
+  function stopTradeFollow() {
+    if (tradeFollow?.timer != null) clearTimer(tradeFollow.timer);
+    tradeFollow = null;
+  }
+  /** A swap from here went out (engine/kusdt-trade.js afterTrade): the coins it made for you (the
+   *  kUSDT bought, or a sell's kUSDT change) show only once Trestly lists them, which takes longer
+   *  than one look. The balances are looked up again on KUSDT_TRADE_FOLLOW_DELAYS_MS until a coin
+   *  from `txid` shows (K 961fc05a TokenWallet.followTrade); a newer trade replaces the follow, an
+   *  account switch ends it. `onLook` runs after each look (Swap's Available); a second call for
+   *  the same trade only adds its `onLook`. */
+  function followTrade(txid, { onLook = null } = {}) {
+    const id = String(txid || "").trim().toLowerCase();
+    const owner = current();
+    if (!id || !owner) return;
+    if (tradeFollow && tradeFollow.txid === id && tradeFollow.owner === owner) {
+      if (onLook) tradeFollow.listeners.add(onLook);
+      return;
+    }
+    stopTradeFollow();
+    const follow = { txid: id, owner, step: 0, timer: null, listeners: new Set(onLook ? [onLook] : []) };
+    tradeFollow = follow;
+    const next = () => {
+      if (tradeFollow !== follow) return;
+      if (follow.step >= KUSDT_TRADE_FOLLOW_DELAYS_MS.length) { tradeFollow = null; return; }
+      follow.timer = setTimer(async () => {
+        follow.timer = null;
+        if (tradeFollow !== follow) return;
+        if (account() !== owner) { tradeFollow = null; return; }
+        try { await refresh(); } catch { /* the next look tries again */ }
+        if (tradeFollow !== follow) return;
+        for (const fn of follow.listeners) { try { fn(); } catch { /* the screen's */ } }
+        if (account() === owner && tradeCoinShown(coins.values(), id)) { tradeFollow = null; return; }
+        follow.step += 1;
+        next();
+      }, KUSDT_TRADE_FOLLOW_DELAYS_MS[follow.step]);
+      follow.timer?.unref?.();
+    };
+    next();
+  }
+
   // MARK: Polling
 
   function startPolling() {
     if (pollTimer) return;
-    pollTimer = setInterval(() => {
+    // on the shared beat, a second and a half after the room sweep (K 961fc05a ForegroundBeat)
+    pollTimer = onForegroundBeat(() => {
       const owner = account();
       if (!shouldPoll({ visible: deps.isVisible?.() ?? true, account: owner, notificationsEnabled: deps.notificationsEnabled?.(), usesTokens: usesTokens() })) return;
       refreshIfStale(KUSDT_POLL_MAX_AGE_MS).catch(() => {});
-    }, KUSDT_POLL_MS);
-    pollTimer?.unref?.();
+    }, { offsetMs: 1_500, isVisible: () => true });
   }
-  function stopPolling() { if (pollTimer) clearInterval(pollTimer); pollTimer = null; }
+  function stopPolling() { if (pollTimer) pollTimer(); pollTimer = null; }
 
   /** An account removed from this device (Delete Account and the other removals): its kUSDT
    *  records go (engine/kusdt-store.js forgetAccount), and the figures in memory if they're its. */
@@ -751,7 +820,7 @@ export function createKusdtWallet(deps) {
 
   return {
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
-    refresh, refreshIfStale, discover, discoverIfStale, submit, startPolling, stopPolling, forgetAccount,
+    refresh, refreshIfStale, discover, discoverIfStale, submit, startPolling, stopPolling, forgetAccount, followTrade,
     heldHoldings, balance, listed, listedSpendingIndices, isListed, toggleListed, hideAll, hiddenCount,
     holdingById, coinsOf, activity, usesTokens, freshReceive, generateFresh, ownTokenAddress, addShown,
     labelOf, heldOnText: () => heldOnText(heldHoldings(), labelOf), kasHeld: () => kasHeldSompi(heldHoldings() || []),

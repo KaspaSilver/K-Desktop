@@ -41,3 +41,30 @@
 .cold-send-scan-step .cold-send-scan-wrap { flex: 1 1 auto; justify-content: center; }
 .cold-send-failed { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px 8px; text-align: center; }
 .cold-send-failed .cold-send-result-icon { font-size: 52px; }
+
+/* Quantum-resistant (KCC-3) addresses (K 961fc05a): the add / edit-number sheet, Address
+   Visibility's section titles, the signing step's note, and a history row that only Moved coins
+   between the account's own addresses (neutral, as K's .secondary). */
+.cold-quantum-form { display: flex; flex-direction: column; gap: 10px; }
+.cold-quantum-form .field-label { display: flex; flex-direction: column; gap: 6px; }
+.cold-quantum-address-field { resize: vertical; min-height: 64px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
+.cold-quantum-input-actions { display: flex; gap: 8px; }
+.cold-quantum-input-actions .secondary-button { flex: 1 1 0; }
+.cold-quantum-address-text { margin: 0; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; user-select: text; }
+.cold-quantum-section, .cold-visibility-section {
+  margin: 8px 0 0; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+}
+.cold-visibility-section { padding: 6px 4px 2px; }
+.cold-quantum-form .field-error { margin: 0; }
+.cold-quantum-note { display: flex; flex-direction: column; gap: 10px; padding: 14px; font-size: 13px; color: var(--muted); }
+.cold-quantum-note-line { display: flex; align-items: flex-start; gap: 10px; margin: 0; }
+.cold-quantum-note-line > svg { width: 16px; height: 16px; flex: 0 0 auto; margin-top: 1px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.cold-quantum-note-line.warn > svg { color: var(--ios-orange); }
+.cold-quantum-note-line > span { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cold-quantum-note-turn { flex: 0 0 auto; width: 16px; text-align: center; }
+.cold-quantum-note-name { color: var(--text); font-weight: 600; }
+.cold-quantum-note-address { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.cold-quantum-note-warn { color: var(--ios-orange); }
+.cold-quantum-no-number { width: 100%; }
+.manage-address-row-icon.moved { background: var(--surface-1, rgba(127,127,127,.16)); color: var(--muted); }
+.manage-address-row-amount.moved { color: var(--muted); }

@@ -34,6 +34,9 @@ export const KUSDT_WASM_SHA256 = "a7be48e962dab57902924ea71fbad31b073cd2ba2197eb
 export const START_TIMEOUT_MS = 25_000;
 export const CALL_TIMEOUT_MS = Object.freeze({ run: 30_000, prepare: 90_000, execute: 240_000 });
 export const RETRY_AFTER_FAILURE_MS = 10_000;
+/** A worker nobody has called for this long is stopped; the next call starts a fresh one
+ *  (K 961fc05a KusdtCore.idleTeardownAfter, two minutes). */
+export const IDLE_TEARDOWN_MS = 120_000;
 
 /** iOS texts (KusdtCore.swift). */
 export const CORE_MESSAGES = Object.freeze({
@@ -109,17 +112,53 @@ export function createKusdtCore({
   startTimeoutMs = START_TIMEOUT_MS,
   now = () => Date.now(),
   log = () => {},
+  idleTeardownMs = IDLE_TEARDOWN_MS,
+  setTimer = (fn, ms) => setTimeout(fn, ms),
+  clearTimer = (id) => clearTimeout(id),
 } = {}) {
   let starting = null;   // Promise<backend> while a start runs or after it succeeded
   let backend = null;    // { kind: "worker"|"thread", call(command, requestText, timeoutMs), stop(), version }
   let loadError = null;
   let loadFailedAt = 0;
+  // Calls between their first line and their answer, loading included; the idle teardown waits
+  // for none to be left (K 961fc05a KusdtCore, audit 2026-11-25 B20).
+  let activeCalls = 0;
+  let idleTimer = null;
 
   const reset = () => {
     try { backend?.stop?.(); } catch { /* already gone */ }
     backend = null;
     starting = null;
   };
+
+  const cancelIdleTeardown = () => {
+    if (idleTimer != null) clearTimer(idleTimer);
+    idleTimer = null;
+  };
+  // The worker lives only while it's used: about two minutes after the last call it's stopped
+  // (the 7.9 MB WebAssembly with it, and for Trestly's pool code its node WebSocket too), and the
+  // next call starts it again. A worker that timed out is already stopped by then, so nothing can
+  // still be running in it. The on-thread fallback stays: its module can't be unloaded.
+  const scheduleIdleTeardown = () => {
+    cancelIdleTeardown();
+    if (activeCalls > 0 || !(idleTeardownMs > 0) || backend?.kind !== "worker") return;
+    idleTimer = setTimer(() => {
+      idleTimer = null;
+      if (activeCalls > 0 || backend?.kind !== "worker") return;
+      log("[kUSDT] builder idle: stopped until the next use");
+      reset();
+    }, idleTeardownMs);
+    idleTimer?.unref?.();
+  };
+  async function tracked(body) {
+    activeCalls += 1;
+    cancelIdleTeardown();
+    try { return await body(); }
+    finally {
+      activeCalls = Math.max(0, activeCalls - 1);
+      scheduleIdleTeardown();
+    }
+  }
 
   async function startWorker(worker, bytes) {
     const pending = new Map();
@@ -246,7 +285,10 @@ export function createKusdtCore({
   /** Runs one builder command on a request (an object: BigInts are written as exact JSON
    *  integers; or a JSON string). Answers the parsed result (16+ digit integers as digit strings),
    *  or throws KusdtCoreError: "refused" with the builder's own error, "unavailable" otherwise. */
-  async function runCore(command, request = {}, { timeoutMs = CALL_TIMEOUT_MS.run } = {}) {
+  function runCore(command, request = {}, options = {}) {
+    return tracked(() => runCoreNow(command, request, options));
+  }
+  async function runCoreNow(command, request = {}, { timeoutMs = CALL_TIMEOUT_MS.run } = {}) {
     const b = await load();
     const text = typeof request === "string" ? request : stringifyExact(request);
     const answer = await b.call(String(command), text, timeoutMs);
@@ -260,7 +302,10 @@ export function createKusdtCore({
   /** Like runCore, but answers the parsed object as it is, an `error` field included: Trestly's
    *  pool code (engine/kusdt-wallet-core.js) refuses with `{ error, code?, maybeSent? }`, which
    *  its caller reads whole. Throws KusdtCoreError "unavailable" when nothing usable came back. */
-  async function callRaw(command, request = {}, { timeoutMs = CALL_TIMEOUT_MS.run } = {}) {
+  function callRaw(command, request = {}, options = {}) {
+    return tracked(() => callRawNow(command, request, options));
+  }
+  async function callRawNow(command, request = {}, { timeoutMs = CALL_TIMEOUT_MS.run } = {}) {
     const b = await load();
     const text = typeof request === "string" ? request : stringifyExact(request);
     const answer = await b.call(String(command), text, timeoutMs);
@@ -274,7 +319,7 @@ export function createKusdtCore({
     runCore,
     callRaw,
     /** Starts the builder now (it otherwise starts on the first call). */
-    preload: () => load().then(() => true),
+    preload: () => tracked(() => load().then(() => true)),
     /** "worker" | "thread" | null (not started). */
     get mode() { return backend?.kind ?? null; },
     get version() { return backend?.version ?? null; },

@@ -280,7 +280,8 @@ export function kapostsDefaultTipSompi(tip, price) {
 }
 
 // The KaChat links a post can carry (the same set as ui/app.js INTERNAL_LINK_IN_TEXT_RE).
-const KAPOSTS_INTERNAL_LINK_RE = /(?:kachat:\/\/(?:kapost|broadcast|profile|pay)\/[^\s<>"']+|kaposts:\/\/kapost\/[^\s<>"']+|https?:\/\/(?:www\.)?kachat\.app\/(?:post|broadcast|u|pay)\/[^\s<>"']+)/i;
+// Kaspa Hub card links (K 961fc05a) are among them: drawn as their own card, never a web preview.
+const KAPOSTS_INTERNAL_LINK_RE = /(?:kachat:\/\/(?:kapost|broadcast|profile|pay|hub)\/[^\s<>"']+|kaposts:\/\/kapost\/[^\s<>"']+|https?:\/\/(?:www\.)?kachat\.app\/(?:post|broadcast|u|pay|hub)\/[^\s<>"']+)/i;
 
 /** A payment request link in a post (iOS 0b9fd28 KaPostCellView.paymentRequestLink): the first
  *  KaChat link in `text`, when it is a payment request `parseLink` accepts (signature and all).
@@ -288,7 +289,8 @@ const KAPOSTS_INTERNAL_LINK_RE = /(?:kachat:\/\/(?:kapost|broadcast|profile|pay)
  *  under it stands for - or null. Trailing prose punctuation is not part of the link. */
 export function kapostsPaymentRequestIn(text, parseLink) {
   const value = String(text ?? "");
-  const match = value.match(KAPOSTS_INTERNAL_LINK_RE);
+  // A Hub card's link before it has its own card, so it doesn't hide the request (K 961fc05a).
+  const match = [...value.matchAll(new RegExp(KAPOSTS_INTERNAL_LINK_RE.source, "gi"))].find((m) => !/\/hub\//i.test(m[0]));
   if (!match || !/\/pay\//i.test(match[0])) return null;
   const raw = match[0].replace(/[.,;:!?)\]}'"]+$/, "");
   const request = typeof parseLink === "function" ? parseLink(raw) : null;

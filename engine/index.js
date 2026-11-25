@@ -1,7 +1,8 @@
 import { ADDRESS_PREFIX, IS_TESTNET } from "./network.js";
 import { loadKaspaModule } from "./wasm-loader.js";
 import { maxFeerate } from "./kachat-names/codec.js";
-import { clearNodeRegistry, connectRpc, createStandbyRpc, disconnectRpc, forgetEndpoint, getNodeRegistrySnapshot, isRpcConnectionError, markBadNode, probeRpc, recordFailover } from "./rpc.js";
+import { borshEndpoint, clearNodeRegistry, connectRpc, createStandbyRpc, disconnectRpc, forgetEndpoint, getNodeRegistrySnapshot, isRpcConnectionError, markBadNode, probeRpc, recordFailover } from "./rpc.js";
+import { keepaliveIntervalMs, keepaliveProbeDue, browserOffline, blockAddedSuspended, BLOCK_ADDED_HIDDEN_GRACE_MS } from "./node-keepalive.js";
 import { generateWallet, generateMnemonicWallet, generateMnemonicPhrase, importMnemonic, importMnemonicWithFamily, deriveIdentityAddressRange, importPrivateKey, deriveSpendingWallet, deriveSpendingAddressRange, spendingDerivationPath, normalizeSourceFamily, sourceFamilyPathDescription, WALLET_SOURCE_FAMILIES } from "./wallet.js";
 import { getBalance, sendKaspa, sendMaxKaspa, estimateMaxSend, sweepAllToSelf, estimateOnchainFee, estimateSendFeeDetail, sendPayloadTransaction , estimateOnchainFeeDetail, submitConfirmingAcceptance, excludeJustSpentUtxos, transactionSpends, SEND_OUTCOME_UNKNOWN } from "./transactions.js";
 import { kasToSompi, checkedUtxoAnswer, clampMessageFeeKas } from "./amounts.js";
@@ -85,8 +86,15 @@ export class KaspaEngine {
     this.rpcHeartbeatTimer = null;
     // Backstop poll that catches a silently-wedged node. The primary "node dropped"
     // signal is now the subscription disconnect event (see scheduleImmediateFailover),
-    // so this can be relatively relaxed without hurting recovery speed.
-    this.rpcHeartbeatMs = 10000;
+    // so this can be relatively relaxed without hurting recovery speed. Its interval is K's
+    // keepalive (15 s, 45 s on an expensive connection: rpcHeartbeatIntervalMs, K 961fc05a).
+    this.lastNodeNotificationAt = 0;
+    this.heartbeatTickRunning = false;
+    // The block stream held off while the page is hidden (installPageLifecycleHooks).
+    this.pageLifecycleHooked = false;
+    this.pageHiddenSince = 0;
+    this.blockScanHiddenTimer = null;
+    this.blockScanSuspended = false;
     this.immediateFailoverTimer = null;
     this.connectionListeners = new Set();
     this.subscriptionListeners = new Set();
@@ -224,6 +232,7 @@ export class KaspaEngine {
    *  known yet is looked up (REST, with retries) and delivered later only if it verifies -
    *  it is never shown under output 0's address. */
   handleBlockAddedEvent(event) {
+    if (this.blockScanRpc && this.blockScanRpc === this.rpc) this.noteNodeSpoke();
     if (this.blockScanClients.size) {
       const block = blockFromBlockAddedEvent(event);
       if (block) for (const client of [...this.blockScanClients]) { try { client(block); } catch { /* the others still read it */ } }
@@ -412,7 +421,28 @@ export class KaspaEngine {
   // -------------------------------------------------------------------------
 
   blockScanWanted() {
-    return this.blockScanChannels.size > 0 || this.blockScanClients.size > 0;
+    // An outage scan (the indexer is down) keeps the stream even in a hidden page: it is the
+    // only source then, and a hidden tab still sweeps for notifications.
+    if (this.blockScanClients.size > 0) return true;
+    // Rooms alone: held off while the page has been hidden a while (K 961fc05a stops block-added
+    // in the background; the rooms' wish is kept, so showing the page brings the stream back).
+    return this.blockScanChannels.size > 0 && !this.blockScanSuspended;
+  }
+
+  /** The page was hidden for the grace period, or shown again: stops or restarts the block stream
+   *  on the node to match (K 961fc05a, audit 2026-11-25 B1/B3). */
+  applyBlockScanSuspension() {
+    const suspended = blockAddedSuspended({ hiddenSince: this.pageHiddenSince, now: Date.now(), outageClients: this.blockScanClients.size });
+    if (suspended === this.blockScanSuspended) return;
+    this.blockScanSuspended = suspended;
+    if (!this.blockScanWanted()) {
+      if (this.blockScanHandler) {
+        this.log("Page hidden: stopped block-added notifications until it shows again.");
+        this.detachBroadcastBlockScan().catch(() => {});
+      }
+    } else if (!this.blockScanHandler || this.blockScanRpc !== this.rpc) {
+      this.startBroadcastBlockScan().catch(() => {});
+    }
   }
 
   /** `client(block)` for every block until the returned function is called. */
@@ -422,7 +452,10 @@ export class KaspaEngine {
       queueMicrotask(() => { this.startBroadcastBlockScan().catch(() => {}); });
     }
     return () => {
-      if (!this.blockScanClients.delete(client) || this.blockScanWanted()) return;
+      if (!this.blockScanClients.delete(client)) return;
+      // the last outage scan gone from a hidden page: the rooms' stream is held off now too
+      if (this.pageHiddenSince) this.applyBlockScanSuspension();
+      if (this.blockScanWanted()) return;
       queueMicrotask(() => { this.detachBroadcastBlockScan().catch(() => {}); });
     };
   }
@@ -552,6 +585,7 @@ export class KaspaEngine {
 
   emitWalletActivity(event) {
     const type = String(event?.type || "activity");
+    if (this.utxoSubscriptionRpc && this.utxoSubscriptionRpc === this.rpc) this.noteNodeSpoke();
     this.setSubscriptionState({ status: "ready", lastEventType: type, lastEventAt: Date.now(), lastError: "" });
     for (const listener of this.walletActivityListeners) {
       try { listener(event); } catch {}
@@ -857,7 +891,8 @@ export class KaspaEngine {
     const endpoint = String(url || "").trim();
     if (!/^wss?:\/\/.+/i.test(endpoint)) throw new Error("Enter a valid wRPC URL that starts with wss:// or ws://.");
     const { RpcClient, Encoding, ConnectStrategy } = this.kaspa;
-    const rpc = new RpcClient({ url: endpoint, encoding: Encoding?.Borsh, networkId: NETWORK_ID });
+    // a resolver's /wrpc/json path is tried as its /wrpc/borsh sibling (K 961fc05a)
+    const rpc = new RpcClient({ url: borshEndpoint(endpoint), encoding: Encoding?.Borsh, networkId: NETWORK_ID });
     const withTimeout = (promise, ms, label) => {
       let timer;
       const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label} timed out.`)), ms); });
@@ -966,15 +1001,81 @@ export class KaspaEngine {
     }, 400);
   }
 
+  // The heartbeat is the keepalive too (K 961fc05a, audit 2026-11-25 B4): every 15 s, 45 s on an
+  // expensive connection (read on every tick), and the ask is spared when the node pushed a
+  // notification within that time. Offline it waits for the `online` event (B7) instead of
+  // dialling nodes it can't reach.
   startRpcHeartbeat() {
     if (this.rpcHeartbeatTimer || typeof window === "undefined") return;
-    this.rpcHeartbeatTimer = window.setInterval(async () => {
+    this.installPageLifecycleHooks();
+    // a stop (and a later start) ends this chain: only the chain started last reschedules
+    const chain = {};
+    this.rpcHeartbeatChain = chain;
+    const schedule = () => {
+      this.rpcHeartbeatTimer = window.setTimeout(async () => {
+        try { await this.rpcHeartbeatTick(); }
+        finally { if (this.rpcHeartbeatChain === chain && this.rpcHeartbeatTimer) schedule(); }
+      }, this.rpcHeartbeatIntervalMs());
+    };
+    schedule();
+  }
+
+  rpcHeartbeatIntervalMs() {
+    return keepaliveIntervalMs(globalThis.navigator);
+  }
+
+  /** The node pushed something (a block, a wallet event): as good as an answered ping. */
+  noteNodeSpoke() {
+    this.lastNodeNotificationAt = Date.now();
+  }
+
+  /** Once per page: the `online` event reconnects at once, and the page being hidden for a while
+   *  stops the block stream on the node (K 961fc05a, audit 2026-11-25 B1/B3). */
+  installPageLifecycleHooks() {
+    if (this.pageLifecycleHooked || typeof window === "undefined") return;
+    this.pageLifecycleHooked = true;
+    window.addEventListener?.("online", () => {
+      if (!this.rpcHeartbeatTimer || this.rpc || !this.address) return;
+      this.rpcHeartbeatTick().catch(() => {});
+    });
+    if (typeof document === "undefined" || !document.addEventListener) return;
+    const sync = () => {
+      if (document.hidden) {
+        if (!this.pageHiddenSince) this.pageHiddenSince = Date.now();
+        if (!this.blockScanHiddenTimer) {
+          this.blockScanHiddenTimer = window.setTimeout(() => {
+            this.blockScanHiddenTimer = null;
+            this.applyBlockScanSuspension();
+          }, BLOCK_ADDED_HIDDEN_GRACE_MS + 50);
+        }
+      } else {
+        this.pageHiddenSince = 0;
+        if (this.blockScanHiddenTimer) { window.clearTimeout(this.blockScanHiddenTimer); this.blockScanHiddenTimer = null; }
+        this.applyBlockScanSuspension();
+      }
+    };
+    document.addEventListener("visibilitychange", sync);
+    sync();
+  }
+
+  /** One heartbeat; one at a time (the `online` event can call it between scheduled ones). */
+  async rpcHeartbeatTick() {
+    if (this.heartbeatTickRunning) return;
+    this.heartbeatTickRunning = true;
+    try { await this.rpcHeartbeatStep(); }
+    finally { this.heartbeatTickRunning = false; }
+  }
+
+  async rpcHeartbeatStep() {
+    {
       if (this.failoverPromise) return; // a failover is already working the problem
       if (!this.rpc) {
         // Fully disconnected (e.g. a strict custom node that went down and had no public
         // backup to promote). Keep trying to reconnect so we recover automatically the
         // moment a healthy node is reachable again, instead of staying dark.
         if (!this.address) return;
+        // Offline: every attempt would fail; the `online` event tries at once (B7).
+        if (browserOffline(globalThis.navigator)) return;
         try {
           await this.connect({ force: true });
           await this.rebuildWalletSubscription();
@@ -991,8 +1092,11 @@ export class KaspaEngine {
       // A hidden tab keeps the primary probed (the wallet subscription rides on it) and leaves
       // the standby alone until the page is looked at again.
       const hiddenTab = typeof document !== "undefined" && document.hidden;
+      // The primary pushed something within the interval: it's alive, so the ask is spared
+      // (K 961fc05a checkPrimaryHealth). A quiet connection is still asked every tick.
+      const spoke = !keepaliveProbeDue({ now: Date.now(), lastNotificationAt: this.lastNodeNotificationAt, intervalMs: this.rpcHeartbeatIntervalMs() });
       const [primaryHealthy, standbyHealthy] = await Promise.all([
-        probeRpc(this.rpc),
+        spoke ? Promise.resolve(true) : probeRpc(this.rpc),
         this.standbyRpc && !hiddenTab ? probeRpc(this.standbyRpc) : Promise.resolve(false),
       ]);
 
@@ -1012,14 +1116,15 @@ export class KaspaEngine {
         this.setConnectionState({ standby: "unavailable", standbyEndpoint: "" });
         await this.ensureStandby();
       }
-    }, this.rpcHeartbeatMs);
+    }
   }
 
   stopRpcHeartbeat() {
     if (this.rpcHeartbeatTimer && typeof window !== "undefined") {
-      window.clearInterval(this.rpcHeartbeatTimer);
+      window.clearTimeout(this.rpcHeartbeatTimer);
     }
     this.rpcHeartbeatTimer = null;
+    this.rpcHeartbeatChain = null;
   }
 
   async withRpc(operation, { retries = 1, label = "RPC operation" } = {}) {

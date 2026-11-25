@@ -360,7 +360,7 @@ export function resetAddressBookForAccount() {
 //
 // The list's glass + opens it, as the Chats + opens New (owner, 2026-10-24): Add Contact, Import File / Export File, and with Nextcloud connected Import from Nextcloud / Export to
 // Nextcloud (else a line saying where to connect it). The file is the store's export JSON; Export
-// to Nextcloud puts it in the KaChat folder with its spaces kept, one new file per tap
+// to Nextcloud puts it in the K folder with its spaces kept, one new file per tap
 // (NEXTCLOUD_SYNC.md §1), and Import from Nextcloud picks a .json starting in that folder.
 
 let ioSheetEl = null;
@@ -404,7 +404,7 @@ function renderImportExportSheet() {
     { action: "export", icon: ICONS.fileOut, title: "Export File", subtitle: "Save your contacts, with their photos, to a file." },
     ...(connected ? [
       { action: "nc-import", icon: ICONS.cloudIn, title: "Import from Nextcloud", subtitle: "Pick a contacts export from your Nextcloud." },
-      { action: "nc-export", icon: ICONS.cloudOut, title: "Export to Nextcloud", subtitle: "Save it to the KaChat folder in your Nextcloud, to import on any device." },
+      { action: "nc-export", icon: ICONS.cloudOut, title: "Export to Nextcloud", subtitle: "Save it to the K folder in your Nextcloud, to import on any device." },
     ] : []),
   ];
   body.innerHTML = `

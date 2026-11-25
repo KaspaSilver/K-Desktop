@@ -138,8 +138,8 @@ await test("each place K lists has the cycle button", () => {
   assert.match(html, /data-cycle="spending-address" data-spending-detail-cycle/);
   assert.match(app, /const ADDRESS_PAGES = \[\["transactions", "History"\], \["utxos", "UTXOs"\], \["kachat", "Usernames"\]\];/);
   assert.match(read("ui", "coldstorage.js"), /cycleBarHtml\(\{ name: "cold-address", options: COLD_ADDRESS_PAGES/);
-  // Stats, Swap, Chess's 1v1 / Tournaments pages
-  assert.match(read("ui", "kachat-stats.js"), /cycleBarHtml\(\{ name: "kstats-page", options: PAGES/);
+  // the Explorer (K 961fc05a; it replaced Stats), Swap, Chess's 1v1 / Tournaments pages
+  assert.match(read("ui", "explorer.js"), /cycleBarHtml\(\{ name: "kx-home-page", options: HOME_PAGES/);
   assert.match(read("ui", "swaps.js"), /cycleBarHtml\(\{ name: "swap-page", options: \[\["swap", "Swap"\], \["history", "Swap History"\]\]/);
   assert.match(chess, /const kindPages = \(duel\) => \[\["play", duel \? "1v1" : "Tournaments"\], \["active", "Active"\], \["finished", "Finished"\]\];/);
   assert.match(chess, /cycleBarHtml\(\{ name: `chess-kind-\$\{view\.mode\}`/);
