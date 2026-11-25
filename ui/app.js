@@ -13140,7 +13140,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 336;
+const APP_BUILD = 337;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -31076,6 +31076,10 @@ queueMicrotask(async () => {
       mentionAvatarHtml: (address) => memberAvatarHtml(address, "chat-avatar"),
     });
   } catch (error) { appendEngineLog(`initKaPosts did not start: ${error?.message || error}`); }
+  // The remembered tab came back before KaPost started (restoreLastAppTab, above), so a refresh
+  // on Profile asked for your profile while KaPost could not answer and came up as the feed.
+  // Asked again now that it can.
+  if (document.body.dataset.appTab === "profile") { try { setKaPostsRootMode("myProfile"); } catch { /* not started */ } }
 
   try {
     initBroadcasts({
