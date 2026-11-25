@@ -12411,12 +12411,26 @@ sidebarTabButtons.forEach((button) => {
     // returns to the grid, so the button that opened a section is the one that leaves it.
     if (tab === "hub" && currentAppTab === "hub" && hubSection) hubSection = null;
     const wasOnKaPost = tab === "kaposts" && currentAppTab === "kaposts";
+    const wasOnChats = tab === "chats" && currentAppTab === "chats";
     setActiveAppTab(tab);
     applyDockLayout();
+    // KaChat on the dock, tapped again from inside a chat, goes back to the chats list.
+    if (wasOnChats) backToChatsListFromDock();
     // KaPost on the dock takes the feed back to its top (KaPosts-iPhone 45de945).
     if (tab === "kaposts" && currentAppTab === "kaposts") { try { kaPostsFeedToTop({ animated: wasOnKaPost }); } catch { /* not started */ } }
   });
 });
+
+/// On the phone layout a chat, a group or a public room covers the chats list, so tapping KaChat
+/// again takes you back to the list, exactly as that screen's back arrow does. On a wide window
+/// the list is already beside the open chat, which stays open.
+function backToChatsListFromDock() {
+  if (isWideLayout) return false;
+  if (activeGroupId) { closeGroupChat(); return true; }
+  if (publicRoomOpen) { try { closeBroadcastRoom(); } catch { /* rooms not started */ } return true; }
+  if (activeConversationId) { setActiveConversationId(null); renderChats(); return true; }
+  return false;
+}
 
 // ---------------------------------------------------------------------------
 // 4.1 dock: iOS's dock, on the desktop.
@@ -13126,7 +13140,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 335;
+const APP_BUILD = 336;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
