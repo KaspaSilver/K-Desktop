@@ -296,3 +296,6 @@
 }
 [data-kaposts-panel][data-kaposts-panel-root] > .kaposts-thread-header > .kaposts-panel-refresh { grid-area: refresh; margin: 0; }
 [data-kaposts-panel][data-kaposts-panel-root] > .kaposts-thread-header > .kaposts-root-bell { grid-area: bell; margin: 0; }
+/* On a wide window Profile is the same 560px column as Wallet, Settings and the other tabs, not
+   KaPost's 900px (it has no rail): an iPhone-wide screen in the middle (owner, 2026-11-24). */
+.kaposts-screen.kaposts-root-profile { max-width: 560px; gap: 0; }

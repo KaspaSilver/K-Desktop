@@ -25,4 +25,8 @@ test("a redraw that leaves the hero as it was keeps the one on screen", () => {
   assert.match(js, /panelBodyEl\.innerHTML = heroHtml \+ pageHtml;/);
 });
 
+test("on a wide window Profile is the 560px column the other tabs are, not KaPost's 900px", () => {
+  assert.match(css, /\.kaposts-screen\.kaposts-root-profile \{ max-width: 560px; gap: 0; \}/);
+});
+
 console.log(`profile header and cycle: ${passed} passed`);
