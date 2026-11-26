@@ -4,8 +4,10 @@
 // year. Right after a deploy, before the new files reach every Cloudflare location, a browser can
 // ask for the new stylesheet, get the page instead, and keep it: in its own cache and in the
 // service worker's. The app's stylesheet always sets --dock-inset on the root; when the page has
-// loaded and that is empty, the styles are missing. Then, at most once a minute (never a reload
-// loop): the service worker's caches are emptied first (an older worker serves its copy without
+// loaded and that is empty, the styles are missing. A built script or stylesheet that fails to
+// load (a page is refused as either) is caught as it fails: the app's script arriving as a page
+// left the app an empty shell that never started. Either way, at most once a minute (never a
+// reload loop): the service worker's caches are emptied first (an older worker serves its copy without
 // asking), each built file is asked for again past the browser's cache, and the page reloads.
 // Written in old JavaScript, like browser-check.js. A file, not inline, for the CSP (DSK-014).
 (function () {
@@ -32,8 +34,8 @@
     return out;
   }
 
-  function repair() {
-    if (!stylesMissing() || typeof fetch !== "function" || typeof Promise !== "function") return;
+  function repair(force) {
+    if ((!force && !stylesMissing()) || typeof fetch !== "function" || typeof Promise !== "function") return;
     var last = 0;
     try { last = Number(sessionStorage.getItem(KEY)) || 0; } catch (e) { return; }
     if (Date.now() - last < 60000) return;
@@ -49,5 +51,13 @@
     }).then(reload, reload);
   }
 
-  window.addEventListener("load", function () { setTimeout(repair, 0); });
+  window.addEventListener("load", function () { setTimeout(function () { repair(false); }, 0); });
+  // a built file that failed: resource errors don't bubble, so they're caught on the way down
+  window.addEventListener("error", function (event) {
+    var node = event && event.target;
+    if (!node || (node.tagName !== "SCRIPT" && node.tagName !== "LINK")) return;
+    var url = node.src || node.href || "";
+    if (url.indexOf("/assets/") === -1) return;
+    setTimeout(function () { repair(true); }, 0);
+  }, true);
 })();

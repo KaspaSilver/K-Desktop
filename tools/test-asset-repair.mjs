@@ -123,6 +123,44 @@ await test("the page repairs missing styles once: caches emptied first, files as
   assert.deepEqual(order, []);
 });
 
+await test("a built script that fails to load (the app's script arriving as a page) repairs too", async () => {
+  const order = [];
+  const session = new Map();
+  const listeners = {};
+  const sandbox = {
+    URL, Promise, Number, String, Date,
+    location: { href: "https://desktop.kachat.app/", origin: "https://desktop.kachat.app", reload: () => order.push("reload") },
+    document: { documentElement: {}, querySelectorAll: () => [{ src: "https://desktop.kachat.app/assets/index-new.js" }] },
+    getComputedStyle: () => ({ getPropertyValue: () => "124px" }), // styles fine
+    sessionStorage: { getItem: (k) => session.get(k) ?? null, setItem: (k, v) => session.set(k, v) },
+    caches: { keys: async () => [], delete: async () => true },
+    fetch: async (url, init) => { order.push(`fetch ${new URL(url).pathname} ${init.cache}`); return css(); },
+    setTimeout: (fn) => fn(),
+  };
+  sandbox.window = { addEventListener: (type, fn, capture) => { listeners[type] = { fn, capture }; }, caches: sandbox.caches };
+  vm.runInNewContext(read("public", "asset-repair.js"), sandbox);
+  assert.equal(listeners.error.capture, true, "caught on the way down: resource errors don't bubble");
+  // someone else's script, or not a built file: nothing
+  listeners.error.fn({ target: { tagName: "SCRIPT", src: "https://desktop.kachat.app/browser-check.js" } });
+  listeners.error.fn({ target: { tagName: "IMG", src: "https://desktop.kachat.app/assets/x.png" } });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(order, []);
+  listeners.error.fn({ target: { tagName: "SCRIPT", src: "https://desktop.kachat.app/assets/index-new.js" } });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(order, ["fetch /assets/index-new.js reload", "reload"]);
+});
+
+await test("Cloudflare: a built file that isn't there is a 404 nothing keeps, never the page", async () => {
+  const { onRequest } = await import("../functions/assets/_middleware.js");
+  const pageRes = await onRequest({ next: async () => new Response("<!doctype html>", { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=31536000, immutable" } }) });
+  assert.equal(pageRes.status, 404);
+  assert.equal(pageRes.headers.get("cache-control"), "no-store");
+  const real = new Response("x", { status: 200, headers: { "content-type": "application/javascript" } });
+  assert.equal(await onRequest({ next: async () => real }), real, "a real file passes through untouched");
+  const notModified = new Response(null, { status: 304 });
+  assert.equal(await onRequest({ next: async () => notModified }), notModified);
+});
+
 await test("the page loads the repair script before the app", () => {
   const html = read("index.html");
   assert.ok(html.indexOf('<script src="/asset-repair.js"></script>') > 0);
