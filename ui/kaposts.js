@@ -1712,7 +1712,7 @@ async function openMentionProfile(domain, signed = []) {
   try {
     const address = await mentionAddress(domain, signed);
     if (!address) { deps.showToast?.(`Couldn't resolve @${domain}.`); return; }
-    openPosterProfile(address, null);
+    openProfileFromTap(address, null);
   } catch (error) {
     deps.showToast?.(error?.message || `Couldn't resolve @${domain}.`);
   }
@@ -4187,6 +4187,7 @@ const PANEL_ICONS = {
   alertCircle: "M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z", // exclamationmark.circle.fill
   xCircle: "m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z", // xmark.circle
   chevron: "m8.25 4.5 7.5 7.5-7.5 7.5", // chevron.right
+  at: "M16.5 12a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Zm0 0c0 1.657 1.007 3 2.25 3S21 13.657 21 12a9 9 0 1 0-2.636 6.364M16.5 12V8.25", // at
 };
 
 /** A wallet notification in Profile's one list: the coin it was about, what happened, when. */
@@ -4195,7 +4196,8 @@ function walletNotificationRowHtml(item) {
     ? `<span class="kaposts-wallet-notification-icon kusdt" aria-hidden="true">$</span>`
     : item.kind === "kaspa"
       ? `<span class="kaposts-wallet-notification-icon" aria-hidden="true"><img src="${kaspaLogoUrl}" alt="" /></span>`
-      : `<span class="kaposts-wallet-notification-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${PANEL_ICONS.bell}"/></svg></span>`;
+      // an @mention of you in a room or group (K d089011f, the "at" symbol)
+      : `<span class="kaposts-wallet-notification-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${item.kind === "mention" ? PANEL_ICONS.at : PANEL_ICONS.bell}"/></svg></span>`;
   return `
             <div class="kaposts-notification-row openable" data-kaposts-wallet-notification="${deps.escapeHtml(item.id)}">
               <span class="kaposts-notification-avatar">${icon}</span>
@@ -4392,7 +4394,7 @@ function renderPanel() {
       panel.loading && items.length === 0
       ? `<div class="kaposts-feed-status">Loading…</div>`
       : items.length === 0
-        ? panelEmptyHtml("bell", "Nothing yet", "Likes, replies and shares of your posts, and the Kaspa and kUSDT you receive, show up here.")
+        ? panelEmptyHtml("bell", "Nothing yet", "Likes, replies and shares of your posts, the Kaspa and kUSDT you receive, and mentions of you in chats show up here.")
         : items.map((item) => item.wallet ? walletNotificationRowHtml(item) : `
             <div class="kaposts-notification-row openable" data-kaposts-notification="${deps.escapeHtml(item.id)}">
               <span class="kaposts-notification-avatar">
@@ -4842,6 +4844,16 @@ function freshKeptProfilePanel(address, passedPubkey) {
   if (panel.loading || !(panel.posts.length || panel.replies.length)) return null;
   if (passedPubkey && panel.pubkey && passedPubkey.toLowerCase() !== panel.pubkey.toLowerCase()) return null;
   return panel;
+}
+
+/** Someone's profile from a tap (an @mention, a poster, a notification, search). Your own opens
+ *  the Profile tab instead (K d089011f KaPostsDeepLink.openProfile), not a visitor's copy. */
+function openProfileFromTap(address, passedPubkey) {
+  if (deps?.engine?.address && deps.openProfileTab && sameAddress(address, deps.engine.address)) {
+    deps.openProfileTab();
+    return;
+  }
+  openPosterProfile(address, passedPubkey);
 }
 
 async function openPosterProfile(address, passedPubkey) {
@@ -7269,7 +7281,7 @@ export function initKaPosts(dependencies) {
       return;
     }
     const personRow = event.target.closest("[data-kaposts-search-person]");
-    if (personRow) openPosterProfile(personRow.dataset.kapostsSearchPerson, personRow.dataset.kapostsSearchPubkey || null);
+    if (personRow) openProfileFromTap(personRow.dataset.kapostsSearchPerson, personRow.dataset.kapostsSearchPubkey || null);
   });
   document.querySelector("[data-kaposts-panel-back]")?.addEventListener("click", () => {
     // A follow list opened from a profile returns to that profile; everything else closes to the feed.
@@ -7647,7 +7659,7 @@ export function initKaPosts(dependencies) {
       // Already looking at this person's profile: re-opening it rebuilt the panel and threw the
       // reader back to the top of it, which is what tapping a row in your own profile did.
       if (p && !(activePanel?.type === "profile" && activePanel.address === p.posterAddress)) {
-        openPosterProfile(p.posterAddress, p.posterPubkey);
+        openProfileFromTap(p.posterAddress, p.posterPubkey);
       }
       return;
     }
@@ -7834,7 +7846,7 @@ export function initKaPosts(dependencies) {
       // post for a like, repost or tip); a follow has no post, so the follower's profile. No
       // explorer link and no menu in between.
       if (item.targetTxId) resolveAndOpenPost(item.targetTxId, { parentRemoteIdHint: item.parentTxId || null });
-      else if (item.actorAddress) openPosterProfile(item.actorAddress, null);
+      else if (item.actorAddress) openProfileFromTap(item.actorAddress, null);
       return;
     }
 

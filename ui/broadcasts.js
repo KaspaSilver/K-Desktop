@@ -1317,10 +1317,9 @@ function mergeMessages(channel, rows, { live = false } = {}) {
     if (!listRenderSuppressed) { try { renderChannelList(); } catch { /* list not mounted */ } }
   }
   if (reactionsChanged) saveReactions();
-  // The global notification center gates these by arrival time (only live messages ping, not the
-  // backfilled history), so it's safe to hand it every fresh incoming row.
   // A default room switched off in settings stays silent everywhere, the bell included.
   if (!curatedShown(channel)) freshIncoming.length = 0;
+  recordRoomMentions(channel, freshIncoming);
   if (freshIncoming.length) deps.onIncomingBroadcast?.(freshIncoming);
   // The per-channel bell (iOS parity): OS pings for LIVE messages in notify-enabled channels
   // you're not currently reading, never from a sender hidden in that room (iOS
@@ -1415,11 +1414,16 @@ function noteRoomNewest(channel, rows) {
 }
 // How many reads in a row each cached room message ("room|txid") was missing from (K absenceStrikes).
 const absenceStrikes = new Map();
-/** A message a moderator removed from the indexer, or its sender deleted, goes from here too
- *  (K e4062188 dropRowsTheIndexerNoLongerHas; the rules are in engine/room-deletes.js). Only for
- *  the app-wide indexer (no Room Info override) and a room it tracks, never a machinery room.
- *  `before` is the page's exclusive upper bound when it was asked for older history. Returns how
- *  many rows went. */
+// Rooms whose next indexer read removes a missing message on the first miss (K d089011f
+// firstMissRemovesChannels): a room just opened, and the Rooms list's check. The reader is looking
+// at it now, and a deleted message mustn't sit there until the next read.
+const firstMissRemovesChannels = new Set();
+/** For a room the indexer tracks, the indexer is the truth (K d089011f "work like KaPost",
+ *  dropRowsTheIndexerNoLongerHas; the rules are in engine/room-deletes.js): a cached message the
+ *  read doesn't have in the span it answers for goes - a moderator's removal, its sender's delete,
+ *  anything the indexer no longer serves. Only for the app-wide indexer (no Room Info override)
+ *  and a room it tracks, never a machinery room. `before` is the page's exclusive upper bound when
+ *  it was asked for older history. Returns how many rows went. */
 function dropRowsTheIndexerNoLongerHas(channel, page, before = null) {
   if (indexerOverrideFor(channel) || !isIndexerTrackedBroadcastChannel(channel) || isServiceBroadcastChannel(channel)) return 0;
   const rows = messageCache[channel];
@@ -1427,14 +1431,11 @@ function dropRowsTheIndexerNoLongerHas(channel, page, before = null) {
   // Never a message of any account saved here, not only the one on (audit 2026-11-25 #25).
   let mine = [];
   try { mine = deps.localAccountAddresses?.() || []; } catch { mine = []; }
-  const { gone, refused } = rowsTheIndexerNoLongerHas({
+  const needed = firstMissRemovesChannels.delete(channel) ? 1 : 2;
+  const { gone } = rowsTheIndexerNoLongerHas({
     channel, page, before, held: rows, me: [deps.engine?.address || "", ...mine],
-    retentionMs: BROADCAST_RETENTION_MS, strikes: absenceStrikes,
+    retentionMs: BROADCAST_RETENTION_MS, strikes: absenceStrikes, needed,
   });
-  if (refused) {
-    deps.appendEngineLog?.(`#${channel}: ${refused.gone} of ${refused.considered} cached messages missing from the indexer - left alone (looks like an indexer problem)`);
-    return 0;
-  }
   if (!gone.length) return 0;
   const removed = removeRoomRows(channel, rows, gone);
   if (!removed) return 0;
@@ -1803,6 +1804,30 @@ async function openMentionedProfile(name) {
     else deps.showToast?.(`No one has the username @${name}.`);
   } catch {
     deps.showToast?.(`Couldn't look up @${name}.`);
+  }
+}
+
+/** Each new room message that @'s you by your username is a row in Profile's bell (K d089011f
+ *  insertRoomMessages: every mention, whatever the room's bell; never a banner from here). Not
+ *  the machinery rooms, nor your own, nor from a sender hidden in that room. Reactions, edits
+ *  and deletes never reach here (mergeMessages keeps them out of the rows). */
+function recordRoomMentions(channel, rows) {
+  if (!rows?.length || !deps.recordMention || isServiceBroadcastChannel(channel)) return;
+  const me = String(deps.engine.address || "").toLowerCase();
+  if (!me || !deps.mentionUsernameOf?.(deps.engine.address)) return;
+  const hiddenHere = hiddenIn(channel);
+  for (const row of rows) {
+    if (String(row.senderAddress || "").toLowerCase() === me || hiddenHere.has(row.senderAddress)) continue;
+    const preview = humanizeBroadcastContent(row.content);
+    if (!roomTextMentionsMe(preview)) continue;
+    deps.recordMention({
+      sender: stripBidiControls(senderName(row.senderAddress)),
+      place: `#${stripBidiControls(channel)}`,
+      preview: stripBidiControls(preview).slice(0, 160),
+      txId: row.txId,
+      blockTime: row.blockTime,
+      target: `room:${channel}`,
+    });
   }
 }
 
@@ -2208,14 +2233,16 @@ function buildMessageElement(m) {
 }
 
 // Scrolls to the original a reply quotes and lights it up for a moment.
-function jumpToBroadcastMessage(txId) {
+function jumpToBroadcastMessage(txId, { quiet = false } = {}) {
   if (!txId || !roomBodyEl) return;
   // a reply to one of a voice note's hidden parts goes to the note's bubble (KaPost 369794e)
   txId = roomParts.anchorKeyOf.get(txId) || txId;
   let row = null;
   try { row = roomBodyEl.querySelector(`[data-broadcast-txid="${CSS.escape(String(txId))}"]`); } catch { row = null; }
-  if (!row) { deps.showToast?.("Original message not available."); return; }
-  row.scrollIntoView({ behavior: "smooth", block: "center" });
+  // quiet: a mention opened from the bell that isn't in the loaded rows opens the room as usual
+  if (!row) { if (!quiet) deps.showToast?.("Original message not available."); return; }
+  // quiet (the bell's jump): at once, since a poll's re-render mid-glide would stop it short
+  row.scrollIntoView({ behavior: quiet ? "auto" : "smooth", block: "center" });
   row.classList.add("message-highlight");
   window.setTimeout(() => row.classList.remove("message-highlight"), 1200);
 }
@@ -2579,6 +2606,31 @@ let roomWindowChannel = null;
 let keepInPlaceAfterOlderLoad = null;   // { height, top } of the scroller before the widen
 let lastRenderedNewestKey = null;       // the newest row the room last drew
 let lastRenderedCount = 0;
+// Where the reader is in the open room (K d089011f): a room hidden behind another tab (a profile
+// opened from it, any other tab) comes back at the same place; only a reader who was at the newest
+// message is taken to the newest. A hidden room has no layout, so the browser loses its scroll and
+// a render there can't keep it: the place is noted while it's on screen and put back on return.
+let roomScrollPlace = null;             // { channel, top, atBottom }
+let roomPlacePending = false;
+function noteRoomScrollPlace() {
+  // while a place waits to be put back, the browser's own scroll on return isn't the reader's
+  if (roomPlacePending || !roomBodyEl || !activeChannel || roomBodyEl.clientHeight === 0) return;
+  roomScrollPlace = {
+    channel: activeChannel,
+    top: roomBodyEl.scrollTop,
+    atBottom: roomBodyEl.scrollHeight - roomBodyEl.scrollTop - roomBodyEl.clientHeight < 60,
+  };
+}
+/** Puts the reader back where they were once the room is laid out again. True when it did. */
+function restoreRoomScrollPlace() {
+  if (!roomPlacePending || !roomBodyEl || roomBodyEl.clientHeight === 0) return false;
+  roomPlacePending = false;
+  const place = roomScrollPlace;
+  if (!place || place.channel !== activeChannel) return false;
+  roomBodyEl.scrollTop = place.atBottom ? roomBodyEl.scrollHeight : place.top;
+  noteRoomScrollPlace();
+  return true;
+}
 function loadEarlierRoomMessages() {
   if (!roomBodyEl) return;
   keepInPlaceAfterOlderLoad = { height: roomBodyEl.scrollHeight, top: roomBodyEl.scrollTop };
@@ -2619,6 +2671,9 @@ function renderRoom() {
   const messages = allMessages.length > roomWindow ? allMessages.slice(-roomWindow) : allMessages;
   if (roomBodyEl) {
     const before = { height: roomBodyEl.scrollHeight, top: roomBodyEl.scrollTop, client: roomBodyEl.clientHeight };
+    // hidden behind another tab: no layout to keep a place in, so it's put back on return
+    const laidOut = before.client > 0;
+    if (!laidOut && roomScrollPlace?.channel === activeChannel) roomPlacePending = true;
     roomBodyEl.replaceChildren();
     if (allMessages.length > messages.length) {
       const earlier = document.createElement("button");
@@ -2660,7 +2715,11 @@ function renderRoom() {
     const newest = messages[messages.length - 1];
     const newestKey = newest ? String(newest.txId || newest.id || "") : "";
     const wasAtBottom = before.height - before.top - before.client < 60;
-    if (keepInPlaceAfterOlderLoad) {
+    if (!laidOut && roomPlacePending) {
+      // nothing to measure: the place comes back with the room (restoreRoomScrollPlace)
+    } else if (restoreRoomScrollPlace()) {
+      // back from another tab: where the reader was, or the newest if they were there
+    } else if (keepInPlaceAfterOlderLoad) {
       const { height, top } = keepInPlaceAfterOlderLoad;
       keepInPlaceAfterOlderLoad = null;
       roomBodyEl.scrollTop = roomBodyEl.scrollHeight - height + top;
@@ -2680,6 +2739,7 @@ function renderRoom() {
     }
     lastRenderedNewestKey = newestKey;
     lastRenderedCount = messages.length;
+    noteRoomScrollPlace();
   }
 }
 
@@ -3014,7 +3074,11 @@ function cancelVoiceRecordingIfActive() {
 // ---------------------------------------------------------------------------
 
 function openRoom(channel) {
-  if (normalizeBroadcastChannel(channel) !== activeChannel) releaseTypingFocus();
+  if (normalizeBroadcastChannel(channel) !== activeChannel) {
+    releaseTypingFocus();
+    // its first read removes a missing message on one miss (K d089011f)
+    firstMissRemovesChannels.add(normalizeBroadcastChannel(channel));
+  }
   activeChannel = normalizeBroadcastChannel(channel);
   // Every default room is joined at load (iOS 865c9ab) unless it was switched off; a link or a
   // notification can still open one that isn't, and opening it is what creates its row.
@@ -3498,7 +3562,10 @@ export function refreshBroadcasts({ onScreen = false } = {}) {
   loadState({ caches: false });
   renderChannelList();
   if (activeChannel) {
+    // back from another tab: the room keeps the reader's place (K d089011f)
+    if (roomOnScreen && roomScrollPlace?.channel === activeChannel) roomPlacePending = true;
     renderRoom();
+    if (roomPlacePending) requestAnimationFrame(() => restoreRoomScrollPlace());
     if (roomOnScreen && !document.hidden) markChannelRead(activeChannel);
     // Leaving Public Chats stops the open room's poll; coming back starts it again, with a quiet
     // catch-up, or the room sits frozen until another one is opened (audit 2026-11-13).
@@ -3576,6 +3643,40 @@ async function sweepClosedRooms() {
       } catch { /* the next sweep tries again */ }
     }
   } finally { sweepRunning = false; }
+}
+
+// The Rooms list is on screen (K d089011f checkListedRoomsAgainstIndexer): each indexed room it
+// shows that nothing else keeps current (bell off, not open) is read from the indexer once, at most
+// every 2 minutes, so a message deleted there leaves the row's preview too, and new messages show.
+// One at a time, each read removing a missing message on its first miss; bell-on rooms are on the
+// sweep beat already.
+const LIST_CHECK_MS = 2 * 60 * 1000;
+const listCheckedAt = new Map();
+let listCheckRunning = false;
+export function checkListedRoomsAgainstIndexer() {
+  if (!deps || !deps.engine?.address || listCheckRunning || document.hidden || !hasBroadcastIndexer()) return;
+  const now = Date.now();
+  const due = listedChannels().filter((name) => !notifyByChannel[name] && name !== activeChannel
+    && isIndexerTrackedBroadcastChannel(name) && now - (listCheckedAt.get(name) || 0) >= LIST_CHECK_MS);
+  if (!due.length) return;
+  listCheckRunning = true;
+  const generation = roomAccountGeneration;
+  (async () => {
+    try {
+      for (const name of due) {
+        if (generation !== roomAccountGeneration || document.hidden) return;
+        listCheckedAt.set(name, Date.now());
+        firstMissRemovesChannels.add(name);
+        try {
+          const result = await fetchBroadcastHistory({ channel: name, limit: 50, baseUrl: indexerOverrideFor(name) || null });
+          if (generation !== roomAccountGeneration) return;
+          const changed = mergeMessages(name, result.messages) + dropRowsTheIndexerNoLongerHas(name, result.messages);
+          if (changed > 0 && !listRenderSuppressed) renderChannelList();
+        } catch { /* the next check tries again */ }
+        finally { firstMissRemovesChannels.delete(name); }
+      }
+    } finally { listCheckRunning = false; }
+  })();
 }
 
 // A room push that came while K is open (K 961fc05a fetchBeforePushBanner, "room push waits for its
@@ -3661,6 +3762,16 @@ export function openBroadcastChannelFromNotification(channel) {
   openRoom(clean);
 }
 
+/** A mention in Profile's bell (K d089011f PublicChatJumpRoute): the room opens at the message
+ *  when it's in the loaded rows, else as usual. */
+export function openBroadcastMessageFromNotification(channel, txId) {
+  if (!deps) return;
+  openBroadcastChannelFromNotification(channel);
+  const clean = replacementBroadcastChannel(channel);
+  if (!txId || !clean || activeChannel !== clean) return;
+  window.setTimeout(() => { if (activeChannel === clean) jumpToBroadcastMessage(txId, { quiet: true }); }, 300);
+}
+
 export function initBroadcasts(dependencies) {
   deps = dependencies;
   onIndexerAvailabilityChange(handleIndexerAvailability);
@@ -3669,6 +3780,7 @@ export function initBroadcasts(dependencies) {
   roomEl = document.querySelector("[data-broadcast-room]");
   roomTitleEl = document.querySelector("[data-broadcast-room-title]");
   roomBodyEl = document.querySelector("[data-broadcast-room-body]");
+  roomBodyEl?.addEventListener("scroll", noteRoomScrollPlace, { passive: true });
   // The in-room retention banner was removed for iOS parity (the room reads clean; the 30-day
   // rule is stated beside the Popular header instead). Its markup still lives in index.html —
   // drop the node so it can never render. Safe to delete the element from index.html later.

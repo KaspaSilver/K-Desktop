@@ -102,7 +102,7 @@ await test("the chats tab is KaChat; the wallet tab is Wallet again (58cfbf6f); 
   assert.match(html, /data-app-tab="chats"[^>]*>[\s\S]*?<span>KaChat<\/span>/);
   assert.match(html, /<p class="settings-group-label">Wallet<\/p>/);
   assert.match(html, /<p class="settings-group-label">Chats<\/p>/);
-  assert.match(app, /wallet: "Wallet", kachat: ".kachat" \};/);
+  assert.match(app, /wallet: "Wallet", kachat: ".kachat", mention: "Mention" \};/);
   const kusdt = read("ui", "kusdt-screens.js");
   assert.doesNotMatch(kusdt, /KaPay tab/);
   // K 5.4: Swap Stablecoins went; the Wallet's Swap button is named instead.

@@ -106,36 +106,46 @@ export function resolveRoomDeletes(deletes, senderOf) {
 }
 
 /**
- * Which held rows the indexer no longer has, from one page (K dropRowsTheIndexerNoLongerHas).
- * The caller checks the rest of K's rules first: the app-wide indexer only, a room it tracks,
- * never a machinery room.
- * - never an empty page, never below the page's oldest row;
- * - a minute inside both edges, never the newest 3 minutes, never the oldest day of the 30 days;
- * - never your own messages, nor a pending, failed or unconfirmed send (any `status`), nor a sent
- *   row still on this device's clock (`localTime`). `me` may be one address or a list: the room
- *   cache is shared by every account saved here, so all of theirs count (audit 2026-11-25 #25);
- * - a row goes on its second miss (`strikes`, a Map of "room|txid" -> misses, updated here);
- * - a read that would remove more than a handful (over 3 and over a fifth) removes nothing.
+ * Which held rows the indexer no longer has, from one read (K d089011f dropRowsTheIndexerNoLongerHas).
+ * For a room the indexer tracks, the indexer is the truth ("work like KaPost"): a delivered row
+ * held in the span the read answers for, that the read doesn't have, goes. The caller checks the
+ * rest of K's rules first: the app-wide indexer only, a room it tracks, never a machinery room,
+ * never a failed read.
+ * - never an empty page, never below the page's oldest row (an indexer holding less than this
+ *   device says nothing about older messages), never the oldest day of the 30 days;
+ * - the newest page (`before` null) answers from its oldest row, a minute in, up to 90 seconds
+ *   ago, so the newest message goes too; an older page between its oldest row and `before`, a
+ *   minute inside both;
+ * - your own messages only once 5 minutes old (sends still on their way to the indexer stay), and
+ *   never a pending, failed or unconfirmed send (any `status`) nor a sent row still on this
+ *   device's clock (`localTime`). `me` may be one address or a list: the room cache is shared by
+ *   every account saved here, so all of theirs count (audit 2026-11-25 #25);
+ * - a row goes on its `needed`th miss (`strikes`, a Map of "room|txid" -> misses, updated here):
+ *   2 normally, 1 on the first read after the room opens and in the Rooms list's check;
+ * - no brake on how many go at once: if the indexer loses history, this shows that too, as KaPost
+ *   would. A row that's only missing, not deleted for everyone, comes back with the read that has it.
  * `before` is the page's exclusive upper bound when it was asked for older history.
- * Returns { gone: [txid], refused: { gone, considered } | null }.
+ * Returns { gone: [txid] }.
  */
-export function rowsTheIndexerNoLongerHas({ channel, page, before = null, held, me = "", now = Date.now(), retentionMs, strikes }) {
+export function rowsTheIndexerNoLongerHas({ channel, page, before = null, held, me = "", now = Date.now(), retentionMs, strikes, needed = 2 }) {
   const times = (page || []).map((row) => Number(row?.blockTime)).filter((t) => Number.isFinite(t) && t > 0);
-  if (!times.length) return { gone: [], refused: null };
-  const newest = Math.max(...times);
+  if (!times.length) return { gone: [] };
   const oldest = Math.min(...times);
   const margin = 60_000;
-  const upper = Math.min((before != null ? Number(before) - 1 : newest) - margin, now - 180_000);
+  const catchUp = 90_000;
+  // the newest page answers for everything up to now, less the indexer's catch-up time
+  const upper = Math.min(before != null ? Number(before) - 1 - margin : now - catchUp, now - catchUp);
   const lower = Math.max(oldest + margin, now - retentionMs + 86_400_000);
-  if (lower > upper) return { gone: [], refused: null };
+  if (!(lower <= upper)) return { gone: [] };
   const mine = new Set((Array.isArray(me) ? me : [me]).map((address) => String(address || "").toLowerCase()).filter(Boolean));
   const onPage = new Set((page || []).map((row) => String(row?.txId || "").toLowerCase()));
   const considered = (held || []).filter((m) => {
     const t = Number(m?.blockTime) || 0;
     const id = String(m?.txId || "").toLowerCase();
     return t >= lower && t <= upper && !m.status && !m.localTime && TXID_RE.test(id)
-      && !mine.has(String(m.senderAddress || "").toLowerCase());
+      && (!mine.has(String(m.senderAddress || "").toLowerCase()) || t < now - 300_000);
   });
+  const required = Math.max(1, Number(needed) || 2);
   const gone = [];
   for (const row of considered) {
     const id = String(row.txId).toLowerCase();
@@ -143,13 +153,9 @@ export function rowsTheIndexerNoLongerHas({ channel, page, before = null, held, 
     if (onPage.has(id)) { strikes.delete(key); continue; }
     const misses = (strikes.get(key) || 0) + 1;
     strikes.set(key, misses);
-    if (misses >= 2) gone.push(row.txId);
+    if (misses >= required) gone.push(row.txId);
   }
   if (strikes.size > 5000) strikes.clear();
-  if (!gone.length) return { gone: [], refused: null };
-  if (gone.length > 3 && gone.length * 5 > considered.length) {
-    return { gone: [], refused: { gone: gone.length, considered: considered.length } };
-  }
   for (const id of gone) strikes.delete(`${channel}|${String(id).toLowerCase()}`);
-  return { gone, refused: null };
+  return { gone };
 }

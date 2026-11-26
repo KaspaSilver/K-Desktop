@@ -98,41 +98,70 @@ test("back on a later page clears its strike", () => {
   assert.deepEqual(check([row(1, t0), row(3, t0 + 20 * 60_000)], held, strikes).gone, []);
 });
 
-test("never below the oldest row, a minute inside the edges, not the newest 3 minutes or the oldest day", () => {
+test("never below the oldest row, a minute inside the lower edge, not the newest 90 seconds or the oldest day", () => {
   const t0 = now - 2 * 3600_000;
   const page = [row(1, t0), row(3, t0 + 20 * 60_000)];
   const strikes = new Map();
   const held = [
     row(10, t0 - 60_000),          // below the page
     row(11, t0 + 30_000),          // inside the lower minute
-    row(12, t0 + 20 * 60_000 - 1), // inside the upper minute
   ];
   check(page, held, strikes);
   assert.deepEqual(check(page, held, strikes).gone, []);
-  // the newest 3 minutes
+  // the newest 90 seconds are left for the indexer to catch up
   const fresh = [row(1, now - 10 * 60_000), row(3, now)];
-  check(fresh, [row(20, now - 2 * 60_000)], strikes);
-  assert.deepEqual(check(fresh, [row(20, now - 2 * 60_000)], strikes).gone, []);
+  check(fresh, [row(20, now - 60_000)], strikes);
+  assert.deepEqual(check(fresh, [row(20, now - 60_000)], strikes).gone, []);
   // the oldest day of the 30
   const old = [row(1, now - 30 * DAY + 1000), row(3, now - 28 * DAY)];
   check(old, [row(21, now - 29.5 * DAY)], strikes);
   assert.deepEqual(check(old, [row(21, now - 29.5 * DAY)], strikes).gone, []);
 });
 
-test("never your own messages or an unsettled send, never an empty page", () => {
-  const t0 = now - 2 * 3600_000;
-  const page = [row(1, t0), row(3, t0 + 20 * 60_000)];
-  const held = [row(4, t0 + 5 * 60_000, "kaspa:me"), row(5, t0 + 6 * 60_000, "kaspa:alice", { status: "not-confirmed" }), { txId: "pending-1", blockTime: t0 + 7 * 60_000, senderAddress: "kaspa:alice" }];
+test("your own messages only once 5 minutes old; never an unsettled send, never an empty page", () => {
+  const t0 = now - 20 * 60_000;
+  const page = [row(1, t0)];
+  const held = [
+    row(4, now - 3 * 60_000, "kaspa:me"),   // yours, 3 minutes old: on its way to the indexer
+    row(8, now - 10 * 60_000, "kaspa:me"),  // yours, 10 minutes old: the indexer is the truth
+    row(5, t0 + 6 * 60_000, "kaspa:alice", { status: "not-confirmed" }),
+    { txId: "pending-1", blockTime: t0 + 7 * 60_000, senderAddress: "kaspa:alice" },
+  ];
   const strikes = new Map();
   check(page, held, strikes);
-  assert.deepEqual(check(page, held, strikes).gone, []);
+  assert.deepEqual(check(page, held, strikes).gone, [tx(8)]);
   assert.deepEqual(check([], [row(6, t0)], strikes).gone, []);
 });
 
-test("never any local account's messages, nor a sent row still on this device's clock (audit 2026-11-25 #25)", () => {
+test("the newest page answers up to 90 seconds ago: a deleted newest message goes (K d089011f)", () => {
+  const page = [row(1, now - 30 * 60_000), row(2, now - 20 * 60_000)];
+  // newer than everything on the page, older than 90 seconds
+  const held = [...page, row(9, now - 5 * 60_000)];
+  const strikes = new Map();
+  check(page, held, strikes);
+  assert.deepEqual(check(page, held, strikes).gone, [tx(9)]);
+});
+
+test("the first read after opening a room, and the Rooms list check, remove on one miss", () => {
   const t0 = now - 2 * 3600_000;
   const page = [row(1, t0), row(3, t0 + 20 * 60_000)];
-  const held = [row(4, t0 + 5 * 60_000, "kaspa:other"), row(5, t0 + 6 * 60_000, "kaspa:alice", { localTime: true }), row(6, t0 + 7 * 60_000, "kaspa:bob")];
+  const held = [row(1, t0), row(2, t0 + 10 * 60_000), row(3, t0 + 20 * 60_000)];
+  assert.deepEqual(check(page, held, new Map(), { needed: 1 }).gone, [tx(2)]);
+  assert.match(rooms, /const needed = firstMissRemovesChannels\.delete\(channel\) \? 1 : 2;/);
+  assert.match(rooms, /releaseTypingFocus\(\);\n\s*\/\/ its first read removes a missing message on one miss \(K d089011f\)\n\s*firstMissRemovesChannels\.add\(/);
+  const listCheck = rooms.slice(rooms.indexOf("export function checkListedRoomsAgainstIndexer("), rooms.indexOf("// A room push that came while K is open"));
+  assert.match(listCheck, /!notifyByChannel\[name\] && name !== activeChannel/, "bell-off rooms that aren't open");
+  assert.match(listCheck, /LIST_CHECK_MS/, "at most every 2 minutes");
+  assert.match(listCheck, /firstMissRemovesChannels\.add\(name\);/);
+  const app = readFileSync(new URL("../ui/app.js", import.meta.url), "utf8");
+  assert.match(app, /if \(next === "publicChats"\) \{ try \{ checkListedRoomsAgainstIndexer\(\); \}/);
+  assert.match(app, /if \(chatListPage === "publicChats"\) \{ try \{ checkListedRoomsAgainstIndexer\(\); \}/);
+});
+
+test("other local accounts' fresh messages stay, nor a sent row still on this device's clock (audit 2026-11-25 #25)", () => {
+  const t0 = now - 20 * 60_000;
+  const page = [row(1, t0)];
+  const held = [row(4, now - 3 * 60_000, "kaspa:other"), row(5, now - 4 * 60_000, "kaspa:alice", { localTime: true }), row(6, now - 4 * 60_000, "kaspa:bob")];
   const strikes = new Map();
   const opts = { me: ["kaspa:me", "KASPA:OTHER"] };
   check(page, held, strikes, opts);
@@ -154,20 +183,16 @@ test("an older-history page answers up to its `before`", () => {
   assert.deepEqual(check(page, held, strikes, { before: t0 + 60 * 60_000 }).gone, [tx(7)]);
 });
 
-test("more than a handful missing at once removes nothing", () => {
+test("no brake: however many the indexer no longer has go, as KaPost would (K d089011f)", () => {
   const t0 = now - 3 * 3600_000;
   const page = [row(1, t0), row(2, t0 + 100 * 60_000)];
   const held = [...page, ...Array.from({ length: 10 }, (_, i) => row(100 + i, t0 + (10 + i) * 60_000))];
   const strikes = new Map();
   check(page, held, strikes);
   const second = check(page, held, strikes);
-  assert.deepEqual(second.gone, []);
-  assert.deepEqual(second.refused, { gone: 10, considered: 10 }); // the page's own edge rows sit in the margins
-  // up to 3 always may go
-  const few = [...page, ...Array.from({ length: 3 }, (_, i) => row(200 + i, t0 + (10 + i) * 60_000))];
-  const s2 = new Map();
-  check(page, few, s2);
-  assert.equal(check(page, few, s2).gone.length, 3);
+  assert.equal(second.gone.length, 10);
+  assert.equal("refused" in second, false);
+  assert.doesNotMatch(rooms, /looks like an indexer problem/);
 });
 
 test("the rooms module applies deletes on every read path and blocks deleted rows", () => {

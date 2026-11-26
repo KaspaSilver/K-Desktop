@@ -76,7 +76,7 @@ await test("groups, group mentions and group invites ring only within three minu
   assert.ok(group.indexOf("if (!isRecentForBanner(createdAt)) return;") < group.indexOf("postDesktopNotification({"));
   const mention = between(app, "function maybeRecordGroupMention(", "/// Are these two rows the same message?");
   assert.ok(mention.indexOf("recordGlobalNotification({") < mention.indexOf("!isRecentForBanner(createdAt)"), "the bell first, whatever its age");
-  assert.match(mention, /if \(!groupOsPingAllowed\(groupId\) \|\| !isRecentForBanner\(createdAt\)\) return;/);
+  assert.match(mention, /if \(!ring \|\| !groupOsPingAllowed\(groupId\) \|\| !isRecentForBanner\(createdAt\)\) return;/);
   assert.match(app, /if \(isNews && isRecentForBanner\(evMs\)\) notifyGroupInvite\(ev\);/);
 });
 

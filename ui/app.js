@@ -38,7 +38,7 @@ import { allowsPreviewPage, allowsPreviewImage, socialPreviewBrand, isSameSiteHo
 import { SOCIAL_LOGOS } from "./social-logos.js";
 import { kapostsFiatFieldText, kapostsKasFieldText, kapostsTipFieldAmount, kapostsSwitchTipText, kapostsDefaultTipSompi, KAPOSTS_TIP_MIN_SOMPI } from "./kaposts-format.js";
 import { requesterPubkeyFor, KAPOSTS_PROTOCOL, KACHAT_MARKER as KAPOSTS_MARKER, utf8ToBase64 as kapostsUtf8ToBase64, buildKaPostTipPayload } from "../engine/kaposts.js";
-import { initBroadcasts, refreshBroadcasts, repaintBroadcastIdentities, resetBroadcastsForAccount, stopBroadcastPolling, openBroadcastChannelFromNotification, openBroadcastRoomFromLink, openPublicChatsSettings, broadcastNotifyingUnreadTotal, broadcastJoinError, joinBroadcastChannelFromSheet, chatListRooms, openBroadcastRoom, closeBroadcastRoom, markBroadcastRooms, removeBroadcastRooms, setBroadcastRoomNotify, copyBroadcastRoomLink, fetchRoomBeforePushBanner } from "./broadcasts.js";
+import { initBroadcasts, refreshBroadcasts, repaintBroadcastIdentities, resetBroadcastsForAccount, stopBroadcastPolling, openBroadcastChannelFromNotification, openBroadcastMessageFromNotification, openBroadcastRoomFromLink, openPublicChatsSettings, broadcastNotifyingUnreadTotal, broadcastJoinError, joinBroadcastChannelFromSheet, chatListRooms, openBroadcastRoom, closeBroadcastRoom, markBroadcastRooms, removeBroadcastRooms, setBroadcastRoomNotify, copyBroadcastRoomLink, fetchRoomBeforePushBanner, checkListedRoomsAgainstIndexer } from "./broadcasts.js";
 import { initChessTournaments, showChessTournaments, hideChessTournaments, resetChessTournamentsForAccount, chessTournamentsMayLeave, openChessBotChallenge, openArcadeChallenge } from "./chess-tournaments.js";
 import { parseBotChallengeLink, botChallengeFromLaunchSearch } from "../engine/chess-bot-links.js";
 import { parseArcadeChallengeLink, arcadeChallengeFromLaunchSearch } from "../engine/arcade-services.js";
@@ -8776,16 +8776,17 @@ const NOTIF_CENTER_MAX = 100;
 const notifOverlay = document.querySelector("[data-notif-overlay]");
 let globalNotifications = [];
 let notifCenterLastSeenAt = 0;
-const NOTIF_SOURCE_LABELS = { kaposts: "KaPost", group: "Group", broadcast: "Public Chats", wallet: "Wallet", kachat: ".kachat" };
+const NOTIF_SOURCE_LABELS = { kaposts: "KaPost", group: "Group", broadcast: "Public Chats", wallet: "Wallet", kachat: ".kachat", mention: "Mention" };
 // The Profile bell is for broadcasts and for Kaspa arriving on your addresses (chatting,
 // spending, cold storage). KaPosts has its own bell inside KaPosts, and group @mentions ping
 // the chat itself, so neither lands here.
 // The profile bell holds Kaspa arriving on your addresses and news about your .kachat names
 // (iOS 86471dd / 4500ebc: offers, sales, renewal and expiry, what became of your offers - from
-// kachat-names-notifier.js). Never KaPosts (its own bell), and not group chats or public rooms
-// (their own unread counts in the Chats tab). Rows of other kinds saved by older builds are
-// dropped on load, and refused when recorded.
-const NOTIF_CENTER_SOURCES = new Set(["wallet", "kachat"]);
+// kachat-names-notifier.js), and every @mention of you in a public chat or a group (K d089011f
+// recordMention, whatever the room's bell or the group's setting). Never KaPosts (its own bell),
+// and no other group or room messages (their own unread counts in the Chats tab). Rows of other
+// kinds saved by older builds are dropped on load, and refused when recorded.
+const NOTIF_CENTER_SOURCES = new Set(["wallet", "kachat", "mention"]);
 
 function loadNotifCenter() {
   try { globalNotifications = JSON.parse(localStorage.getItem(accountScopedKey(NOTIF_CENTER_KEY)) || "[]").filter((n) => NOTIF_CENTER_SOURCES.has(n?.source)); }
@@ -8814,6 +8815,22 @@ function recordGlobalNotification(item) {
   persistNotifCenter();
   updateNotifBadge();
   if (notifOverlay && !notifOverlay.hidden) renderNotifCenter();
+}
+/** Someone @'d you in a room or a group: a row in Profile's bell, one per message (K d089011f
+ *  GlobalNotificationCenter.recordMention). Never a banner of its own: the room's or group's own
+ *  rules decide that. `target` is "room:<name>" or "group:<id>". */
+function recordMentionNotification({ sender, place, preview, txId, blockTime, target }) {
+  const id = String(txId || "").toLowerCase();
+  if (!id || !target) return;
+  recordGlobalNotification({
+    source: "mention",
+    id: `mention-${id}`,
+    title: `${sender} mentioned you in ${place}`,
+    body: String(preview || ""),
+    timestamp: Number(blockTime) || Date.now(),
+    targetKind: "mention",
+    targetId: `${target}|${txId}`,
+  });
 }
 function unreadNotifCount() {
   return globalNotifications.filter((n) => n.timestamp > notifCenterLastSeenAt).length;
@@ -8862,7 +8879,7 @@ function walletNotificationRows() {
     title: n.title,
     body: n.body,
     timestamp: n.timestamp,
-    kind: n.targetKind === "kusdt" ? "kusdt" : n.source === "wallet" ? "kaspa" : "kachat",
+    kind: n.targetKind === "kusdt" ? "kusdt" : n.source === "wallet" ? "kaspa" : n.source === "mention" ? "mention" : "kachat",
   }));
 }
 function markWalletNotificationsSeen() {
@@ -8874,7 +8891,21 @@ function markWalletNotificationsSeen() {
 function openGlobalNotification(id) {
   const notif = globalNotifications.find((n) => n.id === id);
   if (!notif) return;
-  if (notif.targetKind === "broadcast") {
+  if (notif.targetKind === "mention") {
+    // "room:<name>|<txid>" opens the room at the message; "group:<id>|<txid>" opens the group
+    // (K d089011f GlobalNotificationCenter.open).
+    const raw = String(notif.targetId || "");
+    const split = raw.indexOf("|");
+    const place = split >= 0 ? raw.slice(0, split) : raw;
+    const txId = split >= 0 ? raw.slice(split + 1) : "";
+    if (place.startsWith("room:")) {
+      closeOpenSheets();
+      if (openPublicChatsTab()) { try { openBroadcastMessageFromNotification(place.slice("room:".length), txId); } catch {} }
+    } else if (place.startsWith("group:")) {
+      setActiveAppTab("chats");
+      try { openGroupChat(place.slice("group:".length)); } catch {}
+    }
+  } else if (notif.targetKind === "broadcast") {
     // The room opens straight in the detail pane (iOS a062577).
     closeOpenSheets();
     if (openPublicChatsTab() && notif.targetId) { try { openBroadcastChannelFromNotification(notif.targetId); } catch {} }
@@ -12554,7 +12585,12 @@ function setActiveAppTab(tab) {
   }
   // The rooms are KaChat's Public Chats page (K 961fc05a): they stay live while KaChat is up, and
   // syncPublicChatsPane gives the pane to the open chat, group or room.
-  if (isChats) { refreshBroadcasts({ onScreen: true }); syncPublicChatsPane(); }
+  if (isChats) {
+    refreshBroadcasts({ onScreen: true });
+    syncPublicChatsPane();
+    // back on the Rooms page: its rows checked against the indexer (K d089011f)
+    if (chatListPage === "publicChats") { try { checkListedRoomsAgainstIndexer(); } catch { /* rooms not started */ } }
+  }
   else { stopBroadcastPolling(); syncPublicChatsPane(); }
   if (screenTab === "portfolio") refreshPortfolio();
   if (screenTab === "cold-storage") refreshColdStorage();
@@ -13329,7 +13365,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 343;
+const APP_BUILD = 344;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -17371,6 +17407,8 @@ function setChatListPage(page) {
   const next = page === "publicChats" ? "publicChats" : "chats";
   if (next === chatListPage) { syncChatListPageControls(); return; }
   chatListPage = next;
+  // the Rooms page's rows checked against the indexer, so a deleted message leaves a preview too (K d089011f)
+  if (next === "publicChats") { try { checkListedRoomsAgainstIndexer(); } catch { /* rooms not started */ } }
   if (chatSelectionModeActive) setChatSelectionMode(false);
   lastChatListHtml = null;
   renderChats();
@@ -18470,6 +18508,17 @@ function openChatInfoForAddress(address) {
   }
   const conversationEntry = state.conversations.find((entry) => entry.contactId === contact.id) || null;
   openChatInfoFor(contact, conversationEntry);
+}
+
+/** A room sender's or group member's View Profile, and an @username tapped in a room: their
+ *  profile, but your own opens the Profile tab (K d089011f KaPostsDeepLink.openProfile). */
+function openProfileForAddress(address) {
+  if (address && engine.address && String(address).toLowerCase() === String(engine.address).toLowerCase()) {
+    closeOpenSheets();
+    setActiveAppTab("profile");
+    return;
+  }
+  openChatInfoForAddress(address);
 }
 
 // The one screen for anyone's profile (iOS 95c3760, 49cb2b6): a 1:1 chat header, a group roster
@@ -31399,6 +31448,8 @@ queueMicrotask(async () => {
       // OS-notification clicks land on the exact post — the KaPosts tab must be
       // fronted first since the ping can arrive while another tab is active.
       openKaPostsTab: () => setActiveAppTab("kaposts"),
+      // your own @ or name tapped in KaPost: the Profile tab, not a visitor's copy (K d089011f)
+      openProfileTab: () => setActiveAppTab("profile"),
       // "Tip" button on a post: quick Send-Kaspa-style modal, direct send through the chat
       // payment rules (matches iOS's KaPostTipSheet).
       // A default tip, when set, goes out at once through the same path as the tip sheet's Send;
@@ -31639,7 +31690,9 @@ queueMicrotask(async () => {
       // KaChatInternalLinkCardView), the same one 1:1 and group bubbles draw.
       buildInternalLinkCard,
       // The avatar menu's destinations (iOS BroadcastChannelView.avatarButton).
-      openUserInfo: (address) => openChatInfoForAddress(address),
+      openUserInfo: (address) => openProfileForAddress(address),
+      // a new room message that @'s you: a row in Profile's bell (K d089011f)
+      recordMention: (mention) => recordMentionNotification(mention),
       openChat: (address, name) => openChatWithAddress({ address, name }),
       payInKaspa: (address, name) => openChatWithAddressForKaspa({ address, name }),
       addressCopiedToastText,
@@ -32303,7 +32356,6 @@ function maybeNotifyGroupIncoming(groupId, senderAddress, text, id, createdAt) {
   // networks, so a roster entry from the other chain would still decrypt and ping here.
   if (!isOnActiveNetwork(senderAddress)) return;
   const mode = getGroupNotify(groupId);
-  if (mode === "muted") return;
   // Backfill floor, matching iOS: anything mined before this device learned about the group is
   // that group's existing history, not new mail. The catchUp flag covers a restore; this covers
   // being invited to a live group, whose history arrives on an ordinary sync and would otherwise
@@ -32314,7 +32366,10 @@ function maybeNotifyGroupIncoming(groupId, senderAddress, text, id, createdAt) {
   if (isGroupMemberHidden(groupId, senderAddress)) return;
   // Muted is the softer one: their messages stay in the thread, they just stop pinging.
   if (isGroupMemberMuted(groupId, senderAddress)) return;
-  if (GROUP_MENTIONS_ENABLED && textMentionsMe(text)) { maybeRecordGroupMention(groupId, senderAddress, text, id, createdAt); return; }
+  // A mention is in Profile's bell whatever the group's setting, muted included (K d089011f
+  // recordMentionIfAny); the setting decides only whether it rings.
+  if (GROUP_MENTIONS_ENABLED && textMentionsMe(text)) { maybeRecordGroupMention(groupId, senderAddress, text, id, createdAt, { ring: mode !== "muted" }); return; }
+  if (mode === "muted") return;
   if (GROUP_MENTIONS_ENABLED && mode !== "all" && !isReplyToMyGroupMessage(text)) return;
   if (!groupOsPingAllowed(groupId)) return;
   // Only news rings: a message more than three minutes old is listed, not rung (K 961fc05a).
@@ -32335,29 +32390,28 @@ function maybeNotifyGroupIncoming(groupId, senderAddress, text, id, createdAt) {
   });
 }
 
-// When an incoming group message @mentions you, surface it in the global
-// notification center (and an OS ping). Group mentions are purely client-detected — there is no
-// server round-trip, unlike KaPosts mentions. Reached through maybeNotifyGroupIncoming, which
-// has already applied the group's mode (a muted group never gets here).
-function maybeRecordGroupMention(groupId, senderAddress, text, id, createdAt) {
+// When an incoming group message @mentions you, surface it in Profile's bell (and an OS ping
+// unless the group is muted). Group mentions are purely client-detected — there is no server
+// round-trip, unlike KaPosts mentions. Reached through maybeNotifyGroupIncoming, which has
+// already left out hidden and muted members and history from before you joined.
+function maybeRecordGroupMention(groupId, senderAddress, text, id, createdAt, { ring = true } = {}) {
   const me = engine.address || "";
   if (!me) return;
   if (!textMentionsMe(text)) return;
   const group = getGroupManager()?.getGroup(groupId);
   const groupName = group?.name || "a group";
   const senderName = groupNotificationSenderName(senderAddress);
-  recordGlobalNotification({
-    source: "group",
-    id: `group-mention-${id}`,
-    title: `${senderName} mentioned you in ${groupName}`,
+  recordMentionNotification({
+    sender: senderName,
+    place: groupName,
     // "@kaspa:qq…" mentions (the group wire format) read as names (K bdf29425 mentionsAsNames)
-    body: `"${decodeGroupMentions(displayTextForMessage({ text }) || String(text || "")).slice(0, 90)}"`,
-    timestamp: createdAt || Date.now(),
-    targetKind: "group",
-    targetId: groupId,
+    preview: decodeGroupMentions(displayTextForMessage({ text }) || String(text || "")).replace(/\s+/g, " ").trim().slice(0, 160),
+    txId: id,
+    blockTime: createdAt,
+    target: `group:${groupId}`,
   });
   // in the bell whatever its age; rung only while it's news (K 961fc05a)
-  if (!groupOsPingAllowed(groupId) || !isRecentForBanner(createdAt)) return;
+  if (!ring || !groupOsPingAllowed(groupId) || !isRecentForBanner(createdAt)) return;
   postDesktopNotification({
     title: "Group mention",
     body: `${senderName} mentioned you in ${groupName}`,
@@ -32915,7 +32969,7 @@ function openGroupMemberMenu(address, x, y) {
     options.push({ id: "hide", title: "Hide User", subtitle: "Stop seeing their messages in this group. Undo it in Group Info.", destructive: true });
   }
   chooseDialog({ title: groupSenderLabel(address), message: address, options }).then((choice) => {
-    if (choice === "profile") openChatInfoForAddress(address);
+    if (choice === "profile") openProfileForAddress(address);
     else if (choice === "chat") openOrCreateOneToOne(address);
     else if (choice === "copy") copyTextToClipboard(address).then(() => showCopyToast(addressCopiedToastText(address))).catch(() => {});
     else if (choice === "pay") openChatWithAddressForKaspa({ address, name: groupSenderLabel(address) });

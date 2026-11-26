@@ -24,7 +24,7 @@ await test("an account change drops room answers still on their way; no sweep wh
   assert.equal((rooms.match(/if \(generation !== roomAccountGeneration\) return 0;/g) || []).length, 2, "backfill: poll, failure");
   assert.match(rooms, /if \(generation !== roomAccountGeneration\) return \{ added: 0, stale: true \};/);
   assert.match(rooms, /!deps\.engine\?\.address \|\| !hasBroadcastIndexer\(\)\) return;/);
-  assert.equal((rooms.match(/if \(generation !== roomAccountGeneration\) return;/g) || []).length, 2, "sweep: per room and after its fetch");
+  assert.equal((rooms.match(/if \(generation !== roomAccountGeneration\) return;/g) || []).length, 3, "sweep: per room and after its fetch; the Rooms list check after its fetch (K d089011f)");
 });
 await test("a voice note's later parts are Failed, saved and free for Retry", () => {
   assert.match(rooms, /for \(const id of later\) pendingSendsThisRun\.delete\(id\);\n\s+saveCache\(\);/);
