@@ -50,7 +50,7 @@ import { startKachatNamesNotifier, openKachatNameFromNotification as openKachatN
 import { initKachatMarket, showKachatMarket, hideKachatMarket, openKachatProfileEditor, openKachatSetupGuide, KACHAT_AT_SVG, kachatAddressDomainsHtml, renderKachatLiveDomainsTab, openKachatMarketSheet } from "./kachat-market.js";
 import { initExplorer, showExplorer, hideExplorer, explorerToHome } from "./explorer.js";
 // Closed-app notifications (Web Push) and the app icon's badge.
-import { initWebPush, scheduleWebPushSync, webPushStatus, webPushStatusText, webPushSignOut, webPushForgetAccount, setAppIconBadge, takePendingNotificationClick, needsHomeScreenInstall, pushArrivedRecently } from "./web-push.js";
+import { initWebPush, scheduleWebPushSync, webPushStatus, webPushStatusText, webPushSignOut, webPushForgetAccount, setAppIconBadge, forgetAppliedAppIconBadge, takePendingNotificationClick, needsHomeScreenInstall, pushArrivedRecently } from "./web-push.js";
 import { authorKeyFromAddress, compressedPubkeyHex, PUSH_LIMITS } from "./web-push-core.js";
 import { deriveBlindedGroupId as pushBlindedGroupId, bytesToHex as pushBytesToHex, hexToBytes as pushHexToBytes } from "../engine/group.js";
 import { broadcastPushWatch, activeBroadcastChannelName } from "./broadcasts.js";
@@ -13365,7 +13365,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 346;
+const APP_BUILD = 347;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -30929,6 +30929,14 @@ function scheduleAppBadgeUpdate() {
     setAppIconBadge(total);
   }, 250);
 }
+
+// Back in front: pushes may have changed the icon's number meanwhile, so the count is put on it
+// whatever this page set before (K 4b8e78b3: a room read in the app left "1" on the icon).
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  forgetAppliedAppIconBadge();
+  scheduleAppBadgeUpdate();
+});
 
 // Each chat's receiving alias, cached per account: the push service only rings for messages
 // carrying one of them (iOS collectAliases / knownIncomingAliases).

@@ -494,7 +494,13 @@ export async function webPushForgetAccount(address) {
 }
 
 // ---- badge, focus, taps -------------------------------------------------------------------------
-/** The app icon's badge (iOS 16.4+ home-screen apps, Chrome): the total unread count. */
+/** Pushes put their own number on the icon while the app is away, so what this page last set is
+ *  forgotten whenever it comes back to the front, and the next count is always set (K 4b8e78b3
+ *  AppTabBadge.forgetAppliedIconCount: a room read in the app left "1" on the icon). */
+export function forgetAppliedAppIconBadge() { lastBadge = null; }
+
+/** The app icon's badge (iOS 16.4+ home-screen apps, Chrome): the total unread count, set unless
+ *  this page already put exactly that number there. */
 export async function setAppIconBadge(count) {
   const value = Math.max(0, Math.floor(Number(count) || 0));
   if (value === lastBadge) return;

@@ -335,6 +335,9 @@
       out.options.body = joined(String(p.subtitle || "").trim(), roomPreviewText(p.body), ": ");
       out.options.tag = `kachat-broadcast-${p.tx_id || channel}`;
       out.options.data.route = { kind: "room", channel };
+      // A bell-on room's message counts on the icon, from the same count as a chat's (K 4b8e78b3):
+      // the app counts those rooms, so it can take the number back down once the room is read.
+      if (!out.suppress && Array.isArray(m.rooms) && m.rooms.includes(channel)) out.badge = "increment";
       return out;
     }
 
