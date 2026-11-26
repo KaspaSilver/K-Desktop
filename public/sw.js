@@ -13,7 +13,8 @@
 //      subscription is renewed.
 // Bumped per release that changes the shell: the old name is deleted on activate, which is
 // what clears the previous release's hashed assets out of the cache.
-const CACHE = "kachat-shell-v2";
+// v3 (2026-11-26): v2 could hold the app's page under a stylesheet's name (see the fetch handler).
+const CACHE = "kachat-shell-v3";
 
 // The push payload -> notification mapping (a classic script defining self.KaChatPushMap). Kept
 // apart so tools/test-web-push.mjs can run it; a missing file must not stop the worker.
@@ -51,6 +52,11 @@ function isCacheable(request, url) {
   return true;
 }
 
+/** An HTML page: what Cloudflare sends for a missing file. */
+function isPageResponse(response) {
+  return /text\/html/i.test(response?.headers?.get?.("content-type") || "");
+}
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   let url;
@@ -61,11 +67,19 @@ self.addEventListener("fetch", (event) => {
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
     if (hashedAsset) {
-      // Immutable by construction: the file name changes when the content does.
+      // Immutable by construction: the file name changes when the content does. But Cloudflare
+      // answers a built file it doesn't have yet (just after a deploy) with the app's page, 200,
+      // and public/_headers makes the browser keep that a year: a page is never a built file, so
+      // it's never kept or served from here, and it's asked for once more past the browser's cache
+      // (owner, 2026-11-26: the site showed unstyled).
       const cached = await cache.match(request);
-      if (cached) return cached;
-      const response = await fetch(request);
-      if (response.ok) cache.put(request, response.clone());
+      if (cached && !isPageResponse(cached)) return cached;
+      if (cached) await cache.delete(request);
+      let response = await fetch(request);
+      if (response.ok && isPageResponse(response)) {
+        try { response = await fetch(new Request(request, { cache: "reload" })); } catch { /* keep the first answer */ }
+      }
+      if (response.ok && !isPageResponse(response)) cache.put(request, response.clone());
       return response;
     }
     try {

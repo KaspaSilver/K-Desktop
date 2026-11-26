@@ -12,6 +12,9 @@
   <script src="/upgrade-insecure.js"></script>
   <!-- Too-old browsers (no WebAssembly / modern JS, e.g. iOS 10) get a clear message, not a blank layout. -->
   <script src="/browser-check.js"></script>
+  <!-- Styles that never arrived (a stylesheet cached as the app's page just after a deploy) are
+       fetched again once and the page reloads; see public/asset-repair.js. -->
+  <script src="/asset-repair.js"></script>
   <title>K</title>
   <link rel="stylesheet" href="./ui/styles.css?v=446" />
   <meta name="theme-color" content="#000000" />
