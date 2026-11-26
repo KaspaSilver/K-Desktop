@@ -3,6 +3,7 @@
 // parts arrive as several messages as ONE bubble.
 
 import { guardedImageBlobUrl } from "./image-guard.js";
+import { objectUrlFor, revokeObjectUrl } from "./local-url-bytes.js";
 import {
   MAX_PARTS, VOICE_PATHS, makePartTag, newPartGroupId, voicePartFileName, photoPartFileName,
   photoChunks, sniffPartTag,
@@ -123,7 +124,7 @@ function remember(key, make) {
   for (const [oldKey, old] of joined) {
     if (joined.size <= JOINED_CAP || now - old.usedAt < JOINED_KEEP_MS) break;
     joined.delete(oldKey);
-    if (old.url) setTimeout(() => URL.revokeObjectURL(old.url), 60_000);
+    if (old.url) setTimeout(() => revokeObjectUrl(old.url), 60_000);
   }
   return entry;
 }
@@ -138,7 +139,8 @@ export function joinedVoice(texts) {
     const parts = texts.map(envelopeBytes);
     if (parts.some((bytes) => !bytes)) throw new Error("unreadable part");
     const pcm = await decodePartsToPcm(parts);
-    return URL.createObjectURL(pcmToWavBlob(pcm));
+    // kept, so its waveform can be read without fetch() (ui/local-url-bytes.js)
+    return objectUrlFor(pcmToWavBlob(pcm));
   });
 }
 

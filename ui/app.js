@@ -66,6 +66,7 @@ import { setKaPostsRootMode, syncKaPostsBell, kaPostsUnseenCount } from "./kapos
 import { pollKaPostNotificationsSoon } from "./kaposts.js";
 // Kaspa Hub card links (K 961fc05a): kachat.app/hub/<slug> opens that screen here.
 import { parseHubLink, hubCardForSlug, hubLinkUrl, hubSlugForAppTab } from "./hub-links.js";
+import { localUrlBlob } from "./local-url-bytes.js";
 import { createBlobUrlCache } from "./preview-image-cache.js";
 import { broadcastBlockedAccountsChanged } from "./broadcasts.js";
 import { kaPostTermsHtml } from "./kapost-moderation.js";
@@ -2129,7 +2130,8 @@ async function sharePhotoPreview() {
   const src = photoPreviewImage?.src;
   if (!src) return;
   try {
-    const blob = await (await fetch(src)).blob();
+    // data: and the app's own blob: are read in place: the CSP lets fetch() reach only https:
+    const blob = await localUrlBlob(src);
     const file = new File([blob], photoPreviewName, { type: blob.type || "image/jpeg" });
     if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: photoPreviewName }); return; }
   } catch (error) { if (error?.name === "AbortError") return; }
@@ -3571,8 +3573,10 @@ function decodeWaveform(src) {
 }
 async function decodeWaveformNow(src) {
   try {
-    const response = await fetch(src);
-    const bytes = await response.arrayBuffer();
+    // A note's data: address (or a joined note's blob:) read in place: the CSP lets fetch() reach
+    // only https:, so fetching it was refused for every note and the bars stayed the placeholder
+    // (owner, 2026-11-26).
+    const bytes = await (await localUrlBlob(src)).arrayBuffer();
     const Ctx = window.AudioContext || window.webkitAudioContext;
     const ctx = new Ctx();
     // Closed whether or not the audio decodes: a voice note this browser can't decode left its
@@ -13365,7 +13369,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 351;
+const APP_BUILD = 352;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of

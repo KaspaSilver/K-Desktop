@@ -3,6 +3,7 @@
 // scan keeps its cursor, a balance read that spans an account switch writes nothing, and an
 // Address Activity run that spans one announces and saves nothing into the next account.
 // app.js can't be loaded in node, so the functions are cut out of its source and run on stubs.
+import { localUrlBlob } from "../ui/local-url-bytes.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { accountGuard } from "../ui/account-guard.js";
@@ -209,7 +210,9 @@ function waveformHarness(decodeFails) {
   }
   const source = between("function decodeWaveform(", "// `chatStyle` (1:1 and group threads");
   const { decodeWaveform } = build(source, {
-    fetch: async () => ({ arrayBuffer: async () => new ArrayBuffer(8) }),
+    // the note's own data: address, read in place (ui/local-url-bytes.js), never fetched
+    localUrlBlob,
+    fetch: async () => { throw new Error("a note's data: address is never fetched (the CSP refuses it)"); },
     window: { AudioContext: FakeAudioContext },
     voiceWaveformCache: createVoiceInfoCache(),
     voiceInfoKey,

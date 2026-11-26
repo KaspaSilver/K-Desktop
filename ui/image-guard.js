@@ -9,6 +9,7 @@
 //     its first frame as a still picture.
 // Used for photos in 1:1 and group chats (one message or joined from parts), the full-screen
 // preview, and group photos (gctl_photo, which any member can set).
+import { objectUrlFor, localUrlBlob } from "./local-url-bytes.js";
 
 export const MAX_SOURCE_PIXELS = 50_000_000;
 export const MAX_PLAY_EDGE = 1024;
@@ -197,7 +198,8 @@ export function planForDataUrl(url) {
 export function stillOf(blobOrUrl, key = blobOrUrl) {
   if (typeof key === "string" && stills.has(key)) return stills.get(key);
   const work = (async () => {
-    const blob = blobOrUrl instanceof Blob ? blobOrUrl : await (await fetch(blobOrUrl)).blob();
+    // a data: picture is read in place: the CSP lets fetch() reach only https: (ui/local-url-bytes.js)
+    const blob = blobOrUrl instanceof Blob ? blobOrUrl : await localUrlBlob(blobOrUrl);
     const bitmap = await createImageBitmap(blob);
     const canvas = document.createElement("canvas");
     canvas.width = bitmap.width;
@@ -208,7 +210,7 @@ export function stillOf(blobOrUrl, key = blobOrUrl) {
     canvas.width = 0;
     canvas.height = 0;
     if (!png) throw new Error("no still");
-    return URL.createObjectURL(png);
+    return objectUrlFor(png);
   })();
   if (typeof key === "string") remember(stills, key, work);
   work.catch(() => { if (typeof key === "string") stills.delete(key); });
@@ -237,6 +239,7 @@ export async function guardedImageBlobUrl(bytes, type) {
   const plan = imageDisplayPlan(bytes);
   if (plan === "block") throw new Error("This picture can't be shown.");
   const blob = new Blob([bytes], { type });
-  if (plan === "show") return URL.createObjectURL(blob);
+  // kept, so Share can read it back without fetch() (ui/local-url-bytes.js)
+  if (plan === "show") return objectUrlFor(blob);
   return stillOf(blob, null);
 }
