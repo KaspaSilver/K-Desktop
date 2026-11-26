@@ -69,8 +69,29 @@ function loadRegistry() {
   }
 }
 
+// The node records kept (audit 2026-11-25): every connect reads and rewrites this record, and
+// Automatic meets a new public node now and then, so without a cap it grew one entry per node URL
+// forever. Kept: the last good node, then nodes that answered (most recent first), then the most
+// recent failures.
+export const MAX_ENDPOINT_RECORDS = 30;
+function pruneEndpoints(registry) {
+  const records = Object.entries(registry.endpoints || {});
+  if (records.length <= MAX_ENDPOINT_RECORDS) return;
+  const rank = ([key, r]) => [
+    key === registry.lastGoodEndpoint ? 1 : 0,
+    Number(r?.lastSuccessAt || 0),
+    Math.max(Number(r?.lastSuccessAt || 0), Number(r?.lastFailureAt || 0)),
+  ];
+  records.sort((a, b) => {
+    const ra = rank(a); const rb = rank(b);
+    return (rb[0] - ra[0]) || (rb[1] - ra[1]) || (rb[2] - ra[2]);
+  });
+  registry.endpoints = Object.fromEntries(records.slice(0, MAX_ENDPOINT_RECORDS));
+}
+
 function saveRegistry(registry) {
   if (typeof localStorage === "undefined") return;
+  pruneEndpoints(registry);
   try { localStorage.setItem(NODE_REGISTRY_KEY, JSON.stringify(registry)); } catch {}
 }
 

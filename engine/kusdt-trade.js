@@ -22,6 +22,7 @@ import { schnorrOwner, kusdtUnitsFromText, formatKusdt } from "./kusdt.js";
 import { hex, unhex32, bytesEqual } from "./kachat-names/codec.js";
 import { sompiFromUserText, sanitizeAmountInput, kasTextFromSompi, groupedAmountText } from "./amounts.js";
 import { KusdtCoreError } from "./kusdt-core.js";
+import { coinsInUseReason, enqueueSend } from "./transactions.js";
 
 /** A maybe-sent trade holds its address this long (iOS `holdSeconds`). */
 export const TRADE_HOLD_MS = 600_000;
@@ -42,6 +43,9 @@ export const TRADE_MESSAGES = Object.freeze({
   nothingForAmount: "The pool gives nothing for this amount.",
   paused: "Trestly's pool is paused right now, so swaps are stopped for the moment.",
   breaker: "The pool's circuit breaker limits sells right now. Try a smaller amount, or again later.",
+  // Trestly's code picks its own coins and can't be told which to leave (audit 2026-11-25 #31).
+  coinsReserved: "A scheduled KaPost holds coins on this address, and a swap could spend them. Swap from another address, or wait for the post to go out (or cancel it in KaPost > Scheduled). Nothing was sent.",
+  coinsHeld: "A send from this address hasn't reached a block yet. Try the swap again in a moment. Nothing was sent.",
 });
 
 export function heldMessage(minutes) {
@@ -158,10 +162,17 @@ export function swapRecord(done) {
  * @param {function} [deps.afterTrade]      ({ txid, address }) => void: balances looked up again until
  *                                           the trade's coins show (K 961fc05a followTrade); no txid
  *                                           for a trade that may have gone out
+ * @param {function} [deps.coinsInUse]      (keys) => "reserved" | "held" | null: whether a scheduled
+ *                                          KaPost or a send of K's own has any of these coins
+ *                                          (default engine/transactions.js coinsInUseReason; null: no check)
+ * @param {function} [deps.queue]           (address, task) => Promise: the per-address send queue
+ *                                          (default engine/transactions.js enqueueSend; null: none)
  */
 export function createTrestlyTrade(deps) {
   const now = deps.now || (() => Date.now());
   const inFlight = new Set();
+  const coinsInUse = deps.coinsInUse === undefined ? coinsInUseReason : deps.coinsInUse;
+  const queue = deps.queue === undefined ? enqueueSend : deps.queue;
 
   // MARK: Holds (iOS `MaybeSentHold`)
   function readHolds() {
@@ -231,6 +242,20 @@ export function createTrestlyTrade(deps) {
     return { network: deps.network(), address: target.address, ownerHex: hex(owner), apiUrl: String(deps.apiUrl() || "") };
   }
 
+  /** Refuses a trade from an address where a scheduled KaPost's signed transaction or one of K's own
+   *  sends still needs a coin the node lists there: Trestly's code picks coins itself and takes no
+   *  list to leave out (audit 2026-11-25 #31). Without the hook, or the coins, nothing is checked. */
+  function refuseCoinsInUse(coins) {
+    if (!coinsInUse || !coins?.length) return;
+    let reason = null;
+    try { reason = coinsInUse(coins); } catch { reason = null; }
+    if (reason === "reserved") throw new TradeError(TRADE_CODE.busy, TRADE_MESSAGES.coinsReserved);
+    if (reason === "held") throw new TradeError(TRADE_CODE.busy, TRADE_MESSAGES.coinsHeld);
+  }
+  async function coinsAt(address) {
+    try { return (await deps.outpointsOf?.(address)) || []; } catch { return []; }
+  }
+
   /** Their `prepare` alone: the quote and its checks, nothing signed or sent. */
   async function prepare(method, params, target) {
     return call("prepare", { method, params: params ?? null, wallet: walletFor(target) });
@@ -273,6 +298,8 @@ export function createTrestlyTrade(deps) {
       if (minutes != null) throw new TradeError(TRADE_CODE.busy, heldMessage(minutes));
       const wallet = walletFor(target);
       const owner = schnorrOwner(address, deps.network());
+      // Coins K has promised elsewhere: refused before the sheet asks, and again at Approve.
+      if (coinsInUse) refuseCoinsInUse(await coinsAt(address));
       let prepared = await call("prepare", { method, params, wallet });
       let seen = null;
 
@@ -281,43 +308,49 @@ export function createTrestlyTrade(deps) {
         try { approved = await ask({ method, prepared, seen, from: target.label, native }); } catch { approved = false; }
         if (approved !== true || isClosed()) throw new TradeError(TRADE_CODE.rejected, TRADE_MESSAGES.declined);
 
-        // the address's coins as they were before the trade: if it gives no answer these are held,
-        // and the hold ends early once one of them is spent (the trade landed)
-        let coinsBefore = [];
-        try { coinsBefore = (await deps.outpointsOf?.(address)) || []; } catch { coinsBefore = []; }
-        if (isClosed()) throw new TradeError(TRADE_CODE.rejected, TRADE_MESSAGES.declined);
+        // From here to their answer, in the address's send queue like any send of K's, so a send
+        // and a trade never pick the same coin (audit 2026-11-25 #31).
+        const executeOnce = async () => {
+          // the address's coins as they were before the trade: if it gives no answer these are held,
+          // and the hold ends early once one of them is spent (the trade landed)
+          const coinsBefore = await coinsAt(address);
+          if (isClosed()) throw new TradeError(TRADE_CODE.rejected, TRADE_MESSAGES.declined);
+          refuseCoinsInUse(coinsBefore);
 
-        const bytes = keyBytesFor(target, owner);
-        const request = {
-          method, params, wallet: { ...wallet, secret: hex(bytes) },
-          shownFeerate: prepared.feerate ?? null,
-          acceptedFee: prepared.acceptedFee ?? null,
-          quoted: method === "kusdt_removeLiquidity"
-            ? { kasOut: prepared.kasOut ?? null, tokensOut: prepared.tokensOut ?? null }
-            : (prepared.quote ?? null),
-        };
-        let done;
-        try {
-          done = await call("execute", request);
-        } catch (error) {
-          if (error instanceof TradeError && error.maybeSent) {
-            // it may have gone out: hold this address's coins and its trades (iOS audit 2026-11-21 #1)
-            hold(address, coinsBefore);
-            if (coinsBefore.length) { try { deps.noteSpentOutpoints?.(coinsBefore); } catch { /* best effort */ } }
-            try { deps.afterTrade?.({ txid: null, address }); } catch { /* the screen's */ }
+          const bytes = keyBytesFor(target, owner);
+          const request = {
+            method, params, wallet: { ...wallet, secret: hex(bytes) },
+            shownFeerate: prepared.feerate ?? null,
+            acceptedFee: prepared.acceptedFee ?? null,
+            quoted: method === "kusdt_removeLiquidity"
+              ? { kasOut: prepared.kasOut ?? null, tokensOut: prepared.tokensOut ?? null }
+              : (prepared.quote ?? null),
+          };
+          try {
+            const answer = await call("execute", request);
+            // the coins it spent are held like a send's own (10 minutes), before the queue lets the
+            // next send pick
+            const spent = (Array.isArray(answer?.inputs) ? answer.inputs : []).map(String).filter((o) => o.length > 65 && o.length < 80);
+            if (spent.length) { try { deps.noteSpentOutpoints?.(spent); } catch { /* best effort */ } }
+            return answer;
+          } catch (error) {
+            if (error instanceof TradeError && error.maybeSent) {
+              // it may have gone out: hold this address's coins and its trades (iOS audit 2026-11-21 #1)
+              hold(address, coinsBefore);
+              if (coinsBefore.length) { try { deps.noteSpentOutpoints?.(coinsBefore); } catch { /* best effort */ } }
+              try { deps.afterTrade?.({ txid: null, address }); } catch { /* the screen's */ }
+            }
+            throw error;
+          } finally {
+            // the key leaves this function's hands whether execute answers, throws or times out
+            request.wallet.secret = null;
+            delete request.wallet;
+            bytes.fill(0);
           }
-          throw error;
-        } finally {
-          // the key leaves this function's hands whether execute answers, throws or times out
-          request.wallet.secret = null;
-          delete request.wallet;
-          bytes.fill(0);
-        }
+        };
+        const done = queue ? await queue(address, executeOnce) : await executeOnce();
 
         for (const step of Array.isArray(done.steps) ? done.steps : []) { try { deps.markOwnTransaction?.(String(step)); } catch { /* best effort */ } }
-        // the coins it spent are held like a send's own (10 minutes)
-        const spent = (Array.isArray(done.inputs) ? done.inputs : []).map(String).filter((o) => o.length > 65 && o.length < 80);
-        if (spent.length) { try { deps.noteSpentOutpoints?.(spent); } catch { /* best effort */ } }
         if (done.requote != null) {
           // The pool moved and pays less than approved: nothing was sent. Their code prepares again
           // from scratch, so the sheet shows the new quote with its own warnings, fee and minimum.

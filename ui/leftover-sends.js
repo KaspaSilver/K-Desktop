@@ -124,12 +124,15 @@ export function markRoomRowUnconfirmed(messages, pendingId, txid) {
 }
 
 /** A delivered room row whose id is already stored: a "Not confirmed" row with that id did go out,
- *  so it turns sent with the chain's time (iOS 33095ac PublicChatStore.insertMessages). Returns
- *  whether a row changed. */
+ *  so it turns sent with the chain's time (iOS 33095ac PublicChatStore.insertMessages). A sent row
+ *  still on this device's clock (`localTime`, set when the send answered) takes the copy's time
+ *  too, once (audit 2026-11-25 #25): a skewed clock no longer misplaces it, nor makes it look
+ *  missing from the indexer's span. Returns whether a row changed. */
 export function settleRoomCopy(messages, txId, blockTime) {
-  const row = (messages || []).find((m) => m.txId === txId && m.status === ROOM_UNCONFIRMED);
+  const row = (messages || []).find((m) => m.txId === txId && (m.status === ROOM_UNCONFIRMED || (m.localTime && !m.status)));
   if (!row) return false;
   delete row.status;
+  delete row.localTime;
   if (Number(blockTime) > 0) row.blockTime = Number(blockTime);
   return true;
 }

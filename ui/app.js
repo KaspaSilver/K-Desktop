@@ -16,7 +16,7 @@ import { NETWORK, IS_TESTNET, ADDRESS_PREFIX, KAS_UNIT, kasLabel, preferredNetwo
 import { otherNetworkReason, isValidKaspaAddress as isWellFormedKaspaAddress, lowercasedKaspaAddress } from "../engine/network.js";
 import { addressFromPrivateKey, passphraseFormForRecord, passphraseIsNfkd, normalizePassphraseForm, WALLET_SOURCE_FAMILIES, sourceFamilyDisplayName, sourceFamilyImportSearchDepth, sourceFamilySupportsIndexScan } from "../engine/wallet.js";
 import { QUANTUM_INDEX_BASE, QUANTUM_SCAN_FLOOR, QUANTUM_SCAN_LIMIT, QUANTUM_CHANGE_UNAVAILABLE, KIP22_SIGNATURE_SCRIPT_SIZE, isQuantumIndex, chainLocalIndex, addressNumber, spendingIndexTitle, visibilityPagerRange, spendingChainSummaries, spendingStateFromRecord, spendingRecordFromState, revealedSpendingIndices, spendingChangeIndex, freshChangeRequired, quantumSpentFromHistory } from "../engine/quantum.js";
-import { createGroupManager } from "../engine/group-store.js";
+import { createGroupManager, setGroupBulkStorage, GROUP_BULK_STORE_KEYS } from "../engine/group-store.js";
 import { sompiFromUserText, kasTextFromSompi, kasToSompi, fiatTextFloorFromSompi, checkedUtxoAnswer, kasExact8Text } from "../engine/amounts.js";
 import { makePaymentRequest, signPaymentRequest, parsePaymentRequestLink, paymentRequestAmountText, paymentRequestUniversalLink, clampMemoText, memoCharacters, PAYMENT_REQUEST_MEMO_LIMIT } from "../engine/payment-request.js";
 import { excludeReservedUtxos, excludeJustSpentUtxos, noteSpentOutpoints, excludeCovenantUtxos, totalUtxoSompi, isTransactionKnown, maxSendOutpointKeys, MAX_AMOUNT_CHANGED, MAX_AMOUNT_CHANGED_MESSAGE, MAX_SEND_INPUT_LIMIT, SEND_FEE_CHANGED, SEND_OUTCOME_UNKNOWN, SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/transactions.js";
@@ -66,6 +66,7 @@ import { setKaPostsRootMode, syncKaPostsBell, kaPostsUnseenCount } from "./kapos
 import { pollKaPostNotificationsSoon } from "./kaposts.js";
 // Kaspa Hub card links (K 961fc05a): kachat.app/hub/<slug> opens that screen here.
 import { parseHubLink, hubCardForSlug, hubLinkUrl, hubSlugForAppTab } from "./hub-links.js";
+import { createBlobUrlCache } from "./preview-image-cache.js";
 import { broadcastBlockedAccountsChanged } from "./broadcasts.js";
 import { kaPostTermsHtml } from "./kapost-moderation.js";
 // No Terms of Use to agree to on the website (owner, 2026-11-21): iOS asks because the App Store
@@ -108,12 +109,10 @@ import { kusdtDeployment } from "../engine/kusdt.js";
 import { sealBackupEnvelope, openBackupEnvelope, openEncryptedArchive } from "./backup-crypto.js";
 import { calculateMass, calculateFee, fetchQuotedFeeRateSompiPerGram, MIN_RELAY_FEE_PER_GRAM } from "./kspt.js";
 import {
-  initChildMode, isChildModeEnabled, CHILD_HIDDEN_TABS,
-  isUserTypePending, markUserTypePending,
   isOnboardingRunPending, pendingOnboardingRunKind, markOnboardingRunPending, clearOnboardingRunPending,
-  renderUserTypeGuideStep, applyUserTypeGuideChoice, renderChildModeSettingsPage,
-  EYE_SVG, EYE_SLASH_SVG,
-} from "./childmode.js";
+  installEyeToggleDelegation, EYE_SVG, EYE_SLASH_SVG,
+} from "./onboarding-run.js";
+import { removeRetiredFeatureData } from "./retired-features.js";
 import {
   initChatStorage,
   setChatStorageFlushErrorHandler,
@@ -161,7 +160,7 @@ import { saveFile } from "./save-file.js";
 import { createStoredZip } from "./zip-store.js";
 import { fetchAddressActivity, runSpendingDiscovery, captureSpendingAccount, deriveSpendingAddressForAccount, deriveSpendingAddressesForAccount, probeFreshQuantumSlot, chooseReceiveAddress, revealSpendingIndexFor, setPrimarySpendingIndexFor, markQuantumSpentFor } from "./spending-discovery.js";
 import { restoreRememberedVaults } from "./vault-remember.js";
-import { configureKeyVault, hasAppPassword as vaultHasAppPassword, isAppLocked, unlockKeyVault, unlockKeyVaultFromSession, lockKeyVault, setAppPassword as vaultSetAppPassword, resetForgottenAppPassword, releaseAppPasswordIfUnused, forgetAccountSecrets, isPasswordStorageKey, isBiometricStorageKey, readAccountRecords, writeAccountRecords, persistedWalletRecordForStorage, readLegacyWalletKey, clearLegacyWalletKey, appPasswordLockoutMessage, MIN_APP_PASSWORD_LENGTH, writeKeyVaultHandoff, keyVaultStorageChanged, onKeyVaultLockedByAnotherTab, VAULT_HANDOFF_TTL_MS, LOCKED_IN_ANOTHER_TAB_MESSAGE, hasBiometricUnlock, biometricUnlockRetiredReason, loadBiometricRecord, removeBiometricUnlock } from "./key-vault.js";
+import { configureKeyVault, hasAppPassword as vaultHasAppPassword, isAppLocked, unlockKeyVault, unlockKeyVaultFromSession, lockKeyVault, setAppPassword as vaultSetAppPassword, resetForgottenAppPassword, releaseAppPasswordIfUnused, forgetAccountSecrets, isPasswordStorageKey, isBiometricStorageKey, readAccountRecords, writeAccountRecords, persistedWalletRecordForStorage, readLegacyWalletKey, clearLegacyWalletKey, appPasswordLockoutMessage, MIN_APP_PASSWORD_LENGTH, writeKeyVaultHandoff, keyVaultStorageChanged, onKeyVaultLockedByAnotherTab, VAULT_HANDOFF_TTL_MS, LOCKED_IN_ANOTHER_TAB_MESSAGE, hasBiometricUnlock, biometricUnlockRetiredReason, loadBiometricRecord, removeBiometricUnlock, beginAccountVaultCarry, finishAccountVaultCarry, abandonAccountVaultCarry } from "./key-vault.js";
 import { biometricName, biometricRowLabel, biometricButtonLabel, biometricEnvironmentProblem, canOfferBiometricUnlock, canAutoPromptBiometric, checkBiometricSupport, enrolBiometric, finishBiometricEnrolment, unlockWithBiometric, turnOffBiometricUnlock, BIOMETRIC_UNSUPPORTED_MESSAGE } from "./biometric-unlock.js";
 import { sameAccountAddress as sameStoredAccountAddress } from "../engine/network.js";
 import { openEmojiReactionPicker, openComposerEmojiPopover, closeComposerEmojiPopover, recordEmojiRecent } from "./emoji.js";
@@ -477,12 +476,17 @@ configureAddressBook({
 // through to localStorage and the legacy quota-aware persistState() fallback
 // below still applies.
 // ---------------------------------------------------------------------------
-const CHAT_STORAGE_BASE_KEYS = [STORAGE_KEY, STATE_BACKUP_KEY, MESSAGE_HISTORY_KEY];
+// The deleted group messages log too (audit 2026-11-25, DELETED_GROUP_MESSAGES_KEY, a literal for
+// the same reason as below): up to 20,000 ids per account.
+const CHAT_STORAGE_BASE_KEYS = [STORAGE_KEY, STATE_BACKUP_KEY, MESSAGE_HISTORY_KEY, "kachat-deleted-group-messages-v1"];
 // Group messages too (2026-11-25): every group's messages, photos and voice notes inline, were one
 // localStorage value, and a save over the ~5MB quota failed without a word - the messages since
 // stayed on screen until the next reload and were then gone. One global key (bucketed by wallet
 // inside), written here as a literal: GROUP_MSG_KEY is declared far below this top-level await.
-const CHAT_STORAGE_GLOBAL_KEYS = ["kachat-group-messages-v1"];
+// And the other big group stores (audit 2026-11-25): the seen message ids (engine/group-store.js,
+// up to 20,000 per account), reactions and edits, which shared localStorage's quota with the group
+// keys themselves; the first start after this moves what localStorage held.
+const CHAT_STORAGE_GLOBAL_KEYS = ["kachat-group-messages-v1", ...GROUP_BULK_STORE_KEYS];
 function isChatStorageKey(key) {
   if (CHAT_STORAGE_GLOBAL_KEYS.includes(key)) return true;
   return CHAT_STORAGE_BASE_KEYS.some(
@@ -496,6 +500,8 @@ await initChatStorage({
 setChatStorageFlushErrorHandler((error) => {
   try { handleChatStorageFlushError(error); } catch (fallbackError) { console.error(fallbackError); }
 });
+// The group engine reads and writes those stores through the chat storage from here on.
+setGroupBulkStorage({ get: (key) => chatStorageGetSync(key), set: (key, value) => chatStorageSetSync(key, value) });
 
 // Read by the load-time restore below (buildFullyRestoredState), so it is declared up here: the
 // build lowers top-level const to var, and a later declaration reads undefined at load.
@@ -713,7 +719,7 @@ function persistAccountShellPreferences() {
 // owner, 2026-10-22 - this replaces DSK-023's lock on every new tab and refresh). Without one,
 // keys stay unencrypted in this browser, and Settings says so. The password also gates revealing
 // the seed phrase / private key and signing in, when the matching toggle is on. Wrong answers back
-// off like Simple Mode's. ---
+// off, doubling after five. ---
 // Each account its own password (owner, 2026-10-22): the vault's address-less calls are about the
 // account in question - the one being picked on the sign-in screen while its password is asked
 // (withVaultTarget), else the signed-in account, else the last active one.
@@ -1825,10 +1831,12 @@ function removeAccountScopedLocalData(address, { spendingAddresses = [], keepCoi
     const prefix = `${ACCOUNT_DATA_PREFIX}:${encoded}:`;
     for (let index = localStorage.length - 1; index >= 0; index -= 1) {
       const key = localStorage.key(index);
-      if (key?.startsWith(prefix)) localStorage.removeItem(key);
+      // Except the unfinished KNS reveals filed under this prefix: the only copy of the payload
+      // that rebuilds the redeem script holding committed coins (audit 2026-11-25 #4).
+      if (key?.startsWith(prefix) && !key.endsWith(":kachat-kns-pending-reveals-v1")) localStorage.removeItem(key);
     }
     if (encoded !== cleanAddress) {
-      for (const baseKey of [STORAGE_KEY, MESSAGE_HISTORY_KEY, STATE_BACKUP_KEY]) {
+      for (const baseKey of [STORAGE_KEY, MESSAGE_HISTORY_KEY, STATE_BACKUP_KEY, DELETED_GROUP_MESSAGES_KEY]) {
         try { chatStorageRemoveSync(accountScopedKey(baseKey, encoded)); } catch { /* not stored */ }
       }
     }
@@ -1864,7 +1872,7 @@ function removeAccountScopedLocalData(address, { spendingAddresses = [], keepCoi
 
   // The chats themselves live in IndexedDB once it is available (ui/storage.js), not under the
   // localStorage prefix above - without this, re-importing the seed brought every chat back.
-  for (const baseKey of [STORAGE_KEY, MESSAGE_HISTORY_KEY, STATE_BACKUP_KEY]) {
+  for (const baseKey of [STORAGE_KEY, MESSAGE_HISTORY_KEY, STATE_BACKUP_KEY, DELETED_GROUP_MESSAGES_KEY]) {
     try { chatStorageRemoveSync(accountScopedKey(baseKey, cleanAddress)); } catch { /* not stored */ }
   }
   // Groups (records with their keys, messages, reactions, edits, unread, hidden members) are kept
@@ -1882,8 +1890,8 @@ function removeAccountScopedLocalData(address, { spendingAddresses = [], keepCoi
     for (const bucketKey of bucketKeys) for (const groupId of Object.keys(groupsAll?.[bucketKey] || {})) removedGroupIds.add(groupId);
   } catch { /* unreadable: no group ids to clear */ }
   for (const key of ["kachat-groups-v1", "kachat-group-seen-msgs-v1", GROUP_MSG_KEY, GROUP_REACTIONS_KEY, GROUP_EDITS_KEY, GROUP_UNREAD_KEY, GROUP_HIDDEN_MEMBERS_KEY, GROUP_MUTED_MEMBERS_KEY, "kachat-group-tombstones-v1", "kachat-group-control-cursor-v1", "kachat-group-msg-counter-v1", "kachat-group-invites-v1", "kachat-group-invite-answers-v1", "kachat-group-member-status-v1", SPENDING_STATE_KEY, UTXO_LABELS_KEY]) {
-    // Group messages live in the chat storage (IndexedDB), the rest in localStorage.
-    const inChatStorage = key === GROUP_MSG_KEY;
+    // Group messages, seen ids, reactions and edits live in the chat storage (IndexedDB), the rest in localStorage.
+    const inChatStorage = CHAT_STORAGE_GLOBAL_KEYS.includes(key);
     try {
       const all = JSON.parse((inChatStorage ? chatStorageGetSync(key) : localStorage.getItem(key)) || "null");
       if (!all || typeof all !== "object") continue;
@@ -2257,10 +2265,6 @@ function firstInternalLinkIn(text) {
 // Opens the target screen (iOS KaChatLinkRouter) - never the browser for an in-app target.
 function openKaChatInternalLink(link) {
   if (!link) return;
-  // Simple Mode hides KaPosts and Public Chats; a profile opens User Info, which Chats keeps, and a
-  // payment request opens Send Kaspa, which it keeps too.
-  // A Hub card's link decides for itself: Contacts, Portfolio and the rest stay in Simple Mode.
-  if (isChildModeEnabled() && link.kind !== "profile" && link.kind !== "pay" && link.kind !== "hub") { showCopyToast("Not available in Simple Mode."); return; }
   if (link.kind === "hub") { openHubCardLink(link); return; }
   if (link.kind === "kapost") { setActiveAppTab("kaposts"); try { openKaPostFromNotification(link.txId); } catch {} }
   else if (link.kind === "broadcast") { closeOpenSheets(); openPublicChatsTab(); try { openBroadcastRoomFromLink(link.channel); } catch {} }
@@ -2270,12 +2274,11 @@ function openKaChatInternalLink(link) {
   else if (link.kind === "kaplayArcade") openKaPlayArcadeChallenge(link.challenge, link.author || null);
 }
 /** A Kaspa Hub card's link (K 961fc05a `.openHubSection`): Desktop has no Hub, so it opens that
- *  card's screen from the dock. A screen this build doesn't have (the Explorer before it lands, or
- *  one Simple Mode hides) says so and leaves you where you are, rather than showing an empty tab. */
+ *  card's screen from the dock. A screen this build doesn't have (the Explorer before it lands) says
+ *  so and leaves you where you are, rather than showing an empty tab. */
 function openHubCardLink(link) {
   const card = hubCardForSlug(link?.slug);
   if (!card) return;
-  if (isChildModeEnabled() && CHILD_HIDDEN_TABS.includes(card.tab)) { showCopyToast("Not available in Simple Mode."); return; }
   if (!appTabExists(card.tab)) { showCopyToast(`${hubCardInfo(card.slug).label} isn't in this version of K yet.`); return; }
   closeOpenSheets();
   setActiveAppTab(card.tab);
@@ -2350,8 +2353,7 @@ function routeLaunchChallengeLink() {
   if (!challenge && !arcade) return;
   const open = (attempt = 0) => {
     if (engine.address) {
-      if (isChildModeEnabled()) showCopyToast("Not available in Simple Mode.");
-      else if (arcade) openKaPlayArcadeChallenge(arcade);
+      if (arcade) openKaPlayArcadeChallenge(arcade);
       else openKaPlayChallenge(challenge).catch(() => {});
     } else if (attempt < 180) window.setTimeout(() => open(attempt + 1), 1000);
   };
@@ -3286,7 +3288,12 @@ function scheduleActiveThreadRerender() {
 }
 
 // Rich card: thumbnail (optional) + site + title + description, linking out.
-const previewImageBlobs = new Map(); // image url -> blob: url, so re-renders do not refetch
+// image url -> blob: url, so re-renders do not refetch: at most 200, the least recently used freed
+// first unless a card on the page still shows it, and one fetch per image however many cards ask
+// at once (audit 2026-11-25 #19, ui/preview-image-cache.js).
+const previewImageBlobs = createBlobUrlCache({
+  inUse: (url) => Boolean(document.querySelector(`img[src="${String(url).replace(/["\\]/g, "")}"]`)),
+});
 async function loadPreviewImage(img, imageUrl, pageUrl) {
   let host = "";
   try { host = new URL(imageUrl).hostname; } catch { host = ""; }
@@ -3310,14 +3317,13 @@ async function loadPreviewImage(img, imageUrl, pageUrl) {
   const sameSite = isSameSiteHost(host, pageHost);
   const metaImageHost = /(^|\.)(fbcdn\.net|cdninstagram\.com)$/i.test(host);
   try {
-    let src;
-    try { src = await attempt(sameSite ? { "x-preview-image": "1", "x-preview-referer": pageUrl } : { "x-preview-image": "1" }); }
-    catch (error) {
-      if (!metaImageHost) throw error;
-      src = await attempt({ "x-preview-image": "crawler" });
-    }
-    previewImageBlobs.set(imageUrl, src);
-    img.src = src;
+    img.src = await previewImageBlobs.load(imageUrl, async () => {
+      try { return await attempt(sameSite ? { "x-preview-image": "1", "x-preview-referer": pageUrl } : { "x-preview-image": "1" }); }
+      catch (error) {
+        if (!metaImageHost) throw error;
+        return attempt({ "x-preview-image": "crawler" });
+      }
+    }, `card|${pageHost}|${imageUrl}`);
   } catch {
     img.remove();
   }
@@ -3351,15 +3357,15 @@ async function loadKaPostPreviewImage(img, imageUrl, pageUrl) {
   if (previewImageBlobs.has(imageUrl)) { img.src = previewImageBlobs.get(imageUrl); return; }
   if (!(await isProxyAvailable())) { img.closest(".message-link-card-thumb")?.remove(); return; }
   try {
-    // through the relay, which holds every redirect to the same rule and sends the Referer only
-    // to the page's own host
-    const res = await fetch(proxiedUrl(imageUrl), { headers: { "x-preview-image": "1", "x-preview-referer": pageUrl, "x-preview-policy": "image" } });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const blob = await res.blob();
-    if (!blob.size || !/^image\//i.test(blob.type || "")) throw new Error("not an image");
-    const src = URL.createObjectURL(blob);
-    previewImageBlobs.set(imageUrl, src);
-    img.src = src;
+    img.src = await previewImageBlobs.load(imageUrl, async () => {
+      // through the relay, which holds every redirect to the same rule and sends the Referer only
+      // to the page's own host
+      const res = await fetch(proxiedUrl(imageUrl), { headers: { "x-preview-image": "1", "x-preview-referer": pageUrl, "x-preview-policy": "image" } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      if (!blob.size || !/^image\//i.test(blob.type || "")) throw new Error("not an image");
+      return URL.createObjectURL(blob);
+    }, `kapost|${pageUrl}|${imageUrl}`);
   } catch {
     img.closest(".message-link-card-thumb")?.remove();
   }
@@ -4584,7 +4590,7 @@ async function showAppNotification({ title, body, tag, key = "", silent = false,
   note.onclose = () => pageNotifications.delete(note);
   note.onclick = () => {
     try { window.focus(); } catch {}
-    try { onClick?.(); } catch {}
+    leaveChessForNotificationThen(() => onClick?.());
     note.close();
   };
   return true;
@@ -4607,6 +4613,21 @@ window.addEventListener("kachat:notification-click", (event) => {
 /** Open what a tapped notification was about. A worker-shown push carries only an address, a group
  *  id, a room, a post or a tab (it cannot know this device's chat ids). */
 function routeNotificationClick(data) {
+  const route = data?.route || {};
+  if (route.kind === "tab" && route.tab === "chess") { routeNotificationClickNow(data); return; }
+  leaveChessForNotificationThen(() => routeNotificationClickNow(data));
+}
+/** A tapped notification takes the player out of Chess Online only as the dock does (audit
+ *  2026-11-25 #28): the waiting room keeps them (Leave is the way out) and a live game of theirs
+ *  asks the leave-means-resign question first. Skipping it hid Chess, which stopped the arena's
+ *  polls and the clock claims under a seat or a game still on. Free when Chess isn't showing. */
+function leaveChessForNotificationThen(run) {
+  chessTournamentsMayLeave().catch(() => true).then((ok) => {
+    if (!ok) return;
+    try { run(); } catch { /* the page may still be booting */ }
+  });
+}
+function routeNotificationClickNow(data) {
   const handler = ownNotificationClickHandler(data.clickId);
   if (handler) {
     pendingNotificationClicks.delete(data.clickId);
@@ -4774,6 +4795,10 @@ function updateActiveRowHighlight() {
 
 function setActiveConversationId(id) {
   if (id !== activeConversationId) releaseTypingFocus();
+  // An open chess board belongs to the chat it was opened in: opening a different chat (a
+  // notification click, a row) closes it, so a move or resign never lands in the wrong thread
+  // (audit 2026-11-25 #8). The board also sends only to its own chat (chessSendEnvelope).
+  if (id) { try { if (chessState && chessState.conversationId !== id) closeChess(); } catch { /* chess section not evaluated yet */ } }
   // A chat and a public room share the detail pane (KaChat 148a5331): opening a chat closes the room.
   if (id && publicRoomOpen) { try { closeBroadcastRoom(); } catch { /* rooms not started */ } }
   activeConversationId = id;
@@ -7490,7 +7515,7 @@ async function syncOneConversationWork(conversationEntry, { quiet, catchUp, cont
       const replacement = createMessage({ ...incoming, conversationId: conversationEntry.id, contactId: contact.id });
       applyMessagePatch(replacement, incoming);
       replacement.id = placeholder.id;
-      if (appendIncomingOrReactionMessage(conversationEntry, replacement)) added += 1;
+      if (appendIncomingSafely(conversationEntry, replacement)) added += 1;
       continue;
     }
     if ((conversationEntry.messages || []).some((m) => m.txid && m.txid === incoming.txid)) continue;
@@ -7498,7 +7523,7 @@ async function syncOneConversationWork(conversationEntry, { quiet, catchUp, cont
     applyMessagePatch(message, incoming);
     // Only a real, visible bubble notifies and counts as unread. Reactions and the
     // retired payment-pool envelopes are swallowed (return null).
-    const visible = appendIncomingOrReactionMessage(conversationEntry, message);
+    const visible = appendIncomingSafely(conversationEntry, message);
     if (visible) {
       // Backfill (restore / first sweep / anything older than this session) arrives silently;
       // only live messages notify and count as unread.
@@ -7555,7 +7580,7 @@ async function syncOneConversationWork(conversationEntry, { quiet, catchUp, cont
           conversationEntry.messages = conversationEntry.messages.filter((m) => m !== undelivered);
           message.id = undelivered.id;
         }
-        if (appendIncomingOrReactionMessage(conversationEntry, message)) {
+        if (appendIncomingSafely(conversationEntry, message)) {
           if (undelivered) sentReplaced = true;
           else sentAdded += 1;
         }
@@ -7705,6 +7730,15 @@ async function backfillLegacyIncomingAliases(contact, conversationEntry) {
   return true;
 }
 
+/** Whether this wallet has reached out to this contact itself: a request it sent, its own
+ *  handshake, or a message of its own in the chat (audit 2026-11-25). Failed sends don't count. */
+function hasOwnOutgoingEvidence(contact, conversationEntry) {
+  if (!contact) return false;
+  if (contact.relationshipState === "outgoing-request" || contact.handshakeTxid) return true;
+  return (conversationEntry?.messages || []).some((m) => m?.direction === "outgoing" && m?.status !== MESSAGE_STATUSES.FAILED
+    && (m?.messageType === "handshake" || String(m?.text || "").trim().length > 0));
+}
+
 async function syncIncomingHandshakeRequests({ quiet = true, catchUp = pendingInitialCatchUp } = {}) {
   if (!engine.address || !engine.isKasiaCipherLoaded?.() || typeof engine.syncIncomingHandshakesFromIndexer !== "function") return 0;
   // Handshake cursors and processed IDs must be scoped to the active wallet.
@@ -7744,7 +7778,13 @@ async function syncIncomingHandshakeRequests({ quiet = true, catchUp = pendingIn
     // the relationship was already mutual. Critical after a seed import (no local history):
     // without this, every restored two-way conversation re-surfaced as a stranger request and
     // its history stayed gated forever.
-    const isAcceptance = request.isResponse === true;
+    // But the sender sets isResponse themselves (audit 2026-11-25): a stranger's request marked
+    // "response" skipped Message Requests, Who Can Message You and the request notification. It is
+    // an acceptance only of something this wallet sent them: an outgoing request, a handshake or a
+    // message of ours in the chat. After a seed import that evidence is read back from the chain
+    // (syncOutgoingHandshakeEvidence), which makes the chat established either way round. iOS
+    // decides a request's status without isResponse (ChatService+Conversations).
+    const isAcceptance = request.isResponse === true && hasOwnOutgoingEvidence(contact, conversationEntry);
     if (!contact) {
       const createdAt = Number(request.createdAt || Date.now());
       // The name a stranger put in their request is theirs to choose, so it is never stored as who
@@ -8470,8 +8510,16 @@ async function refreshAllConversations({ quiet = true } = {}) {
     // seconds forever — the single biggest source of periodic typing/scroll hitches. The
     // chat-list rebuild on every sweep also killed hover/selection for no reason.
     if (added > 0) {
-      persistState();
-      if (!activeConversationId) renderChats();
+      // (audit 2026-11-25) A full storage ("Local storage is full") or a render error must not
+      // escape the sweep: counted as a failed sweep so the loop backs off, and the next sweep
+      // tries again.
+      try {
+        persistState();
+        if (!activeConversationId) renderChats();
+      } catch (error) {
+        sweepFailures += 1;
+        appendEngineLog(`Saving the sweep's messages failed: ${error?.message || error}`);
+      }
     }
     return added;
   } finally {
@@ -8485,8 +8533,10 @@ async function refreshAllConversations({ quiet = true } = {}) {
     lastSweepFailed = sweepFailures > 0;
     // Saved contacts: read back in full once per session, then looked at again for new ones; in
     // between, drain what is queued.
-    if (contactNotesReadDue()) readBackContactNotes().catch(() => {});
-    else if (contactStash().pending.length) flushContactStashQueue().catch(() => {});
+    try {
+      if (contactNotesReadDue()) readBackContactNotes().catch(() => {});
+      else if (contactStash().pending.length) flushContactStashQueue().catch(() => {});
+    } catch (error) { appendEngineLog(`Contact notes check failed: ${error?.message || error}`); }
   }
 }
 
@@ -8533,22 +8583,35 @@ function startSweepLoop() {
       && typeof Notification !== "undefined" && Notification.permission === "granted"
       && Date.now() - lastHiddenSweepAt >= 60_000;
     if (hiddenSweepDue) lastHiddenSweepAt = Date.now();
-    if (!document.hidden || hiddenSweepDue) {
-      await refreshAllConversations({ quiet: true });
-      if (Date.now() - lastKnsRevealCheckAt >= KNS_REVEAL_CHECK_MS) {
-        lastKnsRevealCheckAt = Date.now();
-        resumeKnsRevealRecovery();
+    // (audit 2026-11-25) The next tick is scheduled in `finally`: a sweep that throws used to end
+    // the loop for the session (sweepLoopRunning stayed true, so nothing restarted it). A throw is
+    // logged and counted as a failed sweep, so the loop backs off as it does for a dead indexer.
+    try {
+      if (!document.hidden || hiddenSweepDue) {
+        try {
+          await refreshAllConversations({ quiet: true });
+        } catch (error) {
+          lastSweepFailed = true;
+          appendEngineLog(`Message sweep failed: ${error?.message || error}`);
+        }
+        if (Date.now() - lastKnsRevealCheckAt >= KNS_REVEAL_CHECK_MS) {
+          lastKnsRevealCheckAt = Date.now();
+          resumeKnsRevealRecovery();
+        }
+        if (lastSweepFailed) {
+          const next = Math.min(interval * 2, MESSAGE_REFRESH_MAX_MS);
+          if (next !== interval) appendEngineLog(`Message sweep backing off to ${Math.round(next / 1000)}s after indexer failure.`);
+          interval = next;
+        } else if (interval !== MESSAGE_REFRESH_MS) {
+          appendEngineLog(`Message sweep recovered - back to ${Math.round(MESSAGE_REFRESH_MS / 1000)}s.`);
+          interval = MESSAGE_REFRESH_MS;
+        }
       }
-      if (lastSweepFailed) {
-        const next = Math.min(interval * 2, MESSAGE_REFRESH_MAX_MS);
-        if (next !== interval) appendEngineLog(`Message sweep backing off to ${Math.round(next / 1000)}s after indexer failure.`);
-        interval = next;
-      } else if (interval !== MESSAGE_REFRESH_MS) {
-        appendEngineLog(`Message sweep recovered - back to ${Math.round(MESSAGE_REFRESH_MS / 1000)}s.`);
-        interval = MESSAGE_REFRESH_MS;
-      }
+    } catch (error) {
+      appendEngineLog(`Message sweep loop error: ${error?.message || error}`);
+    } finally {
+      messageRefreshTimer = window.setTimeout(tick, interval);
     }
-    messageRefreshTimer = window.setTimeout(tick, interval);
   };
   messageRefreshTimer = window.setTimeout(tick, interval);
 }
@@ -8812,7 +8875,7 @@ function openGlobalNotification(id) {
   const notif = globalNotifications.find((n) => n.id === id);
   if (!notif) return;
   if (notif.targetKind === "broadcast") {
-    // The room opens straight in the detail pane (iOS a062577); Simple Mode opens nothing.
+    // The room opens straight in the detail pane (iOS a062577).
     closeOpenSheets();
     if (openPublicChatsTab() && notif.targetId) { try { openBroadcastChannelFromNotification(notif.targetId); } catch {} }
   } else if (notif.targetKind === "group") {
@@ -9365,10 +9428,13 @@ function revealSpendingChangeAddress(fresh, owner = engine.address) {
   appendEngineLog(`Payment change went to ${spendingIndexTitle(fresh.index)}${isQuantumIndex(fresh.index) ? " (quantum-safe)" : ""} (${shortAddress(fresh.address)}); primary unchanged.${spendingChangeLogTail(target)}`);
 }
 /// A `.catch` for a spending send with fresh change: one whose outcome isn't known may have landed, so
-/// its change has to stay visible (iOS fdb32549). Rethrows either way.
+/// its change has to stay visible (iOS fdb32549). So does a chained send that failed after part of it
+/// went out (error.submittedTxids): those transactions may have paid the fresh slot (audit
+/// 2026-11-25 #1). Rethrows either way.
 function keepChangeVisibleIfOutcomeUnknown(fresh, owner, note = revealSpendingChangeAddress) {
   return (error) => {
-    if (fresh && error?.code === SEND_OUTCOME_UNKNOWN) runPostSubmitStep("Change-address reveal", () => note(fresh, owner));
+    const partSent = Array.isArray(error?.submittedTxids) && error.submittedTxids.length > 0;
+    if (fresh && (error?.code === SEND_OUTCOME_UNKNOWN || partSent)) runPostSubmitStep("Change-address reveal", () => note(fresh, owner));
     throw error;
   };
 }
@@ -9496,7 +9562,7 @@ function spendingLabelFor(state, index) {
 // slow safety interval. Deduped per txId (persisted, capped).
 //
 // Gated by Settings > Notifications > Wallet > "Address Activity" (default
-// ON). Deliberately NOT gated by Child Mode — these are wallet notifications.
+// ON).
 // ---------------------------------------------------------------------------
 
 const ADDR_ACTIVITY_BASELINES_KEY = "kachat-addr-activity-baselines-v1"; // account-scoped { address: sompi string }
@@ -10784,7 +10850,7 @@ document.querySelector("[data-wallet-send]")?.addEventListener("click", () => {
 document.querySelector("[data-wallet-receive]")?.addEventListener("click", () => { openReceiveKaspaScreen(); });
 document.querySelector("[data-wallet-request]")?.addEventListener("click", () => { if (engine.address) openCreatePaymentRequest(); });
 // Swap beside them (K 5.4 WalletView; it replaced Swap Stablecoins): the Swap screen (ui/swaps.js).
-document.querySelector("[data-wallet-swap-action]")?.addEventListener("click", () => { if (engine.address && tabAllowed("swaps")) setActiveAppTab("swaps"); });
+document.querySelector("[data-wallet-swap-action]")?.addEventListener("click", () => { if (engine.address) setActiveAppTab("swaps"); });
 document.querySelector("[data-wallet-refresh]")?.addEventListener("click", async (event) => {
   const button = event.currentTarget;
   button.classList.add("spinning");
@@ -11872,7 +11938,7 @@ function initKusdt() {
     openSendKaspa: (options) => openSendKaspaModal(options || {}),
     openManageAddresses: () => openSpendingManageScreen(),
     // Send kUSDT with none held: Swap with kUSDT picked (K 5.4's Swap replaced Swap Stablecoins).
-    openSwap: (coinKey) => { if (!tabAllowed("swaps")) return; try { selectSwapCoin(coinKey); } catch { /* not started */ } setActiveAppTab("swaps"); },
+    openSwap: (coinKey) => { try { selectSwapCoin(coinKey); } catch { /* not started */ } setActiveAppTab("swaps"); },
     kaspaTotalSompi: () => walletTotalSompi(sompiFromUserText(String(currentBalanceKas ?? "")), profileSpendingTotal.get()),
     spendingAddressesInRange: kusdtRegularAddressesInRange,
     revealSpendingSlot: kusdtRevealSpendingSlot,
@@ -12411,9 +12477,6 @@ function openNewTabsForSignIn() {
 let hubSection = null;
 
 function setActiveAppTab(tab) {
-  // Child Mode choke point: every tab switch (dock click, restore, deep link,
-  // programmatic) funnels through here, so gated tabs simply become Chats.
-  if (isChildModeEnabled() && CHILD_HIDDEN_TABS.includes(tab)) tab = "chats";
   // Public Chats is no screen of its own any more: its rooms are KaChat's second page (K 961fc05a;
   // rows in Chats since KaChat 148a5331). A saved spot or an old link asking for it lands on KaChat.
   if (tab === "broadcasts") tab = "chats";
@@ -12490,8 +12553,8 @@ function setActiveAppTab(tab) {
     if (screenTab === "profile") { try { setKaPostsRootMode("myProfile"); } catch { /* not started */ } }
   }
   // The rooms are KaChat's Public Chats page (K 961fc05a): they stay live while KaChat is up, and
-  // syncPublicChatsPane gives the pane to the open chat, group or room. Simple Mode hides them.
-  if (isChats && !isChildModeEnabled()) { refreshBroadcasts({ onScreen: true }); syncPublicChatsPane(); }
+  // syncPublicChatsPane gives the pane to the open chat, group or room.
+  if (isChats) { refreshBroadcasts({ onScreen: true }); syncPublicChatsPane(); }
   else { stopBroadcastPolling(); syncPublicChatsPane(); }
   if (screenTab === "portfolio") refreshPortfolio();
   if (screenTab === "cold-storage") refreshColdStorage();
@@ -12624,22 +12687,14 @@ function reloadDockPrefsForAccount() {
   applyDockLayout();
 }
 
-/** Child Mode is applied at RENDER time and never written into the stored arrangement - saving
- *  while it is on would bake those tabs out permanently, so turning it off restores the user's
- *  own layout untouched. This is the single choke point, so a gated tab reaches neither the dock
- *  nor the Hub grid. */
-function tabAllowed(tab) {
-  return !(isChildModeEnabled() && CHILD_HIDDEN_TABS.includes(tab));
-}
-
 /** What the dock actually renders, in order. */
 function dockVisibleTabs() {
-  return dockPrefs.dock.filter(tabAllowed);
+  return [...dockPrefs.dock];
 }
 
 /** What the Kaspa Hub grid shows: everything assignable that is not in the dock. */
 function hubVisibleTabs() {
-  return dockPrefs.hub.filter(tabAllowed);
+  return [...dockPrefs.hub];
 }
 
 /// Publishes the dock's real height, so the chats list can reserve exactly that much.
@@ -12681,9 +12736,6 @@ function applyDockLayout() {
 
   renderHubGrid();
   publishDockHeight();
-  // The Wallet's Swap button goes with Swap itself (Simple Mode hides both).
-  const walletSwapAction = document.querySelector("[data-wallet-swap-action]");
-  if (walletSwapAction) walletSwapAction.hidden = !tabAllowed("swaps");
 
   // A tab that just left the dock must not stay on screen with nothing selected, and a Hub
   // section that just moved INTO the dock must not render inside the Hub as well.
@@ -12693,7 +12745,7 @@ function applyDockLayout() {
   }
   // The tab on screen just left the dock. It has not been switched OFF - it moved to the Hub - so
   // it reopens there rather than throwing the user back to Chats; setActiveAppTab does that
-  // routing itself. Only a tab that is in neither place (Child Mode turned it off) falls back.
+  // routing itself. Only a tab that is in neither place falls back.
   if (!visible.includes(currentAppTab)) {
     setActiveAppTab(hubVisibleTabs().includes(currentAppTab)
       ? currentAppTab
@@ -13277,7 +13329,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 339;
+const APP_BUILD = 340;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -15711,6 +15763,20 @@ revealPrivatekeyButton?.addEventListener("click", async () => {
 // The clipboard is wiped 30 seconds after a private key lands on it (iOS): a key left on the
 // pasteboard is a key waiting to be pasted somewhere it should not be.
 let privateKeyClipboardTimer = null;
+// (audit 2026-11-25) The old wipe wrote " " through copyTextToClipboard, which trims it to nothing
+// and refuses, so nothing was cleared; and it was meant to overwrite whatever was there by then.
+// Now, as the seed copy does: 30 s later, empty the clipboard only if it still holds this key
+// (or can't be read).
+function clearPrivateKeyClipboardLater(value) {
+  const copied = String(value ?? "").trim();
+  if (privateKeyClipboardTimer) window.clearTimeout(privateKeyClipboardTimer);
+  privateKeyClipboardTimer = window.setTimeout(async () => {
+    privateKeyClipboardTimer = null;
+    let current = null;
+    try { current = await navigator.clipboard.readText(); } catch { current = null; }
+    if (current === null || String(current).trim() === copied) { try { await navigator.clipboard.writeText(""); } catch { /* fine */ } }
+  }, 30_000);
+}
 copyPrivatekeyButton?.addEventListener("click", async () => {
   // DSK-008: copy exactly what the reveal shows (a spending-address key when the modal was
   // opened for one), never silently fall back to the identity key behind an override.
@@ -15718,8 +15784,7 @@ copyPrivatekeyButton?.addEventListener("click", async () => {
   if (!value) return;
   await copyTextToClipboard(value);
   showCopyToast("Private key copied. Clipboard will clear in 30s.");
-  if (privateKeyClipboardTimer) window.clearTimeout(privateKeyClipboardTimer);
-  privateKeyClipboardTimer = window.setTimeout(() => { copyTextToClipboard(" ").catch(() => {}); }, 30_000);
+  clearPrivateKeyClipboardLater(value);
 });
 
 
@@ -17240,11 +17305,10 @@ function visibleChatGroups() {
   return mgr.listGroups().filter((g) => (query ? groupMatchesChatSearch(g, query) : !pins.has(`g:${g.groupId}`)));
 }
 
-/** The public rooms in the list, by name while searching. Simple Mode hides them. A room pinned to
+/** The public rooms in the list, by name while searching. A room pinned to
  *  the top row is its circle instead, except while searching (K 518fdc8c displayedRooms). They are
  *  the Public Chats page's rows, never the Chats page's (K 961fc05a). */
 function visibleChatRooms() {
-  if (isChildModeEnabled()) return [];
   if (!onPublicChatsPage()) return [];
   let rooms = [];
   try { rooms = chatListRooms(); } catch { rooms = []; }
@@ -17254,11 +17318,9 @@ function visibleChatRooms() {
   return pinned.size ? rooms.filter((room) => !pinned.has(room.name)) : rooms;
 }
 
-/** True while the KaChat list shows its Public Chats page (K 961fc05a). Never in Simple Mode, which
- *  hides public chats. */
+/** True while the KaChat list shows its Public Chats page (K 961fc05a). */
 function onPublicChatsPage() {
-  if (chatListPage !== "publicChats") return false;
-  try { return !isChildModeEnabled(); } catch { return true; }
+  return chatListPage === "publicChats";
 }
 
 // The cycle button beside the KaChat title (K 961fc05a pageCycleButton): Chats or Public Chats,
@@ -17268,23 +17330,19 @@ function onPublicChatsPage() {
 function chatListPageOptions() { return [{ id: "chats", title: "Chats" }, { id: "publicChats", title: "Public Chats" }]; }
 function chatListPageHint() { return "Switches between your chats and public chats"; }
 /** Unread in the public rooms with their bell on: the cycle button's count, and part of the app
- *  icon's (K 961fc05a AppTabBadge.publicRoomUnreadCount). None in Simple Mode. */
+ *  icon's (K 961fc05a AppTabBadge.publicRoomUnreadCount). */
 function publicRoomUnreadCount() {
-  try { return isChildModeEnabled() ? 0 : Math.max(0, Number(broadcastNotifyingUnreadTotal()) || 0); } catch { return 0; }
+  try { return Math.max(0, Number(broadcastNotifyingUnreadTotal()) || 0); } catch { return 0; }
 }
 /** The cycle button, its count, the search prompt and the page's gear: DOM-only, safe during the
- *  boot render. Simple Mode has no Public Chats, so no button and the Chats page. */
+ *  boot render. */
 function syncChatListPageControls() {
-  let simple = false;
-  try { simple = isChildModeEnabled(); } catch { /* not started */ }
-  if (simple && chatListPage !== "chats") chatListPage = "chats";
   const button = document.querySelector("[data-chats-page-cycle]");
   if (button) {
-    button.hidden = simple;
     if (button.dataset.cycleValue !== chatListPage || !button.querySelector(".cycle-button-title")) {
       updateCycleButton(button, { options: chatListPageOptions(), value: chatListPage, hint: chatListPageHint() });
     }
-    const count = simple ? 0 : publicRoomUnreadCount();
+    const count = publicRoomUnreadCount();
     const holder = button.parentElement;
     let badge = holder?.querySelector(".chats-page-cycle-badge");
     if (count > 0 && holder) {
@@ -17310,7 +17368,7 @@ function syncChatListPageControls() {
 /** Shows `page` ("chats" or "publicChats"). Select ends on a page change (K 961fc05a: the page's
  *  own selection), the list fades in, and an open chat, group or room stays in the pane. */
 function setChatListPage(page) {
-  const next = page === "publicChats" && !isChildModeEnabled() ? "publicChats" : "chats";
+  const next = page === "publicChats" ? "publicChats" : "chats";
   if (next === chatListPage) { syncChatListPageControls(); return; }
   chatListPage = next;
   if (chatSelectionModeActive) setChatSelectionMode(false);
@@ -20227,6 +20285,11 @@ async function sendTipNow(tipSompi) {
   }
   // Speed / custom fee and coin control from the fee card, taken now (the sheet can't change mid-send).
   const extraFeeSompi = max ? max.extraFeeSompi : tipExtraFeeSompi();
+  // Held to the fee the card shows, as the chat's sheet is: rebuilt at the swipe from coins that
+  // changed since, a tip that would pay more sends nothing (SEND_FEE_CHANGED) and the card works
+  // its fee out again (iOS KaPostTipSheet expectedFee; audit 2026-11-25 #32). A Max checks its own
+  // coins and amount instead.
+  const expectedFeeSompi = max ? null : tipTotalFeeSompi();
   const manualKeys = tip.manualUtxos?.length ? tip.manualUtxos.map((coin) => coin.key) : null;
   const spendable = manualKeys
     ? tip.manualUtxos.reduce((sum, coin) => sum + BigInt(coin.amountSompi || 0), 0n)
@@ -20329,10 +20392,11 @@ async function sendTipNow(tipSompi) {
           extraFeeSompi,
           manualUtxos: manualKeys,
           changeAddress: tipFresh?.address || null,
+          expectedFeeSompi,
         }).catch(keepChangeVisibleIfOutcomeUnknown(tipFresh, tipAccount.owner))
       : await engine.send(destinationAddress, amountKas, "0", payload
-        ? { payload, exactAmount: true, extraFeeSompi, manualUtxos: manualKeys }
-        : { extraFeeSompi, manualUtxos: manualKeys });
+        ? { payload, exactAmount: true, extraFeeSompi, manualUtxos: manualKeys, expectedFeeSompi }
+        : { extraFeeSompi, manualUtxos: manualKeys, expectedFeeSompi });
     if (tipFresh) runPostSubmitStep("Change-address reveal", () => revealSpendingChangeAddress(tipFresh, tipAccount.owner));
     const submittedTxids = (result?.txids || []).map((value) => String(value || "").trim()).filter(Boolean);
     const txid = submittedTxids.at(-1) || submittedTxids[0] || null;
@@ -20389,6 +20453,17 @@ async function sendTipNow(tipSompi) {
       persistState();
       if (activeConversationId === conversationEntry.id) renderMessages(conversationEntry);
       await refuse(MAX_AMOUNT_CHANGED_MESSAGE, { refreshMax: true });
+      return;
+    }
+    if (error?.code === SEND_FEE_CHANGED) {
+      // The fee moved (audit 2026-11-25 #32): nothing was sent, so no failed bubble; the card works
+      // its fee out again and the reason shows, as on the chat's sheet.
+      conversationEntry.messages = (conversationEntry.messages || []).filter((entry) => entry.id !== message.id);
+      persistState();
+      if (activeConversationId === conversationEntry.id) renderMessages(conversationEntry);
+      await refuse(userFacingError(error) || error.message);
+      if (tipState === tip) tipScheduleFee();
+      else showCopyToast(`Tip failed: ${userFacingError(error) || error.message}`);
       return;
     }
     // Not confirmed (txid kept) when the network never answered, else Failed.
@@ -20966,8 +21041,6 @@ document.querySelector("[data-settings-nav-back]")?.addEventListener("click", ()
 });
 
 function refreshSettingsCaptions() {
-  const child = document.querySelector("[data-child-mode-caption]");
-  if (child) child.textContent = isChildModeEnabled() ? "On" : "Off";
   // Storage > Address Book Photos: the space they take on this device (iOS cda0d99).
   try { refreshAddressBookStorageRow(); } catch {}
   // Storage > Message retention is per account, so its picker is re-read on every visit.
@@ -21098,8 +21171,6 @@ function showSettingsSubscreen(name, parentIndex) {
   if (!settingsScreenEl || !settingsHubEl) return;
   const target = settingsGroupsEls.find((group) => group.dataset.settingsSubscreen === name);
   if (!target) return;
-  // The Child Mode page is stateful (set-up vs. manage) — re-render fresh on every visit.
-  if (name === "child-mode") renderChildModeSettingsPage();
   // The retention window is per account, so the checkmark is only right once the page opens.
   if (name === "retention") refreshRetentionSelectionUi();
   if (name === "cache") renderCachePage();
@@ -21494,7 +21565,7 @@ function updateChatSelectionBar() {
   if (deleteButton) deleteButton.disabled = disabled;
   // Mute acts on the picked rooms (KaPosts-iPhone eec2e30): their bells off, or back on once every
   // picked room is already off. Rooms are picked on the Public Chats page only (K 961fc05a), so Mute
-  // and Pin show there; none in Simple Mode.
+  // and Pin show there.
   const roomsPage = onPublicChatsPage();
   const mute = document.querySelector("[data-chat-mute-rooms]");
   if (mute) {
@@ -21624,8 +21695,7 @@ function syncPublicChatsPane() {
   updateDetailActiveClass();
 }
 // A room handed over from outside the list - a notification, a room link, the New sheet: Chats
-// comes up with the pane cleared for it, and the caller opens the room. Simple Mode hides public
-// rooms, so there it clears nothing and returns false.
+// comes up with the pane cleared for it, and the caller opens the room.
 /** A tapped room push or room link goes to the room with nothing over it (KaPosts-iPhone 9e22075
  *  KaPostsTabView .openPublicChat). KaPost's screens close as on iOS; Desktop's other sheets close
  *  through their own close buttons, so each runs its own clean-up, and one whose button is disabled
@@ -21643,7 +21713,6 @@ function closeOpenSheets() {
 }
 
 function openPublicChatsTab() {
-  if (isChildModeEnabled()) return false;
   // Rooms are KaChat's Public Chats page (K 961fc05a): a room link or push switches to it, and the
   // room about to open takes the pane from the open chat or group (onRoomVisibility).
   setActiveAppTab("chats");
@@ -21708,9 +21777,9 @@ function dropChatRoomPin(name) {
   const { pins, changed } = dropRoomPin(chatRoomPins(), name);
   if (changed) saveChatRoomPins(pins);
 }
-/** The pinned rooms still listed, in pin order. None in Simple Mode or while searching. */
+/** The pinned rooms still listed, in pin order. None while searching. */
 function pinnedChatRooms() {
-  if (isChildModeEnabled() || String(searchInput?.value || "").trim()) return [];
+  if (String(searchInput?.value || "").trim()) return [];
   const pins = chatRoomPins();
   if (!pins.length) return [];
   try { return pinnedRoomsInOrder(pins, chatListRooms()); } catch { return []; }
@@ -21924,23 +21993,10 @@ function chatCirclesHtml(items, pins, selecting) {
 // A room from its row: chats and groups give the pane up first. The open room stays open, as with a
 // chat row.
 function openRoomFromRow(name) {
-  if (isChildModeEnabled()) return;
   let rooms = [];
   try { rooms = chatListRooms(); } catch { rooms = []; }
   if (rooms.find((room) => room.name === name)?.open) return;
   openBroadcastRoom(name);
-}
-
-/** Simple Mode turned on or off: public rooms leave (or rejoin) the list, and an open room closes. */
-function syncChatCirclesForSimpleMode() {
-  if (isChildModeEnabled()) {
-    selectedRoomNames.clear();
-    try { closeBroadcastRoom(); stopBroadcastPolling(); } catch { /* rooms not started */ }
-  } else if (currentAppTab === "chats") {
-    try { refreshBroadcasts({ onScreen: true }); } catch { /* rooms not started */ }
-  }
-  renderChats();
-  if (chatSelectionModeActive) updateChatSelectionBar();
 }
 
 // Hold a circle - right-click, or long-press on touch - for the same half sheet as a chat row
@@ -22006,7 +22062,6 @@ async function openChatCircleSheet(id) {
 }
 
 function chatRoomNamed(name) {
-  if (isChildModeEnabled()) return null;
   try { return chatListRooms().find((entry) => entry.name === name) || null; } catch { return null; }
 }
 
@@ -22197,7 +22252,7 @@ document.querySelector("[data-chat-mark-unread]")?.addEventListener("click", () 
 
 /** The picked rooms still in the list, with their bell state. */
 function selectedRoomsForBulk() {
-  if (!selectedRoomNames.size || isChildModeEnabled()) return [];
+  if (!selectedRoomNames.size) return [];
   try { return chatListRooms().filter((room) => selectedRoomNames.has(room.name)); } catch { return []; }
 }
 
@@ -24722,8 +24777,10 @@ const chessClockThemValue = document.querySelector("[data-chess-clock-them-value
 const chessClockMeEl = document.querySelector("[data-chess-clock-me]");
 const chessClockMeValue = document.querySelector("[data-chess-clock-me-value]");
 const chessTcMenu = document.querySelector("[data-chess-tc-menu]");
-// { gameId, summary, selected, legalDests, pendingPromo, turnMoveCount, turnBankedMs,
-//   clockRunStart, clockSavedAt, timeoutSent }
+// { gameId, conversationId, summary, selected, legalDests, pendingPromo, turnMoveCount,
+//   turnBankedMs, clockRunStart, clockSavedAt, timeoutSent }
+// `conversationId` is the chat the board was opened in: everything the board sends goes there,
+// never to whichever chat is active by then (audit 2026-11-25 #8).
 let chessState = null;
 
 // --- Timed games: local clock bookkeeping (port of iOS ChessClockStore + ChessGameView) ---
@@ -24889,8 +24946,8 @@ function sendChessTimeoutResign() {
   chessState.selected = null;
   chessState.legalDests = [];
   const gameId = chessState.gameId;
-  const conversationId = activeConversationId;
-  const message = conversationId ? queueConversationMessage(conversationId, Chess.chessResign(gameId, "timeout")) : null;
+  const conversationId = chessState.conversationId;
+  const message = chessSendEnvelope(Chess.chessResign(gameId, "timeout"), conversationId);
   clearChessClock(gameId);
   if (message) retryChessTimeoutResign(conversationId, message.id, gameId);
   refreshChessOverlay();
@@ -24907,12 +24964,16 @@ function retryChessTimeoutResign(conversationId, messageId, gameId, attempt = 0)
       }
       return;
     }
+    // A retry must not land after the game has ended some other way (the opponent resigned or
+    // mated meanwhile): a late resign would only muddy the record (audit 2026-11-25 #27).
+    if (!chessGameStillInProgress(conversationId, gameId)) return;
     if (attempt >= CHESS_TIMEOUT_RESIGN_RETRY_MS.length) {
       // every try failed: the clock starts again and flags anew (K 961fc05a)
       if (chessState?.gameId === gameId) { chessState.timeoutSent = false; syncChessClock(); }
       return;
     }
     window.setTimeout(() => {
+      if (!chessGameStillInProgress(conversationId, gameId)) return;
       runEngineSendPipeline(conversationId, messageId);
       retryChessTimeoutResign(conversationId, messageId, gameId, attempt + 1);
     }, CHESS_TIMEOUT_RESIGN_RETRY_MS[attempt]);
@@ -24941,7 +25002,7 @@ function renderChessClocks() {
 // so you can keep chatting while playing.
 function renderChessChat() {
   if (!chessChatEl) return;
-  const conv = state.conversations.find((entry) => entry.id === activeConversationId);
+  const conv = state.conversations.find((entry) => entry.id === chessBoardConversationId());
   chessChatEl.replaceChildren();
   if (!conv) return;
   const recent = (conv.messages || [])
@@ -24958,23 +25019,28 @@ function renderChessChat() {
 chessChatForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   const text = String(chessChatInput?.value || "").trim();
-  if (!text || !activeConversationId) return;
+  const conversationId = chessBoardConversationId();
+  if (!text || !conversationId || !state.conversations.some((entry) => entry.id === conversationId)) return;
   chessChatInput.value = "";
-  queueConversationMessage(activeConversationId, text);
+  queueConversationMessage(conversationId, text);
   renderChessChat();
 });
 
 function renderChessRecord() {
   if (!chessRecordEl) return;
-  const { contact, messages } = chessConversationContext();
+  const { contact, messages } = chessConversationContext(chessBoardConversationId());
   if (!contact || !engine.address) { chessRecordEl.hidden = true; return; }
   const rec = Chess.chessRecord(messages, engine.address, contact.address);
   chessRecordEl.textContent = `W ${rec.wins} · L ${rec.losses}`;
   chessRecordEl.hidden = false;
 }
 
-function chessConversationContext() {
-  const conv = state.conversations.find((entry) => entry.id === activeConversationId);
+// The chat an open board belongs to, else the active chat (audit 2026-11-25 #8).
+function chessBoardConversationId() {
+  return chessState?.conversationId || activeConversationId;
+}
+function chessConversationContext(conversationId = activeConversationId) {
+  const conv = state.conversations.find((entry) => entry.id === conversationId);
   if (!conv) return { conv: null, contact: null, messages: [] };
   const contact = contactForConversation(conv);
   const messages = (conv.messages || []).map((m) => ({
@@ -24982,16 +25048,31 @@ function chessConversationContext() {
   }));
   return { conv, contact, messages };
 }
-function chessSendEnvelope(content) {
-  if (!activeConversationId || !content) return;
-  queueConversationMessage(activeConversationId, content);
+// Sends to the given chat only, and only while that chat still exists: a board's move or resign
+// goes to the board's own chat even if another one is active by then (audit 2026-11-25 #8).
+// Returns the queued message, or null when nothing was sent.
+function chessSendEnvelope(content, conversationId = activeConversationId) {
+  if (!conversationId || !content) return null;
+  if (!state.conversations.some((entry) => entry.id === conversationId)) {
+    showCopyToast("That chat is gone. The chess message was not sent.");
+    return null;
+  }
+  return queueConversationMessage(conversationId, content) || null;
+}
+// Whether the game in that chat is still going (for the timeout-resign retries).
+function chessGameStillInProgress(conversationId, gameId) {
+  const { contact, messages } = chessConversationContext(conversationId);
+  if (!contact?.address || !engine.address) return false;
+  const summary = Chess.summarizeChessGame(gameId, messages, engine.address, contact.address);
+  return Boolean(summary) && !Chess.isChessGameOver(summary.status);
 }
 
 // `timeControl` is { minutes, incSeconds } for a timed invite, or null for a casual untimed one
 // (which sends the exact legacy envelope). It only applies when this call actually creates the
 // invite; opening an existing game keeps whatever time control that game was started with.
 function openChessGame(preferGameId = null, timeControl = null) {
-  const { contact, messages } = chessConversationContext();
+  const conversationId = activeConversationId;
+  const { contact, messages } = chessConversationContext(conversationId);
   if (!contact?.address || !engine.address) { showCopyToast("Open a 1:1 chat to play chess."); return; }
   let summary = preferGameId
     ? Chess.summarizeChessGame(preferGameId, messages, engine.address, contact.address)
@@ -25000,7 +25081,7 @@ function openChessGame(preferGameId = null, timeControl = null) {
   // one with the picked control (iOS ChatDetailView retire-then-start), instead of silently
   // reopening the old board.
   if (summary && !preferGameId && timeControl && !Chess.isChessGameOver(summary.status)) {
-    chessSendEnvelope(Chess.chessResign(summary.gameId));
+    chessSendEnvelope(Chess.chessResign(summary.gameId), conversationId);
     clearChessClock(summary.gameId);
     summary = null;
   }
@@ -25012,13 +25093,13 @@ function openChessGame(preferGameId = null, timeControl = null) {
       Math.random() < 0.5 ? "white" : "black",
       timeControl?.minutes ?? null,
       timeControl?.incSeconds ?? null,
-    ));
-    const after = chessConversationContext();
+    ), conversationId);
+    const after = chessConversationContext(conversationId);
     summary = Chess.summarizeChessGame(gameId, after.messages, engine.address, contact.address);
   }
   if (!summary) { showCopyToast("Could not open the chess game."); return; }
   chessState = {
-    gameId: summary.gameId, summary, selected: null, legalDests: [], pendingPromo: null,
+    gameId: summary.gameId, conversationId, summary, selected: null, legalDests: [], pendingPromo: null,
     turnMoveCount: null, turnBankedMs: 0, clockRunStart: 0, clockSavedAt: 0, timeoutSent: false,
   };
   syncChessTurnElapsed();
@@ -25062,8 +25143,10 @@ function buildChessInviteBubble(env, summary, outgoing) {
     const actions = document.createElement("div");
     actions.className = "chess-invite-actions";
     actions.innerHTML = '<button type="button" class="chess-invite-accept">Accept</button><button type="button" class="chess-invite-decline">Decline</button>';
-    actions.querySelector(".chess-invite-accept").addEventListener("click", (event) => { event.stopPropagation(); chessSendEnvelope(Chess.chessResponse(env.gameId, true)); });
-    actions.querySelector(".chess-invite-decline").addEventListener("click", (event) => { event.stopPropagation(); chessSendEnvelope(Chess.chessResponse(env.gameId, false)); });
+    // the answer goes to the chat this bubble was drawn in (audit 2026-11-25 #8)
+    const bubbleConversationId = activeConversationId;
+    actions.querySelector(".chess-invite-accept").addEventListener("click", (event) => { event.stopPropagation(); chessSendEnvelope(Chess.chessResponse(env.gameId, true), bubbleConversationId); });
+    actions.querySelector(".chess-invite-decline").addEventListener("click", (event) => { event.stopPropagation(); chessSendEnvelope(Chess.chessResponse(env.gameId, false), bubbleConversationId); });
     card.append(actions);
   } else if (summary) {
     const status = document.createElement("span");
@@ -25159,7 +25242,7 @@ function renderChessStatus() {
 const CHESS_UNCONFIRMED_REPLAY_MS = 60_000;
 let chessUnconfirmedTimer = 0;
 function unconfirmedChessMove() {
-  const conversation = state.conversations.find((entry) => entry.id === activeConversationId);
+  const conversation = state.conversations.find((entry) => entry.id === chessBoardConversationId());
   const last = chessState?.summary?.lastTxid;
   if (!conversation || !last) return null;
   const message = (conversation.messages || []).find((entry) => (entry.txid || entry.id) === last);
@@ -25180,7 +25263,7 @@ function renderChessUnconfirmedMove() {
     button.type = "button";
     button.className = "secondary-button";
     button.textContent = "Play It Again";
-    button.addEventListener("click", () => { button.disabled = true; queueConversationMessage(activeConversationId, message.text); refreshChessOverlay(); });
+    button.addEventListener("click", () => { button.disabled = true; chessSendEnvelope(message.text, chessBoardConversationId()); refreshChessOverlay(); });
     row.append(" ", button);
   }
   chessStatusEl.append(row);
@@ -25266,7 +25349,7 @@ function doChessMove(move) {
   const clockMs = tc && remaining != null ? remaining + tc.incSeconds * 1000 : null;
   // The move is made: my clock stops here (K 961fc05a).
   if (chessState.clockRunStart) { bankChessClock(); stopChessClockTimer(); }
-  chessSendEnvelope(Chess.chessMove(chessState.gameId, from, to, promo, clockMs));
+  chessSendEnvelope(Chess.chessMove(chessState.gameId, from, to, promo, clockMs), chessState.conversationId);
   refreshChessOverlay();
 }
 function showChessPromo(color) {
@@ -25323,14 +25406,14 @@ async function resignChess() {
   const pending = s.status?.kind === "pendingResponse";
   const ok = await confirmDialog({ title: pending ? "Cancel this game?" : "Resign this game?", message: pending ? "The invite is withdrawn. This is one transaction." : "This counts as a loss. Resigning is one transaction.", confirmLabel: pending ? "Cancel game" : "Resign", destructive: true });
   if (!ok || !chessState) return;
-  chessSendEnvelope(Chess.chessResign(chessState.gameId));
+  chessSendEnvelope(Chess.chessResign(chessState.gameId), chessState.conversationId);
   clearChessClock(chessState.gameId);
   refreshChessOverlay();
 }
 // Re-derive the bound game from the latest conversation messages and re-render.
 function refreshChessOverlay() {
   if (!chessState || !chessOverlay || chessOverlay.hidden) return;
-  const { contact, messages } = chessConversationContext();
+  const { contact, messages } = chessConversationContext(chessState.conversationId);
   if (!contact) return;
   const summary = Chess.summarizeChessGame(chessState.gameId, messages, engine.address, contact.address);
   if (summary) {
@@ -25386,10 +25469,10 @@ function startChessGameFromSheet(timeControl) {
 document.querySelector("[data-chess-close]")?.addEventListener("click", closeChess);
 chessResignBtn?.addEventListener("click", resignChess);
 document.querySelector("[data-chess-accept]")?.addEventListener("click", () => {
-  if (chessState) { chessSendEnvelope(Chess.chessResponse(chessState.gameId, true)); refreshChessOverlay(); }
+  if (chessState) { chessSendEnvelope(Chess.chessResponse(chessState.gameId, true), chessState.conversationId); refreshChessOverlay(); }
 });
 document.querySelector("[data-chess-decline]")?.addEventListener("click", () => {
-  if (chessState) { chessSendEnvelope(Chess.chessResponse(chessState.gameId, false)); refreshChessOverlay(); }
+  if (chessState) { chessSendEnvelope(Chess.chessResponse(chessState.gameId, false), chessState.conversationId); refreshChessOverlay(); }
 });
 chessOverlay?.addEventListener("click", (event) => { if (event.target === chessOverlay) closeChess(); });
 
@@ -26553,6 +26636,9 @@ function applyLocalEdit(conversationEntry, targetTxId, editorAddress, text, at, 
   if (!target) return false;
   const senderAddress = target.direction === "outgoing" ? (engine.address || "") : (target.sender || contactForConversation(conversationEntry)?.address || "");
   if (!editorAddress || editorAddress !== senderAddress) return false;
+  // A payment bubble or a handshake row reads as plain text but is no message (audit 2026-11-25,
+  // MESSAGING.md: an edit naming a payment notice or a non-text message is dropped).
+  if (target.messageType === "handshake" || isPaymentLikeMessage(target)) return false;
   if (!isEditableContent(target.text)) return false;
   const when = Number(at) > 0 ? Number(at) : Date.now();
   if (target.edit && Number(target.edit.at || 0) > when) return false;
@@ -26679,9 +26765,15 @@ function quickReactionEmojis() {
 // Seed the Settings > Chats row preview once everything above is initialized.
 updateQuickReactionsPreview();
 
+// The target comes off the network: read as an own property only (audit 2026-11-25). "toString"
+// read the inherited function, .filter threw, and the chat's sync never moved past that message.
+function ownReactionList(reactionsByTxId, targetTxId) {
+  const list = reactionsByTxId && Object.hasOwn(reactionsByTxId, targetTxId) ? reactionsByTxId[targetTxId] : null;
+  return Array.isArray(list) ? list : null;
+}
 function applyLocalReaction(conversationEntry, targetTxId, reactorAddress, emoji, at = null) {
   if (!conversationEntry.reactionsByTxId) conversationEntry.reactionsByTxId = {};
-  const list = conversationEntry.reactionsByTxId[targetTxId] || [];
+  const list = ownReactionList(conversationEntry.reactionsByTxId, targetTxId) || [];
   const filtered = list.filter((entry) => entry.reactorAddress !== reactorAddress);
   filtered.push({ reactorAddress, emoji });
   conversationEntry.reactionsByTxId[targetTxId] = filtered;
@@ -26709,7 +26801,7 @@ function messageEventTime(message) {
 
 function removeLocalReaction(conversationEntry, targetTxId, reactorAddress) {
   if (!conversationEntry.reactionsByTxId) return;
-  const list = conversationEntry.reactionsByTxId[targetTxId];
+  const list = ownReactionList(conversationEntry.reactionsByTxId, targetTxId);
   if (!list) return;
   conversationEntry.reactionsByTxId[targetTxId] = list.filter((entry) => entry.reactorAddress !== reactorAddress);
   // Don't let the sidebar keep advertising a reaction that was just undone.
@@ -26729,6 +26821,15 @@ function removeLocalReaction(conversationEntry, targetTxId, reactorAddress) {
 // null so callers know not to notify or count them as unread — matching iOS, where
 // these are processed silently and never surface as messages. The one exception is a
 // payment_notice that files a new payment bubble: that bubble is returned.
+/** appendIncomingOrReactionMessage for the sync loops: a row that throws is logged and skipped, so
+ *  one bad message can't stop the rest of the batch and freeze the chat's cursor (audit 2026-11-25). */
+function appendIncomingSafely(conversationEntry, message) {
+  try { return appendIncomingOrReactionMessage(conversationEntry, message); }
+  catch (error) {
+    appendEngineLog(`Skipped a message that couldn't be applied (${message?.txid || message?.id || "?"}): ${error?.message || error}`);
+    return null;
+  }
+}
 function appendIncomingOrReactionMessage(conversationEntry, message) {
   const edit = parseEditEnvelope(message.text);
   if (edit) {
@@ -27115,13 +27216,14 @@ function importPhoneChatArchive(json, { reloadState = true, persist = true, rend
               createdAt: blockTime,
               txId: m?.txId || null,
               msgIdHex: m?.msgIdHex || null,
+              epoch: groupRowEpoch(m),
               senderIsAdmin: Boolean(m?.senderIsAdmin),
             });
           }
           if (rows.length) appendGroupMessagesBulk(g.groupId, rows);
           for (const { editEnvelope, senderAddress, at } of restoredEdits) {
-            const target = groupMessages(g.groupId).find((row) => row.txId === editEnvelope.targetTxId || row.msgIdHex === editEnvelope.targetTxId);
-            if (target && target.senderAddress === senderAddress && isEditableContent(target.text)) applyGroupEdit(g.groupId, editEnvelope.targetTxId, senderAddress, editEnvelope.text, at);
+            const target = findGroupTargetRow(g.groupId, editEnvelope.targetTxId, { senderAddress });
+            if (target && target.senderAddress === senderAddress && isEditableContent(target.text)) applyGroupEdit(g.groupId, groupMsgKey(target), senderAddress, editEnvelope.text, at);
           }
         } catch { /* skip a malformed group */ }
       }
@@ -28526,13 +28628,16 @@ async function finalizeNewAccount({ name, phrase, passphrase, wordCount }) {
   void connectAndRefresh({ quiet: true })
     .then(async () => {
       // Same as the import path: entering the app in-place skips the startup sweep/timer.
-      await refreshAllConversations({ quiet: true });
-      startAutomaticRefresh();
+      try { await refreshAllConversations({ quiet: true }); }
+      catch (error) { appendEngineLog(`First sweep failed: ${error.message}`); }
     })
     .catch((error) => {
       appendEngineLog(`Post-create RPC startup failed: ${error.message}`);
       setStatus(`Account created. Network connection failed: ${error.message}`);
-    });
+    })
+    // (audit 2026-11-25) The timers start whatever the first connect or sweep did, as at startup:
+    // a throw here used to leave the new account with no syncing until a reload.
+    .finally(() => startAutomaticRefresh());
   return wallet;
 }
 
@@ -28553,12 +28658,10 @@ createPassphraseInput?.addEventListener("input", updateCreatePassphraseSubmitEna
 /** Derives, persists and enters the new account, then the setup guide. */
 async function enterNewAccount(account) {
   await finalizeNewAccount(account);
-  // First-run experience begins. Both markers are persisted BEFORE presenting
+  // First-run experience begins. The run marker is persisted BEFORE presenting
   // (iOS MainTabView does the same): the in-memory "just created" trigger is
-  // lost on a page reload, so without them a reload mid-guide would be a
-  // permanent way past a mandatory run. markUserTypePending never downgrades
-  // "chosen", which is exactly why the run marker exists alongside it.
-  markUserTypePending();
+  // lost on a page reload, so without it a reload mid-guide would be a
+  // permanent way past a mandatory run.
   markOnboardingRunPending("create");
   openSetupGuide({ onboardingRun: true });
 }
@@ -28643,17 +28746,12 @@ const SETUP_ICONS = {
   qrcode: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v3M14 20h3M20 20h1"/></svg>',
   server: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></svg>',
   chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 6.5A2.5 2.5 0 0 1 5 4h8.5A2.5 2.5 0 0 1 16 6.5v3A2.5 2.5 0 0 1 13.5 12H7.5L4 15v-3.2A2.5 2.5 0 0 1 2.5 9.5Z"/><path fill="var(--accent, #70c7ba)" stroke="none" d="M10.5 11.5A2.5 2.5 0 0 1 13 9h6.5A2.5 2.5 0 0 1 22 11.5v3A2.5 2.5 0 0 1 19.5 17h-3L13 20v-3h0a2.5 2.5 0 0 1-2.5-2.5Z"/></svg>',
-  shield: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.4 20 5.1v6.2c0 4.6-3.2 8.4-8 10.3-4.8-1.9-8-5.7-8-10.3V5.1Z"/><rect x="9.1" y="11.3" width="5.8" height="4.7" rx="1.2"/><path d="M10.4 11.3v-1.5a1.6 1.6 0 0 1 3.2 0v1.5"/></svg>',
   paperplane: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 3 3 10.5l6.8 2.7L12.5 20Z"/><path d="M21 3 9.8 13.2"/></svg>',
   eye: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></svg>',
 };
 
 const SETUP_STEPS = [
   { icon: SETUP_ICONS.wave, title: "Welcome to K", body: "Let's walk through the basics so you're ready to send your first message." },
-  // Child Mode: the Adult/Child question sits at the start of the first-run
-  // experience, before language — and is unskippable until answered (see
-  // isUserTypePending gating in renderSetupStep/closeSetupGuide).
-  { icon: SETUP_ICONS.shield, title: "How do you want K?", body: "", extra: "usertype" },
   { icon: SETUP_ICONS.globe, title: "Choose Your Language", body: "Select the language you'd like to use in K.", extra: "language" },
   { icon: SETUP_ICONS.currency, title: "Choose Your Currency", body: "Select the currency you'd like prices displayed in.", extra: "currency" },
   { icon: SETUP_ICONS.network, title: "How K Uses Kaspa", body: "K lets you send and receive messages on the Kaspa network itself. Kaspa is required to pay fees when sending your messages. The fee you pay goes to miners which secure the network." },
@@ -28664,7 +28762,6 @@ const SETUP_STEPS = [
   { icon: null, title: "Your Chatting Address", body: "Think of it like your phone number on K.", extra: "addresses" },
 ];
 let setupStepIndex = 0;
-const SETUP_USER_TYPE_STEP = SETUP_STEPS.findIndex((step) => step.extra === "usertype");
 
 // Presentation context, supplied by the presenter — an ONBOARDING run (create
 // or import, fresh or re-presented after a reload) is fully unskippable end
@@ -28707,9 +28804,7 @@ function renderSetupExtra(kind) {
   if (!setupExtraEl) return;
   setupExtraEl.replaceChildren();
   setupExtraEl.hidden = !kind;
-  if (kind === "usertype") {
-    renderUserTypeGuideStep(setupExtraEl);
-  } else if (kind === "language") {
+  if (kind === "language") {
     setupExtraEl.appendChild(buildSetupChoiceList(Object.entries(LANGUAGES), (k) => k === selectedLanguage, wizardSetLanguage));
   } else if (kind === "currency") {
     setupExtraEl.appendChild(buildSetupChoiceList(Object.entries(CURRENCIES).map(([k, v]) => [k, v.name]), (k) => k === selectedCurrency, wizardSetCurrency));
@@ -28889,22 +28984,18 @@ function renderSetupStep() {
   // Skip exists ONLY on replays (Profile > Help). EVERY account-onboarding run
   // — create or import, fresh or re-presented after a page reload — is fully
   // unskippable: every step must be advanced through to Finish. Decided purely
-  // by the presenter-supplied context, NEVER by a persisted marker's state: a
-  // device that already answered Adult/Child for a prior account would look
-  // like a replay to the marker and hand an onboarding run a way out.
+  // by the presenter-supplied context, NEVER by a persisted marker's state.
   // Backdrop-close no-ops the same way (see closeSetupGuide).
   if (setupSkipBtn) setupSkipBtn.hidden = setupGuideIsOnboardingRun;
 }
 // `options` may be a click event (listeners below pass one) — only explicit
-// presenter calls pass { onboardingRun, importRun, startAtUserType }. The
+// presenter calls pass { onboardingRun, importRun }. The
 // context is presenter-supplied, never inferred from persisted markers, so
 // Help replays are always skippable.
 function openSetupGuide(options = {}) {
   setupGuideIsOnboardingRun = options.onboardingRun === true;
   setupGuideIsImportRun = options.importRun === true;
-  setupStepIndex = options.startAtUserType === true && isUserTypePending() && SETUP_USER_TYPE_STEP >= 0
-    ? SETUP_USER_TYPE_STEP
-    : 0;
+  setupStepIndex = 0;
   renderSetupStep();
   if (setupGuideModal) {
     // Presented over the signed-out screen (z 2000, same band as .modal-backdrop),
@@ -28966,10 +29057,11 @@ async function runPostOnboardingSync() {
     }
     setInitialSyncPhase("Downloading message history");
     await refreshAllConversations({ quiet: true });
-    startAutomaticRefresh();
   } catch (error) {
     appendEngineLog(`Post-onboarding sync failed: ${error.message}`);
   }
+  // (audit 2026-11-25) Started whether or not the steps above threw.
+  startAutomaticRefresh();
   setInitialSyncState("finished");
   if (initialSyncSkipTimer) { clearTimeout(initialSyncSkipTimer); initialSyncSkipTimer = null; }
 }
@@ -28994,12 +29086,6 @@ function closeSetupGuide({ completed = false } = {}) {
   if (completed && wasOnboardingRun) void runPostOnboardingSync();
 }
 setupNextBtn?.addEventListener("click", async () => {
-  if (SETUP_STEPS[setupStepIndex]?.extra === "usertype") {
-    setupNextBtn.disabled = true;
-    let advance = false;
-    try { advance = await applyUserTypeGuideChoice(); } finally { setupNextBtn.disabled = false; }
-    if (!advance) return;
-  }
   if (SETUP_STEPS[setupStepIndex]?.extra === "node" && accountShellPrefs.nodeChoice === "own" && !setupOwnNodeUrl()) {
     const error = setupExtraEl?.querySelector("[data-setup-node-error]");
     if (error) { error.textContent = "Enter a node as host:port or a wss:// URL."; error.hidden = false; }
@@ -29011,10 +29097,7 @@ setupNextBtn?.addEventListener("click", async () => {
 });
 setupBackBtn?.addEventListener("click", () => {
   if (setupStepIndex <= 0) return;
-  // Never back INTO the answered Adult/Child step - its choice applies the moment
-  // it's made, so the button steps over it back to Welcome.
-  const prev = setupStepIndex - 1;
-  setupStepIndex = SETUP_STEPS[prev]?.extra === "usertype" ? Math.max(0, prev - 1) : prev;
+  setupStepIndex -= 1;
   renderSetupStep();
 });
 setupSkipBtn?.addEventListener("click", () => closeSetupGuide());
@@ -29279,7 +29362,12 @@ async function performChattingAddressSwitch() {
   chattingPickerSwitching = true;
   chattingPickerDetailError = "";
   renderChattingPickerDetail();
+  // (audit 2026-11-25) The account's password, Face ID and Nextcloud connection go with it to the
+  // new address (key-vault.js beginAccountVaultCarry): before, the new address had no password, so
+  // "Set a Password" was forced and the old address's vault was left behind.
+  let carriedVault = false;
   try {
+    carriedVault = beginAccountVaultCarry(previousAddress, candidate.address);
     await importAndEnterAccount({
       name,
       recoveryPhrase: mnemonic,
@@ -29296,12 +29384,18 @@ async function performChattingAddressSwitch() {
       movePreviousChattingAddresses(previousAddress, engine.address);
       persistSavedAccounts(loadSavedAccounts().filter((entry) => entry.address !== previousAddress));
       accountBackupStatus.carry(previousAddress, engine.address);
+      // The old address's copies (its vault, its Nextcloud connection) go now that nothing uses them.
+      if (carriedVault) { try { finishAccountVaultCarry(previousAddress, engine.address); } catch (error) { appendEngineLog(`Old address password cleanup: ${error.message}`); } }
+    } else if (carriedVault) {
+      abandonAccountVaultCarry(previousAddress, candidate.address);
     }
+    carriedVault = false;
     chattingPickerSwitching = false;
     closeChattingAddressPicker();
     // Back on the funding step, which re-renders with the new address.
     if (setupGuideModal && !setupGuideModal.hidden) renderSetupStep();
   } catch (error) {
+    if (carriedVault) { try { abandonAccountVaultCarry(previousAddress, candidate.address); } catch { /* released when unused */ } }
     appendEngineLog(`Chatting address switch failed: ${error.message}`);
     chattingPickerDetailError = userFacingError(error);
     chattingPickerSwitching = false;
@@ -29772,13 +29866,15 @@ async function importAndEnterAccount({ name, recoveryPhrase, passphrase = "", pa
       // Import enters the app WITHOUT a page reload, so the startup block that kicks off the
       // first conversation sweep and the 5s refresh timer never ran for this account — without
       // these, nothing synced (no handshakes, no history) until a tab-switch or UTXO event.
-      await refreshAllConversations({ quiet: true });
-      startAutomaticRefresh();
+      try { await refreshAllConversations({ quiet: true }); }
+      catch (error) { appendEngineLog(`First sweep failed: ${error.message}`); }
     })
     .catch((error) => {
       appendEngineLog(`Post-import RPC startup failed: ${error.message}`);
       setStatus(`Account imported. Network connection failed: ${error.message}`);
-    });
+    })
+    // (audit 2026-11-25) The timers start whatever the first connect or sweep did, as at startup.
+    .finally(() => startAutomaticRefresh());
   return wallet;
 }
 
@@ -29898,7 +29994,6 @@ async function commitImport(passphrase) {
         .catch((error) => appendEngineLog(`Restore: Discover Addresses failed: ${error?.message || error}`));
     }
     if (importAccountModal) importAccountModal.hidden = true;
-    markUserTypePending();
     markOnboardingRunPending("import");
     openSetupGuide({ onboardingRun: true, importRun: true });
   } catch (error) {
@@ -29990,8 +30085,7 @@ document.querySelector("[data-copy-seed-privatekey]")?.addEventListener("click",
   if (!engine.privateKeyHex) { showCopyToast("Private key unavailable."); return; }
   await copyTextToClipboard(engine.privateKeyHex);
   showCopyToast("Private key hex copied. Clipboard will clear in 30s.");
-  if (privateKeyClipboardTimer) window.clearTimeout(privateKeyClipboardTimer);
-  privateKeyClipboardTimer = window.setTimeout(() => { copyTextToClipboard(" ").catch(() => {}); }, 30_000);
+  clearPrivateKeyClipboardLater(engine.privateKeyHex);
 });
 
 function renderRecoveryCountdown() {
@@ -30849,7 +30943,6 @@ function webPushGroupStreams() {
 
 async function collectWebPushRegistration() {
   const me = engine.address || "";
-  const childMode = isChildModeEnabled();
   // 1:1: chats the list shows whose notifications aren't off (iOS pushEligibleConversationAddresses),
   // your own address first - handshakes and payments to you are keyed on it.
   const watched = [];
@@ -30874,11 +30967,10 @@ async function collectWebPushRegistration() {
   }
   const groups = webPushGroupStreams();
   let rooms = { channels: [], hidden: {} };
-  try { if (!childMode) rooms = broadcastPushWatch(); } catch { /* rooms not started */ }
-  // KaPosts: the account's K identity and its per-kind switches (iOS collectKaPostsPubkey); none in
-  // Simple Mode.
+  try { rooms = broadcastPushWatch(); } catch { /* rooms not started */ }
+  // KaPosts: the account's K identity and its per-kind switches (iOS collectKaPostsPubkey).
   let kaposts = null;
-  if (!childMode && engine.privateKeyHex) {
+  if (engine.privateKeyHex) {
     let pubkey = "";
     try { pubkey = requesterPubkeyFor(engine); } catch { try { pubkey = compressedPubkeyHex(engine.privateKeyHex); } catch { pubkey = ""; } }
     if (pubkey) {
@@ -30988,7 +31080,6 @@ function webPushMirror() {
       follows: (accountShellPrefs.kaPostsNotifyFollows ?? true) !== false,
       mentions: (accountShellPrefs.kaPostsNotifyMentions ?? true) !== false,
     },
-    childMode: isChildModeEnabled(),
     names, quiet, off, loud, blocked, groups: groups.mirror, addressLabels,
     // Who Can Message You? (K 518fdc8c): requests stay quiet, nameless first messages too.
     ...whoCanMessageMirror(),
@@ -31308,7 +31399,6 @@ queueMicrotask(async () => {
       // OS-notification clicks land on the exact post — the KaPosts tab must be
       // fronted first since the ping can arrive while another tab is active.
       openKaPostsTab: () => setActiveAppTab("kaposts"),
-      kaPostsSuppressed: () => isChildModeEnabled(),
       // "Tip" button on a post: quick Send-Kaspa-style modal, direct send through the chat
       // payment rules (matches iOS's KaPostTipSheet).
       // A default tip, when set, goes out at once through the same path as the tip sheet's Send;
@@ -31487,6 +31577,9 @@ queueMicrotask(async () => {
       // Block, and who is blocked: kaposts.js owns the list (KaPosts-iPhone 9e22075).
       blockAccount: blockKaPostAccount,
       blockedAccounts: kaPostsBlockedAddresses,
+      // Every account saved here: the room cache is shared by all of them, so none of their own
+      // messages is taken for one the indexer removed (audit 2026-11-25 #25).
+      localAccountAddresses: () => { try { return loadSavedAccounts().map((entry) => entry?.address).filter(Boolean); } catch { return []; } },
       onUnreadChanged: () => updateChatsListTabBadges(),
       // A room switched off or left takes its top-row pin with it (K 518fdc8c).
       onRoomRemoved: (name) => dropChatRoomPin(name),
@@ -31584,7 +31677,7 @@ queueMicrotask(async () => {
     });
     // The rooms are rows in the Chats list: if Chats came up before the rooms started, they
     // go live now (setActiveAppTab does it on every later visit).
-    if (currentAppTab === "chats" && !isChildModeEnabled()) refreshBroadcasts({ onScreen: true });
+    if (currentAppTab === "chats") refreshBroadcasts({ onScreen: true });
   } catch (error) { appendEngineLog(`initBroadcasts did not start: ${error?.message || error}`); }
 
   try {
@@ -31968,17 +32061,11 @@ queueMicrotask(async () => {
     const active = Chess.activeChessGame(messages, engine.address, contact.address);
     if (active) openChessGame(active.gameId);
   });
-  try {
-    initChildMode({
-      escapeHtml,
-      showToast: showCopyToast,
-      // Toggling Child Mode re-renders the dock immediately: gated tabs vanish
-      // (or return) and, if the user is sitting on a now-hidden tab, the
-      // applyDockLayout snap drops them back to Chats.
-      // Simple Mode also hides public rooms: their circles go, and an open room closes.
-      onChildModeChanged: () => { applyDockLayout(); try { syncChatCirclesForSimpleMode(); } catch { /* chats not ready */ } },
-    });
-  } catch (error) { appendEngineLog(`initChildMode did not start: ${error?.message || error}`); }
+  // The eye button on every password field (Nextcloud's app password included).
+  try { installEyeToggleDelegation(); } catch (error) { appendEngineLog(`Password eye toggles did not start: ${error?.message || error}`); }
+  // A retired feature's stored keys (ui/retired-features.js: K iOS eb2ccac9; audit 2026-11-25)
+  // are deleted once, so nothing of it stays behind and everyone gets the full app.
+  if (removeRetiredFeatureData()) appendEngineLog("Removed what retired features left in this browser.");
 
   // Per-account dock prefs may differ from the pre-login defaults rendered at load.
   reloadDockPrefsForAccount();
@@ -32038,22 +32125,15 @@ queueMicrotask(async () => {
   }
 
 
-  // A page reload mid-setup doesn't dodge an onboarding run. Two persisted
-  // markers drive the re-present, and BOTH re-present as an onboarding run
-  // (unskippable), because that is what was interrupted:
-  //  - Adult/Child still unanswered -> resume straight at that step;
-  //  - otherwise a run marker means the run was interrupted after the
-  //    Adult/Child question was already settled (e.g. an import on a device
-  //    that answered it for a prior account) -> replay from the top.
-  // The stored run kind keeps an interrupted IMPORT run's import-only
+  // A page reload mid-setup doesn't dodge an onboarding run: the persisted run
+  // marker re-presents it as an onboarding run (unskippable) from the top,
+  // because that is what was interrupted. The stored run kind keeps an interrupted IMPORT run's import-only
   // affordances (the funding step's "Change Chatting Address" picker).
   // Only once an account is open: on the locked sign-in screen the guide waited over it, in front
   // of the password. Unlocking or signing in reloads into the open account, which resumes it here.
   const pendingRunKind = pendingOnboardingRunKind();
   const accountOpen = Boolean(engine.address) && !isAppLocked();
-  if (accountOpen && isUserTypePending()) {
-    openSetupGuide({ onboardingRun: true, importRun: pendingRunKind === "import", startAtUserType: true });
-  } else if (accountOpen && isOnboardingRunPending()) {
+  if (accountOpen && isOnboardingRunPending()) {
     openSetupGuide({ onboardingRun: true, importRun: pendingRunKind === "import" });
   }
 
@@ -32197,9 +32277,7 @@ function isReplyToMyGroupMessage(text) {
 
 // Shared gate for every OS-level group ping: the Settings > Notifications > Chats master
 // toggle (default ON, same check maybeNotifyIncoming makes for 1:1), and never ping for the
-// group you are already looking at in a focused window. Child Mode is deliberately NOT a gate
-// here: it hides KaPosts/Broadcasts only, and chats plus group chats stay fully
-// available while it is on, exactly as the existing 1:1 and mention paths behave.
+// group you are already looking at in a focused window.
 function groupOsPingAllowed(groupId) {
   if ((accountShellPrefs.chatNotifications ?? true) === false) return false;
   if (groupOnScreen(groupId) && appIsInFront()) return false;
@@ -32300,10 +32378,42 @@ function maybeRecordGroupMention(groupId, senderAddress, text, id, createdAt) {
 /// and compared those. Two rows describing the same message but identified by different fields
 /// never matched, so every one of them appeared twice. Comparing on any identifier the two rows
 /// actually share is what closes that.
+///
+/// A msg_id alone is not an identity (audit 2026-11-25): it is device_id || counter, and the counter
+/// starts again at 0 in every new epoch, so after anyone was added or removed a sender's new
+/// messages carried the ids of their old ones and were dropped as duplicates (and any member could
+/// send another's next ids first). Two chain copies are the same message when their transactions
+/// are (iOS GroupStore.insertMessage dedupes by txId); a msg_id only matches a row without a txid
+/// (our own send still in flight, a restored row), and only from the same sender in the same epoch.
+function groupRowEpoch(row) {
+  const epoch = row?.epoch;
+  return Number.isSafeInteger(epoch) && epoch >= 0 ? epoch : null;
+}
+function groupMsgIdsMatch(a, b, { needEpoch }) {
+  if (!a.msgIdHex || a.msgIdHex !== b.msgIdHex) return false;
+  if ((a.senderAddress || "") !== (b.senderAddress || "")) return false;
+  const ea = groupRowEpoch(a), eb = groupRowEpoch(b);
+  // A row stored before epochs were kept has none: matched on sender and msg id.
+  if (ea == null || eb == null) return !needEpoch;
+  return ea === eb;
+}
 function groupMessagesAreSame(a, b) {
-  if (a.msgIdHex && b.msgIdHex) return a.msgIdHex === b.msgIdHex;
-  if (a.txId && b.txId) return a.txId === b.txId;
+  if (a.txId && b.txId) {
+    if (a.txId === b.txId) return true;
+    // Another transaction with the same sender, epoch and msg id is a replay of the first; the
+    // engine's seen ids catch it until it ages out of them, this after.
+    return groupMsgIdsMatch(a, b, { needEpoch: true });
+  }
+  if (a.msgIdHex && b.msgIdHex) return groupMsgIdsMatch(a, b, { needEpoch: false });
   return Boolean(a.id) && a.id === b.id;
+}
+/** Fills in the ids (and epoch) `existing` lacks from another copy of the same message. */
+function fillGroupRowIds(existing, message) {
+  let changed = false;
+  if (!existing.msgIdHex && message.msgIdHex) { existing.msgIdHex = message.msgIdHex; changed = true; }
+  if (!existing.txId && message.txId) { existing.txId = message.txId; changed = true; }
+  if (groupRowEpoch(existing) == null && groupRowEpoch(message) != null) { existing.epoch = message.epoch; changed = true; }
+  return changed;
 }
 
 // Many messages for one group in one go (a restore): the store is read once, every row is
@@ -32313,6 +32423,11 @@ function groupMessagesAreSame(a, b) {
 // txids and msg ids are kept per account, newest 20,000, so a sync, the stream, a restore or an
 // archive import never brings one back. Removing the account clears it with the rest of its data.
 // Expired system lines pruned by pruneExpiredGroupSystemMessages aren't recorded.
+// Keyed like the dedupe above (audit 2026-11-25): a row's txid, or for a row with none its sender,
+// epoch and msg id together ("m:<sender>:<epoch>:<msg id>", the epoch blank when not known). An
+// entry from before is a bare msg id; msg ids repeat across epochs, so one of those now only hides
+// a copy with no txid (a chain copy is matched by the txid that was recorded with it). Kept in the
+// IndexedDB chat storage, not localStorage (audit 2026-11-25): 20,000 ids is about a megabyte.
 const DELETED_GROUP_MESSAGES_KEY = "kachat-deleted-group-messages-v1";
 const DELETED_GROUP_MESSAGES_CAP = 20_000;
 let deletedGroupMessagesCache = null;
@@ -32320,31 +32435,39 @@ function deletedGroupMessageIds() {
   const key = accountScopedKey(DELETED_GROUP_MESSAGES_KEY);
   if (deletedGroupMessagesCache?.key === key) return deletedGroupMessagesCache.ids;
   let list = [];
-  try { list = JSON.parse(localStorage.getItem(key) || "[]"); } catch { list = []; }
+  try { list = JSON.parse(chatStorageGetSync(key) || "[]"); } catch { list = []; }
   const ids = new Set(Array.isArray(list) ? list.map(String) : []);
   deletedGroupMessagesCache = { key, ids };
   return ids;
+}
+function deletedGroupMessageMsgKey(message, epoch = groupRowEpoch(message)) {
+  return `m:${message?.senderAddress || ""}:${epoch ?? ""}:${message?.msgIdHex || ""}`;
 }
 function rememberDeletedGroupMessages(messages) {
   const ids = deletedGroupMessageIds();
   let added = 0;
   for (const m of messages || []) {
-    for (const id of [m?.txId, m?.msgIdHex]) {
-      if (!id) continue;
-      ids.delete(String(id));
-      ids.add(String(id));
-      added += 1;
-    }
+    const id = m?.txId ? String(m.txId) : (m?.msgIdHex ? deletedGroupMessageMsgKey(m) : "");
+    if (!id) continue;
+    ids.delete(id);
+    ids.add(id);
+    added += 1;
   }
   if (!added) return;
   const list = [...ids].slice(-DELETED_GROUP_MESSAGES_CAP);
   deletedGroupMessagesCache = { key: accountScopedKey(DELETED_GROUP_MESSAGES_KEY), ids: new Set(list) };
-  try { localStorage.setItem(deletedGroupMessagesCache.key, JSON.stringify(list)); } catch { /* full: this session still remembers */ }
+  try { chatStorageSetSync(deletedGroupMessagesCache.key, JSON.stringify(list)); } catch { /* full: this session still remembers */ }
 }
 function isDeletedGroupMessage(message) {
   const ids = deletedGroupMessageIds();
-  if (!ids.size) return false;
-  return Boolean((message?.txId && ids.has(String(message.txId))) || (message?.msgIdHex && ids.has(String(message.msgIdHex))));
+  if (!ids.size || !message) return false;
+  if (message.txId && ids.has(String(message.txId))) return true;
+  if (!message.msgIdHex) return false;
+  const epoch = groupRowEpoch(message);
+  if (epoch != null && ids.has(deletedGroupMessageMsgKey(message, epoch))) return true;
+  // Deleted with no epoch known, or an entry from before (a bare msg id): only a copy with no txid,
+  // never another epoch's message that happens to reuse the id.
+  return !message.txId && (ids.has(deletedGroupMessageMsgKey(message, null)) || ids.has(String(message.msgIdHex)));
 }
 
 function appendGroupMessagesBulk(groupId, messages) {
@@ -32352,9 +32475,11 @@ function appendGroupMessagesBulk(groupId, messages) {
   const wallet = engine.address || "";
   if (!all[wallet]) all[wallet] = {};
   const list = Array.isArray(all[wallet][groupId]) ? all[wallet][groupId] : [];
+  // Candidates by each id, decided by groupMessagesAreSame (audit 2026-11-25: a msg id is shared by
+  // different messages across epochs, so every row holding it is a candidate).
   const byMsgId = new Map(); const byTx = new Map(); const byId = new Map();
   const index = (m) => {
-    if (m.msgIdHex) byMsgId.set(m.msgIdHex, m);
+    if (m.msgIdHex) { const rows = byMsgId.get(m.msgIdHex); if (!rows) byMsgId.set(m.msgIdHex, [m]); else if (!rows.includes(m)) rows.push(m); }
     if (m.txId) byTx.set(m.txId, m);
     if (m.id) byId.set(m.id, m);
   };
@@ -32362,10 +32487,10 @@ function appendGroupMessagesBulk(groupId, messages) {
   let added = 0;
   for (const message of messages || []) {
     if (isDeletedGroupMessage(message)) continue;
-    const existing = (message.msgIdHex && byMsgId.get(message.msgIdHex)) || (message.txId && byTx.get(message.txId)) || (message.id && byId.get(message.id)) || null;
+    const candidates = [message.txId && byTx.get(message.txId), ...((message.msgIdHex && byMsgId.get(message.msgIdHex)) || []), message.id && byId.get(message.id)];
+    const existing = candidates.find((m) => m && groupMessagesAreSame(m, message)) || null;
     if (existing) {
-      if (!existing.msgIdHex && message.msgIdHex) existing.msgIdHex = message.msgIdHex;
-      if (!existing.txId && message.txId) existing.txId = message.txId;
+      fillGroupRowIds(existing, message);
       index(existing);
       continue;
     }
@@ -32386,9 +32511,7 @@ function appendGroupMessage(groupId, message) {
   if (existing) {
     // Same message by a route that knows an id this row is missing. Fill it in rather than
     // dropping it on the floor: next time it arrives by the OTHER route, the rows match.
-    let changed = false;
-    if (!existing.msgIdHex && message.msgIdHex) { existing.msgIdHex = message.msgIdHex; changed = true; }
-    if (!existing.txId && message.txId) { existing.txId = message.txId; changed = true; }
+    let changed = fillGroupRowIds(existing, message);
     // A send left "Not confirmed" whose chain copy came back did go out.
     if (existing.status === MESSAGE_STATUS_UNCONFIRMED && message.txId && message.status !== MESSAGE_STATUS_UNCONFIRMED) {
       existing.status = MESSAGE_STATUSES.CONFIRMED;
@@ -32410,6 +32533,7 @@ function appendGroupMessage(groupId, message) {
     if (inFlight) {
       inFlight.txId = message.txId;
       if (message.msgIdHex) inFlight.msgIdHex = message.msgIdHex;
+      if (groupRowEpoch(message) != null) inFlight.epoch = message.epoch;
       inFlight.status = MESSAGE_STATUSES.CONFIRMED;
       saveGroupMessages(groupId, list);
       return false;
@@ -32440,8 +32564,7 @@ function dedupeStoredGroupMessages(groupId) {
   for (const message of list) {
     const existing = kept.find((m) => groupMessagesAreSame(m, message));
     if (!existing) { kept.push(message); continue; }
-    if (!existing.msgIdHex && message.msgIdHex) existing.msgIdHex = message.msgIdHex;
-    if (!existing.txId && message.txId) existing.txId = message.txId;
+    fillGroupRowIds(existing, message);
     // A confirmed copy beats a pending one that never got patched.
     if (message.status === MESSAGE_STATUSES.CONFIRMED && existing.status !== MESSAGE_STATUSES.CONFIRMED) {
       existing.status = message.status;
@@ -32548,53 +32671,95 @@ function groupMsgKey(message) { return message?.txId || message?.msgIdHex || mes
 // --- group reactions store (per wallet, per group, keyed by target message key) ---
 // Reactions ride the SAME {type:"reaction",...} envelope as 1:1 chats — a normal group
 // message intercepted before it renders (see syncGroupsNow), so this stays interop-compatible.
+// The reactions and edits stores live in the IndexedDB chat storage (audit 2026-11-25: they grew
+// without a bound in localStorage, which every other store shares); CHAT_STORAGE_GLOBAL_KEYS moves
+// what was in localStorage across on the first start. Each group keeps its newest 5,000 targets.
 const GROUP_REACTIONS_KEY = "kachat-group-reactions-v1";
-function loadGroupReactionsAll() { try { return JSON.parse(localStorage.getItem(GROUP_REACTIONS_KEY) || "{}") || {}; } catch { return {}; } }
-function saveGroupReactionsAll(all) { try { localStorage.setItem(GROUP_REACTIONS_KEY, JSON.stringify(all)); } catch {} }
-function groupReactionsFor(groupId, targetKey) {
-  const list = loadGroupReactionsAll()?.[engine.address || ""]?.[groupId]?.[targetKey];
-  return Array.isArray(list) ? list : [];
+const GROUP_TARGETS_KEPT_PER_GROUP = 5000;
+function loadGroupReactionsAll() { try { return JSON.parse(chatStorageGetSync(GROUP_REACTIONS_KEY) || "{}") || {}; } catch { return {}; } }
+function saveGroupReactionsAll(all) { try { chatStorageSetSync(GROUP_REACTIONS_KEY, JSON.stringify(all)); } catch {} }
+/** Own properties only: a key off the network ("toString"...) never reads Object.prototype. */
+function ownEntry(map, key) { return map && typeof map === "object" && key && Object.hasOwn(map, key) ? map[key] : undefined; }
+/** Re-adds `key` last (newest) and drops the oldest targets past the cap. */
+function keepNewestGroupTargets(bucket, key, value) {
+  delete bucket[key];
+  if (value !== undefined) bucket[key] = value;
+  const keys = Object.keys(bucket);
+  for (const old of keys.slice(0, Math.max(0, keys.length - GROUP_TARGETS_KEPT_PER_GROUP))) delete bucket[old];
+}
+/** A target's reactions. Reactions and edits are stored under the key their envelope named, the
+ *  row's txid or (from some clients, or before the txid was known) its msg id, while rendering
+ *  asks by groupMsgKey (txid first): `altKey`, the row's msg id, finds the second kind too. */
+function groupReactionsFor(groupId, targetKey, altKey = null) {
+  const bucket = ownEntry(ownEntry(loadGroupReactionsAll(), engine.address || ""), groupId);
+  const list = ownEntry(bucket, targetKey);
+  const primary = Array.isArray(list) ? list : [];
+  const alt = altKey && altKey !== targetKey ? ownEntry(bucket, altKey) : null;
+  if (!Array.isArray(alt) || !alt.length) return primary;
+  return [...primary, ...alt.filter((e) => !primary.some((p) => p.reactorAddress === e.reactorAddress))];
 }
 // One emoji per reactor per target: add replaces, remove clears.
 function applyGroupReaction(groupId, targetKey, reactorAddress, emoji, action) {
   if (!targetKey || !reactorAddress) return;
   const all = loadGroupReactionsAll();
   const wallet = engine.address || "";
-  if (!all[wallet]) all[wallet] = {};
-  if (!all[wallet][groupId]) all[wallet][groupId] = {};
+  if (!ownEntry(all, wallet)) all[wallet] = {};
+  if (!ownEntry(all[wallet], groupId)) all[wallet][groupId] = {};
   const bucket = all[wallet][groupId];
-  const list = Array.isArray(bucket[targetKey]) ? bucket[targetKey] : [];
+  const held = ownEntry(bucket, targetKey);
+  const list = Array.isArray(held) ? held : [];
   const without = list.filter((e) => e.reactorAddress !== reactorAddress);
   if (action !== "remove" && emoji) without.push({ reactorAddress, emoji });
-  bucket[targetKey] = without;
+  keepNewestGroupTargets(bucket, targetKey, without.length ? without : undefined);
   saveGroupReactionsAll(all);
+}
+/** The stored row a reaction or edit names (audit 2026-11-25). By txid first; a msg id repeats
+ *  across epochs and senders, so it is matched to the row from `senderAddress` (an edit: only the
+ *  sender's own count) sent in `epoch` when there is one, else the newest such row. */
+function findGroupTargetRow(groupId, key, { senderAddress = null, epoch = null } = {}) {
+  if (!key) return null;
+  const list = groupMessages(groupId);
+  const byTx = list.find((row) => row.txId === key);
+  if (byTx) return byTx;
+  const rows = list.filter((row) => row.msgIdHex === key && (!senderAddress || row.senderAddress === senderAddress));
+  if (!rows.length) return null;
+  const sameEpoch = epoch == null ? [] : rows.filter((row) => groupRowEpoch(row) === epoch);
+  return (sameEpoch.length ? sameEpoch : rows).reduce((a, b) => ((b.createdAt || 0) > (a.createdAt || 0) ? b : a));
 }
 
 // Group edits (iOS 125e5ab): the same envelope as 1:1, carried in a group-encrypted message
 // like a reaction; only the sender's own edits count, newest wins, text only. Stored beside
 // the reactions, keyed by the target's key; the editor is checked against the message at render.
 const GROUP_EDITS_KEY = "kachat-group-edits-v1";
-function loadGroupEditsAll() { try { return JSON.parse(localStorage.getItem(GROUP_EDITS_KEY) || "{}") || {}; } catch { return {}; } }
-function saveGroupEditsAll(all) { try { localStorage.setItem(GROUP_EDITS_KEY, JSON.stringify(all)); } catch {} }
-function groupEditFor(groupId, targetKey) {
-  return loadGroupEditsAll()[engine.address || ""]?.[groupId]?.[targetKey] || null;
+function loadGroupEditsAll() { try { return JSON.parse(chatStorageGetSync(GROUP_EDITS_KEY) || "{}") || {}; } catch { return {}; } }
+function saveGroupEditsAll(all) { try { chatStorageSetSync(GROUP_EDITS_KEY, JSON.stringify(all)); } catch {} }
+/** A target's edit; `altKey` as in groupReactionsFor. Of two, the newer. */
+function groupEditFor(groupId, targetKey, altKey = null) {
+  const bucket = ownEntry(ownEntry(loadGroupEditsAll(), engine.address || ""), groupId);
+  const read = (key) => { const edit = key ? ownEntry(bucket, key) : null; return edit && typeof edit === "object" ? edit : null; };
+  const primary = read(targetKey);
+  const alt = altKey && altKey !== targetKey ? read(altKey) : null;
+  if (!alt) return primary;
+  return !primary || Number(alt.at || 0) > Number(primary.at || 0) ? alt : primary;
 }
 function applyGroupEdit(groupId, targetKey, editorAddress, text, at, status = null) {
   if (!targetKey || !editorAddress) return false;
   const all = loadGroupEditsAll();
   const wallet = engine.address || "";
-  const bucket = ((all[wallet] ||= {})[groupId] ||= {});
+  if (!ownEntry(all, wallet)) all[wallet] = {};
+  if (!ownEntry(all[wallet], groupId)) all[wallet][groupId] = {};
+  const bucket = all[wallet][groupId];
   const when = Number(at) > 0 ? Number(at) : Date.now();
-  const existing = bucket[targetKey];
+  const existing = ownEntry(bucket, targetKey);
   if (existing && Number(existing.at || 0) > when) return false;
-  bucket[targetKey] = { text: String(text).slice(0, MESSAGE_EDIT_MAX_LENGTH), at: when, editor: editorAddress, ...(status ? { status } : {}) };
+  keepNewestGroupTargets(bucket, targetKey, { text: String(text).slice(0, MESSAGE_EDIT_MAX_LENGTH), at: when, editor: editorAddress, ...(status ? { status } : {}) });
   saveGroupEditsAll(all);
   return true;
 }
 /** A group message's content with its edit applied - when the editor is the message's sender. */
 function groupMessageContent(groupId, message) {
   const key = groupMsgKey(message);
-  const edit = key ? groupEditFor(groupId, key) : null;
+  const edit = key ? groupEditFor(groupId, key, message.msgIdHex) : null;
   if (edit && edit.editor === message.senderAddress && isEditableContent(message.text)) return applyEditToContent(edit.text, message.text);
   return message.text || "";
 }
@@ -32635,7 +32800,7 @@ async function sendGroupReaction(groupId, targetMessage, emoji) {
   if (!mgr || !engine.address) return;
   const targetKey = groupMsgKey(targetMessage);
   if (!targetKey) return;
-  const mine = groupReactionsFor(groupId, targetKey).find((e) => e.reactorAddress === engine.address);
+  const mine = groupReactionsFor(groupId, targetKey, targetMessage.msgIdHex).find((e) => e.reactorAddress === engine.address);
   const action = mine?.emoji === emoji ? "remove" : "add";
   applyGroupReaction(groupId, targetKey, engine.address, action === "remove" ? null : emoji, action);
   if (activeGroupId === groupId) renderGroupMessages();
@@ -32849,17 +33014,13 @@ function setChatToolRowsForGroupsTab(isGroups) {
 
 /** The gear at the top left of KaChat (K 8cb4c88e): Edit Default Public Chats, moved out of the +
  *  sheet. Only on the Public Chats page (K 961fc05a), not while selecting (iOS hides it in edit
- *  mode), and not in Simple Mode, which hides Public Chats. DOM-only, like the Select row above:
- *  safe during the boot render. */
+ *  mode). DOM-only, like the Select row above: safe during the boot render. */
 function syncChatsPublicSettingsGear() {
   const gear = document.querySelector("[data-chats-public-settings]");
   if (!gear) return;
-  let simple = false;
-  try { simple = isChildModeEnabled(); } catch { /* not started */ }
   gear.hidden = !document.body.classList.contains("chats-tab")
     || chatListPage !== "publicChats"
-    || Boolean(document.querySelector("[data-app-sidebar]")?.classList.contains("selecting-chats"))
-    || simple;
+    || Boolean(document.querySelector("[data-app-sidebar]")?.classList.contains("selecting-chats"));
 }
 document.querySelector("[data-chats-public-settings]")?.addEventListener("click", () => {
   try { openPublicChatsSettings(); } catch { /* rooms not started */ }
@@ -33684,7 +33845,7 @@ function openGroupMessageMenu(message, x, y, kindOverride = null) {
   const partCluster = lastGroupParts.get(activeGroupId)?.clusters.get(key) || null;
   const kindInfo = partsMenuKind(kindOverride || messageMenuKind(message.text, plain), partCluster, (m) => m.text);
   const failed = message.direction === "local" && (partCluster ? partCluster.status === "failed" : message.status === MESSAGE_STATUSES.FAILED);
-  const reactionRows = key ? groupReactionsFor(activeGroupId, key) : [];
+  const reactionRows = key ? groupReactionsFor(activeGroupId, key, message.msgIdHex) : [];
   const copyText = decodeGroupMentions(plain);
   const onReply = () => startGroupReply(message);
   const onSelect = () => enterGroupSelection(key);
@@ -33903,11 +34064,11 @@ function renderGroupMessages() {
     const rowSenderContact = rowIncoming ? state.contacts.find((c) => c.address === message.senderAddress) : null;
     const rowExtras = JSON.stringify([
       rowKey,
-      groupEditFor(activeGroupId, rowKey) || null,
+      groupEditFor(activeGroupId, rowKey, message.msgIdHex) || null,
       rowIncoming ? groupSenderLabel(message.senderAddress) : "",
       Boolean(rowSenderContact && isAcceptedContact(rowSenderContact)),
       selectedGroupMessageKeys.has(rowKey),
-      groupReactionsFor(activeGroupId, rowKey),
+      groupReactionsFor(activeGroupId, rowKey, message.msgIdHex),
       localReactionStatusFor(`grp|${rowKey}|`) || null,
       rowCluster ? [rowCluster.kind, rowCluster.status, rowCluster.isComplete, rowCluster.count, rowCluster.members.map((m) => `${groupMsgKey(m)}:${m.status}`)] : null,
     ]);
@@ -33959,7 +34120,7 @@ function renderGroupMessages() {
 
     // Rich content — same envelopes (reply / photo / voice) as 1:1, shared with iOS/Android.
     const shownContent = rowShown;
-    const storedEdit = groupEditFor(activeGroupId, groupMsgKey(message));
+    const storedEdit = groupEditFor(activeGroupId, groupMsgKey(message), message.msgIdHex);
     const groupEdit = storedEdit && storedEdit.editor === message.senderAddress && isEditableContent(message.text) ? storedEdit : null;
     const imageEnvelope = parseImageEnvelope(shownContent);
     const audioEnvelope = imageEnvelope ? null : parseAudioEnvelope(shownContent);
@@ -34050,7 +34211,7 @@ function renderGroupMessages() {
     const key = groupMsgKey(message);
 
     // Reaction pills (counts), your own reaction's state leading.
-    const reactions = groupReactionsFor(activeGroupId, key);
+    const reactions = groupReactionsFor(activeGroupId, key, message.msgIdHex);
     const localReaction = localReactionStatusFor(`grp|${key}|`);
     if (reactions.length) { bubble.classList.add("has-reactions"); bubble.append(buildReactionPill(reactions, localReaction)); }
 
@@ -34069,7 +34230,7 @@ function renderGroupMessages() {
     attachDoubleTap(bubble, (event) => {
       if (groupSelectionMode || !key) return;
       event.preventDefault();
-      const current = groupReactionsFor(activeGroupId, key).find((e) => e.reactorAddress === engine.address)?.emoji || null;
+      const current = groupReactionsFor(activeGroupId, key, message.msgIdHex).find((e) => e.reactorAddress === engine.address)?.emoji || null;
       openQuickReactionBarFor({
         anchor: bubble, alignRight: !incoming, current,
         onReact: (emoji) => sendGroupReaction(activeGroupId, message, emoji),
@@ -34961,7 +35122,9 @@ function applyGroupSyncResult(result, { catchUp = false } = {}) {
     // reactions store and never render them as their own bubble (mirrors the 1:1 path).
     const reaction = parseReactionEnvelope(decoded.plaintext);
     if (reaction) {
-      applyGroupReaction(decoded.groupId, reaction.targetTxId, decoded.senderAddress, reaction.emoji, reaction.action);
+      // Filed under the target row's own key, the one rendering asks for (audit 2026-11-25).
+      const reactionTarget = findGroupTargetRow(decoded.groupId, reaction.targetTxId, { epoch: groupRowEpoch(decoded) });
+      applyGroupReaction(decoded.groupId, reactionTarget ? groupMsgKey(reactionTarget) : reaction.targetTxId, decoded.senderAddress, reaction.emoji, reaction.action);
       if (decoded.groupId === activeGroupId) changed++;
       continue;
     }
@@ -34984,6 +35147,8 @@ function applyGroupSyncResult(result, { catchUp = false } = {}) {
       createdAt,
       txId: decoded.txId || null,
       msgIdHex: decoded.msgIdHex || null,
+      // the epoch it was sent in: a msg id is only unique within one (audit 2026-11-25)
+      epoch: groupRowEpoch(decoded),
       senderIsAdmin: Boolean(decoded.senderIsAdmin),
     });
     if (added) {
@@ -35007,10 +35172,11 @@ function applyGroupSyncResult(result, { catchUp = false } = {}) {
     }
   }
   for (const { decoded, editEnvelope } of pendingGroupEdits) {
-    const target = groupMessages(decoded.groupId).find((row) => row.txId === editEnvelope.targetTxId || row.msgIdHex === editEnvelope.targetTxId);
+    // The editor's own row, in the edit's epoch for a msg id, filed under the row's key (audit 2026-11-25).
+    const target = findGroupTargetRow(decoded.groupId, editEnvelope.targetTxId, { senderAddress: decoded.senderAddress, epoch: groupRowEpoch(decoded) });
     if (!target || target.senderAddress !== decoded.senderAddress || !isEditableContent(target.text)) continue;
     const bt = Number(decoded.blockTime || 0);
-    if (applyGroupEdit(decoded.groupId, editEnvelope.targetTxId, decoded.senderAddress, editEnvelope.text, bt > 1e12 ? bt : bt > 0 ? bt * 1000 : Date.now()) && decoded.groupId === activeGroupId) changed++;
+    if (applyGroupEdit(decoded.groupId, groupMsgKey(target), decoded.senderAddress, editEnvelope.text, bt > 1e12 ? bt : bt > 0 ? bt * 1000 : Date.now()) && decoded.groupId === activeGroupId) changed++;
   }
   // iMessage-style membership lines for members who received a key rotation: the engine reports
   // which addresses were added/removed on each root update (see _applyRoot). The acting admin
@@ -35190,11 +35356,8 @@ function newChatSheetMenuHtml() {
   const rows = [
     { id: "chat", title: "New Chat", subtitle: "Message someone by their address or name." },
     { id: "group", title: "New Group Chat", subtitle: "Start a group with the people you choose." },
-    // Simple Mode hides Public Chats, so it has no tile here either.
-    ...(isChildModeEnabled() ? [] : [
-      { id: "public", title: "New Public Chat", subtitle: "Join a public room, or create one." },
-      // Edit Default Public Chats is the gear at the top left of Chats now (K 8cb4c88e), not a row here.
-    ]),
+    { id: "public", title: "New Public Chat", subtitle: "Join a public room, or create one." },
+    // Edit Default Public Chats is the gear at the top left of Chats now (K 8cb4c88e), not a row here.
   ];
   return actionRowsSheetHtml("New", rows);
 }
@@ -35672,7 +35835,7 @@ async function sendGroupRowsInOrder(gid, localIds) {
     groupSendsInFlight.add(row.id);
     try {
       const res = await mgr.sendGroupMessage(gid, row.text);
-      patchGroupMessage(gid, row.id, { txId: res?.txid || null, msgIdHex: res?.msgIdHex || null, status: MESSAGE_STATUSES.CONFIRMED }, owner);
+      patchGroupMessage(gid, row.id, { txId: res?.txid || null, msgIdHex: res?.msgIdHex || null, epoch: groupRowEpoch(res), status: MESSAGE_STATUSES.CONFIRMED }, owner);
     } catch (error) {
       // another account is loaded now: nothing went out, and nothing is written or failed here
       if (groupSendAccountChanged(error)) return false;
@@ -35764,7 +35927,7 @@ async function retryGroupMessage(message) {
   try {
     if (!mgr) throw new Error("Groups aren't ready yet.");
     const res = await mgr.sendGroupMessage(gid, row.text);
-    patchGroupMessage(gid, row.id, { txId: res?.txid || null, msgIdHex: res?.msgIdHex || null, status: MESSAGE_STATUSES.CONFIRMED }, owner);
+    patchGroupMessage(gid, row.id, { txId: res?.txid || null, msgIdHex: res?.msgIdHex || null, epoch: groupRowEpoch(res), status: MESSAGE_STATUSES.CONFIRMED }, owner);
   } catch (error) {
     if (groupSendAccountChanged(error)) return;
     // Not confirmed (txid kept, no Retry) when the network never answered, else Failed.
@@ -35801,7 +35964,7 @@ async function sendGroupWire(text, { feeKas = null, errorPrefix = "", groupId = 
     // Patch the same row so a later sync of our own message dedupes by msgId (no duplicate). An id
     // its chain copy already filled in is kept when the answer lacks one.
     const sentRow = groupMessages(gid, owner).find((m) => m.id === localId);
-    patchGroupMessage(gid, localId, { txId: res?.txid || sentRow?.txId || null, msgIdHex: res?.msgIdHex || sentRow?.msgIdHex || null, status: MESSAGE_STATUSES.CONFIRMED }, owner);
+    patchGroupMessage(gid, localId, { txId: res?.txid || sentRow?.txId || null, msgIdHex: res?.msgIdHex || sentRow?.msgIdHex || null, epoch: groupRowEpoch(res) ?? groupRowEpoch(sentRow), status: MESSAGE_STATUSES.CONFIRMED }, owner);
     if (activeGroupId === gid) renderGroupMessages();
     renderGroupList();
     return true;

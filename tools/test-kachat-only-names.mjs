@@ -169,7 +169,24 @@ await test("a transfer whose commit went out is finished: the reveal spends it a
   assert.equal(tx.inputs[0].previousOutpoint.transactionId, coin.outpoint.transactionId);
   assert.equal(tx.outputs[0].scriptPublicKey.script ?? tx.outputs[0].scriptPublicKey, kaspa.payToAddressScript(owner).script, "back to the sender's change address");
   assert.ok(BigInt(tx.outputs[0].value) > 19n * KAS / 10n, "less only the fee");
-  assert.equal(store.has(transferKey), false, "the record is cleared");
+  // audit 2026-11-25 #18: sent is not settled - the record stays until the commit is found spent
+  const left = JSON.parse(store.get(transferKey))["asset-a"];
+  assert.equal(left.status, "reveal-sent");
+  assert.equal(left.commitSeen, true);
+  // the mempool evicted the reveal: the commit is still unspent, so the next look sends it again
+  assert.equal(await R.resumePendingKnsTransfers({ engine: engineOn(node), signerFor }), 1);
+  assert.equal(node.submitted.length, 2);
+  // in the mempool now: nothing new goes out and the record stays
+  node.refuse = () => "already in the mempool";
+  assert.equal(await R.resumePendingKnsTransfers({ engine: engineOn(node), signerFor }), 0);
+  assert.ok(store.has(transferKey));
+  // in a block: the commit is gone, and two empty looks in a row clear the record
+  node.utxos.delete(redeem.commitAddressString);
+  await R.resumePendingKnsTransfers({ engine: engineOn(node), signerFor });
+  assert.ok(store.has(transferKey), "one empty look is not enough");
+  await R.resumePendingKnsTransfers({ engine: engineOn(node), signerFor });
+  assert.equal(store.has(transferKey), false, "the commit was spent: the record is cleared");
+  assert.equal(node.submitted.length, 2);
 });
 
 await test("a commit still only in the mempool: the recorded txid is revealed", async () => {
@@ -180,10 +197,14 @@ await test("a commit still only in the mempool: the recorded txid is revealed", 
   assert.equal(await R.resumePendingKnsTransfers({ engine: engineOn(node), signerFor }), 1);
   assert.equal(node.submitted[0].inputs[0].previousOutpoint.transactionId, record.commitTxId);
   assert.equal(Number(node.submitted[0].inputs[0].previousOutpoint.index), 1);
-  assert.equal(store.has(transferKey), false);
+  // kept until the commit is found spent (audit 2026-11-25 #18); the node took a reveal of it, so it was seen
+  const left = JSON.parse(store.get(transferKey))[record.assetId];
+  assert.equal(left.status, "reveal-sent");
+  assert.equal(left.commitSeen, true);
+  assert.equal(left.emptyChecks, 0);
 });
 
-await test("an earlier reveal already in: settled and cleared, nothing new sent", async () => {
+await test("an earlier reveal already in: nothing new sent; cleared once the commit is found gone twice", async () => {
   store.clear();
   const node = stubNode();
   node.refuse = () => "output already spent by transaction in the mempool";
@@ -191,7 +212,11 @@ await test("an earlier reveal already in: settled and cleared, nothing new sent"
   fileTransfer(record);
   assert.equal(await R.resumePendingKnsTransfers({ engine: engineOn(node), signerFor }), 0);
   assert.equal(node.submitted.length, 0);
+  // audit 2026-11-25 #18: a reveal in the mempool can still be evicted, so the record waits
+  assert.equal(JSON.parse(store.get(transferKey))["asset-c"].commitSeen, true);
+  await R.resumePendingKnsTransfers({ engine: engineOn(node), signerFor });
   assert.equal(store.has(transferKey), false);
+  assert.equal(node.submitted.length, 0);
 });
 
 await test("a refused reveal keeps the record for the next look; another account's or a fresh one is left alone", async () => {
@@ -238,7 +263,54 @@ await test("a reveal owed by a registration or profile edit is finished, the coi
     commitAmountSompi: String(2n * KAS), revealTargetAddress: owner, revealAmountSompi: String(KAS), createdAt: Date.now() - hour,
   }]));
   assert.equal(await R.resumePendingKnsReveals({ engine: engineOn(node) }), 1);
+  // audit 2026-11-25 #18: sent is not settled - the record stays until its commit is found spent
+  assert.equal(R.pendingKnsReveals(owner).length, 1);
+  assert.equal(R.pendingKnsReveals(owner)[0].commitSeen, true);
+  // still in the mempool: nothing new goes out
+  node.refuse = () => "already in the mempool";
+  assert.equal(await R.resumePendingKnsReveals({ engine: engineOn(node) }), 0);
+  assert.equal(R.pendingKnsReveals(owner).length, 1);
+  // in a block: the commit is gone, and two empty looks in a row drop the record
+  node.utxos.delete(redeem.commitAddressString);
+  await R.resumePendingKnsReveals({ engine: engineOn(node) });
+  assert.equal(R.pendingKnsReveals(owner).length, 1, "one empty look is not enough");
+  await R.resumePendingKnsReveals({ engine: engineOn(node) });
   assert.equal(R.pendingKnsReveals(owner).length, 0);
+  assert.equal(node.submitted.length, 1);
+});
+
+await test("one reveal record that can't be read doesn't stop the records after it (audit 2026-11-25 #18)", async () => {
+  store.clear();
+  const node = stubNode();
+  const filed = [];
+  for (const [value, amount] of [["bad", "1.5"], ["good", String(2n * KAS)]]) {
+    const payloadJson = JSON.stringify({ op: "addProfile", id: "asset-y", key: "bio", value });
+    const redeem = R.buildKnsRedeemScript(kaspa, R.xOnlyPublicKeyHexFromPrivateKey(ownerKey), payloadJson);
+    node.utxos.set(redeem.commitAddressString, [commitCoin(redeem.commitAddressString, redeem.commitScriptPublicKey, 2n * KAS)]);
+    filed.push({
+      id: redeem.commitAddressString, kind: "profile", payloadJson, commitAddressString: redeem.commitAddressString,
+      commitAmountSompi: amount, revealTargetAddress: owner, revealAmountSompi: String(KAS), createdAt: Date.now() - hour,
+    });
+  }
+  store.set(`kachat-account-data-v1:${owner}:kachat-kns-pending-reveals-v1`, JSON.stringify(filed));
+  assert.equal(await R.resumePendingKnsReveals({ engine: engineOn(node) }), 1, "the good record after the bad one is finished");
+  assert.equal(node.submitted.length, 1);
+  assert.ok(R.pendingKnsReveals(owner).some((r) => r.commitAmountSompi === "1.5"), "the bad record is kept, not lost");
+});
+
+await test("one transfer record that fails doesn't stop the records after it (audit 2026-11-25 #18)", async () => {
+  store.clear();
+  const node = stubNode();
+  const bad = transferRecord("asset-bad", { commitAmountSompi: "1.5" });
+  const good = transferRecord("asset-good");
+  const goodCoin = commitCoin(good.redeem.commitAddressString, good.redeem.commitScriptPublicKey, 2n * KAS);
+  node.utxos.set(good.redeem.commitAddressString, [goodCoin]);
+  node.utxos.set(bad.redeem.commitAddressString, [commitCoin(bad.redeem.commitAddressString, bad.redeem.commitScriptPublicKey, 2n * KAS)]);
+  fileTransfer(bad.record);
+  fileTransfer(good.record);
+  assert.equal(await R.resumePendingKnsTransfers({ engine: engineOn(node), signerFor }), 1);
+  assert.ok(node.submitted.some((tx) => tx.inputs[0].previousOutpoint.transactionId === goodCoin.outpoint.transactionId));
+  assert.ok(JSON.parse(store.get(transferKey))["asset-bad"], "the bad record is kept, not lost");
 });
 
 await test("the old single pending commit (before Build 276) is adopted by the key that made it, then finished", async () => {

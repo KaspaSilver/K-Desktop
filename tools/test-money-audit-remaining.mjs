@@ -52,8 +52,9 @@ test("no key loaded: nothing is done and nothing is dropped", async () => {
   assert.equal(pendingKnsReveals(ME).length, 1);
   assert.ok(KNS_REVEAL_MISSING_LIFETIME_MS === 30 * 86_400_000, "a never-seen commit is kept 30 days (iOS 83806b3d)");
 });
-test("records are kept per account, under the prefix account removal sweeps", () => {
+test("records are kept per account, under the account prefix (account removal leaves them: audit 2026-11-25 #4)", () => {
   assert.match(KEY, /^kachat-account-data-v1:/);
+  assert.match(app, /!key\.endsWith\(":kachat-kns-pending-reveals-v1"\)/);
   assert.deepEqual(pendingKnsReveals("kaspa:qother"), []);
 });
 

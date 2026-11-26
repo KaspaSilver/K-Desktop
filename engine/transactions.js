@@ -410,6 +410,16 @@ export function excludeReservedUtxos(entries) {
   if (!reservedOutpoints.size) return entries;
   return (entries || []).filter((entry) => !reservedOutpoints.has(`${entry?.outpoint?.transactionId}:${entry?.outpoint?.index}`));
 }
+/** Why some of these coins ("txid:index" keys, as the node lists them at an address) can't be spent
+ *  by code that picks its own coins (Trestly's swap, audit 2026-11-25 #31): "reserved" when a
+ *  scheduled KaPost's signed transaction spends one, "held" when a send from here has just spent one
+ *  and it isn't in a block yet; null when every coin is free. */
+export function coinsInUseReason(keys, now = Date.now()) {
+  const listed = new Set((keys || []).map((key) => String(key).toLowerCase()));
+  for (const key of reservedOutpoints) if (listed.has(key.toLowerCase())) return "reserved";
+  for (const [key, until] of justSpent) if (until > now && listed.has(String(key).toLowerCase())) return "held";
+  return null;
+}
 
 /** The one coin an arena message spends (iOS builds every chess send with a single input): the
  *  largest coin that covers the amount plus a fee margin. Null when no single coin can. */
@@ -1076,6 +1086,12 @@ async function sendKaspaNow({ kaspa, rpc, withRpc = null, privateKey, sourceAddr
     ? await createKip22Transactions(kaspa, settings, prioritySompi)
     : await kaspa.createTransactions({ ...settings, priorityFee: prioritySompi });
   log("Transaction summary:", result.summary);
+  // A send too big for one transaction comes back as a chain: the earlier "gathering" transactions
+  // pay `changeAddress`, and the last one spends those coins. With change going anywhere but the
+  // source (a fresh quantum-safe slot), the last one can't be signed with the source key - after the
+  // earlier ones already went out, leaving the money on a slot nobody revealed (audit 2026-11-25
+  // #1). Refused here, before anything is signed, as iOS refuses a send past its input cap.
+  if (result.transactions.length > 1 && changeTo !== sourceAddress) throw chainNeedsCompoundError();
   // What this build pays (the generator's fees: network fee plus the priority fee, every chained
   // transaction included), against what the Review showed - before anything is signed.
   if (expectedFeeSompi != null) checkFeeAgainstReview(generatorFeesSompi(result), expectedFeeSompi);
@@ -1088,6 +1104,8 @@ async function sendKaspaNow({ kaspa, rpc, withRpc = null, privateKey, sourceAddr
       else await pending.sign([signer]);
     } catch (error) {
       log("Signing failed:", describeKey(privateKey), String(error));
+      // Earlier transactions of a chain already went out: say so, as a failed submit does (audit 2026-11-25 #1).
+      if (txids.length) error.submittedTxids = [...txids];
       throw error;
     }
     // pending.submit() never allows an orphan; the orphan-allowed resubmit sends the same signed
@@ -1112,6 +1130,18 @@ async function sendKaspaNow({ kaspa, rpc, withRpc = null, privateKey, sourceAddr
   return { result, txids };
 }
 
+
+// A send that needs more coins than one transaction holds while its change goes to another address
+// (audit 2026-11-25 #1): nothing was signed or sent; compounding the address first lets it go out
+// as one transaction. noRetry: trying again can't help until the coins are compounded.
+export const SEND_NEEDS_COMPOUND = "SEND_NEEDS_COMPOUND";
+export const SEND_NEEDS_COMPOUND_MESSAGE = "This send needs more coins than one transaction can hold. Nothing was sent. Use Compound UTXOs on this address (Manage Addresses), then send again.";
+function chainNeedsCompoundError() {
+  const error = new Error(SEND_NEEDS_COMPOUND_MESSAGE);
+  error.code = SEND_NEEDS_COMPOUND;
+  error.noRetry = true;
+  return error;
+}
 
 /** What a generator result pays in all (summary.fees, else each pending transaction's feeAmount);
  *  null when it can't be read. */

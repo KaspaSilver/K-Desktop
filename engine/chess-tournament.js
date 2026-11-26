@@ -267,6 +267,47 @@ export function nextAutoClaim(record, flag) {
 export const POLL_LAPSE_MS = 20_000;
 /** A repeat of the paging starts this long before the point it has to reach. */
 export const REPAGE_MARGIN_MS = 60_000;
+/** The arena cache on this device (audit 2026-11-25 #10): at most this many rows and roughly this
+ *  many characters of JSON, well inside a browser's ~5M-character storage, which the room cache
+ *  and settings share. The indexer refills older rooms on the next crawl. */
+export const ARENA_CACHE_MAX_ROWS = 5_000;
+export const ARENA_CACHE_MAX_CHARS = 1_500_000;
+/** About how many characters a row takes in the cached JSON (content is JSON inside JSON, so its
+ *  quotes are escaped). */
+export function arenaCacheRowChars(row) {
+  return String(row?.txId || "").length + String(row?.senderAddress || "").length + String(row?.content || "").length * 1.3 + 90;
+}
+/**
+ * The rows worth caching, oldest first: whole rooms, newest activity first, while they fit in
+ * `maxRows` and `maxChars` (a room cut in half would replay wrong until the indexer refilled it -
+ * a public room missing its first join would open with the wrong players). A room holding a row
+ * of this device's not yet seen on chain (`local`) is always kept, whatever the size: losing it
+ * loses the join or move the player just paid for. Rows whose message doesn't decode are dropped.
+ */
+export function arenaCacheRows(rowList, { maxRows = ARENA_CACHE_MAX_ROWS, maxChars = ARENA_CACHE_MAX_CHARS, decode = (r) => decodeMessage(r.content) } = {}) {
+  const byRoom = new Map();
+  for (const row of rowList || []) {
+    const id = decode(row)?.t;
+    if (typeof id !== "string") continue;
+    let room = byRoom.get(id);
+    if (!room) { room = { rows: [], newest: -Infinity, local: false, chars: 0 }; byRoom.set(id, room); }
+    room.rows.push(row);
+    room.newest = Math.max(room.newest, Number(row.blockTime) || 0);
+    room.chars += arenaCacheRowChars(row);
+    if (row.local) room.local = true;
+  }
+  const kept = [];
+  let chars = 0;
+  let full = false;
+  for (const room of [...byRoom.values()].sort((a, b) => b.newest - a.newest)) {
+    if (!full && (kept.length + room.rows.length > maxRows || chars + room.chars > maxChars)) full = true;
+    if (full && !room.local) continue;
+    kept.push(...room.rows);
+    chars += room.chars;
+  }
+  return kept.sort((a, b) => (Number(a.blockTime) || 0) - (Number(b.blockTime) || 0));
+}
+
 /** A game of this player's showing a move missing pages the arena back at most this often. */
 export const GAP_REPAGE_GAP_MS = 30_000;
 /** A game of `me`'s still undecided has a move from one of its players beyond the next ply: a row
@@ -483,6 +524,66 @@ export function reduce(events) {
     try { apply(event, tournaments); } catch { /* skipped */ }
   }
   return tournaments;
+}
+
+/** Same txIds, senders, block times and message objects, in the same order. */
+function sameRoomEvents(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const x = a[i], y = b[i];
+    if (x.txId !== y.txId || x.sender !== y.sender || x.blockTime !== y.blockTime || x.message !== y.message) return false;
+  }
+  return true;
+}
+
+/**
+ * The same rooms as reduce(orderingLocalStamps(events, localStamps)), worked out room by room
+ * (audit 2026-11-25 #16: replaying every row on each new one took over a second at a few hundred
+ * games). apply() only ever touches the room an event names (message.t), and orderingLocalStamps
+ * only compares moves of one game, so each room is its own replay. A room whose events are the
+ * same as last call (same txIds, senders, block times and message objects, in chain order) keeps
+ * last call's result - a finished room is never replayed again. Pass the same decoded message
+ * object for a row that did not change (the UI memoises them), or that room is replayed, which is
+ * still correct. The rooms returned are shared between calls: callers must not change them.
+ * Rooms come back in the order reduce() creates them (chain order of each room's creating row).
+ */
+export function createIncrementalReducer() {
+  let cache = new Map(); // room id -> { events, room }
+  return function reduceIncremental(events, localStamps) {
+    const byRoom = new Map();
+    for (const event of events || []) {
+      const id = event?.message?.t;
+      if (typeof id !== "string") continue;
+      let list = byRoom.get(id);
+      if (!list) { list = []; byRoom.set(id, list); }
+      list.push(event);
+    }
+    const next = new Map();
+    const built = [];
+    for (const [id, list] of byRoom) {
+      const roomEvents = ordered(orderingLocalStamps(list, localStamps));
+      const previous = cache.get(id);
+      let room;
+      if (previous && sameRoomEvents(previous.events, roomEvents)) room = previous.room;
+      else {
+        const one = dict();
+        for (const event of roomEvents) {
+          try { apply(event, one); } catch { /* skipped, as in reduce() */ }
+        }
+        room = one[id] || null;
+      }
+      next.set(id, { events: roomEvents, room });
+      if (room) built.push(room);
+    }
+    cache = next;
+    built.sort((a, b) => {
+      if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+      return a.createTxId < b.createTxId ? -1 : a.createTxId > b.createTxId ? 1 : 0;
+    });
+    const tournaments = dict();
+    for (const room of built) tournaments[room.id] = room;
+    return tournaments;
+  };
 }
 
 function newTournament({ id, name, creator, createdAt, createTxId, capacity }) {

@@ -34,8 +34,11 @@ import {
   curatedBroadcastChannels,
   indexerDefaultBroadcastChannels,
   DROPPED_ROOM_GRACE_MS,
+  broadcastContentDigest,
 } from "../engine/broadcasts.js";
 import { ROOM_PINS_KEY, parseRoomPins } from "./room-pins.js";
+import { setSettingItem, onSettingsStorageFull } from "./settings-storage.js";
+import { roomCacheForStorage, restoreTruncatedRow, pruneRoomEdits } from "./room-cache-budget.js";
 import { isIndexerDown, onIndexerAvailabilityChange, indexerKey, INDEXER_RECOVERY_MARGIN_MS } from "../engine/indexer-health.js";
 import { getEndpoint } from "../engine/endpoints.js";
 import { confirmDialog, promptDialog, PROMPT_EXTRA, alertDialog, chooseDialog, userFacingError } from "./dialogs.js";
@@ -45,7 +48,7 @@ import { SEND_OUTCOME_UNKNOWN, SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/tr
 import { settleLeftoverRoomRows, markRoomRowUnconfirmed, settleRoomCopy, ROOM_UNCONFIRMED } from "./leftover-sends.js";
 import { accountGuard } from "./account-guard.js";
 import { recordRoomEdit, restoreRoomEdit, roomLinkJoinPrompt, roomPollGapFloor } from "../engine/kaposts.js";
-import { encodeRoomDelete, parseRoomDelete, roomDeleteEntry, addRoomDelete, resolveRoomDeletes, rowsTheIndexerNoLongerHas } from "../engine/room-deletes.js";
+import { encodeRoomDelete, parseRoomDelete, roomDeleteEntry, roomDeleteLookupSet, addRoomDelete, resolveRoomDeletes, rowsTheIndexerNoLongerHas } from "../engine/room-deletes.js";
 import { groupParts, isLaterPart, VOICE_PATHS, voicePartSizes } from "../engine/voice-parts.js";
 import * as VoiceNotes from "./voice-notes.js";
 import { MENTIONS_ENABLED, mentionTokens, textMentionsName, roomMentionCandidates, attachMentionSuggestions } from "./username-mentions.js";
@@ -517,7 +520,7 @@ function loadState({ caches = true } = {}) {
       const stored = JSON.parse(localStorage.getItem(DELETES_KEY) || "[]");
       roomDeletes = Array.isArray(stored) ? stored.filter((entry) => typeof entry === "string") : [];
     } catch { roomDeletes = []; }
-    roomDeleteSet = new Set(roomDeletes);
+    roomDeleteSet = roomDeleteLookupSet(roomDeletes); // held and unheld alike (audit 2026-11-25 #26)
     cachesLoaded = true;
   }
   // Every default room is in Public Chats from the start (iOS 865c9ab ensureDefaultChannelsJoined):
@@ -716,18 +719,18 @@ function migrateCachedDeleteRows() {
 }
 
 function saveChannels() {
-  localStorage.setItem(deps.accountScopedKey(CHANNELS_KEY), JSON.stringify(joinedChannels));
+  setSettingItem(deps.accountScopedKey(CHANNELS_KEY), JSON.stringify(joinedChannels)); // never throws: a full storage gives the room cache back first (audit 2026-11-25 #11)
   deps.onPushPreferencesChanged?.();
 }
 
 // Hidden senders and the bells are part of what the push service is told (broadcastPushWatch).
 function saveHidden() {
-  localStorage.setItem(deps.accountScopedKey(HIDDEN_KEY), JSON.stringify(hiddenByRoom));
+  setSettingItem(deps.accountScopedKey(HIDDEN_KEY), JSON.stringify(hiddenByRoom));
   deps.onPushPreferencesChanged?.();
 }
 
 function saveNotify() {
-  localStorage.setItem(deps.accountScopedKey(NOTIFY_KEY), JSON.stringify(notifyByChannel));
+  setSettingItem(deps.accountScopedKey(NOTIFY_KEY), JSON.stringify(notifyByChannel));
   deps.onPushPreferencesChanged?.();
 }
 
@@ -750,15 +753,15 @@ export function broadcastPushWatch() {
 export function activeBroadcastChannelName() { return activeChannel || null; }
 
 function saveListen() {
-  localStorage.setItem(deps.accountScopedKey(LISTEN_KEY), JSON.stringify(listenByChannel));
+  setSettingItem(deps.accountScopedKey(LISTEN_KEY), JSON.stringify(listenByChannel));
 }
 
 function saveIndexerOverrides() {
-  localStorage.setItem(deps.accountScopedKey(INDEXER_KEY), JSON.stringify(indexerByChannel));
+  setSettingItem(deps.accountScopedKey(INDEXER_KEY), JSON.stringify(indexerByChannel));
 }
 
 function saveJoinedAt() {
-  localStorage.setItem(deps.accountScopedKey(JOINED_AT_KEY), JSON.stringify(joinedAtByChannel));
+  setSettingItem(deps.accountScopedKey(JOINED_AT_KEY), JSON.stringify(joinedAtByChannel));
 }
 
 function indexerOverrideFor(channel) {
@@ -853,7 +856,8 @@ function handleBroadcastBlockHits(hits) {
   }
   let touched = false;
   for (const [channel, rows] of byChannel) {
-    if (mergeMessages(channel, rows) > 0) {
+    // engine-verified senders, so their deletes count at once (audit 2026-11-25 #22)
+    if (mergeMessages(channel, rows, { live: true }) > 0) {
       touched = true;
       if (activeChannel === channel) renderRoom();
     }
@@ -877,24 +881,26 @@ function saveCache() {
   cacheSaveTimer = window.setTimeout(() => { cacheSaveTimer = 0; saveCacheNow(); }, 500);
 }
 window.addEventListener("pagehide", () => { if (cacheSaveTimer) { window.clearTimeout(cacheSaveTimer); cacheSaveTimer = 0; saveCacheNow(); } });
+// The stored copy is bounded (audit 2026-11-25 #11, ui/room-cache-budget.js): long plain text kept
+// as its start, a cap per room and in all; the copy in memory stays whole. On a quota error the old
+// copy is removed first (it is what fills the storage), then half the budget is tried; failing that
+// nothing is stored and the indexer refills the rooms next time. The settings writes
+// (setSettingItem) can take the stored copy back too, so a block or a joined room is never lost to it.
 function saveCacheNow() {
-  try { localStorage.setItem(CACHE_KEY, JSON.stringify(messageCache)); }
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(roomCacheForStorage(messageCache))); }
   catch {
-    // Quota: actually drop the OLDEST HALF of each channel's messages (the old code wiped
-    // messageCache entirely, silently deleting every channel's history) and retry once.
-    try {
-      for (const channel of Object.keys(messageCache)) {
-        const rows = messageCache[channel] || [];
-        if (rows.length > 50) messageCache[channel] = rows.slice(Math.floor(rows.length / 2));
-      }
-      localStorage.setItem(CACHE_KEY, JSON.stringify(messageCache));
-    } catch { /* still over quota — keep the in-memory copy, skip persisting */ }
+    try { localStorage.removeItem(CACHE_KEY); } catch { /* nothing to free */ }
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(roomCacheForStorage(messageCache, { budget: 0.5 }))); }
+    catch { /* still over quota: the in-memory copy carries on, unstored */ }
   }
 }
+onSettingsStorageFull(() => { localStorage.removeItem(CACHE_KEY); });
 
+// A quota error keeps the copy in memory (audit 2026-11-25 #24): emptying it lost every room's
+// reactions for the session, though they are still right; they are stored again on the next change.
 function saveReactions() {
   try { localStorage.setItem(REACTIONS_KEY, JSON.stringify(reactionsCache)); }
-  catch { reactionsCache = {}; appliedRowsByChannel.clear(); }
+  catch { /* kept in memory, stored on a later change */ }
 }
 
 /** Rolling retention, matching the indexed rooms' product rule. */
@@ -923,6 +929,9 @@ function pruneCache() {
     if (Array.isArray(entry.txIds) && entry.txIds.length > 500) entry.txIds = entry.txIds.slice(-500);
     if (Object.keys(entry.byTarget || {}).length === 0 && !entry.lastEvent) delete reactionsCache[channel];
   }
+  // Edits go with their messages (audit 2026-11-25 #23): none kept for a message no longer held or
+  // past the room's retention.
+  if (pruneRoomEdits(editsCache, messageCache, retentionCutoffMs)) saveEdits();
 }
 
 // Blocked accounts are hidden in every room (KaPosts-iPhone 9e22075 PublicChatStore.blockedSenders).
@@ -997,11 +1006,13 @@ function editFor(channel, m) {
 function saveRoomDeletes() {
   try { localStorage.setItem(DELETES_KEY, JSON.stringify(roomDeletes)); } catch { /* fine */ }
 }
-function recordRoomDelete(channel, txId, sender) {
-  const next = addRoomDelete(roomDeletes, channel, txId, sender);
+/** `held`: the target was here when the delete came. Deletes for targets not held are kept on a
+ *  smaller budget of their own, so a flood of them can't push real ones out (audit 2026-11-25 #26). */
+function recordRoomDelete(channel, txId, sender, held = true) {
+  const next = addRoomDelete(roomDeletes, channel, txId, sender, undefined, { held });
   if (!next) return false;
   roomDeletes = next;
-  roomDeleteSet = new Set(next);
+  roomDeleteSet = roomDeleteLookupSet(next);
   saveRoomDeletes();
   return true;
 }
@@ -1041,7 +1052,7 @@ function applyRoomDeletes(channel, deletes, senderOf = null) {
     return hit ? String(hit.senderAddress || "") : null;
   });
   const { gone, record } = resolveRoomDeletes(deletes, lookup);
-  for (const { target, sender } of record) recordRoomDelete(channel, target, sender);
+  for (const { target, sender, held } of record) recordRoomDelete(channel, target, sender, held !== false);
   if (activeChannel === channel && broadcastReplyTarget && gone.has(broadcastReplyTarget.txId)) cancelBroadcastReply();
   return gone.size ? removeRoomRows(channel, rows, gone) : 0;
 }
@@ -1101,23 +1112,39 @@ function appliedRowsFor(channel) {
  * as the indexer names them, as before: fixing the indexer's sender pick is out of scope for
  * this client. The one thing done here is to apply a verdict the engine already reached for the
  * same txid: a post it proved forged is dropped, a verified one shows its verified sender.
+ * When the engine also holds the chain's own copy (a live block, our own send, a checked lookup),
+ * a row whose room or text differs from it is dropped and the chain's block time is used (audit
+ * 2026-11-25 #9). Rows already stored (`stored`) skip that check: only their time can change.
  * (The chess arena verifies its indexer rows in full; see ui/chess-tournaments.js.)
  */
-function withKnownSenderVerdicts(rows) {
+function withKnownSenderVerdicts(rows, channel = "", stored = null) {
   const out = [];
   for (const row of rows || []) {
     const known = row?.txId ? deps.engine?.broadcastSenderVerdict?.(row.txId) : null;
     if (!known) { out.push(row); continue; }
     if (known.verdict !== "verified") continue;
-    out.push(known.senderAddress === row.senderAddress ? row : { ...row, senderAddress: known.senderAddress });
+    let next = known.senderAddress === row.senderAddress ? row : { ...row, senderAddress: known.senderAddress };
+    if (known.digest) {
+      if (!stored?.has(row.txId)
+        && ((channel && known.channel !== channel) || known.digest !== broadcastContentDigest(known.channel, row.content))) continue;
+      if (known.blockTime > 0 && Number(next.blockTime) !== known.blockTime) next = { ...next, blockTime: known.blockTime };
+    }
+    out.push(next);
   }
   return out;
 }
 
-function mergeMessages(channel, rows) {
+/** `live`: rows from the block stream, whose senders the engine verified. Indexer rows are the
+ *  indexer's word: deletes among them are applied straight away only from the app-wide indexer;
+ *  from a room's own (Room Info) indexer they are proved against the chain first (proveRoomDeletes,
+ *  audit 2026-11-25 #22), since the delete record is shared by every account here. */
+function mergeMessages(channel, rows, { live = false } = {}) {
+  const deletesTrusted = live || !indexerOverrideFor(channel);
+  const unprovenDeletes = [];
   // the room's own array, so a delete in this batch can take a row this batch just added
   const existing = (messageCache[channel] ||= []);
   const seen = new Set(existing.map((m) => m.txId));
+  const truncatedIds = new Set(existing.filter((m) => m.truncated).map((m) => m.txId));
   const applied = appliedRowsFor(channel);
   let added = 0;
   let removed = 0;
@@ -1125,7 +1152,7 @@ function mergeMessages(channel, rows) {
   const freshIncoming = [];
   // Oldest first, so an edit in this page can see the message it targets; the indexer pages
   // newest-first. The sender of a target is looked up in what is stored or in this page.
-  const ordered = withKnownSenderVerdicts(rows).sort((a, b) => (Number(a?.blockTime) || 0) - (Number(b?.blockTime) || 0));
+  const ordered = withKnownSenderVerdicts(rows, channel, seen).sort((a, b) => (Number(a?.blockTime) || 0) - (Number(b?.blockTime) || 0));
   const senderOf = (txId) => {
     const hit = existing.find((m) => m.txId === txId) || ordered.find((r) => r?.txId === txId);
     return hit ? String(hit.senderAddress || "") : null;
@@ -1135,12 +1162,15 @@ function mergeMessages(channel, rows) {
     if (seen.has(row.txId)) {
       // A send left "Not confirmed" whose copy came back did go out (iOS 33095ac).
       if (settleRoomCopy(existing, row.txId, row.blockTime)) added += 1;
+      // A row stored cut to its start gets its full text back (audit 2026-11-25 #11).
+      if (truncatedIds.has(row.txId) && restoreTruncatedRow(existing.find((m) => m.txId === row.txId), row)) added += 1;
       continue;
     }
     if (applied.has(row.txId)) continue;
     // A delete for everyone is never a row: it takes its target away when its own sender sent it
     // (K e4062188 applyIncomingDeletes), from every sender here, hidden ones too.
     const deletion = parseRoomDelete(row.content);
+    if (deletion && !deletesTrusted) { unprovenDeletes.push(row); continue; }
     if (deletion) {
       applied.add(row.txId);
       removed += applyRoomDeletes(channel, [{ target: deletion.targetTxId, sender: row.senderAddress || "" }], senderOf);
@@ -1252,7 +1282,42 @@ function mergeMessages(channel, rows) {
       onClick: () => deps.openRoomFromNotification?.(row.channel),
     });
   }
+  if (unprovenDeletes.length) proveRoomDeletes(channel, unprovenDeletes);
   return added + removed + (reactionsChanged ? 1 : 0);
+}
+
+/**
+ * Deletes served by a room's own (Room Info) indexer (audit 2026-11-25 #22). That indexer is one
+ * account's choice, but the delete record is shared by every account here, so its word that a
+ * delete came from the target's sender isn't enough: the engine checks each against the chain
+ * (sender, room and text, verifyBroadcastRows) and only the proven ones are applied and recorded.
+ * Forged ones are not asked about again this session; unanswered ones are, on a later read.
+ */
+const provingRoomDeletes = new Set();
+async function proveRoomDeletes(channel, rows) {
+  if (isServiceBroadcastChannel(channel) || typeof deps?.engine?.verifyBroadcastRows !== "function") return;
+  const ask = rows.filter((row) => !provingRoomDeletes.has(row.txId));
+  if (!ask.length) return;
+  for (const row of ask) provingRoomDeletes.add(row.txId);
+  try {
+    const { accepted = [], forged = [] } = await deps.engine.verifyBroadcastRows(ask, { channel });
+    const applied = appliedRowsFor(channel);
+    for (const row of forged) applied.add(row.txId);
+    const deletes = [];
+    for (const row of accepted) {
+      // the chain's text: a row the indexer passed off as a delete may be none
+      const deletion = parseRoomDelete(row.content);
+      if (!deletion) continue;
+      applied.add(row.txId);
+      deletes.push({ target: deletion.targetTxId, sender: row.senderAddress || "" });
+    }
+    if (deletes.length && applyRoomDeletes(channel, deletes) > 0) {
+      saveCache();
+      if (activeChannel === channel) { try { renderRoom(); } catch { /* room not mounted */ } }
+      try { renderChannelList(); } catch { /* list not mounted */ }
+    }
+  } catch { /* asked again on a later read */ }
+  finally { for (const row of ask) provingRoomDeletes.delete(row.txId); }
 }
 
 // Channels that already did the full historical page-back this session — the 8s poll
@@ -1279,8 +1344,11 @@ function dropRowsTheIndexerNoLongerHas(channel, page, before = null) {
   if (indexerOverrideFor(channel) || !isIndexerTrackedBroadcastChannel(channel) || isServiceBroadcastChannel(channel)) return 0;
   const rows = messageCache[channel];
   if (!rows?.length || !page?.length) return 0;
+  // Never a message of any account saved here, not only the one on (audit 2026-11-25 #25).
+  let mine = [];
+  try { mine = deps.localAccountAddresses?.() || []; } catch { mine = []; }
   const { gone, refused } = rowsTheIndexerNoLongerHas({
-    channel, page, before, held: rows, me: deps.engine?.address || "",
+    channel, page, before, held: rows, me: [deps.engine?.address || "", ...mine],
     retentionMs: BROADCAST_RETENTION_MS, strikes: absenceStrikes,
   });
   if (refused) {
@@ -1563,9 +1631,11 @@ async function sendRoomRow(channel, pendingId, text, { showBubble = true, feeKas
       // The chain's copy can already be in the room (a block scan faster than this answer, with
       // the pending bubble not matched): then the bubble goes, so the id is never listed twice
       // (iOS d0b819f, one row per message id).
+      // Still on this device's clock (`localTime`) until the chain's copy brings its block time
+      // (settleRoomCopy, audit 2026-11-25 #25).
       messageCache[channel] = list.some((m) => m.txId === txid)
         ? list.filter((m) => m.txId !== pendingId)
-        : list.map((m) => (m.txId === pendingId ? { ...m, txId: txid, status: undefined } : m));
+        : list.map((m) => (m.txId === pendingId ? { ...m, txId: txid, status: undefined, localTime: true } : m));
       saveCache();
     }
     return txid;
@@ -1951,7 +2021,9 @@ function buildMessageElement(m) {
       more.addEventListener("click", (event) => {
         event.stopPropagation();
         // iOS FullMessageTextView: the whole text, Done, and a copy button.
-        confirmDialog({ title: "Message", message: fullText, confirmLabel: "Copy", cancelLabel: "Done" }).then((copy) => {
+        // A row stored cut to its start (audit 2026-11-25 #11) says so until the room serves it again.
+        const message = m.truncated ? `${fullText}…\n\nOnly the start of this long message is kept on this device. It shows in full once the room loads it again.` : fullText;
+        confirmDialog({ title: "Message", message, confirmLabel: "Copy", cancelLabel: "Done" }).then((copy) => {
           if (copy) deps.copyText?.(String(fullText)).then(() => deps.showToast?.("Message copied.")).catch(() => {});
         });
       });

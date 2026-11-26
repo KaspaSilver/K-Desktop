@@ -22,7 +22,7 @@ import { chatListUnreadCount, chatsTabUnreadCount, debouncedCountPublisher } fro
 
 // Chats + groups (iOS's Chats and Groups tabs) + rooms (KaPost's Public Chats tab), on one tab.
 assert.equal(chatsTabUnreadCount({ chats: 2, groups: 3, rooms: 4 }), 9);
-assert.equal(chatsTabUnreadCount({ chats: 2 }), 2, "Simple Mode: no rooms");
+assert.equal(chatsTabUnreadCount({ chats: 2 }), 2, "no rooms");
 assert.equal(chatsTabUnreadCount({ chats: -1, groups: NaN, rooms: 1.5 }), 1);
 assert.equal(chatsTabUnreadCount(), 0);
 console.log("chat unread: counts ok");

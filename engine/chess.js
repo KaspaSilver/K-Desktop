@@ -461,6 +461,10 @@ export function summarizeChessGame(gameId, messages, myAddress, contactAddress) 
       moveEntries.push({ msg, env, sender: senderAddress });
     } else if (env.kind === "resign") {
       if (unsent) continue;
+      // The first resignation (in message-time order) ends the game; a later one changes nothing.
+      // A retried timeout-resign landing after the opponent's own resignation used to overwrite it
+      // and flip the result (audit 2026-11-25 #27).
+      if (resignerAddress) continue;
       resignerAddress = senderAddress;
       resignReason = typeof env.reason === "string" ? env.reason : null;
     }
@@ -522,7 +526,12 @@ export function summarizeChessGame(gameId, messages, myAddress, contactAddress) 
   let status;
   // `timeout` true when the loser flagged (their clock ran out and their app auto-sent a
   // chess_resign carrying reason "timeout") rather than resigning by hand.
-  if (resignerAddress) status = { kind: "resigned", loser: resignerAddress === whiteAddress ? WHITE : BLACK, timeout: resignReason === "timeout" };
+  // `cancelled` true when the inviter withdrew an invite nobody accepted, before any move: the
+  // same chess_resign on the wire, but no one lost a game (audit 2026-11-25, minor).
+  if (resignerAddress) status = {
+    kind: "resigned", loser: resignerAddress === whiteAddress ? WHITE : BLACK, timeout: resignReason === "timeout",
+    cancelled: resignerAddress === inviterAddress && moveHistory.length === 0 && !(response && response.accepted),
+  };
   else if (response && !response.accepted) status = { kind: "declined" };
   // A move on the board means the game was accepted, even when the acceptance itself has not
   // reached this device: the game goes on rather than sitting on "Waiting for response".
@@ -584,7 +593,7 @@ export function chessRecord(messages, myAddress, contactAddress) {
     const s = summarizeChessGame(env.gameId, messages, myAddress, contactAddress);
     if (!s || !s.viewerColor) continue;
     if (s.status.kind === "checkmate") { if (s.status.winner === s.viewerColor) wins += 1; else losses += 1; }
-    else if (s.status.kind === "resigned") { if (s.status.loser === s.viewerColor) losses += 1; else wins += 1; }
+    else if (s.status.kind === "resigned" && !s.status.cancelled) { if (s.status.loser === s.viewerColor) losses += 1; else wins += 1; }
   }
   return { wins, losses };
 }
@@ -601,6 +610,7 @@ export function chessSummaryStatusText(summary) {
     case "stalemate": return "Stalemate - draw";
     case "insufficientMaterial": return "Draw - not enough pieces to checkmate";
     case "resigned":
+      if (s.cancelled) return "Game cancelled";
       if (s.timeout) {
         if (!viewer) return `${s.loser === WHITE ? "White" : "Black"} lost on time`;
         return s.loser === viewer ? "You lost on time" : "They lost on time";

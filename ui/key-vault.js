@@ -4,7 +4,7 @@
 // localStorage (the Settings text says so). With an app password, every secret at rest is
 // encrypted:
 //
-//   kachat-app-password-v1 (localStorage) - the password record, childmode.js's
+//   kachat-app-password-v1 (localStorage) - the password record, a
 //     { salt, hash, iterations } plus the wrapped data key:
 //     { version: 2, kdf: "PBKDF2-SHA256", iterations: 600000,
 //       salt: hex(16),                       PBKDF2 salt, fresh on every set/change
@@ -52,6 +52,9 @@
 // the same record format, its own data key - in one map:
 //   kachat-account-passwords-v1 - { "<canonical address>": { record?, pending? } }
 //   kachat-account-biometric-v1 - { "<canonical address>": <Face ID record> }
+//   kachat-app-password-attempts-v2 - wrong-password counts per vault ("" = shared):
+//     { "<vault id>": { attempts, lockedUntil } } (audit 2026-11-25; was one device-wide count).
+// A chatting-address switch carries an account's vault to its new address (beginAccountVaultCarry).
 // An account's keys (its registry entry's `sealed`, its Nextcloud app password) are sealed under
 // its own vault when it has one, else under the shared vault when there is one, else stored in
 // plaintext. Setting or changing a password from an account moves only that account to (or
@@ -89,6 +92,7 @@ export const BIOMETRIC_HKDF_INFO = "kachat-biometric-unlock-v1";
 const BIOMETRIC_WRAP_AAD_PREFIX = "kachat-biometric-unlock-v1|";
 const FAILED_ATTEMPTS_KEY = "kachat-app-password-failed-attempts";
 const LOCKED_UNTIL_KEY = "kachat-app-password-locked-until";
+export const LOCKOUT_ATTEMPTS_KEY = "kachat-app-password-attempts-v2";
 const FREE_ATTEMPTS = 5;
 const SECRET_FIELDS = ["privateKeyHex", "mnemonic", "passphrase"];
 const SECRETS_AAD_PREFIX = "kachat-account-secrets-v1|";
@@ -109,6 +113,7 @@ const vault = {
   verifiedFor: null,      // the stored record + pending text the data key was last checked against
   lockListeners: new Set(), // told when another tab's password change locked this one
   stateListeners: new Set(), // told (after the call unwinds) whenever the vault locks or unlocks
+  carrying: new Map(),    // chatting-address switch in progress: new address id -> { from, vaultId }
   now: () => Date.now(),
 };
 
@@ -239,6 +244,8 @@ function knownAccount(address) {
   const id = canon(address);
   if (!id) return false;
   if (readRawAccounts().some((entry) => entry?.address && canon(entry.address) === id)) return true;
+  // The new address of a chatting-address switch out of the shared vault, until it is saved.
+  if (vault.carrying.get(id)?.vaultId === SHARED) return true;
   try { return canon(JSON.parse(ls().getItem(PERSISTED_WALLET_KEY) || "null")?.address) === id; } catch { return false; }
 }
 function heldKey(id) { return id == null ? null : vault.keys.get(id) || null; }
@@ -284,27 +291,68 @@ export function isAppLocked(address) {
   return !heldKey(id);
 }
 
-// --- lockout (childmode.js's escalating backoff) -----------------------------------------------
-/** Seconds left before another attempt is accepted, null when attempts are open. Five wrong
- *  answers earn 30 seconds; each one after doubles it, up to an hour. */
-export function appPasswordLockoutRemainingSeconds() {
-  const until = Number(ls().getItem(LOCKED_UNTIL_KEY) || 0);
+// --- lockout (escalating backoff) --------------------------------------------------------------
+// Counted per vault (audit 2026-11-25): wrong passwords typed for one account no longer lock out
+// the others. { "<vault id>": { attempts, lockedUntil (seconds) } }, "" = the shared vault. The
+// device-wide counter of earlier builds is handed to every vault there is once, so a lockout
+// running at the update keeps running, for each of them. Five wrong answers earn 30 seconds; each
+// one after doubles it, up to an hour.
+function readAttemptsMap() {
+  let map = {};
+  try {
+    const parsed = JSON.parse(ls().getItem(LOCKOUT_ATTEMPTS_KEY) || "null");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) map = parsed;
+  } catch { map = {}; }
+  const legacyAttempts = Number(ls().getItem(FAILED_ATTEMPTS_KEY) || 0) || 0;
+  const legacyUntil = Number(ls().getItem(LOCKED_UNTIL_KEY) || 0) || 0;
+  if (ls().getItem(FAILED_ATTEMPTS_KEY) != null || ls().getItem(LOCKED_UNTIL_KEY) != null) {
+    const ids = [...(vaultExists(SHARED) ? [SHARED] : []), ...ownVaultIds()];
+    for (const id of ids) {
+      const slot = map[id] && typeof map[id] === "object" ? map[id] : {};
+      map[id] = {
+        attempts: Math.max(Number(slot.attempts || 0) || 0, legacyAttempts),
+        lockedUntil: Math.max(Number(slot.lockedUntil || 0) || 0, legacyUntil),
+      };
+    }
+    writeAttemptsMap(map);
+    ls().removeItem(FAILED_ATTEMPTS_KEY);
+    ls().removeItem(LOCKED_UNTIL_KEY);
+  }
+  return map;
+}
+function writeAttemptsMap(map) {
+  if (Object.keys(map).length) ls().setItem(LOCKOUT_ATTEMPTS_KEY, JSON.stringify(map));
+  else ls().removeItem(LOCKOUT_ATTEMPTS_KEY);
+}
+function lockoutRemainingFor(id) {
+  if (id == null) return null;
+  const until = Number(readAttemptsMap()[id]?.lockedUntil || 0);
   const remaining = until - Date.now() / 1000;
   return remaining > 0 ? Math.ceil(remaining) : null;
 }
-function recordFailedAttempt() {
-  const attempts = Number(ls().getItem(FAILED_ATTEMPTS_KEY) || 0) + 1;
-  ls().setItem(FAILED_ATTEMPTS_KEY, String(attempts));
-  if (attempts < FREE_ATTEMPTS) return;
-  const penalty = Math.min(3600, 30 * 2 ** (attempts - FREE_ATTEMPTS));
-  ls().setItem(LOCKED_UNTIL_KEY, String(Date.now() / 1000 + penalty));
+/** Seconds left before another attempt is accepted for `address`'s password (default: the target
+ *  account's; none = the shared vault's), null when attempts are open. Five wrong answers earn 30
+ *  seconds; each one after doubles it, up to an hour. */
+export function appPasswordLockoutRemainingSeconds(address) {
+  return lockoutRemainingFor(vaultForTarget(address));
 }
-function clearFailedAttempts() {
-  ls().removeItem(FAILED_ATTEMPTS_KEY);
-  ls().removeItem(LOCKED_UNTIL_KEY);
+function recordFailedAttempt(id) {
+  if (id == null) return;
+  const map = readAttemptsMap();
+  const attempts = Number(map[id]?.attempts || 0) + 1;
+  const slot = { attempts, lockedUntil: Number(map[id]?.lockedUntil || 0) || 0 };
+  if (attempts >= FREE_ATTEMPTS) slot.lockedUntil = Date.now() / 1000 + Math.min(3600, 30 * 2 ** (attempts - FREE_ATTEMPTS));
+  map[id] = slot;
+  writeAttemptsMap(map);
 }
-export function appPasswordLockoutMessage() {
-  const seconds = appPasswordLockoutRemainingSeconds();
+function clearFailedAttempts(id) {
+  const map = readAttemptsMap();
+  if (id == null || !(id in map)) return;
+  delete map[id];
+  writeAttemptsMap(map);
+}
+export function appPasswordLockoutMessage(address) {
+  const seconds = appPasswordLockoutRemainingSeconds(address);
   return seconds == null ? null : `Too many wrong passwords. Try again in ${seconds}s.`;
 }
 
@@ -350,6 +398,7 @@ export function lockKeyVault() {
   vault.legacyVerified = false;
   vault.opened.clear();
   vault.verifiedFor = null;
+  vault.carrying.clear();
   clearSessionCopies();
   if (wasOpen) notifyStateListeners();
 }
@@ -992,7 +1041,7 @@ function keyOpensStore(key, id = SHARED) {
  * (listeners told; the session hand-off reads it from there), then any plaintext left over sealed.
  */
 function openVaultWithDataKey(key, { id = SHARED, pending = pendingFor(id), fromPending = false } = {}) {
-  clearFailedAttempts();
+  clearFailedAttempts(id);
   if (fromPending) setRecordRaw(id, pendingRaw(id));
   if (pending && keyOpensStore(key, id)) setPendingRaw(id, null);
   setUnlocked(key, id);
@@ -1008,10 +1057,11 @@ function openVaultWithDataKey(key, { id = SHARED, pending = pendingFor(id), from
  * here. Never throws for a wrong password.
  */
 export async function unlockKeyVault(password, address) {
-  if (appPasswordLockoutRemainingSeconds() != null) return false;
   const value = String(password ?? "");
   const id = vaultForTarget(address);
   if (id == null) return false;
+  // This vault's own lockout (audit 2026-11-25): another account's wrong passwords don't count.
+  if (lockoutRemainingFor(id) != null) return false;
   const record = recordFor(id);
   const pending = pendingFor(id);
   if (!record && !pending) return false;
@@ -1031,8 +1081,8 @@ export async function unlockKeyVault(password, address) {
   if (!key && id === SHARED && record && !isVaultRecord(record)) {
     // Pre-vault record: a single SHA-256. Verified the old way once, then replaced (with the
     // same password, whatever its length) by a vault record with every plaintext secret sealed.
-    if (!(await legacyPasswordMatches(record, value))) { recordFailedAttempt(); return false; }
-    clearFailedAttempts();
+    if (!(await legacyPasswordMatches(record, value))) { recordFailedAttempt(id); return false; }
+    clearFailedAttempts(id);
     try { await writeNewVault(value); }
     catch {
       // Another tab upgraded the same record meanwhile: open what it wrote, with the same password.
@@ -1042,7 +1092,7 @@ export async function unlockKeyVault(password, address) {
     }
     return true;
   }
-  if (!key) { recordFailedAttempt(); return false; }
+  if (!key) { recordFailedAttempt(id); return false; }
   openVaultWithDataKey(key, { id, pending, fromPending });
   // A record from a weaker work factor: the password is known good right now, so re-wrap.
   const current = recordFor(id);
@@ -1126,7 +1176,7 @@ async function writeNewVault(value, { ownAddress = "" } = {}) {
   }
   setRecordRaw(id, recordJson);
   setPendingRaw(id, null);
-  clearFailedAttempts();
+  clearFailedAttempts(id);
   setUnlocked(dataKey, id);
   if (!ownAddress) { try { sealLegacyWalletKey(dataKey, legacyHex); } catch { /* the plaintext copy stays until it can be sealed */ } }
   scrubPersistedWallet(mine);
@@ -1180,7 +1230,7 @@ export function removeAppPassword(address) {
   setBiometricRaw(id, null);
   setRecordRaw(id, null);
   setPendingRaw(id, null);
-  clearFailedAttempts();
+  clearFailedAttempts(id);
   if (id === SHARED) lockKeyVault(); else forgetVaultKey(id);
 }
 
@@ -1199,6 +1249,7 @@ function releaseSharedVaultIfUnused() {
     const record = readRawNextcloud(storageKey);
     if (record && !hasPlainNextcloudPassword(record) && hasSealedNextcloudPassword(record)) ls().removeItem(storageKey);
   }
+  clearFailedAttempts(SHARED);
   setBiometricRaw(SHARED, null);
   setRecordRaw(SHARED, null);
   setPendingRaw(SHARED, null);
@@ -1212,6 +1263,7 @@ function releaseOwnVault(id) {
     const record = readRawNextcloud(storageKey);
     if (record && !hasPlainNextcloudPassword(record) && hasSealedNextcloudPassword(record)) ls().removeItem(storageKey);
   }
+  clearFailedAttempts(id);
   setBiometricRaw(id, null);
   setRecordRaw(id, null);
   setPendingRaw(id, null);
@@ -1238,8 +1290,135 @@ export function releaseAppPasswordIfUnused() {
     released = true;
     if (!sharedWasOpen) notifyStateListeners();
   }
-  if (released) clearFailedAttempts();
-  return released;
+  return released; // each released vault's wrong-password count went with it
+}
+
+// --- a chatting-address switch carries the password (audit 2026-11-25) --------------------------
+// Switching the chatting address (ui/app.js performChattingAddressSwitch) is the same seed at
+// another address: the account entry is re-saved under the new address and the old entry dropped.
+// Vaults are filed by address, so the new address used to have no password ("Set a Password"
+// forced), and the old one's vault, Face ID record and sealed Nextcloud app password were left
+// behind for a later switch back to demand the old password. Now the password goes with it, in two
+// steps around the switch:
+//   beginAccountVaultCarry(A, B), before B is saved:
+//     - A in its own vault: A's password record is copied to B's slot unchanged (it wraps the same
+//       data key; the record names no address) and read back, then A's Face ID record; B's key is
+//       held. B's keys are then sealed under B's own AAD as the switch saves them, by the ordinary
+//       writes (which refuse to write plaintext while a vault is on).
+//     - A in the shared vault: B counts as one of its accounts until it is saved (memory only); the
+//       ordinary writes seal B under the shared vault, as A was.
+//     Then A's Nextcloud connection, when B has none, is opened and sealed again for B's scope (the
+//     AAD names the scope), read back and checked. Nothing of A's is changed, so a switch that fails
+//     leaves A exactly as it was.
+//   finishAccountVaultCarry(A, B), once B is saved and A's entry is gone: A's copy of the Nextcloud
+//     connection is removed, then A's own vault is released (record, Face ID record, held key).
+//   abandonAccountVaultCarry(A, B), when the switch failed: B's copies go again unless B got saved.
+// Never written: a plaintext secret, or a record the held key does not open.
+function nextcloudKeyOf(address) {
+  const raw = String(address || "").trim();
+  return raw ? `${NEXTCLOUD_SCOPE_PREFIX}${raw}:${NEXTCLOUD_STORAGE_KEY}` : NEXTCLOUD_STORAGE_KEY;
+}
+/**
+ * Before a chatting-address switch from `fromAddress` to `toAddress` saves the new address: gives
+ * it the old address's password, Face ID and Nextcloud connection. `toAddress` as the app scopes
+ * data by it (engine.address). True when the password was carried; false when there is nothing to
+ * carry (no password, or `toAddress` is a saved account of its own, whose own password stays).
+ * Throws, writing nothing, while the old address's vault is locked or its key is not the stored one.
+ */
+export function beginAccountVaultCarry(fromAddress, toAddress) {
+  const fromId = canon(fromAddress);
+  const toId = canon(toAddress);
+  if (!fromId || !toId || fromId === toId) return false;
+  if (!hasAppPassword(fromAddress)) return false;
+  // Already an account here: the import asks for its own password, as before.
+  if (knownAccount(toAddress)) return false;
+  if ((vault.keys.size || vault.legacyVerified) && !checkKeyStillCurrent()) throw new Error(LOCKED_IN_ANOTHER_TAB_MESSAGE);
+  const vaultId = vaultIdOf(fromAddress);
+  if (vaultId === SHARED) {
+    if (!heldKey(SHARED) && !vault.legacyVerified) throw new Error("K is locked. Enter your password first.");
+    vault.carrying.set(toId, { from: fromId, vaultId: SHARED, nextcloud: null });
+  } else {
+    const key = heldKey(vaultId);
+    if (!key) throw new Error("K is locked. Enter your password first.");
+    requireCurrentKey(key, vaultId);
+    const recordJson = recordRaw(vaultId);
+    const record = parseRecord(recordJson);
+    // The stored record itself must wrap the held key (not only an interrupted change's pending one).
+    if (!isVaultRecord(record) || !(record.keyCheck ? keyMatchesRecord(key, record) : keyOpensStore(key, vaultId))) {
+      throw new Error("K could not move this account's password. Enter your password and try again.");
+    }
+    // A vault left at B by an earlier switch (no account uses it; nothing of it opens without its
+    // old password) goes first, so B's slot holds only A's.
+    if (hasOwnVault(toAddress)) releaseOwnVault(toId);
+    const biometricJson = biometricRaw(vaultId);
+    setRecordRaw(toId, recordJson);
+    // Read back: the same record, and it wraps the held key.
+    if (recordRaw(toId) !== recordJson || !keyIsCurrent(key, toId)) {
+      setRecordRaw(toId, null);
+      throw new Error("K could not move this account's password. Nothing was changed.");
+    }
+    if (biometricJson != null) { try { setBiometricRaw(toId, biometricJson); } catch { /* Face ID is turned on again */ } }
+    vault.carrying.set(toId, { from: fromId, vaultId, nextcloud: null });
+    setUnlocked(key, toId);
+  }
+  try { vault.carrying.get(toId).nextcloud = copyNextcloudConnection(fromAddress, toAddress); } catch { /* reconnect Nextcloud */ }
+  return true;
+}
+/** Copies `fromAddress`'s Nextcloud connection into `toAddress`'s scope, sealed for it and checked,
+ *  when `toAddress` has none. { fromKey, toKey } when copied, else null. */
+function copyNextcloudConnection(fromAddress, toAddress) {
+  const fromId = canon(fromAddress);
+  const toKey = nextcloudKeyOf(toAddress);
+  if (ls().getItem(toKey) != null) return null; // B has its own connection: A's goes with A
+  for (const fromKey of nextcloudStorageKeys()) {
+    if (fromKey === toKey || canon(nextcloudAccountOf(fromKey)) !== fromId) continue;
+    const record = readRawNextcloud(fromKey);
+    if (!record?.server || !record.username) continue;
+    let appPassword = null;
+    if (hasPlainNextcloudPassword(record)) appPassword = record.appPassword;
+    else if (hasSealedNextcloudPassword(record)) {
+      const fromKeyBytes = heldKey(nextcloudVaultId(fromKey));
+      if (!fromKeyBytes) continue;
+      try { appPassword = openNextcloudWith(fromKeyBytes, fromKey, record) || null; } catch { appPassword = null; }
+    }
+    if (!appPassword) continue;
+    const toVault = nextcloudVaultId(toKey);
+    const toKeyBytes = vaultEnabled(toVault) ? heldKey(toVault) : null;
+    if (vaultEnabled(toVault) && !toKeyBytes) return null; // never in plaintext
+    if (toKeyBytes) requireCurrentKey(toKeyBytes, toVault);
+    // Written, read back and opened again; removed again if anything does not match (throws).
+    writeNextcloudVerified(toKeyBytes, [{ storageKey: toKey, raw: null, record: nextcloudPublicPart(record), appPassword }]);
+    return { fromKey, toKey };
+  }
+  return null;
+}
+/**
+ * After the switch saved `toAddress` and dropped `fromAddress`'s entry: removes the old address's
+ * copy of the Nextcloud connection and releases its own vault. True when a carry was finished.
+ */
+export function finishAccountVaultCarry(fromAddress, toAddress) {
+  const fromId = canon(fromAddress);
+  const toId = canon(toAddress);
+  const carry = vault.carrying.get(toId);
+  if (!carry || carry.from !== fromId) return false;
+  vault.carrying.delete(toId);
+  // Only while the new address's copy is still there and opens (it was checked when written).
+  const moved = carry.nextcloud;
+  if (moved && readNextcloudAccount(moved.toKey)?.appPassword) ls().removeItem(moved.fromKey);
+  if (carry.vaultId !== SHARED && !knownAccount(fromAddress) && hasOwnVault(fromAddress)) releaseOwnVault(fromId);
+  else if (moved) notifyStateListeners(); // the connection under the new address loads
+  return true;
+}
+/** The switch failed: what was copied for `toAddress` goes again, unless it was saved meanwhile. */
+export function abandonAccountVaultCarry(fromAddress, toAddress) {
+  const toId = canon(toAddress);
+  const carry = vault.carrying.get(toId);
+  if (!carry || carry.from !== canon(fromAddress)) return false;
+  vault.carrying.delete(toId);
+  if (knownAccount(toAddress)) return true;
+  if (carry.nextcloud) ls().removeItem(carry.nextcloud.toKey);
+  if (carry.vaultId !== SHARED && hasOwnVault(toAddress)) releaseOwnVault(toId);
+  return true;
 }
 
 /**
@@ -1276,7 +1455,7 @@ export function resetForgottenAppPassword(address) {
   setBiometricRaw(id, null);
   setRecordRaw(id, null);
   setPendingRaw(id, null);
-  clearFailedAttempts();
+  clearFailedAttempts(id);
   if (id === SHARED) {
     const wasOpen = !!(vault.keys.size || vault.legacyVerified);
     lockKeyVault();

@@ -14,6 +14,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createRelay, ipBlocked, resolveAllowed, CHANGENOW_KEY_HEADER, CHANGENOW_CLIENT_KEY_HEADER, SWAP_UNAVAILABLE_MESSAGE } from "./relay-guard.mjs";
+import { RELAY_USER_AGENT } from "./relay-rules.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 let failures = 0;
@@ -243,6 +244,17 @@ check("client identity headers not forwarded", !echo.headers["x-forwarded-for"] 
 check("relay-internal headers not forwarded", !echo.headers["x-proxy-long-poll"] && !echo.headers["x-preview"] && !echo.headers["sec-fetch-site"]);
 check("host is the target", echo.headers.host === `upstream.test:${upstreamPort}`, echo.headers.host);
 check("x-preview uses a crawler UA + html accept", /facebookexternalhit/.test(echo.headers["user-agent"]) && echo.headers.accept === "text/html,application/xhtml+xml");
+
+// The reader's browser and languages (audit 2026-11-25): never to an API host or a preview; still to
+// their own Nextcloud, which names its sessions after the browser.
+{
+  const reader = { "user-agent": "Mozilla/5.0 (Macintosh) ReaderBrowser/9.9", "accept-language": "de-CH,de;q=0.9" };
+  const api = JSON.parse((await request(relayPort, `/nc-proxy/${UP}/echo`, { headers: reader })).body);
+  check("an API call goes out with the relay's own user-agent", api.headers["user-agent"] === RELAY_USER_AGENT, api.headers["user-agent"]);
+  check("an API call carries no accept-language", api.headers["accept-language"] === undefined);
+  const nc = JSON.parse((await request(relayPort, `/nc-proxy/${UP}/echo`, { headers: { ...reader, authorization: "Basic dTpw", "ocs-apirequest": "true" } })).body);
+  check("a Nextcloud call keeps the reader's browser for their own server", nc.headers["user-agent"] === reader["user-agent"] && nc.headers["accept-language"] === reader["accept-language"]);
+}
 
 // The origin check on its own (not just the address check behind it): a scheme-relative path
 // pointing at a host that WOULD resolve to an allowed address must still be refused.

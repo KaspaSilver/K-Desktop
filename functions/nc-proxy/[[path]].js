@@ -34,6 +34,7 @@ import {
   CHANGENOW_ORIGIN, CHANGENOW_KEY_HEADER, CHANGENOW_KEY_ROUTES, SWAP_UNAVAILABLE_MESSAGE,
   SWAP_PROBE_PATH, CHANGENOW_CLIENT_KEY_HEADER, EXTENSION_ID_HEADER, parseExtensionIds,
   listedExtensionCaller, ipv6Bytes, isBlockedHost, createLimiter, applyPreviewHeaders, previewPolicyOf, previewHopRefusal, previewHopHeaders,
+  replaceReaderDetailHeaders,
 } from "../../tools/relay-rules.mjs";
 
 const MOUNT_RE = /^\/nc-proxy(?=\/|$)/;
@@ -194,6 +195,9 @@ export async function onRequest({ request, env = {} }) {
     if (name.startsWith("cf-") || name.startsWith("sec-fetch-")) delete headers[name];
   }
   for (const name of ["x-proxy-jar", NEXTCLOUD_ORIGIN_HEADER, "x-proxy-long-poll", EXTENSION_ID_HEADER]) delete headers[name];
+  // Nor the reader's browser and languages: the relay sends its own plain user-agent, and a link
+  // preview its unfurler's one just below (audit 2026-11-25).
+  replaceReaderDetailHeaders(headers);
   const previewPolicy = previewPolicyOf(headers);
   applyPreviewHeaders(headers, origin.hostname);
   const soft404 = headers["x-proxy-soft-404"] === "1";

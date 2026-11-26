@@ -142,6 +142,11 @@ export function isOpen(p) { return p.stage !== Stage.cancelled; }
 export function needsDriving(p) {
   return [Stage.committing, Stage.waiting, Stage.registering, Stage.cancelling].includes(p.stage);
 }
+/** A claim that may still register its name (not taken, failed or being cancelled): a second claim
+ *  of the same name is refused while one runs (audit 2026-11-25 #17). */
+export function claimInFlight(p) {
+  return [Stage.committing, Stage.waiting, Stage.registering].includes(p.stage);
+}
 
 /** The localStorage key of the registrations: `{ [wallet address]: PendingRegistration[] }` (with salts).
  *  One key for both networks (the name predates mainnet): records are kept per wallet address, whose
@@ -1568,6 +1573,11 @@ export class KachatNamesActions {
     const manifest = await this.registry.prepare();
     requireRegistrationOpen(manifest);
     this._loadPending(walletAddress);
+    // One claim per name at a time: a second one's commit could only be cancelled, after it has
+    // cost a fee (audit 2026-11-25 #17).
+    if (this._pending.some((q) => q.name === name && claimInFlight(q))) {
+      throw ActionError.notRegisterable(`You're already claiming ${name}.kachat.`);
+    }
     await this.registry.refresh();
     // Expired past grace: free to claim. The commit and the reclaim that frees the old record both
     // go out now; the driver registers once the commit has aged (iOS eea52b2, beb9c45).
@@ -2014,8 +2024,20 @@ export class KachatNamesActions {
           return;
         }
       } else if (found.kind === "registered") {
-        if (bytesEqual(found.info.owner, s.me)) this._finishRegistered(p);
-        else this._set(p, (q) => { q.stage = Stage.taken; q.lastError = null; });
+        if (bytesEqual(found.info.owner, s.me)) {
+          // Ours already, yet this claim's commit is still unspent (it's handed in live): another
+          // claim registered the name, not this one. Finishing here would drop the salt and leave
+          // the commit's coins stuck, so it's spent back instead; the salt stays until the cancel
+          // lands (audit 2026-11-25 #17). A cancel that fails is tried again on the next tick.
+          // A register this claim sent that the network accepted means the node is just behind.
+          for (const tx of (p.registerTxIds?.length ? p.registerTxIds : (p.registerTxId ? [p.registerTxId] : []))) {
+            if (await this._restAccepted(tx)) { this._finishRegistered(p); return; }
+          }
+          this._set(p, (q) => { q.lastError = `You already hold ${p.name}.kachat. Returning this claim's coins...`; });
+          await this.cancel(p);
+          return;
+        }
+        this._set(p, (q) => { q.stage = Stage.taken; q.lastError = null; });
         return;
       } else {
         if (!found.gap) throw new Failure(`no gap for ${p.name} yet`);

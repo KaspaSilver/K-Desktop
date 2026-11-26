@@ -270,8 +270,7 @@ await test("Chats lists chats, groups and Message Requests; Public Chats lists t
   assert.match(render, /pinned: isSelfConversation\(conversationEntry\)/);
   assert.match(html, /data-empty-rooms-state hidden>[\s\S]*?<h1>No Public Chats<\/h1>\s*<p>Tap \+ to join or create a public room\.<\/p>/);
   const onPage = fnSource(app, "onPublicChatsPage");
-  assert.match(onPage, /chatListPage !== "publicChats"/);
-  assert.match(onPage, /isChildModeEnabled\(\)/, "Simple Mode never shows the rooms page");
+  assert.match(onPage, /return chatListPage === "publicChats";/);
 });
 
 await test("each page has its own circles: bots and pins on Chats, pinned rooms on Public Chats", () => {
@@ -285,7 +284,7 @@ await test("badges: the page button counts bell-on rooms, the dock chats and gro
   assert.doesNotMatch(fnSource(app, "chatsTabUnreadTotal"), /broadcastNotifyingUnreadTotal/);
   assert.match(fnSource(app, "scheduleAppBadgeUpdate"), /total \+= publicRoomUnreadCount\(\);/);
   const controls = fnSource(app, "syncChatListPageControls");
-  assert.match(controls, /const count = simple \? 0 : publicRoomUnreadCount\(\);/, "on either page");
+  assert.match(controls, /const count = publicRoomUnreadCount\(\);/, "on either page");
   assert.match(fnSource(app, "renderChatCircles"), /scheduleAppBadgeUpdate\(\);\n  syncChatListPageControls\(\);/);
 });
 

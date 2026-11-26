@@ -12,7 +12,7 @@ import {
   LEGACY_PERSISTED_WALLET_KEY, VAULT_LEGACY_WALLET_KEY, VAULT_SESSION_KEY, VAULT_HANDOFF_KEY,
   VAULT_HANDOFF_TTL_MS, VAULT_PBKDF2_ITERATIONS,
   readNextcloudAccount, writeNextcloudAccount, onKeyVaultStateChanged, NEXTCLOUD_STORAGE_KEY,
-  ACCOUNT_PASSWORDS_KEY, forgetAccountSecrets, exportOpenVaultKeys,
+  ACCOUNT_PASSWORDS_KEY, forgetAccountSecrets, exportOpenVaultKeys, LOCKOUT_ATTEMPTS_KEY,
 } from "../ui/key-vault.js";
 // A second tab: the same module loaded again is a separate vault (its own memory and
 // sessionStorage) on the same localStorage.
@@ -148,9 +148,12 @@ test("wrong password fails, counts toward the lockout, right one still works aft
   assert.equal(await unlockKeyVault("wrong 5"), false);
   assert.ok(appPasswordLockoutRemainingSeconds() >= 29, "the fifth miss locks for 30s");
   assert.equal(await unlockKeyVault("correct horse"), false, "locked out even with the right password");
-  local.removeItem("kachat-app-password-locked-until");
+  // The lockout runs out (counted per vault now, audit 2026-11-25: "" is the shared vault).
+  const attempts = JSON.parse(local.getItem(LOCKOUT_ATTEMPTS_KEY));
+  attempts[""].lockedUntil = 0;
+  local.setItem(LOCKOUT_ATTEMPTS_KEY, JSON.stringify(attempts));
   assert.equal(await unlockKeyVault("correct horse"), true);
-  assert.equal(local.getItem("kachat-app-password-failed-attempts"), null, "success clears the counter");
+  assert.equal(local.getItem(LOCKOUT_ATTEMPTS_KEY), null, "success clears the counter");
 });
 
 test("minimum length 8 for new passwords", async () => {

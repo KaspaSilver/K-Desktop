@@ -161,6 +161,8 @@ function removalHarness(storage) {
     PERSISTED_WALLET_KEY: "wallet", HANDSHAKE_SYNC_KEY: "hs", readActiveAccountAddress: () => "", ACTIVE_ACCOUNT_KEY: "active",
     GROUP_MSG_KEY: "gm", GROUP_REACTIONS_KEY: "gr", GROUP_EDITS_KEY: "ge", GROUP_UNREAD_KEY: "gu", GROUP_HIDDEN_MEMBERS_KEY: "gh",
     GROUP_MUTED_MEMBERS_KEY: "gmu", SPENDING_STATE_KEY: "kachat-spending-state-v1", GROUP_PREFS_KEY: "gp",
+    // the deleted log and the big group stores moved to the chat storage (audit 2026-11-25)
+    DELETED_GROUP_MESSAGES_KEY: "dg", CHAT_STORAGE_GLOBAL_KEYS: ["gm", "kachat-group-seen-msgs-v1", "gr", "ge"],
   };
   return build(`${removalSource}\n${scopedSource}`, env,
     "{ accountRemovalContext, removeUtxoLabelsForAddresses, removeAccountScopedLocalData }",
@@ -194,6 +196,23 @@ test("removing an account takes its spending addresses' coin labels, on both net
   assert.deepEqual(Object.keys(left).sort(), [OTHER, THEIR_SPEND].sort(), "the chatting, derived, cached and other-network labels go");
   assert.equal(storage.getItem(scopedKey(SPENDING_BAL_CACHE_KEY, ME)), null, "its own prefixed data goes in the same sweep");
   assert.ok(storage.getItem(scopedKey(SPENDING_BAL_CACHE_KEY, OTHER)));
+});
+
+test("Delete Account keeps its unfinished KNS reveals: their record is what frees committed coins (audit 2026-11-25 #4)", () => {
+  const reveals = "kachat-kns-pending-reveals-v1";
+  const storage = new MemoryStorage([
+    [scopedKey(reveals, ME), JSON.stringify([{ commitTxId: "aa", payload: "{}" }])],
+    [scopedKey(SPENDING_BAL_CACHE_KEY, ME), "{}"],
+    [scopedKey("kachat-other-thing-v1", ME), "x"],
+  ]);
+  storage.accounts = [{ address: ME, mnemonic: "my words" }];
+  const api = removalHarness(storage);
+  api.removeAccountScopedLocalData(ME, api.accountRemovalContext(ME));
+  assert.ok(storage.getItem(scopedKey(reveals, ME)), "the reveals owed stay");
+  assert.equal(storage.getItem(scopedKey(SPENDING_BAL_CACHE_KEY, ME)), null);
+  assert.equal(storage.getItem(scopedKey("kachat-other-thing-v1", ME)), null, "the rest of its prefixed data goes");
+  // the same function runs when another tab deleted the account open here
+  assert.match(app, /ACCOUNT_DELETED_SIGNAL_KEY[\s\S]{0,800}removeAccountScopedLocalData\(address\)/);
 });
 
 test("an account sharing its words with another saved one leaves the shared spending labels alone", () => {

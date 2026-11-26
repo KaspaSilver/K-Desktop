@@ -293,7 +293,7 @@ await test("a pinned room is a # circle on the Public Chats page, out of the lis
   const circles = fnSource(app, "visibleChatCircles");
   assert.match(circles, /if \(onPublicChatsPage\(\)\) \{\n    return pinnedChatRooms\(\)\.map\(/);
   assert.match(circles, /return \[\.\.\.pinned, \.\.\.rest\];/);
-  assert.match(fnSource(app, "pinnedChatRooms"), /isChildModeEnabled\(\) \|\| String\(searchInput\?\.value \|\| ""\)\.trim\(\)/);
+  assert.match(fnSource(app, "pinnedChatRooms"), /if \(String\(searchInput\?\.value \|\| ""\)\.trim\(\)\) return \[\];/);
   assert.match(fnSource(app, "chatCirclesHtml"), /chat-circle-glyph chat-circle-room">#</);
   // its hold: Mark as Read, Unpin, Mute and Delete
   const sheet = fnSource(app, "openPinnedRoomSheet");

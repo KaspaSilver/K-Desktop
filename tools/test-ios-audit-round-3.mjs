@@ -67,7 +67,8 @@ test(".kachat: every send is confirmed live; a chain copy past its age answers n
   const confirm = registry.slice(registry.indexOf("async confirmOnChain("), registry.indexOf("async resolveHeldOnChain("));
   assert.ok(confirm.length > 0);
   assert.doesNotMatch(confirm, /source\?\.kind/);
-  assert.match(registry, /if \(address == null\) return address;/);
+  // audit 2026-11-25 #3: one lookup; a name that isn't registered (or is lapsed) needs no check
+  assert.match(registry, /if \(found\?\.kind !== "registered"\) return null;/);
   assert.match(registry, /st\.reachedTip !== true/);
   assert.match(registry, /chainCopyMaxAgeMs\(\) \{ return 15 \* 60 \* 1000; \}/);
 });

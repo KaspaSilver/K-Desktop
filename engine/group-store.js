@@ -66,6 +66,37 @@ const SEEN_TX_TAG_LENGTH = 20;
 // Kept in ui/app.js, which owns these two stores; only retention touches them from here.
 const GROUP_REACTIONS_KEY = "kachat-group-reactions-v1";
 const GROUP_EDITS_KEY = "kachat-group-edits-v1";
+// The seen ids, reactions and edits are the big per-account group stores (the seen ids alone are
+// up to about a megabyte): in localStorage they shared its ~5MB quota with the group records and
+// their keys (audit 2026-11-25). The app hands them its IndexedDB chat storage
+// (setGroupBulkStorage), which also moves what localStorage held; with none (node tests, no
+// IndexedDB) they stay in localStorage as before.
+export const GROUP_BULK_STORE_KEYS = Object.freeze([GROUP_SEEN_MSG_KEY, GROUP_REACTIONS_KEY, GROUP_EDITS_KEY]);
+const LOCAL_BULK_STORAGE = Object.freeze({
+  get: (key) => localStorage.getItem(key),
+  set: (key, value) => localStorage.setItem(key, value),
+});
+let bulkStorage = LOCAL_BULK_STORAGE;
+/** `{ get(key), set(key, value) }` for GROUP_BULK_STORE_KEYS, or null for localStorage. */
+export function setGroupBulkStorage(storage) {
+  bulkStorage = storage && typeof storage.get === "function" && typeof storage.set === "function" ? storage : LOCAL_BULK_STORAGE;
+}
+function loadBulkMap(key) {
+  try { return JSON.parse(bulkStorage.get(key) || "{}") || {}; }
+  catch { return {}; }
+}
+function saveBulkMap(key, map) {
+  try { bulkStorage.set(key, JSON.stringify(map)); return true; }
+  catch { return false; }
+}
+// Thrown by a write that must not be lost (a group key) when it could not be saved: the control
+// walks stop before their cursor passes it, so it is read and applied again (audit 2026-11-25).
+export const GROUP_STORE_NOT_SAVED = "group-store-not-saved";
+function groupStoreNotSaved() {
+  const error = new Error("Couldn't save the group's keys: this browser's storage is full. Free up some space; the group catches up on its own.");
+  error.code = GROUP_STORE_NOT_SAVED;
+  return error;
+}
 // Anyone can name you in a root for the price of a transaction, and each one is held until answered.
 export const MAX_PENDING_GROUP_INVITES = 50;
 export const MAX_PENDING_GROUP_INVITES_PER_ADMIN = 5;
@@ -142,8 +173,11 @@ function loadAll() {
   try { return JSON.parse(localStorage.getItem(GROUPS_KEY) || "{}") || {}; }
   catch { return {}; }
 }
+// Returns whether the write landed (audit 2026-11-25): it failed without a word, and a new epoch's
+// root lost that way never came back once the control cursor had moved past it.
 function saveAll(all) {
-  try { localStorage.setItem(GROUPS_KEY, JSON.stringify(all)); } catch {}
+  try { localStorage.setItem(GROUPS_KEY, JSON.stringify(all)); return true; }
+  catch { return false; }
 }
 function loadTombstonesAll() {
   try { return JSON.parse(localStorage.getItem(GROUP_TOMBSTONES_KEY) || "{}") || {}; }
@@ -157,7 +191,8 @@ function loadJsonMap(key) {
   catch { return {}; }
 }
 function saveJsonMap(key, map) {
-  try { localStorage.setItem(key, JSON.stringify(map)); } catch {}
+  try { localStorage.setItem(key, JSON.stringify(map)); return true; }
+  catch { return false; }
 }
 function loadControlCursorsAll() {
   try { return JSON.parse(localStorage.getItem(GROUP_CONTROL_CURSOR_KEY) || "{}") || {}; }
@@ -208,14 +243,14 @@ export class GroupManager {
   // synchronous, which is also what keeps another batch from opening it meanwhile.
   _withSeenIds(fn) {
     if (this._seenOpen) return fn(this._seenOpen);
-    const open = { wallet: this.walletAddress, all: loadJsonMap(GROUP_SEEN_MSG_KEY), touched: new Set() };
+    const open = { wallet: this.walletAddress, all: loadBulkMap(GROUP_SEEN_MSG_KEY), touched: new Set() };
     this._seenOpen = open;
     try { return fn(open); }
     finally {
       this._seenOpen = null;
       if (open.touched.size) {
         trimSeenIds(open.all[open.wallet], open.touched);
-        saveJsonMap(GROUP_SEEN_MSG_KEY, open.all);
+        saveBulkMap(GROUP_SEEN_MSG_KEY, open.all);
       }
     }
   }
@@ -237,11 +272,11 @@ export class GroupManager {
   }
   // A deleted group is tombstoned, as with its counter marks.
   _dropSeenIds(groupId) {
-    const all = loadJsonMap(GROUP_SEEN_MSG_KEY);
+    const all = loadBulkMap(GROUP_SEEN_MSG_KEY);
     const byGroup = all[this.walletAddress];
     if (!byGroup || !Object.prototype.hasOwnProperty.call(byGroup, groupId)) return;
     delete byGroup[groupId];
-    saveJsonMap(GROUP_SEEN_MSG_KEY, all);
+    saveBulkMap(GROUP_SEEN_MSG_KEY, all);
   }
 
   // --- former members ---
@@ -280,11 +315,11 @@ export class GroupManager {
   // Synchronous on purpose: nothing can interleave between the read and the write. `fn` returning
   // false skips the write. Returns the fresh record (null if the group is gone - e.g. deleted
   // while a scan ran - in which case nothing is written and nothing is resurrected).
-  _mutate(groupId, fn) {
+  _mutate(groupId, fn, options = undefined) {
     const fresh = this.getGroup(groupId);
     if (!fresh) return null;
     if (fn(fresh) === false) return fresh;
-    return this._put(fresh);
+    return this._put(fresh, options);
   }
   _mutateLocked(groupId, fn) {
     return this._withGroupLock(() => this._mutate(groupId, fn));
@@ -362,12 +397,14 @@ export class GroupManager {
     const { bucket } = this._bucket();
     return bucket[groupId] || null;
   }
-  _put(record) {
+  // `required`: a write that holds a group key (a root, an archived root) throws GROUP_STORE_NOT_SAVED
+  // when it didn't land, so its control is read again rather than passed by (audit 2026-11-25).
+  _put(record, { required = false } = {}) {
     const { all, bucket } = this._bucket();
     record.updatedAt = record.updatedAt || 0;
     bucket[record.groupId] = record;
     all[this.walletAddress] = bucket;
-    saveAll(all);
+    if (!saveAll(all) && required) throw groupStoreNotSaved();
     return record;
   }
   /// Records a retired epoch's root without touching the current epoch.
@@ -391,7 +428,7 @@ export class GroupManager {
       // cheap and idempotent: the app dedupes on msg_id and txid.
       fresh.cursors = {};
       return true;
-    });
+    }, { required: true });
   }
 
   deleteGroup(groupId) {
@@ -494,6 +531,12 @@ export class GroupManager {
           // when it happened, so the UI can tell news from history replayed on an import
           if (ev) events.push({ ...ev, blockTime: row.blockTime ?? null });
         } catch (error) {
+          // A group key that could not be saved: stop before the cursor moves past it, so this
+          // page is read again on a later pass (audit 2026-11-25). Re-reading is harmless.
+          if (error?.code === GROUP_STORE_NOT_SAVED) {
+            this.engine.log?.(`Group control walk paused: ${error.message}`);
+            return;
+          }
           this.engine.log?.(`Group control row skipped: ${error?.message || error}`);
         }
       }
@@ -603,12 +646,19 @@ export class GroupManager {
    *  only waiting to say you declined. Returns the "joined" event. */
   async _joinInvite(invite) {
     const key = inviteKeyOf(invite);
-    this._saveInvites(this._loadInvites().filter((entry) => entry.groupId !== invite.groupId
+    const held = this._loadInvites();
+    this._saveInvites(held.filter((entry) => entry.groupId !== invite.groupId
       || (entry.rejected === true && inviteKeyOf(entry) !== key)));
     let joined = null;
-    for (const root of [...invite.roots].sort((a, b) => Number(b.epoch) - Number(a.epoch))) {
-      const event = await this._applyRoot(root, invite.adminAddress, invite.invitedAt);
-      if (!joined && event?.kind === "joined") joined = { ...event, inviteAt: invite.invitedAt };
+    try {
+      for (const root of [...invite.roots].sort((a, b) => Number(b.epoch) - Number(a.epoch))) {
+        const event = await this._applyRoot(root, invite.adminAddress, invite.invitedAt);
+        if (!joined && event?.kind === "joined") joined = { ...event, inviteAt: invite.invitedAt };
+      }
+    } catch (error) {
+      // The group's keys could not be saved: the invite stays, to be answered again (audit 2026-11-25).
+      if (error?.code === GROUP_STORE_NOT_SAVED) this._saveInvites(held);
+      throw error;
     }
     return joined;
   }
@@ -1228,6 +1278,16 @@ export class GroupManager {
     }
     // gctl_epoch is a heads-up only; the real state change lands on the matching gctl_root.
     if (payload.type === "gctl_epoch") return { kind: "epoch-notice", groupId: payload.group_id, epoch: payload.epoch };
+    // A photo's signature covers only the group id and the photo - no epoch or version - so any
+    // member, even a removed one, could put an old admin-signed photo in a new transaction and roll
+    // the photo back (audit 2026-11-25; iOS GroupChatService checks the same signature and block
+    // time and has the same gap). The wire stays as it is: the transaction carrying it has to come
+    // from the admin's key. A blank sender (the indexer hasn't resolved one yet) passes, as for an
+    // unsigned roster (_rootSenderAllowed).
+    if (payload.type === "gctl_photo") {
+      const admin = this.getGroup(payload.group_id)?.adminSigningPub;
+      if (!admin || !(await this._rootSenderAllowed(senderAddress, admin))) return null;
+    }
     if (payload.type === "gctl_photo" || payload.type === "gctl_tombstone") {
       return this._withGroupLock(() => this._applyPhotoOrTombstone(payload, blockTime));
     }
@@ -1474,7 +1534,7 @@ export class GroupManager {
       photoUpdatedAt: existing?.photoUpdatedAt || 0,
       updatedAt: 0,
     };
-    this._put(record);
+    this._put(record, { required: true }); // the new root: thrown if it could not be saved (audit 2026-11-25)
     const kind = existing ? "root-updated" : (isAdminRecord ? "recovered" : "joined");
     // Membership diff, so the UI can show iMessage-style "X was added/removed" lines to every
     // member on a key rotation. Only for an already-known group (a first join has no baseline).
@@ -1979,7 +2039,13 @@ GroupManager.prototype._ingestChainControl = async function _ingestChainControl(
       this.engine.log?.(`Dropped a group control message with a forged sender: ${row.txId}`);
       return outcome;
     }
-    const event = await this.applyControl(row.payloadString, row.sender, row.blockTime);
+    let event;
+    try { event = await this.applyControl(row.payloadString, row.sender, row.blockTime); }
+    catch (error) {
+      // Not saved (audit 2026-11-25): left unhandled, so this lane stops here and asks again.
+      if (error?.code === GROUP_STORE_NOT_SAVED) { outcome = "unknown"; return outcome; }
+      throw error;
+    }
     if (!current()) { outcome = "skipped"; return outcome; }
     if (event) state.controls.push({ ...event, blockTime: row.blockTime ?? null });
     return outcome;
@@ -2114,7 +2180,7 @@ GroupManager.prototype.applyGroupRetention = function applyGroupRetention(cutoff
   if (removed) saveMessages(all);
   // Keyed by what they target. A reaction has no time of its own: it goes with its message.
   const prune = (storeKey, outlives) => {
-    const store = loadJsonMap(storeKey);
+    const store = loadBulkMap(storeKey);
     let changed = false;
     for (const [groupId, targets] of Object.entries(store[wallet] || {})) {
       for (const [target, value] of Object.entries(targets || {})) {
@@ -2123,7 +2189,7 @@ GroupManager.prototype.applyGroupRetention = function applyGroupRetention(cutoff
         changed = true;
       }
     }
-    if (changed) saveJsonMap(storeKey, store);
+    if (changed) saveBulkMap(storeKey, store);
   };
   prune(GROUP_REACTIONS_KEY, () => true);
   prune(GROUP_EDITS_KEY, (edit) => !(Number(edit?.at) > 0 && Number(edit.at) < cutoff));

@@ -1206,6 +1206,32 @@ async function runRegistryIndexer(v, r) {
     try { await reg.resolveHeldOnChain("alice", chainDoesNot); } catch { refused = true; }
     r.check(refused, "registry (indexer): an answer the chain doesn't hold doesn't resolve");
     r.eq(await reg.resolveHeldOnChain("bob", chainDoesNot), null, "registry (indexer): a free name needs no check");
+    r.eq(await reg.resolveHeldOnChain("gone", chainHolds), null, "registry (indexer): a lapsed name does not resolve on chain either");
+    // audit 2026-11-25 #3: a hostile indexer that answers differently on each lookup. The address
+    // returned must be the owner of the very record the node checked, from a single lookup.
+    const attackerKey = new Uint8Array(32).fill(0x07);
+    const attacker = R.addressOf(attackerKey);
+    const plainConfirm = reg.confirmOnChain;
+    reg.confirmOnChain = async (n) => { if (R.addressOf(n.owner) !== owner) throw new Error("not on chain"); };
+    for (const attackerFirst of [true, false]) {
+      let calls = 0;
+      reg.lookup = async (raw) => {
+        const found = await plainLookup.call(reg, raw);
+        calls += 1;
+        if (found.info) {
+          found.info.periodStart = 1n;
+          if ((calls === 1) === attackerFirst) found.info.owner = attackerKey;
+        }
+        return found;
+      };
+      let got = null;
+      try { got = await reg.resolveHeldOnChain("alice", chainHolds); } catch { got = "refused"; }
+      const which = attackerFirst ? "first" : "second";
+      r.check(got !== attacker, `registry (indexer): a two-faced indexer never gets its own address paid (attacker ${which})`);
+      r.eq(got, attackerFirst ? "refused" : owner, `registry (indexer): the answer is the checked record's owner (attacker ${which})`);
+      r.eq(calls, 1, `registry (indexer): resolveHeldOnChain looks the name up once (attacker ${which})`);
+    }
+    reg.confirmOnChain = plainConfirm;
     reg.lookup = plainLookup;
   }
   r.eq((await reg.namesOf(ownerKey)).map((n) => n.name), ["zed", "alice"], "registry (indexer): namesOf oldest first");

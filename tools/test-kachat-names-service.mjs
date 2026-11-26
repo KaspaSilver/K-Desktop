@@ -841,6 +841,44 @@ async function main() {
     taken._upsert(recordFor("taken", price));
     await taken._register(taken._find("taken"), c0.utxo);
     r.eq(taken.pending.find((x) => x.id === "taken").stage, A.Stage.taken, "claim: an active name of someone else is taken");
+    {
+      // audit 2026-11-25 #17: the name is already ours, but this claim's commit is still unspent
+      // (another claim registered it): the commit is spent back, the salt kept until that lands
+      const ownedLookup = async (name) => ({ kind: "registered", name, info: new RS.NameInfo({ ...lapsedInfo, owner: me, outpoint: lapsedInfo.outpoint, expiresAt: BigInt(Date.now()) + 600_000n }) });
+      const dup = regAt(ownedLookup);
+      const cancels = [];
+      dup.cancel = async (p) => { cancels.push(p.id); return "cc".repeat(32); };
+      let dupSubmits = 0;
+      dup.service.signAndSubmit = async () => { dupSubmits += 1; return "ee".repeat(32); };
+      dup._upsert(recordFor("dup", price));
+      await dup._register(dup._find("dup"), c0.utxo);
+      const d = dup._find("dup");
+      r.eq(cancels.join(","), "dup", "claim of a name already ours: its live commit is cancelled, not left stuck");
+      r.check(d.stage !== A.Stage.registered && d.salt === C.hex(c0.salt), "claim of a name already ours: not finished, the salt kept for the cancel");
+      r.eq(dupSubmits, 0, "claim of a name already ours: nothing registered");
+      // a register this claim sent that the network accepted: the node is just behind, registered
+      const sentOne = regAt(ownedLookup);
+      sentOne.cancel = async (p) => { cancels.push(p.id); return "cc".repeat(32); };
+      sentOne._restAccepted = async () => true;
+      sentOne._upsert(recordFor("sent-one", price, { registerTxId: "ab".repeat(32), registerTxIds: ["ab".repeat(32)] }));
+      await sentOne._register(sentOne._find("sent-one"), c0.utxo);
+      r.eq(sentOne._find("sent-one").stage, A.Stage.registered, "claim whose own register was accepted: registered");
+      r.eq(cancels.length, 1, "claim whose own register was accepted: no cancel");
+      // a second claim of a name with one already running is refused before any commit
+      const twice = regAt();
+      twice._upsert(recordFor("running", price));
+      let twiceCommits = 0;
+      twice.service.signAndSubmit = async () => { twiceCommits += 1; return "ee".repeat(32); };
+      await r.throws(() => twice.startRegistration({ name: c0.name, years: 1, maxPrice: price }),
+        (e) => e.code === "notRegisterable" && e.message === `You're already claiming ${c0.name}.kachat.`, "startRegistration: a second claim of the same name is refused");
+      r.eq(twiceCommits, 0, "startRegistration: no commit for the refused second claim");
+      r.check(A.claimInFlight({ stage: A.Stage.registering }) && !A.claimInFlight({ stage: A.Stage.cancelling }) && !A.claimInFlight({ stage: A.Stage.failed }),
+        "claimInFlight: only a claim that may still register");
+      const live = readFileSync(join(repo, "ui/kachat-names-live.js"), "utf8");
+      const sheet = live.slice(live.indexOf("function openClaimSheet("), live.indexOf("function openClaimSheet(") + 600);
+      r.check(/pending\.find\(\(x\) => x\.name === name && claimInFlight\(x\)\);\n\s+if \(running\) \{ openRegistrationProgress\(running\.id\); return; \}/.test(sheet),
+        "the claim sheet: a name with a claim running opens that claim's progress, not a second claim");
+    }
 
     // MARK: startRegistration: claims side by side, an expired name can be claimed (iOS b219bb0, eea52b2)
     const starter = regAt();

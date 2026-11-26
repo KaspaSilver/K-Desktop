@@ -117,7 +117,11 @@ function currentDataKeyHex() {
   session.removeItem(VAULT_HANDOFF_KEY);
   return key;
 }
-function failedAttempts() { return local.getItem("kachat-app-password-failed-attempts"); }
+// Wrong passwords are counted per vault (audit 2026-11-25); these tests use the shared one ("").
+function failedAttempts() {
+  const attempts = JSON.parse(local.getItem("kachat-app-password-attempts-v2") || "{}")[""]?.attempts;
+  return attempts == null ? null : String(attempts);
+}
 
 const KEY_A = "11".repeat(32);
 const MNEMONIC_A = "abandon ability able about above absent absorb abstract absurd abuse access accident";

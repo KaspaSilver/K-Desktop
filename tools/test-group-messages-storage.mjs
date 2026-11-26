@@ -11,7 +11,8 @@ function test(name, fn) {
 }
 
 test("the group messages key is moved into the chat storage at startup", () => {
-  assert.match(app, /const CHAT_STORAGE_GLOBAL_KEYS = \["kachat-group-messages-v1"\];/);
+  // the other big group stores (seen ids, reactions, edits) join it (audit 2026-11-25)
+  assert.match(app, /const CHAT_STORAGE_GLOBAL_KEYS = \["kachat-group-messages-v1", ...GROUP_BULK_STORE_KEYS\];/);
   assert.match(app, /if \(CHAT_STORAGE_GLOBAL_KEYS\.includes\(key\)\) return true;/);
   assert.match(app, /const GROUP_MSG_KEY = "kachat-group-messages-v1";/);
   assert.ok(app.indexOf("CHAT_STORAGE_GLOBAL_KEYS") < app.indexOf("await initChatStorage("), "declared before the migration runs");
@@ -29,7 +30,7 @@ test("hiding the app writes pending group messages straight away", () => {
 });
 
 test("removing an account clears its group messages from the chat storage", () => {
-  assert.match(app, /const inChatStorage = key === GROUP_MSG_KEY;/);
+  assert.match(app, /const inChatStorage = CHAT_STORAGE_GLOBAL_KEYS.includes\(key\);/);
   assert.match(app, /if \(inChatStorage\) chatStorageSetSync\(key, JSON\.stringify\(all\)\);/);
 });
 

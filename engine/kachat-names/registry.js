@@ -1010,14 +1010,20 @@ export class KachatNamesRegistry {
   /** `resolveHeld` for a typed name that money may follow: only once a node backs the answer up,
    *  whichever source gave it. Throws when it can't (the caller shows the lookup as failed). */
   async resolveHeldOnChain(raw, service) {
-    const address = await this.resolveHeld(raw);
-    if (address == null) return address;
+    // One lookup, and the address returned is the owner of the very record the node checked. Two
+    // lookups (one for the address, one for the check) let an indexer that answers differently
+    // each time get its own address paid while the real record passes the check (audit
+    // 2026-11-25 #3; iOS NameServices.resolveKachat reads once).
     const canonical = normalize(raw);
+    if (!isValid(canonical)) return null;
+    await this.refreshIfStale();
     const found = await this.lookup(canonical);
-    const n = found?.info ?? null;
-    if (n?.name !== canonical) throw new Failure("the indexer answered for another name");
+    if (found?.kind !== "registered") return null;
+    const n = found.info;
+    if (n.status(this.graceMs, this._nowMs()) === Status.lapsed) return null;
+    if (n.name !== canonical) throw new Failure("the indexer answered for another name");
     await this.confirmOnChain(n, service);
-    return address;
+    return addressOf(n.owner);
   }
 
   /** The `kaspatest:` address an ACTIVE name resolves to, or null (not registered, in grace,

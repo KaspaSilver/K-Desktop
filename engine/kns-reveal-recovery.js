@@ -306,10 +306,12 @@ function adoptLegacyPendingCommit(engine) {
 
 const knsRevealsResuming = new Set();
 /** Finishes this account's reveals left by an earlier run. Each unspent output at a filed commit
- *  address is revealed the way the original would have been. A record goes once its reveal landed,
- *  once its commit - seen on chain before - is found gone twice in a row, or once a commit never
- *  seen is 30 days old and found missing twice in a row (iOS 83806b3d commitSeen / emptyChecks). A
- *  look that got no answer changes nothing. Returns how many reveals went out. */
+ *  address is revealed the way the original would have been. A record goes once its commit - seen
+ *  on chain before - is found gone twice in a row (its reveal landed), or once a commit never seen
+ *  is 30 days old and found missing twice in a row (iOS 83806b3d commitSeen / emptyChecks); not
+ *  when a reveal is merely sent, which the mempool can still evict (audit 2026-11-25 #18). A look
+ *  that got no answer changes nothing, and one record that fails doesn't stop the others. Returns
+ *  how many reveals went out. */
 export async function resumePendingKnsReveals({ engine, log = () => {} }) {
   const account = engine?.address;
   if (!engine?.kaspa || !engine?.privateKey || !account || knsRevealsResuming.has(account)) return 0;
@@ -321,37 +323,43 @@ export async function resumePendingKnsReveals({ engine, log = () => {} }) {
     await engine.connect();
     for (const record of readKnsReveals(account)) {
       if (engine.address !== account) break;
-      if (Date.now() - Number(record.createdAt || 0) < KNS_REVEAL_LEFT_TO_SENDER_MS) continue;
-      const xOnly = xOnlyPublicKeyHexFromPrivateKey(engine.privateKey);
-      const { builder, commitScriptPublicKey, commitAddressString } = buildKnsRedeemScript(engine.kaspa, xOnly, record.payloadJson);
-      if (commitAddressString !== record.commitAddressString) { dropKnsReveal(account, record.id); continue; }
-      const found = await commitOutputsAt(engine, commitAddressString);
-      if (found === null) continue; // no answer: next time
-      const wanted = BigInt(record.commitAmountSompi);
-      const owed = found.filter((entry) => BigInt(entry?.amount ?? 0) === wanted);
-      if (!owed.length) {
-        const outcome = emptyLookOutcome(record);
-        if (outcome === "drop") dropKnsReveal(account, record.id);
-        else updateKnsReveal(account, record.id, { emptyChecks: outcome });
-        continue;
-      }
-      if (record.commitSeen !== true || Number(record.emptyChecks) > 0) updateKnsReveal(account, record.id, { commitSeen: true, emptyChecks: 0 });
-      let allIn = true;
-      for (const entry of owed) {
-        try {
-          const reveal = await buildAndSubmitKnsReveal({
-            engine, commitTxId: entry.outpoint.transactionId, commitOutputIndex: Number(entry.outpoint.index) || 0, commitAmountSompi: wanted,
-            commitScriptPublicKey, builder, revealTargetAddress: record.revealTargetAddress, revealAmountSompi: BigInt(record.revealAmountSompi), log,
-          });
-          log(`KNS reveal finished: ${reveal.txid}`);
-          finished += 1;
-        } catch (error) {
-          if (isAlreadyRevealedError(error)) continue;
-          allIn = false;
-          log(`KNS reveal still waiting: ${error?.message || error}`);
+      // One record that can't be read (an amount that doesn't parse, a payload the script can't
+      // take) waits on its own; the records after it still get their look (audit 2026-11-25 #18).
+      try {
+        if (Date.now() - Number(record.createdAt || 0) < KNS_REVEAL_LEFT_TO_SENDER_MS) continue;
+        const xOnly = xOnlyPublicKeyHexFromPrivateKey(engine.privateKey);
+        const { builder, commitScriptPublicKey, commitAddressString } = buildKnsRedeemScript(engine.kaspa, xOnly, record.payloadJson);
+        if (commitAddressString !== record.commitAddressString) { dropKnsReveal(account, record.id); continue; }
+        const found = await commitOutputsAt(engine, commitAddressString);
+        if (found === null) continue; // no answer: next time
+        const wanted = BigInt(record.commitAmountSompi);
+        const owed = found.filter((entry) => BigInt(entry?.amount ?? 0) === wanted);
+        if (!owed.length) {
+          const outcome = emptyLookOutcome(record);
+          if (outcome === "drop") dropKnsReveal(account, record.id);
+          else updateKnsReveal(account, record.id, { emptyChecks: outcome });
+          continue;
         }
+        if (record.commitSeen !== true || Number(record.emptyChecks) > 0) updateKnsReveal(account, record.id, { commitSeen: true, emptyChecks: 0 });
+        // A reveal sent (or one already in the mempool) leaves the record in place: a reveal the
+        // mempool later evicts would otherwise lose the only copy of the script. The record goes
+        // once later looks find the commit spent, the empty-look path above (audit 2026-11-25 #18).
+        for (const entry of owed) {
+          try {
+            const reveal = await buildAndSubmitKnsReveal({
+              engine, commitTxId: entry.outpoint.transactionId, commitOutputIndex: Number(entry.outpoint.index) || 0, commitAmountSompi: wanted,
+              commitScriptPublicKey, builder, revealTargetAddress: record.revealTargetAddress, revealAmountSompi: BigInt(record.revealAmountSompi), log,
+            });
+            log(`KNS reveal finished: ${reveal.txid}`);
+            finished += 1;
+          } catch (error) {
+            if (isAlreadyRevealedError(error)) continue;
+            log(`KNS reveal still waiting: ${error?.message || error}`);
+          }
+        }
+      } catch (error) {
+        log(`KNS reveal record skipped this time: ${error?.message || error}`);
       }
-      if (allIn) dropKnsReveal(account, record.id);
     }
   } finally {
     knsRevealsResuming.delete(account);
@@ -500,6 +508,9 @@ export async function resumeKnsTransfer({ engine, record, signer, log = () => {}
       log,
     });
     log(`KNS transfer reveal finished: ${reveal.txid}`);
+    // The node took a reveal spending the commit, so the commit exists; the empty looks start over
+    // from here.
+    await patchPendingTransfer(record.assetId, { status: "reveal-sent", commitSeen: true, emptyChecks: 0 }).catch(() => {});
   } catch (error) {
     if (!isAlreadyRevealedError(error)) {
       await patchPendingTransfer(record.assetId, { status: "reveal-failed", lastError: error?.message || String(error) }).catch(() => {});
@@ -507,8 +518,11 @@ export async function resumeKnsTransfer({ engine, record, signer, log = () => {}
       return "waiting";
     }
     outcome = "settled"; // our earlier reveal is in (only this key can spend the commit)
+    await patchPendingTransfer(record.assetId, { status: "reveal-sent", commitSeen: true }).catch(() => {});
   }
-  await clearPendingKnsTransfer(record.assetId).catch(() => {});
+  // The record stays until later looks find the commit spent (the empty-look path above): a reveal
+  // in the mempool can still be evicted, and the record is the only copy of the script that
+  // returns the 2 KAS (audit 2026-11-25 #18).
   return outcome;
 }
 
@@ -530,8 +544,14 @@ export async function resumePendingKnsTransfers({ engine, signerFor, log = () =>
       let signer = null;
       try { signer = signerFor(record); } catch { signer = null; }
       if (!signer) continue;
-      await engine.connect();
-      if (await resumeKnsTransfer({ engine, record, signer, log }) === "revealed") finished += 1;
+      // One record that fails (an amount that doesn't parse, a node error) doesn't stop the
+      // records after it (audit 2026-11-25 #18).
+      try {
+        await engine.connect();
+        if (await resumeKnsTransfer({ engine, record, signer, log }) === "revealed") finished += 1;
+      } catch (error) {
+        log(`KNS transfer record skipped this time: ${error?.message || error}`);
+      }
     }
   } finally {
     knsTransfersResuming.delete(account);

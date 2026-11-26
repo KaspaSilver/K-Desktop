@@ -75,7 +75,7 @@ test("Edit Default Public Chats is the gear at the top left of Chats", () => {
   const sync = between(app, "function syncChatsPublicSettingsGear() {", "\n}\n");
   assert.match(sync, /!document\.body\.classList\.contains\("chats-tab"\)/);
   assert.match(sync, /classList\.contains\("selecting-chats"\)/);
-  assert.match(sync, /isChildModeEnabled\(\)/);
+  assert.doesNotMatch(sync, /isChildModeEnabled/); // Simple Mode is gone (audit 2026-11-25)
   assert.match(app, /setChatToolRowsForGroupsTab[\s\S]*?syncChatsPublicSettingsGear\(\);\n\}/);
   assert.match(app, /document\.body\.classList\.toggle\("chats-tab", isChats\);\n  syncChatsPublicSettingsGear\(\);/);
 });

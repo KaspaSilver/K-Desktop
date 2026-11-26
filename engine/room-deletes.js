@@ -12,6 +12,13 @@
 // that span that isn't on the page was removed (a moderator, or its sender's delete).
 
 export const ROOM_DELETES_MAX = 2000;
+/** Deletes whose target wasn't held when they came are kept on a budget of their own (audit
+ *  2026-11-25 #26): anyone can post deletes naming txids nobody here holds, and on one shared list
+ *  ~2,000 of them pushed the real ones out. */
+export const ROOM_DELETES_UNHELD_MAX = 500;
+/** How an unheld delete is stored: its entry with this mark in front. Entries stored before the
+ *  mark existed (all without it) read as held. */
+const UNHELD_MARK = "?";
 const TXID_RE = /^[0-9a-f]{64}$/;
 
 /** `{"type":"delete","targetTxId":...}` (K MessageDeleteCodec.encode). */
@@ -37,21 +44,50 @@ export function roomDeleteEntry(channel, txId, sender) {
   return `${String(channel || "").toLowerCase()}|${String(txId || "").toLowerCase()}|${String(sender || "").toLowerCase()}`;
 }
 
-/** Adds a delete to the remembered list (oldest first), keeping the newest 2,000. Returns the new
- *  list, or null when it was already there. */
-export function addRoomDelete(list, channel, txId, sender, max = ROOM_DELETES_MAX) {
+/** The "room|txid|sender" a stored entry stands for, held or not. */
+export function roomDeleteLookupKey(stored) {
+  const text = String(stored || "");
+  return text.startsWith(UNHELD_MARK) ? text.slice(UNHELD_MARK.length) : text;
+}
+/** Every remembered delete as "room|txid|sender", for isRoomDeleted-style lookups. */
+export function roomDeleteLookupSet(list) {
+  return new Set((Array.isArray(list) ? list : []).map(roomDeleteLookupKey));
+}
+
+/**
+ * Adds a delete to the remembered list (oldest first). Two budgets (audit 2026-11-25 #26): the
+ * newest `max` (2,000) deletes whose target was held, and the newest `unheldMax` (500) whose target
+ * wasn't (`held: false`, stored with a "?" in front). A delete stored unheld and met again with its
+ * target held moves to the held budget. Returns the new list, or null when nothing changed.
+ */
+export function addRoomDelete(list, channel, txId, sender, max = ROOM_DELETES_MAX, { held = true, unheldMax = ROOM_DELETES_UNHELD_MAX } = {}) {
   const entry = roomDeleteEntry(channel, txId, sender);
+  const unheld = UNHELD_MARK + entry;
   const current = Array.isArray(list) ? list : [];
   if (current.includes(entry)) return null;
-  const next = [...current, entry];
-  return next.length > max ? next.slice(next.length - max) : next;
+  const hadUnheld = current.includes(unheld);
+  if (!held && hadUnheld) return null;
+  const next = [...(hadUnheld ? current.filter((stored) => stored !== unheld) : current), held ? entry : unheld];
+  let heldCount = 0;
+  let unheldCount = 0;
+  for (const stored of next) { if (stored.startsWith(UNHELD_MARK)) unheldCount += 1; else heldCount += 1; }
+  let dropHeld = Math.max(0, heldCount - max);
+  let dropUnheld = Math.max(0, unheldCount - unheldMax);
+  if (!dropHeld && !dropUnheld) return next;
+  // the oldest of each kind go
+  return next.filter((stored) => {
+    if (stored.startsWith(UNHELD_MARK)) { if (dropUnheld > 0) { dropUnheld -= 1; return false; } return true; }
+    if (dropHeld > 0) { dropHeld -= 1; return false; }
+    return true;
+  });
 }
 
 /**
  * The deletes in a batch of room rows that take something away: for each delete, the target is
  * gone when this client holds it from the delete's own sender. A delete naming someone else's
  * message does nothing and isn't kept; one whose target isn't held (yet) is kept, so the target
- * can't arrive later. Returns { gone: Set<txid>, record: [{ target, sender }] }.
+ * can't arrive later. Returns { gone: Set<txid>, record: [{ target, sender, held }] }, `held`
+ * saying which budget the delete is kept on (addRoomDelete).
  * `senderOf(txId)` gives the held message's sender, or null when it isn't held.
  */
 export function resolveRoomDeletes(deletes, senderOf) {
@@ -64,7 +100,7 @@ export function resolveRoomDeletes(deletes, senderOf) {
       if (String(held).toLowerCase() !== String(sender).toLowerCase()) continue; // not theirs to delete
       gone.add(target);
     }
-    record.push({ target, sender });
+    record.push({ target, sender, held: held != null });
   }
   return { gone, record };
 }
@@ -75,7 +111,9 @@ export function resolveRoomDeletes(deletes, senderOf) {
  * never a machinery room.
  * - never an empty page, never below the page's oldest row;
  * - a minute inside both edges, never the newest 3 minutes, never the oldest day of the 30 days;
- * - never your own messages, nor a pending, failed or unconfirmed send (any `status`);
+ * - never your own messages, nor a pending, failed or unconfirmed send (any `status`), nor a sent
+ *   row still on this device's clock (`localTime`). `me` may be one address or a list: the room
+ *   cache is shared by every account saved here, so all of theirs count (audit 2026-11-25 #25);
  * - a row goes on its second miss (`strikes`, a Map of "room|txid" -> misses, updated here);
  * - a read that would remove more than a handful (over 3 and over a fifth) removes nothing.
  * `before` is the page's exclusive upper bound when it was asked for older history.
@@ -90,13 +128,13 @@ export function rowsTheIndexerNoLongerHas({ channel, page, before = null, held, 
   const upper = Math.min((before != null ? Number(before) - 1 : newest) - margin, now - 180_000);
   const lower = Math.max(oldest + margin, now - retentionMs + 86_400_000);
   if (lower > upper) return { gone: [], refused: null };
-  const mine = String(me || "").toLowerCase();
+  const mine = new Set((Array.isArray(me) ? me : [me]).map((address) => String(address || "").toLowerCase()).filter(Boolean));
   const onPage = new Set((page || []).map((row) => String(row?.txId || "").toLowerCase()));
   const considered = (held || []).filter((m) => {
     const t = Number(m?.blockTime) || 0;
     const id = String(m?.txId || "").toLowerCase();
-    return t >= lower && t <= upper && !m.status && TXID_RE.test(id)
-      && String(m.senderAddress || "").toLowerCase() !== mine;
+    return t >= lower && t <= upper && !m.status && !m.localTime && TXID_RE.test(id)
+      && !mine.has(String(m.senderAddress || "").toLowerCase());
   });
   const gone = [];
   for (const row of considered) {

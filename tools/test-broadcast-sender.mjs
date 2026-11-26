@@ -62,9 +62,12 @@ function bcastTx({ txId = fakeTxid(), channel = "general", content = "hello", ou
 const blockEvent = (...transactions) => ({ type: "block-added", data: { block: { header: { timestamp: 1_791_000_000_000n }, transactions } } });
 
 /** REST transaction shape (`/transactions/{id}?resolve_previous_outpoints=light`, real field names). */
-function restTx(txId, inputAddress, outputAddresses) {
+function restTx(txId, inputAddress, outputAddresses, { channel = "chess-arena", content = "m", blockTime = 1_791_000_123_000, payload } = {}) {
   return {
     transaction_id: txId,
+    // the chain's payload and block time (audit 2026-11-25 #9: indexer rows are checked against them)
+    payload: payload !== undefined ? payload : hex(`kchat:1:bcast:${channel}:${content}`),
+    block_time: blockTime,
     inputs: [{ transaction_id: txId, index: 0, previous_outpoint_hash: "cc".repeat(32), previous_outpoint_index: "0", previous_outpoint_address: inputAddress, previous_outpoint_amount: 25_000_000 }],
     outputs: outputAddresses.map((address, index) => ({ transaction_id: txId, index, amount: 20_000_000, script_public_key_address: address, script_public_key_type: "pubkey" })),
   };
@@ -319,6 +322,77 @@ async function main() {
     r.eq(result.accepted.length, 1, "rows/search refused: fell back to per-tx lookups (accepted)");
     r.eq(result.forged.length, 1, "rows/search refused: fell back to per-tx lookups (forged)");
     r.eq(calls.filter((c) => c.method === "GET").length, 2, "rows/search refused: one GET per tx");
+  }
+
+  // --- 10. indexer rows: the text, room and block time are the chain's, not the indexer's
+  // (audit 2026-11-25 #9). A real join served as a resign, with a made-up time, must not pass.
+  {
+    const join = fakeTxid();
+    const other = fakeTxid();
+    const notPost = fakeTxid();
+    const noPayload = fakeTxid();
+    const known = new Map([
+      [join, restTx(join, ALICE, [ALICE], { content: '{"a":"join"}', blockTime: 1_791_000_500_000 })],
+      [other, restTx(other, ALICE, [ALICE], { channel: "general", content: "hi" })],
+      [notPost, restTx(notPost, ALICE, [ALICE], { payload: hex("ciph_msg:1:comm:abc") })],
+      [noPayload, (() => { const t = restTx(noPayload, ALICE, [ALICE]); delete t.payload; return t; })()],
+    ]);
+    const { engine, calls, logs } = makeEngine(known);
+    const forgedJoin = { txId: join, channel: "chess-arena", senderAddress: ALICE, content: '{"a":"resign"}', blockTime: 1_791_000_900_000 };
+    const result = await engine.verifyBroadcastRows([
+      forgedJoin,
+      { txId: other, channel: "chess-arena", senderAddress: ALICE, content: "hi", blockTime: 1 },
+      { txId: notPost, channel: "chess-arena", senderAddress: ALICE, content: "m", blockTime: 1 },
+      { txId: noPayload, channel: "chess-arena", senderAddress: ALICE, content: "m", blockTime: 1 },
+    ], { channel: "chess-arena" });
+    r.check(calls[0]?.url.includes("payload") && calls[0]?.url.includes("block_time"), "content: the search asks for payload and block_time");
+    const accepted = result.accepted.find((row) => row.txId === join);
+    r.eq(accepted?.content, '{"a":"join"}', "content: the chain's text replaces the indexer's");
+    r.eq(accepted?.blockTime, 1_791_000_500_000, "content: the chain's block time replaces the indexer's");
+    r.check(logs.some((l) => l.includes(join) && l.includes("differs")), "content: a rewritten text is logged");
+    r.check(result.forged.some((row) => row.txId === other), "content: another room's post is dropped from this room");
+    r.eq(engine.broadcastSenderVerdict(other)?.verdict, BROADCAST_SENDER.VERIFIED, "content: ...but its sender verdict stays good for its own room");
+    r.check(result.forged.some((row) => row.txId === notPost), "content: a self-send with no public-chat payload is dropped");
+    r.check(result.unknown.some((row) => row.txId === noPayload), "content: an answer without a payload leaves the row unchecked (held back)");
+    // Second pass: settled from the remembered fingerprint, no new lookup.
+    const before = calls.length;
+    const again = await engine.verifyBroadcastRows([
+      forgedJoin,
+      { ...forgedJoin, content: '{"a":"join"}', blockTime: 5 },
+      { txId: other, channel: "general", senderAddress: ALICE, content: "hi", blockTime: 9 },
+      { txId: noPayload, channel: "chess-arena", senderAddress: ALICE, content: "m", blockTime: 1 },
+    ], { channel: "chess-arena" });
+    r.eq(calls.length, before, "content: second pass needs no lookup (unknown row backs off)");
+    r.check(again.forged.some((row) => row === forgedJoin), "content: the forged text is refused from the fingerprint");
+    r.check(again.accepted.some((row) => row.txId === join && row.blockTime === 1_791_000_500_000), "content: the true text passes with the chain's time");
+    r.check(again.accepted.some((row) => row.txId === other && row.blockTime === 1_791_000_123_000), "content: the post passes in its own room");
+    r.check(again.unknown.some((row) => row.txId === noPayload), "content: the payload-less row is still held back");
+  }
+  // A live block's post: an indexer row for it is checked against the block, with no lookup.
+  {
+    const txId = fakeTxid();
+    const { engine, calls } = makeEngine(new Map());
+    engine.handleBlockAddedEvent(blockEvent(bcastTx({ txId, channel: "chess-arena", content: "real", outputs: [output(ALICE)], inputUtxoAddress: ALICE })));
+    const result = await engine.verifyBroadcastRows([
+      { txId, channel: "chess-arena", senderAddress: VICTIM, content: "real", blockTime: 42 },
+    ], { channel: "chess-arena" });
+    r.eq(calls.length, 0, "live then indexer: no lookup");
+    r.eq(result.accepted[0]?.senderAddress, ALICE, "live then indexer: verified sender");
+    r.eq(result.accepted[0]?.blockTime, 1_791_000_000_000, "live then indexer: the block's time, not the indexer's");
+    const forged = await engine.verifyBroadcastRows([{ txId, channel: "chess-arena", senderAddress: ALICE, content: "fake", blockTime: 42 }], { channel: "chess-arena" });
+    r.eq(forged.forged.length, 1, "live then indexer: other text is refused");
+  }
+  // Our own send: its text is known, its block time is asked of the REST API once.
+  {
+    const txId = fakeTxid();
+    const known = new Map([[txId, restTx(txId, ALICE, [ALICE], { content: "mine", blockTime: 1_791_000_777_000 })]]);
+    const { engine, calls } = makeEngine(known);
+    engine.broadcastSenderVerifier.rememberOwnBroadcast(txId, ALICE, { channel: "chess-arena", content: "mine" });
+    const first = await engine.verifyBroadcastRows([{ txId, channel: "chess-arena", senderAddress: ALICE, content: "mine", blockTime: 3 }], { channel: "chess-arena" });
+    r.eq(first.accepted[0]?.blockTime, 1_791_000_777_000, "own: the chain's time replaces the indexer's");
+    r.eq(calls.length, 1, "own: one lookup for the time");
+    await engine.verifyBroadcastRows([{ txId, channel: "chess-arena", senderAddress: ALICE, content: "mine", blockTime: 3 }], { channel: "chess-arena" });
+    r.eq(calls.length, 1, "own: no lookup after that");
   }
 
   // --- Our own post is remembered under the address that signed it, even when another account

@@ -517,9 +517,38 @@ export async function fetchPostTippers({ postId, limit = 50, before = null } = {
 }
 
 export async function fetchKaPostUserDetails({ engine, pubkey } = {}) {
-  return kapostGet("get-user-details", {
+  const json = await kapostGet("get-user-details", {
     user: pubkey, requesterPubkey: requesterPubkeyFor(engine),
   }, { savedFor: engine.address });
+  return normalizeKaPostUserDetails(json);
+}
+
+/** The largest follower / following count believed (iOS KaPostsAPIClient.maxCount). */
+export const KAPOST_MAX_COUNT = 1_000_000_000;
+
+/** A count from the indexer as a whole number in 0...KAPOST_MAX_COUNT; anything else is 0. */
+export function clampKaPostCount(value) {
+  const n = typeof value === "number" ? value
+    : (typeof value === "string" && /^\d{1,12}$/.test(value.trim()) ? Number(value) : NaN);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(Math.floor(n), KAPOST_MAX_COUNT);
+}
+
+/** get-user-details read as iOS fetchUserDetails reads it (KUserDetails): only these four fields,
+ *  each with its own type. The indexer's JSON (live, or the saved first page) is untrusted - a
+ *  hostile one could send markup in a "count" that the profile header put into the page
+ *  (audit 2026-11-25 #7) - so counts become clamped numbers, followedUser a real boolean and the
+ *  key a 64/66-hex string or null. Nothing else from the answer is kept. */
+export function normalizeKaPostUserDetails(json) {
+  if (!json || typeof json !== "object" || Array.isArray(json)) return null;
+  const key = typeof json.userPublicKey === "string" && /^(?:[0-9a-f]{64}|[0-9a-f]{66})$/i.test(json.userPublicKey)
+    ? json.userPublicKey.toLowerCase() : null;
+  return {
+    userPublicKey: key,
+    followersCount: clampKaPostCount(json.followersCount),
+    followingCount: clampKaPostCount(json.followingCount),
+    followedUser: json.followedUser === true,
+  };
 }
 
 // ---------------------------------------------------------------------------

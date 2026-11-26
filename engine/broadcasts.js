@@ -9,6 +9,7 @@
 // post is accepted only as a self-send whose output 0 pays that same address (audit DSK-045,
 // see "Sender verification" below).
 
+import { sha256 } from "@noble/hashes/sha2.js";
 import { getEndpoint } from "./endpoints.js";
 import { IS_TESTNET, isValidKaspaAddress, isOnActiveNetwork } from "./network.js";
 import { sendPayloadTransaction } from "./transactions.js";
@@ -317,6 +318,30 @@ export function parseBroadcastPayload(payloadString) {
   return { channel, content: rest.slice(colon + 1) };
 }
 
+/**
+ * `{ channel, content }` of a transaction payload read from the Kaspa REST API (hex), null when
+ * it is not a public-chat post (no payload, not hex, another protocol). Used to check an
+ * indexer row's text and room against the chain (audit 2026-11-25 #9).
+ */
+export function broadcastFromPayloadHex(payloadHex) {
+  const hex = normalizedPayloadHex(payloadHex);
+  if (!hex || hex.length % 2 !== 0 || !/^[0-9a-f]+$/.test(hex)) return null;
+  if (!hex.startsWith(BROADCAST_PREFIX_HEX) && !hex.startsWith(LEGACY_BROADCAST_PREFIX_HEX)) return null;
+  try { return parseBroadcastPayload(TEXT_DECODER.decode(hexToBytes(hex))); } catch { return null; }
+}
+
+const DIGEST_ENCODER = new TextEncoder();
+/**
+ * A short fingerprint (first 16 bytes of SHA-256, hex) of a post's room and text, kept per txid
+ * once the chain's copy has been seen, so a later indexer row for the same txid can be checked
+ * without keeping the whole text in memory (audit 2026-11-25 #9). A room name never holds a
+ * newline, so the two parts cannot run into each other.
+ */
+export function broadcastContentDigest(channel, content) {
+  const bytes = sha256(DIGEST_ENCODER.encode(`${normalizeBroadcastChannel(channel)}\n${String(content ?? "")}`));
+  return bytesToHex(bytes.subarray(0, 16));
+}
+
 /** u64 fields cross the WASM boundary as BigInt; everything else may be a number or string. */
 function toNumber(value) {
   if (typeof value === "bigint") return Number(value);
@@ -437,7 +462,14 @@ export function restBroadcastSenderShape(restTx) {
   };
   const input = first(restTx?.inputs);
   const output = first(restTx?.outputs);
+  // The chain's own payload and block time (audit 2026-11-25 #9). `payloadHex` is undefined
+  // when the answer has no `payload` field at all (the text can't be checked from it), "" when
+  // the transaction carries none.
+  const hasPayload = restTx && typeof restTx === "object" && ("payload" in restTx);
+  const blockTime = Number(restTx?.block_time ?? restTx?.blockTime);
   return {
+    payloadHex: hasPayload ? (typeof restTx.payload === "string" ? restTx.payload.trim().toLowerCase() : "") : undefined,
+    blockTime: Number.isFinite(blockTime) && blockTime > 0 ? Math.floor(blockTime) : 0,
     inputAddress: cleanAddress(
       input?.previous_outpoint_address || input?.previousOutpointAddress
       || input?.previous_outpoint_resolved?.script_public_key_address
@@ -576,17 +608,51 @@ export class BroadcastSenderVerifier {
     return this.verdicts.get(String(txId || "").toLowerCase()) || null;
   }
 
-  remember(txId, judged) {
+  /**
+   * Keeps a final verdict. `chain` (optional) is what the chain itself says the post is:
+   * `{ channel, digest, blockTime, timeAsked }` (see broadcastContentDigest). A verified record
+   * with a digest lets verifyRows check an indexer row's room and text without a lookup; a
+   * blockTime replaces the indexer's (audit 2026-11-25 #9). Facts already held are kept when a
+   * later call brings fewer.
+   */
+  remember(txId, judged, chain = null) {
     const key = String(txId || "").toLowerCase();
     if (!key || !judged || judged.verdict === BROADCAST_SENDER.UNKNOWN) return;
-    rememberBounded(this.verdicts, key, { verdict: judged.verdict, senderAddress: judged.senderAddress || "" });
+    const record = { verdict: judged.verdict, senderAddress: judged.senderAddress || "" };
+    if (judged.verdict === BROADCAST_SENDER.VERIFIED) {
+      const prior = this.verdicts.get(key);
+      const held = prior?.verdict === BROADCAST_SENDER.VERIFIED && prior.digest ? prior : null;
+      const facts = chain?.digest ? chain : held;
+      if (facts) {
+        record.channel = facts.channel;
+        record.digest = facts.digest;
+        const sameText = held && held.digest === facts.digest;
+        const time = Number(chain?.digest ? chain.blockTime : 0) > 0 ? Number(chain.blockTime)
+          : (sameText && held.blockTime > 0 ? held.blockTime : 0);
+        if (time > 0) record.blockTime = time;
+        if (chain?.timeAsked || (sameText && held.timeAsked)) record.timeAsked = true;
+      }
+    }
+    rememberBounded(this.verdicts, key, record);
     this.rowBackoff.delete(key);
   }
 
-  /** A post this engine signed and sent itself: its sender is known without asking anyone. */
-  rememberOwnBroadcast(txId, address) {
+  /** A post this engine signed and sent itself: its sender is known without asking anyone.
+   *  With its room and text, an indexer's copy can be checked too; its block time is not known
+   *  yet, so verifyRows still asks the REST API once for that (audit 2026-11-25 #9). */
+  rememberOwnBroadcast(txId, address, { channel = "", content = null } = {}) {
     const sender = cleanAddress(address);
-    if (sender) this.remember(txId, { verdict: BROADCAST_SENDER.VERIFIED, senderAddress: sender });
+    if (!sender) return;
+    const room = normalizeBroadcastChannel(channel);
+    const chain = room && typeof content === "string"
+      ? { channel: room, digest: broadcastContentDigest(room, content), blockTime: 0 } : null;
+    this.remember(txId, { verdict: BROADCAST_SENDER.VERIFIED, senderAddress: sender }, chain);
+  }
+
+  /** The chain facts of a live block hit (its payload and block time came from the node). */
+  static hitFacts(hit) {
+    if (!hit?.channel || typeof hit.content !== "string") return null;
+    return { channel: hit.channel, digest: broadcastContentDigest(hit.channel, hit.content), blockTime: Number(hit.blockTime) || 0 };
   }
 
   /** Outputs of a broadcast transaction seen in the stream, so a later post spending one of
@@ -622,7 +688,13 @@ export class BroadcastSenderVerifier {
   /** Sync verdict for a live hit from what is already known (no network). */
   settleHit(hit) {
     const cached = this.verdictFor(hit?.txId);
-    if (cached) return cached;
+    if (cached) {
+      // e.g. our own post coming back: the block brings the chain's block time it lacked
+      if (cached.verdict === BROADCAST_SENDER.VERIFIED && !(cached.blockTime > 0)) {
+        this.remember(hit?.txId, cached, BroadcastSenderVerifier.hitFacts(hit));
+      }
+      return cached;
+    }
     let judged = hit?.senderVerdict && hit.senderVerdict !== BROADCAST_SENDER.UNKNOWN
       ? judgeBroadcastSender(hit.inputAddress, hit.outputAddress)
       : { verdict: BROADCAST_SENDER.UNKNOWN, senderAddress: "" };
@@ -630,7 +702,7 @@ export class BroadcastSenderVerifier {
       const local = this.outpointAddress(hit.inputOutpoint.transactionId, hit.inputOutpoint.index);
       if (local) judged = judgeBroadcastSender(local, hit.outputAddress);
     }
-    this.remember(hit?.txId, judged);
+    this.remember(hit?.txId, judged, BroadcastSenderVerifier.hitFacts(hit));
     return judged;
   }
 
@@ -660,7 +732,7 @@ export class BroadcastSenderVerifier {
         if (!shape) continue;
         // Output 0 as the node streamed it when it was readable, else as the REST API has it.
         const judged = judgeBroadcastSender(shape.inputAddress, hit.outputAddress || shape.outputAddress);
-        if (judged.verdict !== BROADCAST_SENDER.UNKNOWN) { this.remember(key, judged); return judged; }
+        if (judged.verdict !== BROADCAST_SENDER.UNKNOWN) { this.remember(key, judged, BroadcastSenderVerifier.hitFacts(hit)); return judged; }
       }
       return { verdict: BROADCAST_SENDER.UNKNOWN, senderAddress: "" };
     })().finally(() => { this.inflight.delete(key); });
@@ -683,11 +755,20 @@ export class BroadcastSenderVerifier {
   }
 
   /**
-   * Verifies rows read from a broadcast indexer (`{ txId, senderAddress, ... }`, where
-   * `senderAddress` is only the indexer's guess). Resolves `{ accepted, forged, unknown }`:
-   * `accepted` rows carry the VERIFIED sender in `senderAddress`; `forged` rows are dropped and
-   * logged; `unknown` rows (the REST API had no answer yet) back off and are asked again on a
-   * later call, never shown in the meantime.
+   * Verifies rows read from a broadcast indexer (`{ txId, channel?, senderAddress, content,
+   * blockTime }`, where everything but the txid is only the indexer's word). Resolves
+   * `{ accepted, forged, unknown }`:
+   *   `accepted` rows carry the VERIFIED sender in `senderAddress`, the chain's text in `content`
+   *              and the chain's block time in `blockTime` (the indexer's only when the REST API
+   *              gave none). The sender alone is not enough (audit 2026-11-25 #9): an indexer
+   *              could serve a real txid with other text ("resign" for a join) or another time.
+   *   `forged`   rows are dropped and logged: not a self-send, not a public-chat post at all, a
+   *              post of another room, or text that differs from a copy already checked.
+   *   `unknown`  rows (the REST API had no answer, or no payload, yet) back off and are asked
+   *              again on a later call, never shown in the meantime.
+   * A row's room is its own `channel`, else the `channel` option. Rows whose txid was already
+   * checked (live block, an earlier lookup) are settled from the remembered fingerprint without
+   * a lookup; the rest go to the REST API in one batched search.
    */
   async verifyRows(rows, { channel = "" } = {}) {
     const accepted = [];
@@ -695,13 +776,27 @@ export class BroadcastSenderVerifier {
     const unknown = [];
     const ask = [];
     const nowMs = this.now();
+    const roomOf = (row) => normalizeBroadcastChannel(row?.channel || channel);
+    const dropForRoomOrText = (row, room, onChainRoom) => {
+      forged.push(row);
+      this.logDropped(row.txId, room, onChainRoom && room && onChainRoom !== room
+        ? `the indexer listed it in #${room} but on chain it is a #${onChainRoom} post`
+        : "the indexer's text differs from the transaction's payload on chain");
+    };
     for (const row of Array.isArray(rows) ? rows : []) {
       const key = String(row?.txId || "").toLowerCase();
       if (!key) continue;
       const cached = this.verdictFor(key);
-      if (cached) {
-        if (cached.verdict === BROADCAST_SENDER.VERIFIED) accepted.push({ ...row, senderAddress: cached.senderAddress });
-        else forged.push(row);
+      if (cached?.verdict === BROADCAST_SENDER.FORGED) { forged.push(row); continue; }
+      // Verified with the chain's room and text known, and its block time known (or already
+      // asked for once): settled here.
+      if (cached?.verdict === BROADCAST_SENDER.VERIFIED && cached.digest && (cached.blockTime > 0 || cached.timeAsked)) {
+        const room = roomOf(row);
+        if ((room && cached.channel !== room) || cached.digest !== broadcastContentDigest(cached.channel, row.content)) {
+          dropForRoomOrText(row, room, cached.channel);
+        } else {
+          accepted.push({ ...row, senderAddress: cached.senderAddress, blockTime: cached.blockTime > 0 ? cached.blockTime : row.blockTime });
+        }
         continue;
       }
       const backoff = this.rowBackoff.get(key);
@@ -712,32 +807,68 @@ export class BroadcastSenderVerifier {
       let shapes = new Map();
       try { shapes = await this.lookupRest(ask.map((row) => String(row.txId).toLowerCase())); }
       catch { shapes = new Map(); }
+      const backOff = (key, row, before = this.rowBackoff.get(key)?.attempts || 0) => {
+        const attempts = before + 1;
+        rememberBounded(this.rowBackoff, key, { attempts, nextAt: nowMs + Math.min(60_000, 1_000 * 2 ** (attempts - 1)) });
+        unknown.push(row);
+      };
       for (const row of ask) {
         const key = String(row.txId).toLowerCase();
+        const room = roomOf(row);
         const shape = shapes.get(key);
         const judged = shape ? judgeBroadcastSender(shape.inputAddress, shape.outputAddress)
           : { verdict: BROADCAST_SENDER.UNKNOWN, senderAddress: "" };
-        if (judged.verdict === BROADCAST_SENDER.VERIFIED) {
-          this.remember(key, judged);
-          accepted.push({ ...row, senderAddress: judged.senderAddress });
-        } else if (judged.verdict === BROADCAST_SENDER.FORGED) {
+        if (judged.verdict === BROADCAST_SENDER.FORGED) {
           this.remember(key, judged);
           forged.push(row);
-          this.logDropped(row.txId, row.channel || channel, BroadcastSenderVerifier.dropReason(judged));
-        } else {
-          const attempts = (this.rowBackoff.get(key)?.attempts || 0) + 1;
-          rememberBounded(this.rowBackoff, key, { attempts, nextAt: nowMs + Math.min(60_000, 1_000 * 2 ** (attempts - 1)) });
-          unknown.push(row);
+          this.logDropped(row.txId, room, BroadcastSenderVerifier.dropReason(judged));
+          continue;
         }
+        if (judged.verdict !== BROADCAST_SENDER.VERIFIED) { backOff(key, row); continue; }
+        if (shape.payloadHex === undefined) {
+          // The answer had no payload: the sender is known, the text is not checked, so the
+          // row is not shown yet (remember() clears the backoff, so its count is read first).
+          const before = this.rowBackoff.get(key)?.attempts || 0;
+          this.remember(key, judged);
+          backOff(key, row, before);
+          continue;
+        }
+        const onChain = broadcastFromPayloadHex(shape.payloadHex);
+        if (!onChain) {
+          // a real self-send, but not a public-chat post: nothing an indexer row may stand for
+          this.remember(key, { verdict: BROADCAST_SENDER.FORGED, senderAddress: "" });
+          forged.push(row);
+          this.logDropped(row.txId, room, "the transaction on chain carries no public-chat post");
+          continue;
+        }
+        this.remember(key, judged, {
+          channel: onChain.channel,
+          digest: broadcastContentDigest(onChain.channel, onChain.content),
+          blockTime: shape.blockTime,
+          timeAsked: true,
+        });
+        // Another room's post is dropped from this room only: the sender verdict stays good.
+        if (room && onChain.channel !== room) { dropForRoomOrText(row, room, onChain.channel); continue; }
+        if (onChain.content !== row.content) {
+          this.log(`Public chat: #${room || onChain.channel} post ${row.txId}: the indexer's text differs from the chain's; the chain's is shown.`);
+        }
+        accepted.push({
+          ...row,
+          senderAddress: judged.senderAddress,
+          content: onChain.content,
+          blockTime: shape.blockTime > 0 ? shape.blockTime : row.blockTime,
+        });
       }
     }
     return { accepted, forged, unknown };
   }
 
   /**
-   * `Map<txId, { inputAddress, outputAddress }>` from the Kaspa REST API. One id: GET
-   * `/transactions/{id}`; several: `POST /transactions/search` in batches (falling back to one
-   * GET each if the search endpoint refuses). A txid the API does not know is simply absent.
+   * `Map<txId, { inputAddress, outputAddress, payloadHex, blockTime }>` from the Kaspa REST API
+   * (see restBroadcastSenderShape). One id: GET `/transactions/{id}` (every field); several:
+   * `POST /transactions/search` in batches, asking for the payload and block time too (audit
+   * 2026-11-25 #9), falling back to one GET each if the search endpoint refuses. A txid the API
+   * does not know is simply absent.
    */
   async lookupRest(txIds) {
     const ids = [...new Set((txIds || []).map((id) => String(id || "").toLowerCase()).filter((id) => /^[0-9a-f]{64}$/.test(id)))];
@@ -756,7 +887,7 @@ export class BroadcastSenderVerifier {
     if (ids.length === 1) { await getOne(ids[0]); return out; }
     for (let i = 0; i < ids.length; i += REST_BATCH) {
       const batch = ids.slice(i, i + REST_BATCH);
-      const url = `${base}/transactions/search?fields=transaction_id,inputs,outputs&resolve_previous_outpoints=light`;
+      const url = `${base}/transactions/search?fields=transaction_id,inputs,outputs,payload,block_time&resolve_previous_outpoints=light`;
       const list = await this.fetchJson(url, { method: "POST", body: JSON.stringify({ transactionIds: batch }) });
       if (Array.isArray(list)) { for (const tx of list) put(tx); continue; }
       for (const id of batch) { try { await getOne(id); } catch { /* absent = unknown */ } }
@@ -825,7 +956,7 @@ export async function sendBroadcastMessage({ engine, channel, content, feeKas = 
   if (!txid) throw new Error("Broadcast transaction returned no txid.");
   // This engine signed it, so its sender is known: when the post comes back from the chain it
   // is accepted without a REST lookup (DSK-045).
-  try { engine.broadcastSenderVerifier?.rememberOwnBroadcast?.(txid, sender); } catch { /* verified the slow way */ }
+  try { engine.broadcastSenderVerifier?.rememberOwnBroadcast?.(txid, sender, { channel: name, content: text }); } catch { /* verified the slow way */ }
   return txid;
 }
 

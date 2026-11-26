@@ -335,12 +335,12 @@ await test("hide: the wallet is re-saved only while the stored active account is
 });
 
 // --- 3. notification click ids -------------------------------------------------------------------
-await test("notifications: ids are unique per page and a foreign or old-style id runs no handler", () => {
+await test("notifications: ids are unique per page and a foreign or old-style id runs no handler", async () => {
   const source = (() => {
     const block = app.slice(app.indexOf("const pendingNotificationClicks = new Map();"));
     return block.slice(0, block.indexOf("function ownNotificationClickHandler")) + extractFunction(block, "ownNotificationClickHandler");
   })();
-  const page = () => {
+  const page = (mayLeave = true) => {
     const opened = [];
     const ran = [];
     const scope = {
@@ -348,8 +348,10 @@ await test("notifications: ids are unique per page and a foreign or old-style id
       state: { conversations: [{ id: "c1" }, { id: "c2" }] },
       openConversation: (id) => opened.push(id),
       setActiveAppTab: () => {},
+      // Chess Online not holding the dock (audit 2026-11-25 #28: the click waits on its may-leave check)
+      chessTournamentsMayLeave: async () => mayLeave,
     };
-    const run = new Function("scope", `with (scope) { ${source}\n${extractFunction(app, "routeNotificationClick")}\n return { pendingNotificationClicks, newNotificationClickId, routeNotificationClick }; }`);
+    const run = new Function("scope", `with (scope) { ${source}\n${extractFunction(app, "routeNotificationClick")}\n${extractFunction(app, "leaveChessForNotificationThen")}\n${extractFunction(app, "routeNotificationClickNow")}\n return { pendingNotificationClicks, newNotificationClickId, routeNotificationClick }; }`);
     const api = run(new Proxy(scope, {
       has: (t, k) => typeof k === "string" && (k in t || !(k in globalThis)),
       get: (t, k) => (k === Symbol.unscopables ? undefined : k in t ? t[k] : () => {}),
@@ -357,6 +359,7 @@ await test("notifications: ids are unique per page and a foreign or old-style id
     }));
     return { ...api, opened, ran };
   };
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
   const a = page();
   const b = page();
   const idA = a.newNotificationClickId();
@@ -367,16 +370,28 @@ await test("notifications: ids are unique per page and a foreign or old-style id
   b.pendingNotificationClicks.set(idB, () => b.ran.push("B"));
   // The worker hands page B a tap on page A's notification: B goes by the route, runs nothing of its own.
   b.routeNotificationClick({ clickId: idA, route: { kind: "chat", conversationId: "c2" } });
+  await settle();
   assert.deepEqual(b.ran, []);
   assert.deepEqual(b.opened, ["c2"]);
   // An old counter id ("1") from before a reload: route only.
   a.routeNotificationClick({ clickId: 1, route: { kind: "chat", conversationId: "c1" } });
+  await settle();
   assert.deepEqual(a.ran, []);
   assert.deepEqual(a.opened, ["c1"]);
   // This page's own tap runs its handler, once.
   a.routeNotificationClick({ clickId: idA, route: { kind: "chat", conversationId: "c2" } });
+  await settle();
   assert.deepEqual(a.ran, ["A"]);
   assert.equal(a.pendingNotificationClicks.has(idA), false);
+  // Seated in Chess Online's waiting room, or staying in a live game: the click opens nothing.
+  const held = page(false);
+  const idH = held.newNotificationClickId();
+  held.pendingNotificationClicks.set(idH, () => held.ran.push("H"));
+  held.routeNotificationClick({ clickId: idH, route: { kind: "chat", conversationId: "c1" } });
+  held.routeNotificationClick({ clickId: 1, route: { kind: "chat", conversationId: "c2" } });
+  await settle();
+  assert.deepEqual(held.ran, []);
+  assert.deepEqual(held.opened, []);
 });
 
 // --- 5. Escape on an overlay ---------------------------------------------------------------------

@@ -11,7 +11,7 @@
 // fetch() only (no script/style/worker/media loads, no script or style types out), never for
 // another website's page (Sec-Fetch-Site: cross-site, another site's Origin).
 import { onRequest, clientKey } from "../functions/nc-proxy/[[path]].js";
-import { CHANGENOW_KEY_HEADER, CHANGENOW_CLIENT_KEY_HEADER, NEXTCLOUD_REFUSED_MESSAGE, SWAP_UNAVAILABLE_MESSAGE, EXTENSION_ID_HEADER } from "./relay-rules.mjs";
+import { CHANGENOW_KEY_HEADER, CHANGENOW_CLIENT_KEY_HEADER, NEXTCLOUD_REFUSED_MESSAGE, SWAP_UNAVAILABLE_MESSAGE, EXTENSION_ID_HEADER, RELAY_USER_AGENT } from "./relay-rules.mjs";
 
 let failures = 0;
 let passes = 0;
@@ -228,6 +228,18 @@ async function relay(path, { method = "GET", headers = {}, body, env = {}, ip } 
   check("a preview scrape goes out as a link unfurler", /facebookexternalhit/.test(calls[0]?.headers.get("user-agent") || "") && !calls[0].headers.has("x-preview"));
   await relay(`/nc-proxy/${enc("https://x.com")}/post`, { headers: { "x-preview": "1" } });
   check("x.com gets a browser user agent", /Safari/.test(calls[0]?.headers.get("user-agent") || ""));
+}
+
+// ---- The reader's browser and languages stay here (audit 2026-11-25) ---------------------------
+{
+  answer = () => new Response("ok", { status: 200 });
+  const reader = { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) ReaderBrowser/9.9", "accept-language": "de-CH,de;q=0.9,en;q=0.5" };
+  await relay(`/nc-proxy/${enc("https://api.kaspa.org")}/info`, { headers: reader });
+  check("an API call goes out with the relay's own user-agent", calls[0]?.headers.get("user-agent") === RELAY_USER_AGENT, calls[0]?.headers.get("user-agent"));
+  check("an API call carries no accept-language", calls[0] && !calls[0].headers.has("accept-language"));
+  await relay(`/nc-proxy/${enc("https://www.example.com")}/post`, { headers: { ...reader, "x-preview": "1" } });
+  check("a preview still goes out as the unfurler, without the reader's languages",
+    /facebookexternalhit/.test(calls[0]?.headers.get("user-agent") || "") && !calls[0].headers.has("accept-language"));
 }
 
 // ---- Rate limits and client keys ---------------------------------------------------------------

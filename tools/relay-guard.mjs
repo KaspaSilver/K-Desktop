@@ -57,6 +57,7 @@ import {
   CHANGENOW_KEY_ROUTES, SWAP_UNAVAILABLE_MESSAGE, SWAP_PROBE_PATH, CHANGENOW_CLIENT_KEY_HEADER,
   CHANGENOW_CLIENT_KEY_RE, EXTENSION_ID_HEADER, parseExtensionIds, listedExtensionCaller, ipv4Octets,
   ipv6Bytes, isBlockedHost, createLimiter, applyPreviewHeaders, previewPolicyOf, previewHopRefusal, previewHopHeaders,
+  replaceReaderDetailHeaders,
 } from "./relay-rules.mjs";
 
 // The rules are defined in relay-rules.mjs; these were always exported from here, and still are.
@@ -529,6 +530,9 @@ export function createRelay(options = {}) {
     // Talk's signaling channel is a long poll the server holds for up to 30s.
     const longPoll = String(headers["x-proxy-long-poll"] || "") === "1";
     delete headers["x-proxy-long-poll"];
+    // The reader's browser and languages go to nobody but their own Nextcloud (which names its
+    // sessions after the browser): every other host gets the relay's plain user-agent (audit 2026-11-25).
+    if (!isNextcloudRelayRequest(req.headers, target)) replaceReaderDetailHeaders(headers);
     const previewPolicy = previewPolicyOf(headers);
     applyPreviewHeaders(headers, origin.hostname);
     // Opt-in "soft 404" (KNS): an upstream 404 comes back as 200 + x-upstream-status: 404.

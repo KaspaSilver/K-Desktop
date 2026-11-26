@@ -38,6 +38,17 @@ export const CLIENT_IDENTITY_HEADERS = [
   "x-forwarded-server", "forwarded", "x-real-ip", "true-client-ip", "x-client-ip",
   "x-cluster-client-ip", "via",
 ];
+// What the reader's browser says about the reader (browser, OS, languages). The relay sends its
+// own plain user-agent instead, so the services it reaches can't tell readers apart by these
+// (audit 2026-11-25). A link preview then sets its unfurler's user-agent (applyPreviewHeaders).
+export const READER_DETAIL_HEADERS = ["user-agent", "accept-language"];
+export const RELAY_USER_AGENT = "Mozilla/5.0 (compatible; KaChat-Relay/1.0)";
+/** Take the reader's user-agent and languages off a relayed request; the relay speaks as itself. */
+export function replaceReaderDetailHeaders(headers) {
+  for (const name of READER_DETAIL_HEADERS) delete headers[name];
+  headers["user-agent"] = RELAY_USER_AGENT;
+  return headers;
+}
 
 // Request kinds a browser uses to RENDER a response. The relay never serves those.
 export const NAVIGATION_DESTS = new Set(["document", "iframe", "frame", "embed", "object"]);

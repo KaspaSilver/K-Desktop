@@ -33,7 +33,7 @@ test("a saved spot or link for Public Chats opens Chats", () => {
 // K 961fc05a moved the rooms to KaChat's second page (tools/test-public-chats-page.mjs): they are
 // rows of the Public Chats page by latest activity, never of the Chats page.
 test("rooms are the Public Chats page's rows, by latest activity", () => {
-  assert.match(app, /function visibleChatRooms\(\) \{\n  if \(isChildModeEnabled\(\)\) return \[\];\n  if \(!onPublicChatsPage\(\)\) return \[\];/);
+  assert.match(app, /function visibleChatRooms\(\) \{\n  if \(!onPublicChatsPage\(\)\) return \[\];/);
   assert.match(app, /visibleRooms\.map\(\(room, order\) => \(\{ at: Number\(room\.lastAt\) \|\| -1, order,/);
 });
 

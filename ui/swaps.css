@@ -289,9 +289,8 @@
 .swap-approval-approve { height: 50px; border-radius: 999px; font-size: 17px; font-weight: 700; }
 .swap-approval-approve[disabled] { opacity: .45; cursor: default; }
 
-/* The Wallet's Swap button (K 5.4: beside Send, Receive and Request): four across while it shows
-   (Simple Mode hides it, and the row goes back to three). Here rather than ui/styles.css so the
-   rule ships with the button's screen. */
+/* The Wallet's Swap button (K 5.4: beside Send, Receive and Request): four across while it shows.
+   Here rather than ui/styles.css so the rule ships with the button's screen. */
 .wallet-actions:has(> [data-wallet-swap-action]:not([hidden])) { grid-template-columns: repeat(4, 1fr); }
 
 /* Available and Max on a kUSDT swap (K 6b99c6dd): the balance beside "You Send", a Max pill in the

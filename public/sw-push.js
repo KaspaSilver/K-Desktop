@@ -10,7 +10,7 @@
 // what kind ("New message", "Sent you 1.5 KAS").
 //
 // `mirror` (written by ui/web-push.js, names and flags only):
-//   { account, unit, sound, childMode, names: {addr: name}, quiet: [addr], off: [addr], loud: [addr],
+//   { account, unit, sound, names: {addr: name}, quiet: [addr], off: [addr], loud: [addr],
 //     blocked: [addr], groups: {blindedIdHex: {g: groupId, n: groupName, m: memberAddress, q?: 1}},
 //     addressLabels: {addr: label}, kapostsNames: {xOnlyPubkeyHex: name},
 //     kapostsKinds: {likes, dislikes, comments, reposts, follows, mentions}, rooms: [channel] }
@@ -321,7 +321,6 @@
 
     if (type === "broadcast") {
       const channel = lower(p.channel);
-      if (m.childMode) out.suppress = true;
       // only a joined room with its bell on rings (KaPost b78fdb0): one left or muted since the
       // push service last heard is silent - except a push that @'s you by your username, which the
       // indexer sends whether or not the bell is on (K bdf29425, INDEXER_HANDOFF.md "Push for
@@ -340,7 +339,6 @@
     }
 
     if (type === "kaposts") {
-      if (m.childMode) out.suppress = true;
       // someone this account muted or blocked on KaPost never rings (KaPost 369794e)
       const actor = lower(p.actor_pubkey);
       if (actor && Array.isArray(m.kapostsHidden) && m.kapostsHidden.includes(actor.length === 66 ? actor.slice(2) : actor)) out.suppress = true;

@@ -93,14 +93,12 @@ test("the internal-link parser and finder know Hub links", () => {
   assert.deepEqual({ ...sandbox.parse("kachat://broadcast/kaspa") }, { kind: "broadcast", channel: "kaspa" }, "the others still parse");
 });
 
-function openSandbox({ dock = ["chats", "kaposts", "chess", "address-book"], hub = [], screens = ["chats", "kaposts", "chess", "address-book"], childMode = false } = {}) {
+function openSandbox({ dock = ["chats", "kaposts", "chess", "address-book"], hub = [], screens = ["chats", "kaposts", "chess", "address-book"] } = {}) {
   const calls = [];
   const sandbox = {
     calls,
     hubCardForSlug,
     dockPrefs: { dock, hub },
-    CHILD_HIDDEN_TABS: ["swaps", "kaposts", "broadcasts", "chess", "kachat-names"],
-    isChildModeEnabled: () => childMode,
     showCopyToast: (text) => calls.push(`toast:${text}`),
     closeOpenSheets: () => calls.push("closeOpenSheets"),
     setActiveAppTab: (tab) => calls.push(`setActiveAppTab:${tab}`),
@@ -143,15 +141,12 @@ test("a screen this build doesn't have fails safely: a toast, no tab switch", ()
   assert.equal(unknown.calls.length, 0);
 });
 
-test("Simple Mode: Contacts opens, KaPlay says it isn't available", () => {
-  const box = openSandbox({ childMode: true });
+test("Simple Mode is gone: every Hub link opens its screen (owner, 2026-11-25)", () => {
+  const box = openSandbox();
   box.open({ kind: "hub", slug: "kaplay" });
-  assert.deepEqual([...box.calls], ["toast:Not available in Simple Mode."]);
-  const contacts = openSandbox({ childMode: true });
-  contacts.open({ kind: "hub", slug: "contacts" });
-  assert.ok(contacts.calls.includes("setActiveAppTab:address-book"));
+  assert.ok(box.calls.includes("setActiveAppTab:chess"));
   const opener = fnSource(app, "openKaChatInternalLink");
-  assert.match(opener, /link\.kind !== "profile" && link\.kind !== "pay" && link\.kind !== "hub"\) \{ showCopyToast\("Not available in Simple Mode\."\)/);
+  assert.doesNotMatch(opener, /Simple Mode|isChildModeEnabled/);
   assert.match(opener, /if \(link\.kind === "hub"\) \{ openHubCardLink\(link\); return; \}/);
 });
 

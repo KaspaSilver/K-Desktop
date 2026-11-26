@@ -581,15 +581,15 @@ await check("text: status names in words, whole sentences for Buy and Sell (#34,
   assert.doesNotMatch(read("ui", "swaps.js"), /\$\{prefill\.type === "buy" \? "Buy" : "Sell"\}/);
 });
 
-await check("the Wallet: Swap beside Send / Receive / Request, no Swap Stablecoins, hidden in Simple Mode", () => {
+await check("the Wallet: Swap beside Send / Receive / Request, no Swap Stablecoins, always shown", () => {
   const html = read("index.html");
   const app = read("ui", "app.js");
   const wallet = html.slice(html.indexOf("data-wallet-send"), html.indexOf("data-open-chatting-address"));
   assert.ok(wallet.indexOf("data-wallet-request") < wallet.indexOf("data-wallet-swap-action"));
   assert.doesNotMatch(html, /type="button" data-wallet-swap>/);
-  assert.match(app, /walletSwapAction\.hidden = !tabAllowed\("swaps"\);/);
-  assert.match(app, /\[data-wallet-swap-action\]"\)\?\.addEventListener\("click", \(\) => \{ if \(engine\.address && tabAllowed\("swaps"\)\) setActiveAppTab\("swaps"\); \}\);/);
-  assert.match(read("ui", "childmode.js"), /CHILD_HIDDEN_TABS = \["swaps"/);
+  // Simple Mode, which hid it, is gone (audit 2026-11-25).
+  assert.doesNotMatch(app, /walletSwapAction\.hidden|tabAllowed/);
+  assert.match(app, /\[data-wallet-swap-action\]"\)\?\.addEventListener\("click", \(\) => \{ if \(engine\.address\) setActiveAppTab\("swaps"\); \}\);/);
   assert.equal(AM.sanitizeAmountInput("1,5"), "1.5");
 });
 

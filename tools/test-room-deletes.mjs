@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import {
   encodeRoomDelete, parseRoomDelete, roomDeleteEntry, addRoomDelete, resolveRoomDeletes, rowsTheIndexerNoLongerHas,
+  roomDeleteLookupSet, roomDeleteLookupKey, ROOM_DELETES_MAX, ROOM_DELETES_UNHELD_MAX,
 } from "../engine/room-deletes.js";
 
 const rooms = readFileSync(new URL("../ui/broadcasts.js", import.meta.url), "utf8");
@@ -41,7 +42,33 @@ test("a delete counts only from the target's own sender", () => {
     { target: tx(3), sender: "kaspa:carol" }, // not here yet: remembered for that sender
   ], senderOf);
   assert.deepEqual([...gone], [tx(1)]);
-  assert.deepEqual(record, [{ target: tx(1), sender: "kaspa:alice" }, { target: tx(3), sender: "kaspa:carol" }]);
+  // `held` picks the budget it is kept on (audit 2026-11-25 #26)
+  assert.deepEqual(record, [{ target: tx(1), sender: "kaspa:alice", held: true }, { target: tx(3), sender: "kaspa:carol", held: false }]);
+});
+
+test("deletes for targets not held have a budget of their own (audit 2026-11-25 #26)", () => {
+  // a flood of unheld deletes never pushes a held one out
+  let list = addRoomDelete([], "kaspa", "real", "s");
+  for (let i = 0; i < 50; i += 1) list = addRoomDelete(list, "kaspa", `junk${i}`, "x", 3, { held: false, unheldMax: 5 });
+  assert.ok(list.includes("kaspa|real|s"), "the held delete stays");
+  assert.equal(list.filter((e) => e.startsWith("?")).length, 5, "only the newest 5 unheld kept");
+  assert.ok(list.includes("?kaspa|junk49|x") && !list.includes("?kaspa|junk0|x"));
+  // the held budget trims only held ones
+  const held = addRoomDelete(["?x|u|s", "x|1|s", "x|2|s", "x|3|s"], "x", "4", "s", 3);
+  assert.deepEqual(held, ["?x|u|s", "x|2|s", "x|3|s", "x|4|s"]);
+  // an unheld delete met again with its target held moves to the held budget; never stored twice
+  assert.deepEqual(addRoomDelete(["?x|t|s"], "x", "T", "S"), ["x|t|s"]);
+  assert.equal(addRoomDelete(["?x|t|s"], "x", "t", "s", undefined, { held: false }), null);
+  assert.equal(addRoomDelete(["x|t|s"], "x", "t", "s", undefined, { held: false }), null);
+  // lookups see both kinds; lists stored before the mark read as held
+  assert.deepEqual([...roomDeleteLookupSet(["?x|t|s", "x|u|s"])], ["x|t|s", "x|u|s"]);
+  assert.equal(roomDeleteLookupKey("x|u|s"), "x|u|s");
+  assert.equal(ROOM_DELETES_UNHELD_MAX, 500);
+  assert.equal(ROOM_DELETES_MAX, 2000);
+  // the rooms module records with the budget and looks up through the set
+  assert.match(rooms, /for \(const \{ target, sender, held \} of record\) recordRoomDelete\(channel, target, sender, held !== false\);/);
+  assert.match(rooms, /roomDeleteSet = roomDeleteLookupSet\(roomDeletes\);/);
+  assert.match(rooms, /roomDeleteSet = roomDeleteLookupSet\(next\);/);
 });
 
 const DAY = 86_400_000;
@@ -102,6 +129,22 @@ test("never your own messages or an unsettled send, never an empty page", () => 
   assert.deepEqual(check([], [row(6, t0)], strikes).gone, []);
 });
 
+test("never any local account's messages, nor a sent row still on this device's clock (audit 2026-11-25 #25)", () => {
+  const t0 = now - 2 * 3600_000;
+  const page = [row(1, t0), row(3, t0 + 20 * 60_000)];
+  const held = [row(4, t0 + 5 * 60_000, "kaspa:other"), row(5, t0 + 6 * 60_000, "kaspa:alice", { localTime: true }), row(6, t0 + 7 * 60_000, "kaspa:bob")];
+  const strikes = new Map();
+  const opts = { me: ["kaspa:me", "KASPA:OTHER"] };
+  check(page, held, strikes, opts);
+  assert.deepEqual(check(page, held, strikes, opts).gone, [tx(6)], "only bob's row goes");
+  // the rooms module passes every saved account, and app.js hands them over
+  assert.match(rooms, /me: \[deps\.engine\?\.address \|\| "", \.\.\.mine\]/);
+  const app = readFileSync(new URL("../ui/app.js", import.meta.url), "utf8");
+  assert.match(app, /localAccountAddresses: \(\) => \{ try \{ return loadSavedAccounts\(\)\.map\(\(entry\) => entry\?\.address\)\.filter\(Boolean\); \} catch \{ return \[\]; \} \},/);
+  // a sent row keeps localTime until its copy brings the chain's time
+  assert.match(rooms, /\{ \.\.\.m, txId: txid, status: undefined, localTime: true \}/);
+});
+
 test("an older-history page answers up to its `before`", () => {
   const t0 = now - 5 * 3600_000;
   const page = [row(1, t0), row(3, t0 + 10 * 60_000)];
@@ -128,7 +171,7 @@ test("more than a handful missing at once removes nothing", () => {
 });
 
 test("the rooms module applies deletes on every read path and blocks deleted rows", () => {
-  assert.match(rooms, /const deletion = parseRoomDelete\(row\.content\);\n\s*if \(deletion\) \{\n\s*applied\.add\(row\.txId\);\n\s*removed \+= applyRoomDeletes\(/);
+  assert.match(rooms, /const deletion = parseRoomDelete\(row\.content\);\n\s*if \(deletion && !deletesTrusted\) \{ unprovenDeletes\.push\(row\); continue; \}\n\s*if \(deletion\) \{\n\s*applied\.add\(row\.txId\);\n\s*removed \+= applyRoomDeletes\(/);
   assert.match(rooms, /if \(isRoomDeleted\(channel, row\.txId, row\.senderAddress\)\) \{ applied\.add\(row\.txId\); continue; \}/);
   // never in the machinery rooms
   assert.match(rooms, /function applyRoomDeletes\(channel, deletes, senderOf = null\) \{\n\s*if \(!deletes\?\.length \|\| isServiceBroadcastChannel\(channel\)\) return 0;/);
@@ -138,6 +181,18 @@ test("the rooms module applies deletes on every read path and blocks deleted row
   assert.match(remove, /editsCache\[channel\]/);
   // older caches that stored a delete as text
   assert.match(rooms, /migrateCachedReactionRows\(\);\n\s*migrateCachedDeleteRows\(\);/);
+});
+
+test("deletes count at once only from the block stream or the app-wide indexer (audit 2026-11-25 #22)", () => {
+  assert.match(rooms, /function mergeMessages\(channel, rows, \{ live = false \} = \{\}\) \{\n\s*const deletesTrusted = live \|\| !indexerOverrideFor\(channel\);/);
+  assert.match(rooms, /mergeMessages\(channel, rows, \{ live: true \}\)/, "block-stream hits are trusted");
+  assert.match(rooms, /if \(unprovenDeletes\.length\) proveRoomDeletes\(channel, unprovenDeletes\);/);
+  const prove = rooms.slice(rooms.indexOf("async function proveRoomDeletes("), rooms.indexOf("// Channels that already did the full historical page-back"));
+  assert.ok(prove.length > 100);
+  assert.match(prove, /await deps\.engine\.verifyBroadcastRows\(ask, \{ channel \}\)/, "a room's own indexer's deletes are proved on chain first");
+  assert.match(prove, /const deletion = parseRoomDelete\(row\.content\);/, "the chain's text decides");
+  assert.match(prove, /for \(const row of forged\) applied\.add\(row\.txId\);/, "forged ones are only set aside");
+  assert.match(prove, /applyRoomDeletes\(channel, deletes\)/);
 });
 
 test("indexer removals: newest page, older pages and the closed-room sweep; app-wide indexer only", () => {

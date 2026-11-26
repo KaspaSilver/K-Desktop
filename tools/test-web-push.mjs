@@ -224,7 +224,7 @@ test("registration body: iOS's fields + platform web + web_push, lists normalise
   assert.ok(!("apns_environment" in fields) && !("voip_token" in fields));
 });
 
-test("no KaPosts identity (Simple Mode): no pubkey, no bell list, switches default on", () => {
+test("no KaPosts identity: no pubkey, no bell list, switches default on", () => {
   const fields = buildRegistrationFields({ endpoint: ENDPOINT, p256dh: "p", authSecret: "a", watchedAddresses: [ME], kapostsWatchAuthors: ["aa"] });
   assert.equal(fields.kaposts_pubkey, null);
   assert.deepEqual(fields.kaposts_watch_authors, []);
@@ -320,7 +320,8 @@ test("public room, KaPosts, .kachat names, Address Activity: wording, tags and r
   assert.equal(room.badge, null);
   assert.equal(plain(notificationFromPush({ type: "broadcast", channel: "kaspa", body: '{"text":"hi there"}' }, mirror)).options.body, "hi there");
   assert.equal(plain(notificationFromPush({ type: "broadcast", channel: "kaspa", body: "A".repeat(400) }, mirror)).options.body, "New message");
-  assert.equal(notificationFromPush({ type: "broadcast", channel: "kaspa" }, { ...mirror, childMode: true }).suppress, true);
+  // An old mirror's childMode flag (Simple Mode, gone: audit 2026-11-25) no longer silences anything.
+  assert.equal(notificationFromPush({ type: "broadcast", channel: "kaspa" }, { ...mirror, childMode: true }).suppress, false);
   const postTx = "cd".repeat(32);
   const post = plain(notificationFromPush({ type: "kaposts", subtitle: "alice.kas", body: "liked your post", post_id: postTx, tx_id: "k1" }, mirror));
   assert.equal(post.title, "KaPost"); // the feature is KaPost wherever it is read (iOS 4c0d5a8)

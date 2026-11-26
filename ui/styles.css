@@ -7084,10 +7084,8 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .cold-scan-target span:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 10px; }
 .cold-scan-hint { margin: 0; color: #fff; font-size: 13.5px; font-weight: 650; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
 
-/* ---- Child Mode (Settings > Security > Child Mode + setup-guide step) ---- */
-
-/* Reusable password reveal: input + trailing eye button. Used by every Child
-   Mode password field and the Nextcloud app-password input. */
+/* Reusable password reveal: input + trailing eye button (ui/onboarding-run.js
+   installs the toggle). Used by the Nextcloud app-password input. */
 .password-field-wrap { position: relative; display: block; }
 .password-field-wrap .field-input { width: 100%; padding-right: 42px; }
 .password-eye-btn {
@@ -7098,17 +7096,8 @@ button.quick-reaction-slot { cursor: pointer; padding: 0; line-height: 1; }
 .password-eye-btn:hover { color: var(--text); background: var(--surface-2); }
 .password-eye-btn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
-/* Setup guide "Who will use KaChat?" step */
-.setup-usertype-note { margin: 0 0 10px; color: var(--muted); font-size: 13.5px; line-height: 1.45; text-align: center; }
-.setup-child-password { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+/* Setup guide step errors */
 .setup-guide-extra .field-error { margin-top: 8px; text-align: center; }
-
-/* Settings page */
-.child-mode-heading { margin: 0; font-size: 13px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
-.child-mode-success { margin: 0; font-size: 12.5px; font-weight: 700; color: var(--kaspa-ink); }
-.child-mode-prompt { border-top: 1px solid var(--line); }
-.child-mode-prompt-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.child-mode-prompt-actions .primary-button.danger { background: var(--ios-red); color: #1b0d10; }
 
 /* App-wide settings from the signed-out screen: the overlay normally sits
    below the logged-out screen (z 1500 vs 2000) — app-only mode lifts it. */
@@ -9617,9 +9606,6 @@ button.chess-t-row { cursor: pointer; }
   background: var(--ios-gray6);
   font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px;  /* was 12.5 */
 }
-.setup-usertype-note { margin: 0 0 16px; font-size: 15px; line-height: 20px; color: var(--muted); } /* was 13.5, 0 0 10 */
-.setup-child-password .password-field-wrap .field-input { padding: 10px 42px 10px 10px; border: 0; border-radius: 10px; background: var(--ios-gray6); font-size: 17px; }
-.setup-child-password .field-hint { margin: 0; font-size: 12px; color: var(--muted); }
 
 /* Funding */
 .setup-funding { gap: 12px; align-items: center; }  /* was 10px, stretch */
@@ -9799,7 +9785,6 @@ button.chess-t-row { cursor: pointer; }
 .danger-button { border-radius: 16px; padding: 14px 18px; font-size: 15px; font-weight: 700; }
 .danger-button.subtle, .secondary-button.danger { background: var(--glass-fill); border: .8px solid var(--glass-stroke); color: var(--ios-red); }
 .cold-danger-button { background: var(--ios-red) !important; border-color: var(--ios-red) !important; color: #fff !important; }
-.child-mode-prompt-actions .primary-button.danger { background: var(--ios-red); color: #fff; }
 
 .modal-backdrop { background: var(--dim); -webkit-backdrop-filter: none; backdrop-filter: none; }
 .account-overlay, .chatting-address-screen, .manage-address-screen, .chess-promo, .kaposts-composer-backdrop, .profile-qr-overlay { background: var(--dim); }

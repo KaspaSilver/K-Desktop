@@ -31,7 +31,6 @@ import { arcadeChallengeMayOpen } from "../engine/arcade-services.js";
 
 const ARENA_CACHE_KEY = "kachat-chess-arena-v1";   // device-wide: the arena is the same for every wallet
 const ARENA_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-const ARENA_MAX_ROWS = 40_000;
 const ARENA_MAX_UNVERIFIED = 2_000;
 const POLL_MS = 8_000;
 /** While this player holds a seat or has a game on, the arena is pulled from the indexer every
@@ -227,13 +226,26 @@ function loadCache() {
   } catch { rows = new Map(); unverifiedCachedRows = []; }
 }
 let saveTimer = null;
+// Capped by size, whole rooms newest first, rooms with this device's unconfirmed rows always kept
+// (T.arenaCacheRows; audit 2026-11-25 #10: 40k rows overran the browser's storage, and the failed
+// write lost this device's own unconfirmed joins and moves with the rest). A write the storage
+// refuses is tried again at half and a quarter of the size, then with only the rooms holding our
+// own rows. The rows in memory are never touched, and the indexer refills older rooms.
 function saveCache() {
   window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
-    try {
-      const list = [...rows.values()].sort((a, b) => a.blockTime - b.blockTime).slice(-ARENA_MAX_ROWS);
-      localStorage.setItem(ARENA_CACHE_KEY, JSON.stringify(list));
-    } catch { /* quota: the indexer refills it */ }
+    const all = [...rows.values()];
+    for (const budget of [1, 0.5, 0.25, 0]) {
+      try {
+        const list = T.arenaCacheRows(all, {
+          maxRows: Math.floor(T.ARENA_CACHE_MAX_ROWS * budget),
+          maxChars: Math.floor(T.ARENA_CACHE_MAX_CHARS * budget),
+          decode: rowMessage,
+        });
+        localStorage.setItem(ARENA_CACHE_KEY, JSON.stringify(list));
+        return;
+      } catch { /* quota: try smaller */ }
+    }
   }, 500);
 }
 
@@ -260,8 +272,8 @@ function mergeRows(list) {
  * Chess moves must not be impersonable (DSK-045). A `#chess-arena` post is unsigned, and an
  * indexer row names only the indexer's guess of its sender, so every indexer row is checked
  * against the chain before the reducer sees it: input 0's address (Kaspa REST API) must equal
- * output 0's, and that address becomes the sender. Rows already verified (or sent by this
- * device) skip the lookup. Resolves `{ accepted, unknown }`; forged rows are dropped and logged
+ * output 0's, and that address becomes the sender; the text and block time are the chain's too
+ * (audit 2026-11-25 #9). Rows already verified skip the lookup. Resolves `{ accepted, unknown }`; forged rows are dropped and logged
  * by the engine, unknown ones (REST had no answer yet) wait for a later poll.
  */
 async function verifiedArenaRows(list) {
@@ -270,7 +282,11 @@ async function verifiedArenaRows(list) {
   for (const r of list || []) {
     if (!r?.txId || !T.decodeMessage(r.content)) continue;
     const existing = rows.get(r.txId);
-    if (existing && (existing.verified || existing.local)) { accepted.push({ ...r, senderAddress: existing.senderAddress }); continue; }
+    // A row already verified keeps its own (chain) text and time: the indexer's copy of the
+    // same txid is not believed over it. This device's own unconfirmed send (local, its own
+    // clock) goes to the engine, which checks the indexer's text against what was sent and
+    // takes the chain's block time (audit 2026-11-25 #9).
+    if (existing?.verified) { accepted.push({ ...existing }); continue; }
     ask.push(r);
   }
   if (!ask.length) return { accepted, unknown: [] };
@@ -398,18 +414,30 @@ function reduceArena() {
   try { reduceArenaNow(); }
   catch (error) { deps?.appendEngineLog?.(`Chess arena skipped a bad state: ${error?.message || error}`); }
 }
+// Room by room, replaying only the rooms whose rows changed (audit 2026-11-25 #16); the result is
+// the same as T.reduce(T.orderingLocalStamps(...)) over every row (tools/test-chess-audit-2026-11-25.mjs).
+const reduceArenaRooms = T.createIncrementalReducer();
+// Each row's decoded message, kept per row object (a changed row is a new object), so an unchanged
+// row hands the reducer the same message and its room is not replayed.
+const decodedRowMessages = new WeakMap();
+function rowMessage(r) {
+  if (decodedRowMessages.has(r)) return decodedRowMessages.get(r);
+  const message = T.decodeMessage(r.content);
+  decodedRowMessages.set(r, message);
+  return message;
+}
 function reduceArenaNow() {
   const events = [];
   const localStamps = new Set();
   for (const r of rows.values()) {
-    const message = T.decodeMessage(r.content);
+    const message = rowMessage(r);
     if (!message) continue;
     events.push({ txId: r.txId, sender: r.senderAddress, blockTime: r.blockTime, message });
     if (r.local) localStamps.add(r.txId);
   }
   // Our own moves still on this device's clock sit between their game's moves by ply (iOS
   // 8d5f925): this view only, the chain's times replace them when they land.
-  tournaments = T.reduce(T.orderingLocalStamps(events, localStamps));
+  tournaments = reduceArenaRooms(events, localStamps);
   recomputeLocalBoards();
   const my = me();
   gapSince = my ? T.earliestArenaGap(events, tournaments, my, Date.now()) : null;

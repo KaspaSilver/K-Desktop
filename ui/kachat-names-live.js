@@ -30,7 +30,7 @@ import { kachatNames, kachatNamesLaunched, kachatProfiles } from "./kachat-names
 import { profileMissPauseMs } from "../engine/kachat-names/registry.js";
 import { addressNumber } from "../engine/quantum.js";
 import { userFacingError, chooseDialog } from "./dialogs.js";
-import { Operation, Stage, isOpen, needsDriving, validateKey, maxOfferDays, FeeTier, FeeChoice, TxStage } from "../engine/kachat-names/actions.js";
+import { Operation, Stage, isOpen, needsDriving, claimInFlight, validateKey, maxOfferDays, FeeTier, FeeChoice, TxStage } from "../engine/kachat-names/actions.js";
 import { paramsExpiresSoonMs, paramsRegisterCost } from "../engine/kachat-names/manifest.js";
 import {
   Status, Profile, SocialSource, SocialPlatform, SocialKind, addressOf, keyOf, shortAddress as registryShortAddress, compactAddress,
@@ -2837,6 +2837,10 @@ function openOfferDetailSheet(args, owner = "market") {
 function openClaimSheet({ name, gap, owner = "market" }) {
   const rt = kachatNames();
   if (!rt || !kit) return;
+  // A claim of this name already running: its progress comes up instead of a second commit, which
+  // could only be cancelled after costing a fee (audit 2026-11-25 #17).
+  const running = rt.actions.pending.find((x) => x.name === name && claimInFlight(x));
+  if (running) { openRegistrationProgress(running.id); return; }
   let years = 1;
   let feeTier = FeeTier.normal;
   /** the person picked a speed: a busy network no longer moves it for them */

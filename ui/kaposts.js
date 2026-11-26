@@ -7,6 +7,7 @@
 
 import { guessLanguage, OTHER_LANGUAGE } from "./language-guess.js";
 import { userFacingError } from "./dialogs.js";
+import { setSettingItem } from "./settings-storage.js";
 import { primary as primaryName } from "../engine/name-services.js";
 import {
   KAPOSTS_POST_CHARACTER_LIMIT,
@@ -21,6 +22,7 @@ import {
   fetchGlobalFeed,
   fetchKaPostNotifications,
   fetchKaPostUserDetails,
+  clampKaPostCount,
   fetchPostEngagement,
   fetchPostTippers,
   fetchReplies,
@@ -262,8 +264,10 @@ function loadPrefs() {
   }
 }
 
+// Follows, mutes and blocks: never throws on a full storage, and caches give their space back
+// first (audit 2026-11-25 #11, ui/settings-storage.js).
 function savePrefs() {
-  localStorage.setItem(deps.accountScopedKey(KAPOSTS_PREFS_KEY), JSON.stringify(prefs));
+  setSettingItem(deps.accountScopedKey(KAPOSTS_PREFS_KEY), JSON.stringify(prefs));
 }
 
 function isHiddenAuthor(address) {
@@ -785,7 +789,6 @@ async function syncFollowingFromChain() {
 /// on screen.
 async function checkForNewPosts() {
   if (!deps || checkingForNewPosts || feedLoading || !remotePosts.length) return;
-  if (deps.kaPostsSuppressed?.()) return;
   // Down, the block stream brings what's new (mergeLivePosts), and a saved page has nothing newer.
   if (kaPostIndexerIsDown()) return;
   const source = feedSourceFor(activeFeedTab);
@@ -4314,9 +4317,11 @@ function renderPanel() {
             ${/* iOS myProfileSheet / posterProfileSheet order: name, counts, bio, then (own
                  profile only) the Edit KaChat Profile capsule. Counts read 0 until they load. */ ""}
             <strong>${deps.escapeHtml(posterName(address))}</strong>
+            ${/* The counts are numbers again here, whatever the indexer sent (audit 2026-11-25
+                 #7): profileCountText never lets text from its JSON into the page. */ ""}
             <span class="kaposts-profile-counts">
-              <button type="button" class="kaposts-count-link" data-kaposts-follow-list="following"${panel.pubkey ? "" : " disabled"}><b>${isMine ? prefs.following.filter((a) => a !== address).length : (panel.details?.followingCount ?? 0)}</b> Following</button>&nbsp;&nbsp;
-              <button type="button" class="kaposts-count-link" data-kaposts-follow-list="followers"${panel.pubkey ? "" : " disabled"}><b>${panel.details?.followersCount ?? 0}</b> Followers</button>
+              <button type="button" class="kaposts-count-link" data-kaposts-follow-list="following"${panel.pubkey ? "" : " disabled"}><b>${profileCountText(isMine ? prefs.following.filter((a) => a !== address).length : panel.details?.followingCount)}</b> Following</button>&nbsp;&nbsp;
+              <button type="button" class="kaposts-count-link" data-kaposts-follow-list="followers"${panel.pubkey ? "" : " disabled"}><b>${profileCountText(panel.details?.followersCount)}</b> Followers</button>
             </span>
             ${!isMine ? `<span class="kaposts-profile-actions kaposts-under-counts">
               <button class="kaposts-follow${isFollowing ? " following" : ""}" type="button" data-kaposts-profile-follow>${isFollowing ? "Following" : "Follow"}</button>
@@ -4920,6 +4925,13 @@ function ownProfileDetails(details, pubkey) {
   return { ...details, followersCount: Math.max(0, (Number(details.followersCount) || 0) - 1) };
 }
 
+/** A follower / following count for the profile header: a clamped whole number, grouped for the
+ *  reader's locale ("1,234"). Digits and group marks only, so it is safe in the page as is
+ *  (audit 2026-11-25 #7). */
+function profileCountText(value) {
+  return clampKaPostCount(value).toLocaleString();
+}
+
 /** Pull-to-refresh on a profile (iOS profileFeedPage onRefresh): page one of the tab on screen. */
 async function refreshProfilePanel(panel) {
   if (!panel?.pubkey) return;
@@ -5078,8 +5090,7 @@ function loadMoreProfile(tab) {
 // deps.shouldNotifyKaPostsAction). Polls the same get-notifications endpoint
 // the panel uses, dedupes by notification id (account-scoped, persisted), and
 // posts a desktop notification per fresh item. First run for an account seeds
-// the baseline silently so enabling never blasts history. Suppressed entirely
-// in Child Mode (deps.kaPostsSuppressed), matching the hidden tab.
+// the baseline silently so enabling never blasts history.
 // ---------------------------------------------------------------------------
 
 const KAPOSTS_SEEN_NOTIFS_KEY = "kachat-kaposts-seen-notifications-v1";
@@ -5157,7 +5168,6 @@ function kaPostsNotificationAction(n, text) {
 
 async function pollKaPostNotificationsForPings() {
   if (!deps?.engine?.address) return;
-  if (deps.kaPostsSuppressed?.()) return;
   // The notifications are the account's that asked. Landing after a switch they would be read
   // against the new account's seen list - seeding it with ids that are not its own, or pinging
   // the new account about the previous one's likes and replies - so they are dropped.

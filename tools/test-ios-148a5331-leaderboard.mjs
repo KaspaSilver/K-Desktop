@@ -4,7 +4,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { RAIL_ORDER, dockLayoutFor } from "../ui/dock-arrangement.js";
-import { CHILD_HIDDEN_TABS } from "../ui/childmode.js";
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const app = read("ui/app.js");
@@ -18,7 +17,6 @@ function test(name, fn) {
 test("no Leaderboard dock item anywhere", () => {
   assert.ok(!RAIL_ORDER.includes("leaderboard"));
   assert.ok(!dockLayoutFor(false).hub.includes("leaderboard"));
-  assert.ok(!CHILD_HIDDEN_TABS.includes("leaderboard"));
   assert.doesNotMatch(html, /data-app-tab="leaderboard"/);
   assert.match(app, /if \(tab === "leaderboard"\) tab = "chess";/);
   assert.doesNotMatch(chess, /rootView|viewByRoot/);
