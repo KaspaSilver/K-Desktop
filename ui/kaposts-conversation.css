@@ -43,9 +43,11 @@
 /* --- Full-width link cards in KaPost (K 961fc05a LinkPreviewCardView fillsWidth) -------------- */
 
 /* A post's link card fills the post's column, as on X, instead of a chat bubble's 320 px, and its
-   picture grows with it (190 pt on K). Chats keep their size. */
+   picture grows with it. K's 190 pt is a whole link picture (1.91:1) at a phone's width; a fixed
+   190px on Desktop's wider column cut a third of it off, top and bottom (owner, 2026-11-26), so the
+   picture keeps that shape at any width. Chats keep their size. */
 .kaposts-site-card .message-link-card { max-width: none; width: 100%; }
-.kaposts-site-card .message-link-card-thumb { height: 190px; }
+.kaposts-site-card .message-link-card-thumb { height: auto; aspect-ratio: 1.91 / 1; }
 
 /* --- "Replying to <name>" on a reply shown outside its conversation ---------------------------- */
 

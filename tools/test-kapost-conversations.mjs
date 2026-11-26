@@ -255,7 +255,8 @@ await test("the poll runs on open, on coming back, on Profile, and when a KaPost
 
 await test("a post's link card fills the post's column; chats keep theirs", () => {
   assert.match(css, /\.kaposts-site-card \.message-link-card \{ max-width: none; width: 100%; \}/);
-  assert.match(css, /\.kaposts-site-card \.message-link-card-thumb \{ height: 190px; \}/);
+  // a whole link picture (1.91:1) at any width, not a fixed 190px strip (owner, 2026-11-26)
+  assert.match(css, /\.kaposts-site-card \.message-link-card-thumb \{ height: auto; aspect-ratio: 1\.91 \/ 1; \}/);
   assert.match(kaposts, /<div class="kaposts-site-card" data-kaposts-site-card=/);
 });
 
