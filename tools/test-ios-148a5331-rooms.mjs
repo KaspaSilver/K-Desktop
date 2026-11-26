@@ -40,7 +40,30 @@ test("rooms are the Public Chats page's rows, by latest activity", () => {
 test("a chat, a group and a room share Chats' pane", () => {
   assert.match(app, /if \(id && publicRoomOpen\) \{ try \{ closeBroadcastRoom\(\); \}/);
   assert.match(app, /if \(publicRoomOpen\) \{ try \{ closeBroadcastRoom\(\); \} catch \{ \/\* rooms not started \*\/ \} \}\n  markGroupOpened\(groupId\);/);
-  assert.match(app, /onRoomVisibility: \(open\) => \{\n        publicRoomOpen = open;\n        if \(open\) \{\n          try \{ if \(activeGroupId\) closeGroupChat\(\); \}/);
+  assert.match(app, /const opening = open && !publicRoomOpen;\n        publicRoomOpen = open;\n        if \(opening\) \{\n          try \{ if \(activeGroupId\) closeGroupChat\(\); \}/);
+});
+
+test("only a room opening moves the list to Public Chats, never a later render of it (owner, 2026-11-26)", () => {
+  const hook = app.slice(app.indexOf("onRoomVisibility: (open) => {"), app.indexOf("openRoomFromNotification:"));
+  // run the hook as written: the open room draws again after the reader switched to Chats
+  const body = hook.slice(hook.indexOf("{") + 1, hook.lastIndexOf("},"));
+  const env = { publicRoomOpen: false, activeGroupId: null, activeConversationId: null, page: "chats", pages: [] };
+  const run = new Function("env", "open", `
+    let publicRoomOpen = env.publicRoomOpen, activeGroupId = env.activeGroupId, activeConversationId = env.activeConversationId;
+    const closeGroupChat = () => {}, setActiveConversationId = () => {}, syncPublicChatsPane = () => {};
+    const setChatListPage = (p) => { env.page = p; env.pages.push(p); };
+    ${body}
+    env.publicRoomOpen = publicRoomOpen;
+  `);
+  run(env, true);
+  assert.equal(env.page, "publicChats", "a room opening shows Public Chats");
+  env.page = "chats"; // the reader switches to Chats with the room still open
+  run(env, true);
+  run(env, true);
+  assert.equal(env.page, "chats", "the room drawing again leaves the list alone");
+  run(env, false);
+  run(env, true);
+  assert.equal(env.page, "publicChats", "closed and opened again: Public Chats");
 });
 
 // K 961fc05a split the badge: bell-on rooms count on the page button and the app icon, not the dock.

@@ -13365,7 +13365,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 347;
+const APP_BUILD = 348;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -31608,8 +31608,12 @@ queueMicrotask(async () => {
       // A room opening takes Chats' pane from the open chat or group, however it was opened (its
       // row, a notification, a link, the New sheet).
       onRoomVisibility: (open) => {
+        // Every render of the open room reports it; only a room OPENING moves the list. Doing it
+        // on each report sent the list back to Public Chats whenever the open room drew again (a
+        // new message, a poll, the Chats tab) after you'd switched to Chats (owner, 2026-11-26).
+        const opening = open && !publicRoomOpen;
         publicRoomOpen = open;
-        if (open) {
+        if (opening) {
           try { if (activeGroupId) closeGroupChat(); } catch { /* groups not started */ }
           if (activeConversationId) setActiveConversationId(null);
           // A room opening, however it was opened, shows the Public Chats page beside it (K
