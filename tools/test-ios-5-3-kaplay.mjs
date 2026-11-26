@@ -66,7 +66,7 @@ await test("back from an outage, only the outage is paged again", () => {
 await test("draws read 'after a draw by stalemate' and 'the fifty-move rule'; invites give the whole path", () => {
   assert.match(ui, /return text === "fifty-move rule" \? "the fifty-move rule" : text;/);
   assert.match(ui, /`\$\{who\} won on clock after a draw by \$\{by\}`/);
-  assert.match(ui, /open KaPlay > Chess > \$\{share\.dataset\.kind\} > Join with a code, and enter \$\{share\.dataset\.chessTShare\}\.`/);
+  assert.match(ui, /open Arcade > Chess > \$\{share\.dataset\.kind\} > Join with a code, and enter \$\{share\.dataset\.chessTShare\}\.`/);
   assert.match(ui, /\$\{duel \? "" : ' data-invite="tournament"'\}>Share<\/button>/);
 });
 await test("an address right after '_' is shortened in the log too", async () => {

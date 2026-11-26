@@ -12679,7 +12679,7 @@ function backToChatsListFromDock() {
 // ---------------------------------------------------------------------------
 
 /** Full names, used in the More grid where a dock label is too short. */
-const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "Swap", chess: "KaPlay", "kachat-names": "Usernames" };
+const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "Swap", chess: "Arcade", "kachat-names": "Usernames" };
 
 function tabFullName(tab) {
   if (TAB_FULL_NAMES[tab]) return TAB_FULL_NAMES[tab];
@@ -13365,7 +13365,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 344;
+const APP_BUILD = 345;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -19452,7 +19452,7 @@ function openKaPostsSettings(options = null) {
     <section class="contact-modal kaposts-settings-modal" role="dialog" aria-modal="true" aria-labelledby="kaposts-settings-title">
       <div data-kaposts-settings-page="main">
         <div class="modal-header">
-          <div><h2 id="kaposts-settings-title">${part === "tipping" ? "Tipping" : "KaPost Settings"}</h2></div>
+          <div><h2 id="kaposts-settings-title">${part === "tipping" ? "Tipping" : "Posts"}</h2></div>
           <button class="modal-close" type="button" data-kaposts-settings-close aria-label="Close">×</button>
         </div>
         <div data-kaposts-part="kapost">
@@ -19490,7 +19490,7 @@ function openKaPostsSettings(options = null) {
       <div data-kaposts-settings-page="notifications" hidden>
         <div class="modal-header kaposts-settings-subheader">
           <button class="create-chat-nav-button" type="button" data-kaposts-settings-back aria-label="Back">‹ Back</button>
-          <h2>KaPost</h2>
+          <h2>Posts</h2>
           <button class="modal-close" type="button" data-kaposts-settings-close aria-label="Close">×</button>
         </div>
         <div class="settings-list-card">
@@ -20998,7 +20998,7 @@ const SETTINGS_HUB_ICONS = {
 // in any order in index.html; this is the order the hub lists them in.
 // KaPost and Help joined it when the old Profile screen became your KaPost profile (KaChat iOS
 // 148a5331): KaPost's own settings, and the guides that sat behind Profile's Help button.
-const SETTINGS_HUB_ORDER = ["About", "Account Name", "Back Up Account", "Chats", "Connection", "Customization", "Diagnostics", "Help", "KaPost", "Notifications", "Security", "Storage"];
+const SETTINGS_HUB_ORDER = ["About", "Account Name", "Back Up Account", "Chats", "Connection", "Customization", "Diagnostics", "Help", "Notifications", "Posts", "Security", "Storage"];
 
 
 const settingsHubEl = (() => {
@@ -21018,9 +21018,10 @@ const settingsHubEl = (() => {
     </button>` });
   });
   // Rows that open something of their own rather than a section of this page.
-  categories.push({ label: "KaPost", html: `<button class="settings-list-row settings-hub-row" type="button" data-settings-hub-kapost>
+  // "Posts" (K 47631a48, was KaPost)
+  categories.push({ label: "Posts", html: `<button class="settings-list-row settings-hub-row" type="button" data-settings-hub-kapost>
       <span class="settings-hub-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="3.5"/><path d="M7.5 8.5h9M7.5 12h9M7.5 15.5h5.5"/></svg></span>
-      <span class="settings-hub-label">KaPost</span>
+      <span class="settings-hub-label">Posts</span>
       ${chevron}
     </button>` });
   categories.push({ label: "Help", html: `<button class="settings-list-row settings-hub-row" type="button" data-settings-hub-help>

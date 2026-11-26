@@ -127,7 +127,7 @@ await test("each place K lists has the cycle button", () => {
   // KaPost's three feeds, beside the title (the phone header has the same button)
   assert.match(html, /<div class="kaposts-feed-head" data-kaposts-feed-head>\s*<button class="cycle-button kaposts-feed-cycle"[^>]*data-kaposts-feed-cycle/);
   assert.match(kaposts, /const FEED_CHOICES = \[\["following", "Following"\], \["feed", "Feed"\], \["popular", "Popular"\]\];/);
-  assert.match(kaposts, /<h1 class="kaposts-title">KaPost<\/h1>\n\s*<button class="cycle-button kaposts-feed-cycle"/);
+  assert.match(kaposts, /<h1 class="kaposts-title">Posts<\/h1>\n\s*<button class="cycle-button kaposts-feed-cycle"/);
   assert.match(kaposts, /selectFeedTab\(button\.dataset\.cycleNext\)/);
   // a profile's Posts / Replies, and KaPost Search's Posts / People (audit #37)
   assert.match(kaposts, /cycleButtonHtml\(\{ name: "kaposts-profile"/);
@@ -205,7 +205,7 @@ await test("Chess's screen: a Play card whose Play opens 1v1, Tournament or Bots
   assert.doesNotMatch(chess, /renderLeaderboardPage|function renderLeaderboard\(|name: "leaderboard"|name: "board"/);
   assert.doesNotMatch(bots, /function renderBoards\(|function renderBoard\(|openChessBotBoards|screen === "boards"/);
   // kept: the invite text and the held challenges
-  assert.match(chess, /open KaPlay >/);
+  assert.match(chess, /open Arcade >/);
   assert.match(chess, /heldArcadeChallenge/);
 });
 

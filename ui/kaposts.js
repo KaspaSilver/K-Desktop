@@ -4280,7 +4280,7 @@ function renderPanel() {
   const restorePanelScroll = () => { panelBodyEl.scrollTop = previousTop; };
   const titles = {
     profile: "Profile", notifications: "Notifications", engagement: "Post Activity", tippers: "Tips", search: "Search",
-    bookmarks: "Bookmarks", drafts: "Drafts", scheduled: "Scheduled", muted: "Muted", blocked: "Blocked", menu: "KaPost",
+    bookmarks: "Bookmarks", drafts: "Drafts", scheduled: "Scheduled", muted: "Muted", blocked: "Blocked", menu: "Posts",
   };
   panelTitleEl.textContent = titles[panel.type === "list" ? panel.kind : panel.type] || "Panel";
 
@@ -6981,7 +6981,7 @@ function mountPhoneBar() {
   phoneBarEl.setAttribute("data-kaposts-phone-bar", "");
   phoneBarEl.innerHTML = `
     <button class="kaposts-menu-button" type="button" data-kaposts-menu aria-label="Menu" aria-haspopup="dialog" aria-expanded="false">${MENU_SVG}</button>
-    <h1 class="kaposts-title">KaPost</h1>
+    <h1 class="kaposts-title">Posts</h1>
     <button class="cycle-button kaposts-feed-cycle" type="button" data-cycle="kaposts-feed-phone" data-kaposts-feed-cycle></button>
     <span class="kaposts-phone-bar-actions"></span>`;
   screen.prepend(phoneBarEl);
@@ -6999,13 +6999,14 @@ function buildFeedDrawer() {
   drawerEl.hidden = true;
   drawerEl.innerHTML = `
     <div class="kaposts-drawer-dim" data-kaposts-drawer-dim role="button" tabindex="-1" aria-label="Close menu"></div>
-    <section class="kaposts-drawer-card" data-kaposts-drawer-card role="dialog" aria-modal="true" aria-label="KaPost menu">
+    <section class="kaposts-drawer-card" data-kaposts-drawer-card role="dialog" aria-modal="true" aria-label="Posts menu">
       <header class="kaposts-drawer-header">
-        <h2 class="kaposts-drawer-title">KaPost</h2>
+        <!-- "Posts" (K 47631a48, was KaPost) -->
+        <h2 class="kaposts-drawer-title">Posts</h2>
         <button class="kaposts-drawer-close" type="button" data-kaposts-drawer-close aria-label="Close menu">${XMARK_SVG}</button>
       </header>
       <div class="kaposts-drawer-divider" aria-hidden="true"></div>
-      <nav class="kaposts-drawer-rows" aria-label="KaPost sections">
+      <nav class="kaposts-drawer-rows" aria-label="Posts sections">
         ${KAPOSTS_FEED_MENU.map(({ key, title }) => `<button class="kaposts-drawer-row" type="button" data-kaposts-drawer-item="${key}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${FEED_MENU_ICONS[key]}"/></svg><span>${title}</span></button>`).join("")}
       </nav>
     </section>`;

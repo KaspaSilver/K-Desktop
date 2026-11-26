@@ -275,7 +275,7 @@ await test("the service worker holds a room push for the open app, at most 4 s",
 
 // --- the two pages -----------------------------------------------------------------------------------
 await test("a cycle button beside the KaChat title switches Chats and Public Chats", () => {
-  assert.match(html, /<div class="chats-title-row">\n\s*<h1 class="kaposts-title chats-list-title">KaChat<\/h1>\n\s*<span class="chats-page-cycle-wrap">\n\s*<button class="cycle-button chats-page-cycle" type="button" data-cycle="chats-page" data-chats-page-cycle/);
+  assert.match(html, /<div class="chats-title-row">\n\s*<h1 class="kaposts-title chats-list-title">Chats<\/h1>\n\s*<span class="chats-page-cycle-wrap">\n\s*<button class="cycle-button chats-page-cycle" type="button" data-cycle="chats-page" data-chats-page-cycle/);
   assert.match(app, /function chatListPageOptions\(\) \{ return \[\{ id: "chats", title: "Chats" \}, \{ id: "publicChats", title: "Public Chats" \}\]; \}/);
   assert.match(app, /"Switches between your chats and public chats"/);
   assert.match(app, /document\.querySelector\("\[data-chats-page-cycle\]"\)\?\.addEventListener\("click", \(event\) => \{\n\s*const next = event\.currentTarget\.dataset\.cycleNext/);

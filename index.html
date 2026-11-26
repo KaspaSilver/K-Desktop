@@ -119,7 +119,7 @@
              rooms, pinned rooms as circles above them). Its red count is the public chats' unread
              (rooms with their bell on); app.js syncChatListPageControls paints it. -->
         <div class="chats-title-row">
-          <h1 class="kaposts-title chats-list-title">KaChat</h1>
+          <h1 class="kaposts-title chats-list-title">Chats</h1>
           <span class="chats-page-cycle-wrap">
             <button class="cycle-button chats-page-cycle" type="button" data-cycle="chats-page" data-chats-page-cycle aria-label="Chats, 1 of 2. Switches between your chats and public chats" title="Switches between your chats and public chats"><span class="cycle-button-title">Chats</span></button>
           </span>
@@ -648,8 +648,8 @@
         </div>
 
         <div class="kaposts-screen" data-app-tab-screen="kaposts" hidden>
-          <nav class="kaposts-rail" aria-label="KaPost sections">
-            <h1 class="kaposts-title">KaPost</h1>
+          <nav class="kaposts-rail" aria-label="Posts sections">
+            <h1 class="kaposts-title">Posts</h1>
             <button class="kaposts-rail-item active" type="button" data-kaposts-rail="feed">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.25 12 11.204 3.045c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75"/></svg>
               <span>Feed</span>
@@ -963,11 +963,12 @@
       </button>
       <button class="sidebar-tab active" type="button" data-app-tab="chats" aria-current="page">
         <span class="sidebar-tab-icon" aria-hidden="true"><svg class="tab-glyph-outline" viewBox="0 0 24 24"><path d="M4.3 4.5h9.1a3.8 3.8 0 0 1 3.8 3.8v2.7a3.8 3.8 0 0 1-3.8 3.8H8.7l-4.45 3.05.02-3.44A3.78 3.78 0 0 1 .5 10.65V8.3a3.8 3.8 0 0 1 3.8-3.8Z"/><path d="M9.65 8.15h6.1a3.75 3.75 0 0 1 3.75 3.75v1.95a3.75 3.75 0 0 1-3.75 3.75h-2.7L9.5 20.1v-2.5"/></svg><svg class="tab-glyph-filled" viewBox="0 0 24 24"><defs><mask id="kc-dock-cut-chats" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff"/><path d="M5.6 8.4h6.6a4.6 4.6 0 0 1 4.6 4.6v1.4a4.6 4.6 0 0 1-4.6 4.6H8.1l-3.9 2.9.7-3A4.6 4.6 0 0 1 1 14.4V13a4.6 4.6 0 0 1 4.6-4.6Z" fill="#000" stroke="#000" stroke-width="2.6" stroke-linejoin="round"/></mask></defs><path mask="url(#kc-dock-cut-chats)" d="M13 3.2h5.6A4.4 4.4 0 0 1 23 7.6v1.6a4.4 4.4 0 0 1-3.1 4.2l.5 2.6-3.2-2.4H13a4.4 4.4 0 0 1-4.4-4.4V7.6A4.4 4.4 0 0 1 13 3.2Z"/><path d="M5.6 8.4h6.6a4.6 4.6 0 0 1 4.6 4.6v1.4a4.6 4.6 0 0 1-4.6 4.6H8.1l-3.9 2.9.7-3A4.6 4.6 0 0 1 1 14.4V13a4.6 4.6 0 0 1 4.6-4.6Z"/></svg></span>
-        <span>KaChat</span>
+        <!-- "Chats", "Posts", "Arcade" (owner 2026-11-26, K 47631a48), were KaChat, KaPost, KaPlay. -->
+        <span>Chats</span>
       </button>
       <button class="sidebar-tab" type="button" data-app-tab="kaposts" hidden>
         <span class="sidebar-tab-icon" aria-hidden="true"><svg class="tab-glyph-outline" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M16.862 4.487l1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897l12.682-12.68Z"/><path d="M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/></svg><svg class="tab-glyph-filled tab-glyph-stroked" viewBox="0 0 24 24"><path d="M11 4.6H6.9A2.9 2.9 0 0 0 4 7.5v10.6A2.9 2.9 0 0 0 6.9 21h10.6a2.9 2.9 0 0 0 2.9-2.9V14"/><path d="M18.5 3a2 2 0 0 1 2.8 2.8l-8.6 8.6-3.8 1 1-3.8Z"/></svg></span>
-        <span>KaPost</span>
+        <span>Posts</span>
       </button>
       <button class="sidebar-tab" type="button" data-app-tab="apps" hidden>
         <!-- A globe (iOS AppTab.apps: SF "globe"). -->
@@ -997,8 +998,8 @@
       <button class="sidebar-tab" type="button" data-app-tab="chess" hidden>
         <!-- The logo's controller (KaPlay 45f28d9 ControllerTabIcon, design/app-icon/kachat-chess-tab.svg). -->
         <span class="sidebar-tab-icon" aria-hidden="true"><svg class="tab-glyph-controller" viewBox="96 293 832 520"><path fill-rule="evenodd" d="M330 300 L694 300 C800 300 858 336 880 412 C910 512 932 640 924 728 C916 806 836 832 786 784 C748 748 722 696 682 672 C604 652 420 652 342 672 C302 696 276 748 238 784 C188 832 108 806 100 728 C92 640 114 512 144 412 C166 336 224 300 330 300 Z M240 448 L240 416 C240 409.4 245.4 404 252 404 L272 404 C278.6 404 284 409.4 284 416 L284 448 L316 448 C322.6 448 328 453.4 328 460 L328 480 C328 486.6 322.6 492 316 492 L284 492 L284 524 C284 530.6 278.6 536 272 536 L252 536 C245.4 536 240 530.6 240 524 L240 492 L208 492 C201.4 492 196 486.6 196 480 L196 460 C196 453.4 201.4 448 208 448 Z M532.7 375.1 L568.7 370.0 L582.5 470.0 L568.7 570.0 L532.7 564.9 L543.5 491.2 L464.4 552.0 L442.5 523.5 L512.0 470.0 L442.5 416.5 L464.4 388.0 L543.5 448.8 Z M762 399 C774.703 399 785 409.297 785 422 C785 434.703 774.703 445 762 445 C749.297 445 739 434.703 739 422 C739 409.297 749.297 399 762 399 Z M810 447 C822.703 447 833 457.297 833 470 C833 482.703 822.703 493 810 493 C797.297 493 787 482.703 787 470 C787 457.297 797.297 447 810 447 Z M762 495 C774.703 495 785 505.297 785 518 C785 530.703 774.703 541 762 541 C749.297 541 739 530.703 739 518 C739 505.297 749.297 495 762 495 Z M714 447 C726.703 447 737 457.297 737 470 C737 482.703 726.703 493 714 493 C701.297 493 691 482.703 691 470 C691 457.297 701.297 447 714 447 Z"/></svg></span>
-        <!-- The app is KaPlay (iOS 1d23002); the game in it is still Chess. -->
-        <span>KaPlay</span>
+        <!-- Arcade (K 47631a48, was KaPlay); the game in it is still Chess. -->
+        <span>Arcade</span>
       </button>
       <button class="sidebar-tab" type="button" data-app-tab="settings" hidden>
         <!-- gearshape (iOS AppTab.settings, d54ea87c): Settings as a tab, opening the Settings page
@@ -1358,7 +1359,7 @@
           </section>
 
           <section class="settings-group" data-settings-subscreen="notifications-kaposts">
-            <p class="settings-group-label">KaPost</p>
+            <p class="settings-group-label">Posts</p>
             <div class="settings-list-card">
               <div class="settings-page-form">
                   <div class="settings-toggle-row"><span><strong>Likes</strong></span><label class="switch-control"><input type="checkbox" data-pref-kaposts-notify-likes checked><span></span></label></div>

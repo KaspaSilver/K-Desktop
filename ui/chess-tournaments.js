@@ -1270,7 +1270,7 @@ const errorHtml = () => (lastError ? `<p class="field-hint chess-t-error">${esc(
 
 function renderGames() {
   return `
-    ${headerHtml("KaPlay", { home: true })}
+    ${headerHtml("Arcade", { home: true })}
     <div class="chess-t-body chess-t-home">
       <button class="chess-t-game-card" type="button" data-chess-t-chess>
         <span class="chess-t-game-card-icon">${ICON_CHESS}</span>
@@ -2270,11 +2270,11 @@ function onClick(event) {
   const share = event.target.closest("[data-chess-t-share]");
   if (share) {
     // The tournament screen and the waiting room word the invite differently (iOS ShareLink), in
-    // KaPlay, the app's name now (iOS 1d23002). "open KaPlay" holds on Desktop (its dock item, no
-    // Kaspa Hub since Build 281) and on iPhone (the KaPlay app).
+    // K's words (K 47631a48 ChessText.invite): "open Arcade > Chess", Arcade being the dock item on
+    // Desktop and the Hub tile on iPhone.
     const text = share.dataset.invite === "tournament"
-      ? `Join my chess tournament in KaPlay: open KaPlay > Chess > ${share.dataset.kind} > Join with a code, and enter ${share.dataset.chessTShare}.`
-      : `Play me at chess in KaPlay: open KaPlay > Chess > ${share.dataset.kind} > Join with a code, and enter ${share.dataset.chessTShare}.`;
+      ? `Join my chess tournament in K: open Arcade > Chess > ${share.dataset.kind} > Join with a code, and enter ${share.dataset.chessTShare}.`
+      : `Play me at chess in K: open Arcade > Chess > ${share.dataset.kind} > Join with a code, and enter ${share.dataset.chessTShare}.`;
     if (navigator.share) navigator.share({ text }).catch(() => {});
     else navigator.clipboard?.writeText(text).then(() => deps.showToast?.("Invite copied"), () => {});
     return;

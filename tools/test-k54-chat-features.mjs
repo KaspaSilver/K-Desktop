@@ -254,7 +254,7 @@ await test("Tipping lives in Settings > Customization; Settings > KaPost keeps t
   assert.match(settings, /const part = options\?\.part === "tipping" \? "tipping" : "kapost";/);
   assert.match(settings, /<div data-kaposts-part="kapost">[\s\S]*data-kaposts-cooldown[\s\S]*<div data-kaposts-part="tipping">[\s\S]*data-kaposts-tip-in[\s\S]*data-kaposts-open-tips-from/);
   assert.match(settings, /el\.hidden = el\.getAttribute\("data-kaposts-part"\) !== part;/);
-  assert.match(settings, /\$\{part === "tipping" \? "Tipping" : "KaPost Settings"\}/);
+  assert.match(settings, /\$\{part === "tipping" \? "Tipping" : "Posts"\}/);
   assert.match(settings, /\$\{INSTANT_TIP_LIMIT_FOOTER\}/);
 });
 

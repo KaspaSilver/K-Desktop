@@ -260,11 +260,11 @@ const tick = () => intervals.get(200)?.();
   // Another account comes on while the join is out; then it lands.
   engine.address = "kaspa:qother";
   ui.resetChessTournamentsForAccount();
-  r.check(screen.innerHTML.includes("KaPlay"), "the new account starts on KaPlay's games");
+  r.check(screen.innerHTML.includes("Arcade"), "the new account starts on Arcade's games");
   stub.sends.at(-1).resolve("join-tx");
   await settle();
   r.check(!screen.innerHTML.includes("Looking for an opponent"), "the old account's join does not open its waiting room for the new account");
-  r.check(screen.innerHTML.includes("KaPlay"), "the new account stays where it was");
+  r.check(screen.innerHTML.includes("Arcade"), "the new account stays where it was");
   engine.address = ME;
   ui.resetChessTournamentsForAccount();
 }

@@ -95,11 +95,22 @@ await test("every token card is listed: the payer's, our own notice read back, a
   assert.match(check, /markTokenNoticeFiled\(txId, walletAddress\);\n\s*markTokenPaymentBubble\(txId, walletAddress\);/);
 });
 
-await test("the chats tab is KaChat; the wallet tab is Wallet again (58cfbf6f); Settings keeps Chats and Wallet", () => {
-  assert.match(html, /<h1 class="kaposts-title chats-list-title">KaChat<\/h1>/);
+await test("the chats tab is Chats (K 47631a48, was KaChat); the wallet tab is Wallet again (58cfbf6f); Settings keeps Chats and Wallet", () => {
+  assert.match(html, /<h1 class="kaposts-title chats-list-title">Chats<\/h1>/);
   assert.match(html, /<h1 class="kaposts-title">Wallet<\/h1>/);
   assert.match(html, /data-app-tab="wallet">[\s\S]*?<span>Wallet<\/span>/);
-  assert.match(html, /data-app-tab="chats"[^>]*>[\s\S]*?<span>KaChat<\/span>/);
+  assert.match(html, /data-app-tab="chats"[^>]*>[\s\S]*?<span>Chats<\/span>/);
+  // Posts and Arcade (K 47631a48, were KaPost and KaPlay): dock, titles, Settings, hub cards
+  assert.match(html, /data-app-tab="kaposts"[^>]*>[\s\S]*?<span>Posts<\/span>/);
+  assert.match(html, /data-app-tab="chess"[^>]*>[\s\S]*?<span>Arcade<\/span>/);
+  assert.match(html, /<p class="settings-group-label">Posts<\/p>/);
+  assert.match(app, /chess: "Arcade", "kachat-names": "Usernames"/);
+  assert.match(app, /<span class="settings-hub-label">Posts<\/span>/);
+  assert.match(app, /"Help", "Notifications", "Posts", "Security", "Storage"\]/);
+  assert.match(read("ui", "hub-links.js"), /label: "Posts"[\s\S]*label: "Arcade"/);
+  assert.match(read("ui", "chess-tournaments.js"), /headerHtml\("Arcade", \{ home: true \}\)/);
+  assert.match(read("ui", "chess-tournaments.js"), /`Play me at chess in K: open Arcade > Chess > /);
+  assert.match(read("ui", "kaposts.js"), /<h2 class="kaposts-drawer-title">Posts<\/h2>/);
   assert.match(html, /<p class="settings-group-label">Wallet<\/p>/);
   assert.match(html, /<p class="settings-group-label">Chats<\/p>/);
   assert.match(app, /wallet: "Wallet", kachat: ".kachat", mention: "Mention" \};/);

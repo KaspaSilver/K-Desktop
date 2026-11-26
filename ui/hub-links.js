@@ -15,8 +15,8 @@ export const HUB_LINK_SLUGS = Object.freeze({
   portfolio: Object.freeze({ tab: "portfolio", label: "Portfolio", blurb: "Track your coins and their value." }),
   "cold-storage": Object.freeze({ tab: "cold-storage", label: "Cold Storage", blurb: "Watch and sign for your cold wallets." }),
   usernames: Object.freeze({ tab: "kachat-names", label: "Usernames", blurb: "Claim, buy and sell .kachat usernames." }),
-  kapost: Object.freeze({ tab: "kaposts", label: "KaPost", blurb: "Posts and replies on Kaspa." }),
-  kaplay: Object.freeze({ tab: "chess", label: "KaPlay", blurb: "Chess, Snake and 2048, scores on chain." }),
+  kapost: Object.freeze({ tab: "kaposts", label: "Posts", blurb: "Posts and replies on Kaspa." }),
+  kaplay: Object.freeze({ tab: "chess", label: "Arcade", blurb: "Chess, Snake and 2048, scores on chain." }),
   websites: Object.freeze({ tab: "apps", label: "Websites", blurb: "Websites built on Kaspa." }),
   explorer: Object.freeze({ tab: "explorer", label: "Explorer", blurb: "Blocks, transactions and addresses, live." }),
 });
