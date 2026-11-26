@@ -160,6 +160,11 @@
     if (parsed) return parsed.type === "edit" && Boolean(parsed.targetTxId);
     return raw.replace(/ /g, "").includes('"type":"edit"'); // a cut-off envelope still says what it is
   }
+  // A delete for everyone (K e4062188 isDeleteEnvelope): it takes an earlier message away.
+  function isRoomDelete(text) {
+    const raw = String(text || "").trim();
+    return raw[0] === "{" && raw.replace(/ /g, "").includes('"type":"delete"');
+  }
   function roomPreviewText(body) {
     let text = String(body || "").trim();
     for (const prefix of ["kchat:1:bcast:", "ciph_msg:1:bcast:"]) {
@@ -325,6 +330,8 @@
       if (Array.isArray(m.rooms) && !m.rooms.includes(channel) && !mentionsYou) out.suppress = true;
       // An edit changes an earlier message in place: nothing to announce (KaChat iOS 148a5331).
       if (isRoomEdit(p.body)) out.suppress = true;
+      // A delete for everyone takes an earlier message away: nothing to announce either (K e4062188).
+      if (isRoomDelete(p.body)) out.suppress = true;
       out.title = String(p.title || "").trim() || `#${channel}`;
       out.options.body = joined(String(p.subtitle || "").trim(), roomPreviewText(p.body), ": ");
       out.options.tag = `kachat-broadcast-${p.tx_id || channel}`;

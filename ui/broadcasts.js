@@ -45,6 +45,7 @@ import { SEND_OUTCOME_UNKNOWN, SEND_OUTCOME_UNKNOWN_MESSAGE } from "../engine/tr
 import { settleLeftoverRoomRows, markRoomRowUnconfirmed, settleRoomCopy, ROOM_UNCONFIRMED } from "./leftover-sends.js";
 import { accountGuard } from "./account-guard.js";
 import { recordRoomEdit, restoreRoomEdit, roomLinkJoinPrompt, roomPollGapFloor } from "../engine/kaposts.js";
+import { encodeRoomDelete, parseRoomDelete, roomDeleteEntry, addRoomDelete, resolveRoomDeletes, rowsTheIndexerNoLongerHas } from "../engine/room-deletes.js";
 import { groupParts, isLaterPart, VOICE_PATHS, voicePartSizes } from "../engine/voice-parts.js";
 import * as VoiceNotes from "./voice-notes.js";
 import { MENTIONS_ENABLED, mentionTokens, textMentionsName, roomMentionCandidates, attachMentionSuggestions } from "./username-mentions.js";
@@ -93,6 +94,10 @@ const LINK_HOST = "kachat.app"; // every shared link is https://kachat.app/... (
 const CACHE_KEY = `kachat-broadcast-messages-cache-v1${NET_SUFFIX}`;     // GLOBAL: public chain data, account-agnostic
 const REACTIONS_KEY = `kachat-broadcast-reactions-cache-v1${NET_SUFFIX}`; // GLOBAL: public chain data, account-agnostic
 const EDITS_KEY = `kachat-broadcast-edits-cache-v1${NET_SUFFIX}`;         // GLOBAL: { [channel]: { [targetTxId]: { text, blockTime, editor, txIds } } }
+// GLOBAL: ["room|txid|sender", ...] - room messages their sender deleted for everyone (K e4062188
+// PublicChatStore.recordDelete). K keeps it per account because its room cache is; Desktop's room
+// cache is shared by every account here, so the record that keeps a message out of it is too.
+const DELETES_KEY = `kachat-broadcast-deletes-v1${NET_SUFFIX}`;
 const POLL_MS = 8000;
 // Nextcloud carries the audio bytes - the same 5 minutes as every Nextcloud voice note in the app
 // (iOS ComposerMediaLimits.nextcloudVoiceSeconds); app.js hands its own figure over as a dep.
@@ -132,6 +137,8 @@ let messageCache = {}; // { [channel]: [{ txId, senderAddress, content, blockTim
 //                txIds: [processed reaction txids], lastEvent: { senderAddress, emoji, blockTime } | null } }
 let reactionsCache = {};
 let editsCache = {};
+let roomDeletes = [];           // DELETES_KEY, oldest first
+let roomDeleteSet = new Set();  // the same, for lookups
 let activeChannel = null;
 let pollTimer = null;
 let sendInFlight = false;
@@ -506,6 +513,11 @@ function loadState({ caches = true } = {}) {
     try {
       editsCache = JSON.parse(localStorage.getItem(EDITS_KEY) || "{}") || {};
     } catch { editsCache = {}; }
+    try {
+      const stored = JSON.parse(localStorage.getItem(DELETES_KEY) || "[]");
+      roomDeletes = Array.isArray(stored) ? stored.filter((entry) => typeof entry === "string") : [];
+    } catch { roomDeletes = []; }
+    roomDeleteSet = new Set(roomDeletes);
     cachesLoaded = true;
   }
   // Every default room is in Public Chats from the start (iOS 865c9ab ensureDefaultChannelsJoined):
@@ -519,6 +531,7 @@ function loadState({ caches = true } = {}) {
   moveRetiredChannels();
   joinDefaultRooms();
   migrateCachedReactionRows();
+  migrateCachedDeleteRows();
   pruneCache();
 }
 
@@ -685,6 +698,21 @@ function migrateCachedReactionRows() {
     messageCache[channel] = kept;
   }
   if (migrated) { saveCache(); saveReactions(); }
+}
+
+/** A delete for everyone that reached a cache before this build stored it as a message (its JSON
+ *  showed as text): it comes out of the rows and is applied (K e4062188). */
+function migrateCachedDeleteRows() {
+  for (const channel of Object.keys(messageCache)) {
+    const rows = messageCache[channel] || [];
+    if (!rows.some((row) => parseRoomDelete(row?.content))) continue;
+    messageCache[channel] = rows.filter((row) => !parseRoomDelete(row?.content));
+    applyRoomDeletes(channel, rows.flatMap((row) => {
+      const del = parseRoomDelete(row?.content);
+      return del ? [{ target: del.targetTxId, sender: row.senderAddress || "" }] : [];
+    }));
+    saveCache();
+  }
 }
 
 function saveChannels() {
@@ -962,6 +990,62 @@ function editFor(channel, m) {
   return edit && edit.editor === m.senderAddress && edit.status !== "failed" ? edit : null;
 }
 
+// Deletes for everyone (K e4062188 MessageDeleteCodec, MESSAGING.md "Public Chat Deletes"): a room
+// message {"type":"delete","targetTxId":...} from the target's own sender takes it away, with its
+// reactions and edits, and is remembered as room|txid|sender so no page or block brings it back.
+// Never in the machinery rooms (chess, bots, arcade), never a row, banner or push of its own.
+function saveRoomDeletes() {
+  try { localStorage.setItem(DELETES_KEY, JSON.stringify(roomDeletes)); } catch { /* fine */ }
+}
+function recordRoomDelete(channel, txId, sender) {
+  const next = addRoomDelete(roomDeletes, channel, txId, sender);
+  if (!next) return false;
+  roomDeletes = next;
+  roomDeleteSet = new Set(next);
+  saveRoomDeletes();
+  return true;
+}
+function isRoomDeleted(channel, txId, sender) {
+  return roomDeleteSet.size > 0 && roomDeleteSet.has(roomDeleteEntry(channel, txId, sender));
+}
+/** Takes these messages out of a room's rows (`rows`, changed in place), with the reactions on
+ *  them and their edits (K PublicChatStore.deleteMessages). Returns how many rows went. */
+function removeRoomRows(channel, rows, ids) {
+  const wanted = new Set([...ids].map((id) => String(id).toLowerCase()));
+  if (!wanted.size) return 0;
+  let removed = 0;
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    if (wanted.has(String(rows[i]?.txId || "").toLowerCase())) { rows.splice(i, 1); removed += 1; }
+  }
+  const byTarget = reactionsCache[channel]?.byTarget;
+  let reactionsGone = false;
+  for (const target of Object.keys(byTarget || {})) {
+    if (wanted.has(target.toLowerCase())) { delete byTarget[target]; reactionsGone = true; }
+  }
+  if (reactionsGone) saveReactions();
+  const edits = editsCache[channel];
+  let editsGone = false;
+  for (const target of Object.keys(edits || {})) {
+    if (wanted.has(target.toLowerCase())) { delete edits[target]; editsGone = true; }
+  }
+  if (editsGone) saveEdits();
+  return removed;
+}
+/** Delete envelopes seen in a room, [{ target, sender }] (K applyIncomingDeletes). Returns how many
+ *  held rows went. */
+function applyRoomDeletes(channel, deletes, senderOf = null) {
+  if (!deletes?.length || isServiceBroadcastChannel(channel)) return 0;
+  const rows = (messageCache[channel] ||= []);
+  const lookup = senderOf || ((txId) => {
+    const hit = rows.find((m) => String(m.txId).toLowerCase() === String(txId).toLowerCase());
+    return hit ? String(hit.senderAddress || "") : null;
+  });
+  const { gone, record } = resolveRoomDeletes(deletes, lookup);
+  for (const { target, sender } of record) recordRoomDelete(channel, target, sender);
+  if (activeChannel === channel && broadcastReplyTarget && gone.has(broadcastReplyTarget.txId)) cancelBroadcastReply();
+  return gone.size ? removeRoomRows(channel, rows, gone) : 0;
+}
+
 /** Applies one reaction event. Newest-wins per (targetTxId, reactor); a "remove" is kept as
  *  a tombstone so an older "add" seen again on a later poll can't resurrect the reaction.
  *  Dedupes by reaction txId (pass null for optimistic local applies). Returns true if the
@@ -1031,10 +1115,12 @@ function withKnownSenderVerdicts(rows) {
 }
 
 function mergeMessages(channel, rows) {
-  const existing = messageCache[channel] || [];
+  // the room's own array, so a delete in this batch can take a row this batch just added
+  const existing = (messageCache[channel] ||= []);
   const seen = new Set(existing.map((m) => m.txId));
   const applied = appliedRowsFor(channel);
   let added = 0;
+  let removed = 0;
   let reactionsChanged = false;
   const freshIncoming = [];
   // Oldest first, so an edit in this page can see the message it targets; the indexer pages
@@ -1052,6 +1138,16 @@ function mergeMessages(channel, rows) {
       continue;
     }
     if (applied.has(row.txId)) continue;
+    // A delete for everyone is never a row: it takes its target away when its own sender sent it
+    // (K e4062188 applyIncomingDeletes), from every sender here, hidden ones too.
+    const deletion = parseRoomDelete(row.content);
+    if (deletion) {
+      applied.add(row.txId);
+      removed += applyRoomDeletes(channel, [{ target: deletion.targetTxId, sender: row.senderAddress || "" }], senderOf);
+      continue;
+    }
+    // never a message its sender deleted for everyone
+    if (isRoomDeleted(channel, row.txId, row.senderAddress)) { applied.add(row.txId); continue; }
     seen.add(row.txId);
     const blockTime = Number(row.blockTime) || Date.now();
     // Reactions ride the same wire as normal messages but never become message
@@ -1105,8 +1201,8 @@ function mergeMessages(channel, rows) {
   }
   existing.sort((a, b) => a.blockTime - b.blockTime);
   messageCache[channel] = existing;
-  if (added > 0) saveCache();
-  if (added > 0) {
+  if (added > 0 || removed > 0) saveCache();
+  if (added > 0 || removed > 0) {
     if (channel === activeChannel && tabVisible && roomOnScreen && !document.hidden) markChannelRead(channel);
     if (!listRenderSuppressed) { try { renderChannelList(); } catch { /* list not mounted */ } }
   }
@@ -1156,7 +1252,7 @@ function mergeMessages(channel, rows) {
       onClick: () => deps.openRoomFromNotification?.(row.channel),
     });
   }
-  return added + (reactionsChanged ? 1 : 0);
+  return added + removed + (reactionsChanged ? 1 : 0);
 }
 
 // Channels that already did the full historical page-back this session — the 8s poll
@@ -1171,6 +1267,34 @@ const roomNewestSeen = new Map();
 function noteRoomNewest(channel, rows) {
   const newest = (rows || []).reduce((max, row) => Math.max(max, Number(row?.blockTime) || 0), 0);
   if (newest) roomNewestSeen.set(channel, Math.max(newest, roomNewestSeen.get(channel) || 0));
+}
+// How many reads in a row each cached room message ("room|txid") was missing from (K absenceStrikes).
+const absenceStrikes = new Map();
+/** A message a moderator removed from the indexer, or its sender deleted, goes from here too
+ *  (K e4062188 dropRowsTheIndexerNoLongerHas; the rules are in engine/room-deletes.js). Only for
+ *  the app-wide indexer (no Room Info override) and a room it tracks, never a machinery room.
+ *  `before` is the page's exclusive upper bound when it was asked for older history. Returns how
+ *  many rows went. */
+function dropRowsTheIndexerNoLongerHas(channel, page, before = null) {
+  if (indexerOverrideFor(channel) || !isIndexerTrackedBroadcastChannel(channel) || isServiceBroadcastChannel(channel)) return 0;
+  const rows = messageCache[channel];
+  if (!rows?.length || !page?.length) return 0;
+  const { gone, refused } = rowsTheIndexerNoLongerHas({
+    channel, page, before, held: rows, me: deps.engine?.address || "",
+    retentionMs: BROADCAST_RETENTION_MS, strikes: absenceStrikes,
+  });
+  if (refused) {
+    deps.appendEngineLog?.(`#${channel}: ${refused.gone} of ${refused.considered} cached messages missing from the indexer - left alone (looks like an indexer problem)`);
+    return 0;
+  }
+  if (!gone.length) return 0;
+  const removed = removeRoomRows(channel, rows, gone);
+  if (!removed) return 0;
+  deps.appendEngineLog?.(`#${channel}: ${removed} message(s) no longer on the indexer, removed here too`);
+  saveCache();
+  if (activeChannel === channel) { try { renderRoom(); } catch { /* room not mounted */ } }
+  if (!listRenderSuppressed) { try { renderChannelList(); } catch { /* list not mounted */ } }
+  return removed;
 }
 /** The rooms' indexer changed state: the wanted scan follows, and once it's back its rooms read the
  *  outage again from ten minutes before it began. */
@@ -1211,6 +1335,7 @@ async function pageBackHistory(channel, { before, cutoff, baseUrl, generation })
       }
       if (generation !== roomAccountGeneration) return { added: 0, stale: true };
       added += mergeMessages(channel, result.messages);
+      added += dropRowsTheIndexerNoLongerHas(channel, result.messages, before);
       noteRoomNewest(channel, result.messages);
       if (!result.hasMore || !result.messages.length) break;
       const oldest = result.messages.reduce(
@@ -1258,6 +1383,7 @@ async function backfillChannel(channel, { quiet = true } = {}) {
       const result = await fetchBroadcastHistory({ channel, baseUrl });
       if (generation !== roomAccountGeneration) return 0;
       added = mergeMessages(channel, result.messages);
+      added += dropRowsTheIndexerNoLongerHas(channel, result.messages);
       // More arrived since the last poll than the page holds (a busy room, or the tab away for a
       // while, when the block stream isn't watching it): page back to the rows already seen,
       // through the backfill below (iOS ee5ec98).
@@ -2142,6 +2268,12 @@ function openBroadcastMessageMenu(m, x, y) {
   if (!mine) {
     items.push({ label: "Report", hint: "Report abusive or objectionable content. Opens an email with this message attached.", icon: icons.flag || icons.info, onClick: () => reportBroadcastMessage(m) });
   }
+  // Delete for Everyone (K e4062188): your own delivered message, not a voice note (a long one is
+  // several transactions), never in the machinery rooms.
+  if (mine && !pending && !deps.parseAudioEnvelope?.(m.content) && !roomParts.clusters.get(m.txId)
+      && !isServiceBroadcastChannel(activeChannel) && /^[0-9a-f]{64}$/i.test(String(m.txId || ""))) {
+    items.push({ label: "Delete for Everyone", hint: "Removes it from this room for everyone using K.", icon: icons.trash, danger: true, onClick: () => confirmDeleteForEveryone(m) });
+  }
   // Translate (iOS 03e5128): someone else's plain text, in a language other than the reader's.
   // Public rooms only - the text is public already; 1:1 and group messages never leave the device.
   const translation = deps.translation;
@@ -2189,6 +2321,42 @@ function openBroadcastMessageMenu(m, x, y) {
     reaction: pending ? null : { current, onPick: (emoji) => sendBroadcastReaction(m.txId, emoji) },
     items,
   });
+}
+
+async function confirmDeleteForEveryone(m) {
+  const channel = activeChannel;
+  const ok = await confirmDialog({
+    title: "Delete for Everyone?",
+    message: "It goes from this room for everyone using K. It stays on the Kaspa network, where anyone reading the chain can still find it. Deleting costs a small network fee.",
+    confirmLabel: "Delete",
+    destructive: true,
+  });
+  if (!ok || !channel) return;
+  deleteBroadcastMessageForEveryone(channel, m);
+}
+/** Deletes one of your own delivered room messages for everyone (K deletePublicChatMessage): the
+ *  delete goes out as one transaction, like an edit, and once it has the message goes from here and
+ *  is remembered as deleted. A failed send changes nothing; one whose outcome is unknown leaves it
+ *  too: if it landed, its own delete comes back through the room's reads and removes it then. */
+async function deleteBroadcastMessageForEveryone(channel, m) {
+  const me = deps.engine.address || "";
+  if (!me || isServiceBroadcastChannel(channel) || m.status || m.senderAddress !== me
+      || !/^[0-9a-f]{64}$/i.test(String(m.txId || ""))) return false;
+  if (deps.isChattingBalanceZero?.()) { deps.showFundingGate?.(); return false; }
+  try {
+    await sendBroadcastText(channel, encodeRoomDelete(m.txId), { showBubble: false });
+  } catch (error) {
+    deps.appendEngineLog?.(`Broadcast delete send failed: ${error.message}`);
+    if (error?.code !== SEND_OUTCOME_UNKNOWN) deps.showToast?.("Couldn't delete the message. Try again.");
+    return false;
+  }
+  if (broadcastReplyTarget?.txId === m.txId) cancelBroadcastReply();
+  if (broadcastEditTarget?.txId === m.txId) cancelBroadcastComposeBanner();
+  recordRoomDelete(channel, m.txId, me);
+  if (removeRoomRows(channel, (messageCache[channel] ||= []), [m.txId])) saveCache();
+  if (activeChannel === channel) renderRoom();
+  renderChannelList();
+  return true;
 }
 
 /** Human text for previews/notifications: unwrap replies, name photos/voice notes. */
@@ -3246,7 +3414,9 @@ async function sweepClosedRooms() {
       try {
         const result = await fetchBroadcastHistory({ channel: name, limit: 50, baseUrl: indexerOverrideFor(name) || null });
         if (generation !== roomAccountGeneration) return;
-        if (mergeMessages(name, result.messages) > 0) renderChannelList();
+        // a message a moderator removed goes from closed rooms too, not only when one opens (K e4062188)
+        const changed = mergeMessages(name, result.messages) + dropRowsTheIndexerNoLongerHas(name, result.messages);
+        if (changed > 0) renderChannelList();
       } catch { /* the next sweep tries again */ }
     }
   } finally { sweepRunning = false; }
