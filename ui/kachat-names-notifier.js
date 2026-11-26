@@ -31,7 +31,8 @@ import {
   legacyRemindersStoragePrefix,
 } from "../engine/kachat-names/reminders.js";
 import { formatSompiPlain } from "./send-kaspa-components.js";
-import { openNameRouteLayer } from "./kachat-names-live.js";
+// names in the bell are bare, as everywhere (K 522fd9f4 KachatNamesRegistry notifications)
+import { openNameRouteLayer, kachatNameDisplay } from "./kachat-names-live.js";
 
 const SNAPSHOT_PREFIX = "kachat-names-notifier-v1:";
 /** A check runs at most this often (refreshes and front-of-screen both ask). */
@@ -229,7 +230,7 @@ export async function checkKachatNamesNews() {
 
     // Your names: renewal open, expired (grace), past grace (no longer yours) - once per paid period.
     for (const n of owned) {
-      const display = `${n.name}.kachat`;
+      const display = kachatNameDisplay(n.name);
       const expiresAt = String(n.expiresAt);
       const prev = old?.names?.[n.name];
       const s = prev && prev.expiresAt === expiresAt
@@ -271,7 +272,7 @@ export async function checkKachatNamesNews() {
       try { history = await registry.history(name); } catch { history = []; }
       const last = history.find((e) => ["sale", "offer_accepted", "offer_accept", "transfer", "release", "reclaim"].includes(e.op));
       if (!last) continue;
-      const display = `${name}.kachat`;
+      const display = kachatNameDisplay(name);
       if (last.op === "sale") {
         post(`sold-${last.txId}`, name, `${display} sold`, last.price != null ? `${kas(last.price)} was paid to you.` : "Your listing was bought.");
       } else if (last.op === "offer_accepted" || last.op === "offer_accept") {
@@ -285,7 +286,7 @@ export async function checkKachatNamesNews() {
     for (const o of offersOnMine) {
       next.offersOnMine.add(o.id);
       if (old?.offersOnMine?.has(o.id) || !o.name) continue;
-      post(`offer-${o.id}`, o.name, `New offer on ${o.name}.kachat`, `${kas(o.amount)} offered for it.`);
+      post(`offer-${o.id}`, o.name, `New offer on ${kachatNameDisplay(o.name)}`, `${kas(o.amount)} offered for it.`);
     }
 
     // Your offers: accepted, or back with you.
@@ -293,7 +294,7 @@ export async function checkKachatNamesNews() {
     for (const [id, name] of Object.entries(old?.myOffers || {})) {
       if (next.myOffers[id] != null || !name) continue;
       if (actions.selfClosedOffers?.has(id)) continue;
-      const display = `${name}.kachat`;
+      const display = kachatNameDisplay(name);
       if (owned.some((n) => n.name === name)) {
         post(`myoffer-${id}`, name, "Offer accepted", `${display} is yours now.`);
         continue;

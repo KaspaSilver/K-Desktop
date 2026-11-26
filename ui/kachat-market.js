@@ -110,6 +110,9 @@ const ICON = {
   sealCheck: `<svg class="kmkt-ico kmkt-ico-fill" viewBox="0 0 24 24" aria-hidden="true"><defs><mask id="kmkt-seal-mask"><rect width="24" height="24" fill="#fff"/><path d="m8.4 12.3 2.4 2.4 4.8-5" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></mask></defs><path mask="url(#kmkt-seal-mask)" d="M12 1.8l2.4 1.8 3-.2.9 2.9 2.5 1.7-1 2.8 1 2.8-2.5 1.7-.9 2.9-3-.2L12 22.2l-2.4-1.8-3 .2-.9-2.9-2.5-1.7 1-2.8-1-2.8 2.5-1.7.9-2.9 3 .2Z"/></svg>`,
 };
 
+/** The "@" symbol the Usernames screens draw where the wordmark was (K 522fd9f4). */
+export const KACHAT_AT_SVG = ICON.atCircle;
+
 /** The ".kachat" wordmark (iOS KachatTabIcon: heavy, rounded, tinted like any symbol). The word is
  *  wider than it is tall - the box is 54x24, so size it by height (e.g. height: 24px; width: auto). */
 export const KACHAT_WORDMARK_SVG =
@@ -240,7 +243,8 @@ function closeLayersOwnedBy(owner) {
 function heroHtml() {
   return `
     <section class="kmkt-hero kmkt-hero-compact">
-      <span class="kmkt-hero-mark">${KACHAT_WORDMARK_SVG}</span>
+      <!-- "Usernames", where the ".kachat" wordmark was (K 522fd9f4, owner 2026-11-26) -->
+      <h2 class="kmkt-hero-title">Usernames</h2>
       <p class="kmkt-hero-tagline">Claim your name on Kaspa</p>
       <div class="kmkt-hero-status" data-kmkt-hero-status>${liveHeroStatusHtml(comingSoonPill())}</div>
     </section>`;
@@ -253,7 +257,7 @@ function searchResultHtml() {
   return `
     <div class="kmkt-search-result">
       <div class="kmkt-search-result-copy">
-        <strong>${esc(typed)}.kachat</strong>
+        <strong>${esc(typed)}</strong>
         <small>Registration isn't open yet.</small>
       </div>
       <button class="primary-button kmkt-small-button" type="button" disabled>Claim</button>
@@ -270,7 +274,7 @@ function searchCardHtml() {
         <input type="search" enterkeyhint="search" data-kmkt-search placeholder="Type the name you want" value="${esc(state.search)}"
           autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Type the name you want" />
         <button class="kmkt-search-clear" type="button" data-kmkt-search-clear aria-label="Clear" ${state.search ? "" : "hidden"}>${ICON.clear}</button>
-        <span class="kmkt-search-suffix">.kachat</span>
+        <!-- no ".kachat" after the field: names are shown bare (K 522fd9f4) -->
       </label>
       <div data-kmkt-search-result>${searchResultHtml()}</div>
     </section>`;
@@ -356,7 +360,7 @@ function homeHtml() {
   return `
     <div class="kmkt-root">
       <div class="kaposts-header kmkt-header">
-        <h1 class="kaposts-title">.kachat</h1>
+        <h1 class="kaposts-title">Usernames</h1>
         <div class="kaposts-header-actions" data-kmkt-header-actions>${headerActionsHtml()}</div>
       </div>
       ${heroHtml()}
@@ -823,7 +827,7 @@ function guideStepHtml(step) {
       return `
         ${guideStepHeader("Claim your .kachat name", "It's the name people see you as across K - in chats, on posts and on your profile link. Without one, people see your address.", `<span class="kmkt-guide-mark">${KACHAT_WORDMARK_SVG}</span>`)}
         <div class="kmkt-guide-claim">
-          <div class="kmkt-guide-field"><span class="kmkt-placeholder-text">yourname</span><span class="kmkt-search-suffix">.kachat</span></div>
+          <div class="kmkt-guide-field"><span class="kmkt-placeholder-text">yourname</span></div>
           <small class="kmkt-muted">Search for the name you want in Usernames, then claim it.</small>
         </div>`;
     }
@@ -946,7 +950,7 @@ export function openKachatMarketSheet({ onClose = null } = {}) {
   const layer = openLayer({
     owner: "market-cover",
     kind: "cover",
-    label: ".kachat",
+    label: "Usernames",
     dismissOnBackdrop: false,
     html: `
       <header class="kmkt-navbar kmkt-cover-bar">
@@ -1013,7 +1017,7 @@ export function hideKachatMarket() {
  *  iOS 881ada6 / 7227d69) - empty on mainnet. */
 export function kachatAddressDomainsHtml() {
   return `<div class="kachat-address-domains">
-    <span class="kachat-address-domains-mark" aria-hidden="true">${KACHAT_WORDMARK_SVG}</span>
+    <span class="kachat-address-domains-mark" aria-hidden="true">${ICON.atCircle}</span>
     <strong>No usernames on this address</strong>
     <p>Names this address claims or buys show here once .kachat names launch.</p>
   </div>`;

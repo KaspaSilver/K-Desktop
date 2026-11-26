@@ -18,10 +18,16 @@ export const RETIRED_SIMPLE_MODE_KEYS = Object.freeze([
   "kachat-user-type-choice-v1", // the onboarding's Full/Simple answer ("pending" / "chosen")
 ]);
 
+/** The Show .kachat Endings switch's key (global). */
+export const RETIRED_KACHAT_ENDINGS_KEY = "kachat-show-name-endings-v1";
+
 /** Deletes the retired keys once per browser. Returns true when it ran this time. Storage that
  *  throws (private windows, blocked site data) leaves it to the next launch. */
 export function removeRetiredFeatureData(storage = globalThis.localStorage) {
   if (!storage) return false;
+  // Show .kachat Endings left K in 522fd9f4 (owner, 2026-11-26): names are always bare. Removed on
+  // every launch, not behind the done mark, which browsers that ran the Simple Mode cleanup have.
+  try { storage.removeItem(RETIRED_KACHAT_ENDINGS_KEY); } catch { /* blocked storage */ }
   try {
     if (storage.getItem(RETIRED_FEATURES_DONE_KEY) === "1") return false;
     for (const key of RETIRED_SIMPLE_MODE_KEYS) storage.removeItem(key);

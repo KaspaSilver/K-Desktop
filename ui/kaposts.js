@@ -1636,7 +1636,8 @@ function escapeWithMentions(rawText) {
   let last = 0;
   for (const token of mentionTokens(value)) {
     out += deps.escapeHtml(value.slice(last, token.start));
-    out += `<span class="kaposts-mention" data-kaposts-mention="${deps.escapeHtml(token.name)}">${deps.escapeHtml(value.slice(token.start, token.end))}</span>`;
+    // "@alice", never the ending, whatever the writer typed (K 522fd9f4 dropKachatEndings)
+    out += `<span class="kaposts-mention" data-kaposts-mention="${deps.escapeHtml(token.name)}">${deps.escapeHtml(value.slice(token.start, token.end).replace(/\.kachat$/i, ""))}</span>`;
     last = token.end;
   }
   out += deps.escapeHtml(value.slice(last));
@@ -1765,9 +1766,12 @@ function linkifyPostText(text, { interactive = true } = {}) {
     const piece = deps.escapeHtml(value.slice(a, b));
     const mention = mentions.find((m) => a >= m.start && b <= m.end);
     if (mention) {
+      // "@alice", never the ending, whatever the writer typed (K 522fd9f4 dropKachatEndings): the
+      // mention's last piece loses ".kachat"; its link still names the username
+      const shown = b === mention.end ? piece.replace(/\.kachat$/i, "") : piece;
       out += interactive && MENTIONS_ENABLED
-        ? `<span class="kaposts-mention" data-kaposts-mention="${deps.escapeHtml(mention.domain.toLowerCase())}">${piece}</span>`
-        : piece;
+        ? `<span class="kaposts-mention" data-kaposts-mention="${deps.escapeHtml(mention.domain.toLowerCase())}">${shown}</span>`
+        : shown;
       continue;
     }
     const span = rendered.spans.find((sp) => a >= sp.start && b <= sp.end);

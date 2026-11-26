@@ -45,9 +45,9 @@ import { parseArcadeChallengeLink, arcadeChallengeFromLaunchSearch } from "../en
 import { initKachatNamesRuntime, kachatNames, kachatNamesUiEnabled, kachatNamesLaunched, kachatProfiles, kachatVerifiedLabel, kachatLabelChecking, verifyKachatLabel } from "./kachat-names-runtime.js";
 import { PHOTO_UNLOCK_DELAY_MS, photosUnlockTime, photosAreHidden } from "./photo-unlock.js";
 import { createProfileRescans } from "./profile-rescan.js";
-import { kachatHeroProfile, kachatCachedOwnedNameCount, onKachatSocialChange, kachatCachedIdentity, kachatCachedLabel, kachatCachedDisplayLabel, kachatNameDisplay, kachatShowsEndings, setKachatShowsEndings, kachatCachedAvatarUrl, kachatCachedProfilePieces, onKachatIdentityChange, kachatRetryImage, kachatOwnersOfNames, kachatRescanProfile, kachatOwnedNameCount, onKachatRegistryChange, kachatClearProfileCache, kachatExpiredNames, startKachatUnnamedIdentitySweep, setKachatSocialLookupGate, kachatProfileOpened } from "./kachat-names-live.js";
+import { kachatHeroProfile, kachatCachedOwnedNameCount, onKachatSocialChange, kachatCachedIdentity, kachatCachedLabel, kachatCachedDisplayLabel, kachatNameDisplay, kachatCachedAvatarUrl, kachatCachedProfilePieces, onKachatIdentityChange, kachatRetryImage, kachatOwnersOfNames, kachatRescanProfile, kachatOwnedNameCount, onKachatRegistryChange, kachatClearProfileCache, kachatExpiredNames, startKachatUnnamedIdentitySweep, setKachatSocialLookupGate, kachatProfileOpened } from "./kachat-names-live.js";
 import { startKachatNamesNotifier, openKachatNameFromNotification as openKachatNameFromBell, removeKachatNameReminders, kachatNamesNotificationSettingsChanged } from "./kachat-names-notifier.js";
-import { initKachatMarket, showKachatMarket, hideKachatMarket, openKachatProfileEditor, openKachatSetupGuide, KACHAT_WORDMARK_SVG, kachatAddressDomainsHtml, renderKachatLiveDomainsTab, openKachatMarketSheet } from "./kachat-market.js";
+import { initKachatMarket, showKachatMarket, hideKachatMarket, openKachatProfileEditor, openKachatSetupGuide, KACHAT_AT_SVG, kachatAddressDomainsHtml, renderKachatLiveDomainsTab, openKachatMarketSheet } from "./kachat-market.js";
 import { initExplorer, showExplorer, hideExplorer, explorerToHome } from "./explorer.js";
 // Closed-app notifications (Web Push) and the app icon's badge.
 import { initWebPush, scheduleWebPushSync, webPushStatus, webPushStatusText, webPushSignOut, webPushForgetAccount, setAppIconBadge, takePendingNotificationClick, needsHomeScreenInstall, pushArrivedRecently } from "./web-push.js";
@@ -13291,7 +13291,7 @@ function renderProfileDomains() {
   if (renderKachatLiveDomainsTab(listEl, engine.address, { onLoaded })) return;
   listEl.innerHTML = `
     <div class="domains-kachat-placeholder">
-      <span class="domains-kachat-mark" aria-hidden="true">${KACHAT_WORDMARK_SVG}</span>
+      <span class="domains-kachat-mark" aria-hidden="true">${KACHAT_AT_SVG}</span>
       <strong>Usernames are coming</strong>
       <p>K's own names will live here: claim one, set it as your name in chats, and share it as your profile link.</p>
     </div>`;
@@ -13365,7 +13365,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 345;
+const APP_BUILD = 346;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -18754,13 +18754,14 @@ function paintChatInfoKachat(contact) {
     const canSet = !isSelf && !isKachatBot(address);
     const typed = String(chatInfoNameInput?.value || "").trim();
     namesList.innerHTML = names.map((name) => {
-      // Copy keeps the ending; the row shows it as Settings says (iOS 94ed3a35).
+      // Copy keeps the ending; the row shows the bare name, and Set as Name fills in the bare name
+      // (K 522fd9f4: the ending is never shown).
       const full = `${name}.kachat`;
       const shown = kachatNameDisplay(name);
       const primary = name === label;
       const action = !canSet ? ""
-        : typed === full ? `<span class="chat-info-their-name"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Their Name</span>`
-        : `<button type="button" class="chat-info-set-name" data-chat-info-set-name="${escapeHtml(full)}">Set as Name</button>`;
+        : typed === shown ? `<span class="chat-info-their-name"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Their Name</span>`
+        : `<button type="button" class="chat-info-set-name" data-chat-info-set-name="${escapeHtml(shown)}">Set as Name</button>`;
       return `
       <div class="chat-info-domain-row chat-info-name-row">
         <button type="button" class="chat-info-domain-copy" data-chat-info-copy-domain="${escapeHtml(full)}" title="Copy name">
@@ -30833,21 +30834,6 @@ function renderWebPushStatus() {
 // There is no Show Setup Guides switch any more: the guides are always shown.
 function feeEstimateEnabled() {
   return (accountShellPrefs.estimateFees ?? true) !== false;
-}
-
-// Settings > Customization > Show .kachat Endings (iOS 94ed3a35): one app setting, display only.
-{
-  const endingsInput = document.querySelector("[data-pref-kachat-endings]");
-  if (endingsInput) {
-    endingsInput.checked = kachatShowsEndings();
-    endingsInput.addEventListener("change", () => {
-      setKachatShowsEndings(endingsInput.checked);
-      // Every name on screen follows at once.
-      try { renderChats(); } catch {}
-      try { if (activeConversationId) { const entry = state.conversations.find((c) => c.id === activeConversationId); if (entry) { conversationName.textContent = displayNameForAddress(contactForConversation(entry)); renderMessages(entry); } } } catch {}
-      try { if (activeGroupId) renderGroupMessages(); } catch {}
-    });
-  }
 }
 
 const prefBindings = [

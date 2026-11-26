@@ -51,6 +51,8 @@ function run({ switchDuringHistory }) {
     const dayString = String;
     const kas = String;
     const KAS_UNIT = "KAS";
+    // names in the bell are bare (K 522fd9f4)
+    const kachatNameDisplay = (n) => String(n || "").replace(/\.kachat$/i, "");
     const readSnapshot = (w) => { const t = env.snapshots.get(w); if (!t) return null; const j = JSON.parse(t);
       return { names: j.names, offersOnMine: new Set(j.offersOnMine), myOffers: j.myOffers }; };
     const writeSnapshot = (w, s) => env.snapshots.set(w, JSON.stringify({ names: s.names, offersOnMine: [...s.offersOnMine], myOffers: s.myOffers }));
@@ -65,7 +67,7 @@ function run({ switchDuringHistory }) {
 {
   const { recorded, snapshots } = await run({ switchDuringHistory: false });
   assert.equal(recorded.length, 1);
-  assert.equal(recorded[0].title, "sold.kachat sold");
+  assert.equal(recorded[0].title, "sold sold", "the bare name");
   assert.deepEqual(JSON.parse(snapshots.get("kaspatest:qa")).names, {});
 }
 

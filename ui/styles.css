@@ -11404,6 +11404,10 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
    an Available tile, its own Claim button above the overlay that opens the name (iOS eea52b2). The
    hero keeps only the logo and the status, so the search sits higher. */
 .kmkt-hero.kmkt-hero-compact .kmkt-hero-mark .kmkt-wordmark { height: 56px; }
+/* "Usernames" where the wordmark was (K 522fd9f4): heavy, rounded, the accent colour */
+.kmkt-hero-title { margin: 0; font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif; font-size: 34px; font-weight: 800; line-height: 1.1; color: var(--accent); }
+/* the "@" symbol in the Usernames empty states, where the wordmark was */
+.domains-kachat-mark, .kachat-address-domains-mark { color: var(--accent); }
 .kl-tile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .kl-tile {
   position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -11414,7 +11418,6 @@ button.kl-tile, .kl-tile-split { cursor: pointer; }
 button.kl-tile:hover, .kl-tile-split:hover { background: color-mix(in srgb, var(--grouped-row) 92%, var(--text)); }
 button.kl-tile:focus-visible, .kl-tile-open:focus-visible { outline: 2px solid var(--kaspa-ink); outline-offset: 2px; }
 .kl-tile-name { max-width: 100%; font-size: 17px; font-weight: 700; line-height: 22px; overflow-wrap: anywhere; }
-.kl-tile-suffix { font-size: 12px; font-weight: 600; line-height: 16px; color: var(--kaspa-ink); }
 .kl-tile-footer { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 100%; margin-top: 8px; }
 .kl-tile-price { max-width: 100%; font-size: 15px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kl-tile .kmkt-bar { margin: 2px 0; }

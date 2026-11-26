@@ -13,7 +13,7 @@
   <!-- Too-old browsers (no WebAssembly / modern JS, e.g. iOS 10) get a clear message, not a blank layout. -->
   <script src="/browser-check.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=445" />
+  <link rel="stylesheet" href="./ui/styles.css?v=446" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (K's globe, dark only since K b0f0a4e6) is the tab icon too. -->
@@ -1118,10 +1118,8 @@
               <!-- iOS SettingsView customizationPage: pickers, Customize Dock, then Show Fee Estimate
                    (default on). No Show Setup Guides switch: the guides are always shown. -->
               <div class="settings-toggle-row" data-fee-estimate-row><span><strong>Show Fee Estimate</strong></span><label class="switch-control"><input type="checkbox" data-pref-estimate-fees checked><span></span></label></div>
-              <!-- iOS 94ed3a35 KachatEndingsToggle: display only, off by default (K 518fdc8c). -->
-              <div class="settings-toggle-row"><span><strong>Show .kachat Endings</strong></span><label class="switch-control"><input type="checkbox" data-pref-kachat-endings><span></span></label></div>
+              <!-- No Show .kachat Endings switch: a name is always shown bare (K 522fd9f4, owner 2026-11-26). -->
             </div>
-            <p class="settings-group-footer field-hint">Turn off to show names like alice instead of alice.kachat. A name you gave someone yourself never has the ending.</p>
             <!-- K 518fdc8c: what Tip sends, on a post and in a 1:1 chat's + (moved here from
                  Settings > KaPost, which keeps the cool down). Per account: not on App Settings. -->
             <div data-settings-tipping-card>

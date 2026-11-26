@@ -1783,7 +1783,8 @@ function renderRoomText(container, text) {
     const span = document.createElement("span");
     span.className = "room-mention";
     span.setAttribute("role", "link");
-    span.textContent = value.slice(token.start, token.end);
+    // "@alice", never the ending, whatever the sender typed (K 522fd9f4)
+    span.textContent = value.slice(token.start, token.end).replace(/\.kachat$/i, "");
     span.addEventListener("click", (event) => {
       // the profile, not the message menu a click on the bubble opens
       event.stopPropagation();

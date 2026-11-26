@@ -447,7 +447,7 @@ function eventRowHtml(event, { showName = false } = {}) {
     <div class="kmkt-row static compact kl-event-row">
       <span class="kmkt-row-icon w28">${eventIcon(event.op)}</span>
       <span class="kl-row-text">
-        <strong>${esc(eventTitle(event.op))}${showName && event.name ? ` ${esc(`${event.name}.kachat`)}` : ""}</strong>
+        <strong>${esc(eventTitle(event.op))}${showName && event.name ? ` ${esc(kachatNameDisplay(event.name))}` : ""}</strong>
         ${sub ? `<small>${esc(sub)}</small>` : ""}
       </span>
       ${right}
@@ -784,7 +784,7 @@ export function liveSearchResultHtml(raw) {
   const row = (subtitle) => `
     <div class="kmkt-search-result">
       <div class="kmkt-search-result-copy">
-        <strong>${esc(`${name}.kachat`)}</strong>
+        <strong>${esc(kachatNameDisplay(name))}</strong>
         <small>${esc(subtitle)}</small>
       </div>
     </div>`;
@@ -817,7 +817,7 @@ export function liveSearchResultHtml(raw) {
     return `
       <div class="kmkt-search-result">
         <div class="kmkt-search-result-copy">
-          <strong>${esc(`${name}.kachat`)}</strong>
+          <strong>${esc(kachatNameDisplay(name))}</strong>
           <small class="kl-green">Available</small>
         </div>
         <button class="primary-button kmkt-small-button" type="button" data-kl-claim="${esc(name)}" ${s.gap ? "" : "disabled"}>Claim</button>
@@ -827,7 +827,7 @@ export function liveSearchResultHtml(raw) {
   if (s.kind === "failed" && s.name === name) return row(s.message);
   return `
     <div class="kmkt-search-result">
-      <div class="kmkt-search-result-copy"><strong>${esc(`${name}.kachat`)}</strong></div>
+      <div class="kmkt-search-result-copy"><strong>${esc(kachatNameDisplay(name))}</strong></div>
       ${spinner()}
     </div>`;
 }
@@ -934,7 +934,7 @@ function registrationCardHtml(p) {
   return `
     <section class="kmkt-card kl-reg-card">
       <div class="kl-reg-head">
-        <strong>${esc(`${p.name}.kachat`)}</strong>
+        <strong>${esc(kachatNameDisplay(p.name))}</strong>
         ${icon}
       </div>
       <p class="kl-reg-text">${esc(registrationStageText(p))}</p>
@@ -965,7 +965,7 @@ const KEEP_OPEN_NOTE = "Keep K open: the name is registered about a minute after
 function progressBodyHtml(p) {
   return `
     <div class="kmkt-sheet-body kl-progress-sheet">
-      <strong class="kl-progress-title">${esc(`Claiming ${p.name}.kachat`)}</strong>
+      <strong class="kl-progress-title">${esc(`Claiming ${kachatNameDisplay(p.name)}`)}</strong>
       ${registrationCardHtml(p)}
       ${needsDriving(p) ? `<p class="kmkt-muted kl-progress-note">${esc(KEEP_OPEN_NOTE)}</p>` : ""}
       <button class="kl-done-close" type="button" data-kmkt-close>Close</button>
@@ -1004,7 +1004,7 @@ function openRegistrationProgress(id) {
   const layer = kit.openLayer({
     owner: "kachat-registration",
     kind: "sheet",
-    label: `Claiming ${p.name}.kachat`,
+    label: `Claiming ${kachatNameDisplay(p.name)}`,
     html: progressBodyHtml(p),
     onClick(event) { registrationActionClick(event.target); },
     onClose() {
@@ -1127,12 +1127,11 @@ function listCard(rowsHtml, inset = 62) {
 }
 
 /** A square tile for one name in the marketplace grids (iOS KachatNameTile, 27a4f39 / c488d1d):
- *  centered - the full name (it wraps and the tile grows, never truncated), ".kachat" under it,
- *  then the footer (the price asked, and any button). `nameHtml` is trusted markup (escaped). */
+ *  centered - the bare name (it wraps and the tile grows, never truncated; no ".kachat", K
+ *  522fd9f4), then the footer (the price asked, and any button). `nameHtml` is trusted markup. */
 export function kachatNameTileHtml(nameHtml, footerHtml = "") {
   return `
     <span class="kl-tile-name">${nameHtml}</span>
-    ${kachatShowsEndings() ? '<span class="kl-tile-suffix">.kachat</span>' : ""}
     ${footerHtml ? `<span class="kl-tile-footer">${footerHtml}</span>` : ""}`;
 }
 
@@ -2259,7 +2258,7 @@ function openOfferSheet(info, owner) {
         : kasLabel("Your KAS stays locked on chain until the owner accepts or declines, you withdraw the offer, or it expires - then anyone can send it back to you.");
     },
     rows: () => {
-      const r = [{ title: "Name", value: `${name}.kachat` }];
+      const r = [{ title: "Name", value: kachatNameDisplay(name) }];
       if (info.isListed) r.push({ title: "Listed at", value: amountText(info.price) });
       r.push({ title: "Expires", value: dayText(info.expiresAt) });
       const a = amount();
@@ -2269,7 +2268,7 @@ function openOfferSheet(info, owner) {
     },
     operation,
     operationKey: () => `${amount() ?? 0n}-${days}-${virtualDaa ?? 0n}`,
-    swipeUp: { bar: "Swipe up to Offer", labels: transactionSwipeLabels("Offer sent"), recipient: `${name}.kachat` },
+    swipeUp: { bar: "Swipe up to Offer", labels: transactionSwipeLabels("Offer sent"), recipient: kachatNameDisplay(name) },
     onClick(event, sheet) {
       const chosen = segmentedClick(event, sheet.layer.el);
       if (chosen?.group === "days") { days = Number(chosen.id); paintCapped(sheet); sheet.update(); }
@@ -2716,7 +2715,7 @@ function offerTileHtml(state, { showsName = false } = {}) {
       aria-label="${esc(`${amountText(offer.amount)}${who ? `, ${who}` : ""}`)}">
       <span class="kl-offer-tile-icon">${kit.ICON.hand}</span>
       <strong class="kl-offer-tile-amount">${esc(amountText(offer.amount))}</strong>
-      ${showsName && offer.name ? `<span class="kl-offer-tile-name">${esc(`${offer.name}.kachat`)}</span>` : ""}
+      ${showsName && offer.name ? `<span class="kl-offer-tile-name">${esc(kachatNameDisplay(offer.name))}</span>` : ""}
       ${who ? `<small class="kl-offer-tile-who">${esc(who)}</small>` : ""}
       ${line}
     </button>`;
@@ -2767,7 +2766,7 @@ function openOfferDetailSheet(args, owner = "market") {
         <div class="kl-offer-head">
           <span class="kl-offer-head-icon">${kit.ICON.hand}</span>
           <strong class="kl-offer-head-amount">${esc(amountText(st.offer.amount))}</strong>
-          ${name ? `<span class="kl-offer-head-name">${esc(`${name}.kachat`)}</span>` : ""}
+          ${name ? `<span class="kl-offer-head-name">${esc(kachatNameDisplay(name))}</span>` : ""}
         </div>
         ${cardHtml(`
           ${formRow("From", "", { valueHtml: `<span class="kl-form-value">${from}</span>` })}
@@ -2868,7 +2867,7 @@ function openClaimSheet({ name, gap, owner = "market" }) {
   };
 
   const costHtml = () => {
-    let rows = formRow("Name", `${name}.kachat`)
+    let rows = formRow("Name", kachatNameDisplay(name))
       + formRow("Length", yearsLabel(years))
       + `<div class="sk-divider" aria-hidden="true"></div>`;
     if (quote) {
@@ -3079,7 +3078,7 @@ function openClaimSheet({ name, gap, owner = "market" }) {
     barTitle: "Swipe up to Claim",
     labels: SWIPE_UP_LABELS.claim,
     kasUnit: KAS_UNIT,
-    getPreview: () => ({ amountSompi: quote?.total ?? null, recipient: `${name}.kachat` }),
+    getPreview: () => ({ amountSompi: quote?.total ?? null, recipient: kachatNameDisplay(name) }),
     getFailureMessage: () => startError,
     onCancel: close,
     onDone: close,
@@ -3091,7 +3090,7 @@ function openClaimSheet({ name, gap, owner = "market" }) {
   flow.setOrder(["years", "review"]);
   const yearsBody = flow.addStep("years", { question: "For how long?", className: "kl-claim-years-step", back: () => null });
   yearsBody.insertAdjacentHTML("beforeend", `
-    <p class="kl-claim-years-name">${esc(`${name}.kachat`)}</p>
+    <p class="kl-claim-years-name">${esc(kachatNameDisplay(name))}</p>
     <div class="kl-claim-lengths">
       ${Array.from({ length: count }, (_, i) => {
         const y = i + 1;
@@ -3347,7 +3346,7 @@ export function createNameDetail(initial, { mode = "market", owner = "market", h
     if (mine()) label = "You";
     else if (held?.kind === "spending") label = `Your spending address #${addressNumber(held.index)}`;
     else if (held?.kind === "kasSigner") label = held.account ? `Your KasSigner address (${held.account} #${held.index})` : `Your KasSigner address #${held.index}`;
-    else if (d.ownerLabel) label = `${d.ownerLabel}.kachat`;
+    else if (d.ownerLabel) label = kachatNameDisplay(d.ownerLabel);
     return `
       <section class="kmkt-block">
         ${kit.sectionHeader("Owner")}
@@ -3635,7 +3634,8 @@ function freeNameCardHtml(display) {
 export function openNameRouteLayer(rawName, owner = "market") {
   const name = String(rawName || "").trim().toLowerCase().replace(/\.kachat$/, "");
   if (!kit || !kachatNames() || !name) return null;
-  const display = `${name}.kachat`;
+  // bare, as every name is shown (K 522fd9f4)
+  const display = kachatNameDisplay(name);
   let detail = null;
   let found = null; // null while looking | { kind: "free", gap } | { kind: "failed" }
   let seq = 0;
@@ -3780,7 +3780,7 @@ function domainsEmptyHtml(variant) {
   if (variant === "address") {
     return `
       <div class="kachat-address-domains">
-        <span class="kachat-address-domains-mark" aria-hidden="true">${kit.wordmark || kit.ICON.atCircle}</span>
+        <span class="kachat-address-domains-mark" aria-hidden="true">${kit.ICON.atCircle}</span>
         <strong>No usernames on this address</strong>
         <p>Names this address owns show here.</p>
       </div>`;
@@ -4659,26 +4659,12 @@ export function kachatCachedLabel(address) {
   return label ? `${label}.kachat` : null;
 }
 
-// Settings > Customization > Show .kachat Endings (iOS 94ed3a35 KachatNameLabel). Off by default
-// (owner's call 2026-11-23, K 518fdc8c: .kachat is the only name service): names show bare
-// ("alice") wherever one is displayed, the marketplace included; on writes the ending out. Display
-// only: copying a name, a mention and anything sent keep the ending. One app setting, as on iOS.
-const SHOW_ENDINGS_KEY = "kachat-show-name-endings-v1";
-let showEndingsCache = null;
-export function kachatShowsEndings() {
-  if (showEndingsCache == null) {
-    try { showEndingsCache = localStorage.getItem(SHOW_ENDINGS_KEY) === "1"; } catch { showEndingsCache = false; }
-  }
-  return showEndingsCache;
-}
-export function setKachatShowsEndings(on) {
-  showEndingsCache = Boolean(on);
-  try { localStorage.setItem(SHOW_ENDINGS_KEY, on ? "1" : "0"); } catch { /* this session only */ }
-}
-/** A bare .kachat name as it is shown: "alice.kachat", or "alice" with the endings off. */
+// A .kachat name is always shown bare, "alice", never "alice.kachat" (owner, 2026-11-26, K 522fd9f4
+// KachatNameLabel.display: the Show .kachat Endings switch is gone), the marketplace included.
+// Display only: copying a name, a mention and anything sent keep working with either form.
+/** A .kachat name as it is shown: bare. */
 export function kachatNameDisplay(name) {
-  const bare = String(name || "").replace(/\.kachat$/i, "");
-  return kachatShowsEndings() ? `${bare}.kachat` : bare;
+  return String(name || "").replace(/\.kachat$/i, "");
 }
 /** The address's .kachat name as it is shown, or null. */
 export function kachatCachedDisplayLabel(address) {

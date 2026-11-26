@@ -38,8 +38,9 @@ await test("User Info's name field takes the name the editor saved", () => {
   assert.match(app, /const given = now\?\.nameIsCustom \? now\.name : addressBookName\(address\);/);
 });
 await test("Set as Name fills the field without saving; the one in the field reads Their Name", () => {
-  assert.match(app, /data-chat-info-set-name="\$\{escapeHtml\(full\)\}">Set as Name<\/button>/);
-  assert.match(app, /typed === full \? `<span class="chat-info-their-name">/);
+  // the bare name, never the ending (K 522fd9f4)
+  assert.match(app, /data-chat-info-set-name="\$\{escapeHtml\(shown\)\}">Set as Name<\/button>/);
+  assert.match(app, /typed === shown \? `<span class="chat-info-their-name">/);
   assert.match(app, /if \(chatInfoNameInput\) chatInfoNameInput\.value = setName\.dataset\.chatInfoSetName;\n\s+closeChatInfoSheet\(\);/);
   assert.match(app, /const canSet = !isSelf && !isKachatBot\(address\);/);
 });
