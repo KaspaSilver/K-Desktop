@@ -1083,7 +1083,11 @@ body.chats-tab .app-sidebar { padding-top: var(--topbar-h); }
   font-size: 12px;
 }
 
-.chat-row-silenced { width: 12px; height: 12px; margin-left: 5px; vertical-align: -1px; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* "Silenced" beside a silenced chat's, group's or room's name (K ef760cfa SilencedPill): a gray pill
+   that never shrinks; the name truncates first. */
+.chat-meta strong:has(> .chat-row-silenced-pill) { display: flex; align-items: center; min-width: 0; }
+.chat-row-name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-row-silenced-pill { display: inline-block; flex: none; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
 .chat-row-delivery { width: 12px; height: 12px; margin-right: 4px; vertical-align: -2px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .chat-row-delivery.failed { stroke: var(--ios-red); }
 .chat-row-delivery.warning { stroke: var(--ios-orange); }
@@ -10181,7 +10185,7 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .chat-row-time { top: 14px; right: 16px; font-size: 12px; }
 .chat-row .unread-badge { bottom: 14px; right: 16px; }
 .unread-badge { min-width: 18px; height: 18px; padding: 0 6px; font-size: 11px; font-weight: 700; color: #fff; background: var(--kaspa); }
-.chat-row-silenced { width: 11px; height: 11px; }
+
 .chat-row-delivery-word { font-weight: 400; }
 .chat-row-delivery-word.failed, .chat-row-delivery.failed { color: var(--ios-red); stroke: var(--ios-red); }
 .chat-row-delivery-word.warning, .chat-row-delivery.warning { color: var(--ios-orange); stroke: var(--ios-orange); }
@@ -13155,7 +13159,7 @@ body.settings-tab [data-account-overlay] .settings-done-button { visibility: hid
 .group-row-avatar .group-avatar-photo { width: 100%; height: 100%; object-fit: cover; }
 .group-row-avatar .group-avatar-fallback { display: flex; align-items: center; justify-content: center; width: 60%; height: 60%; background: none; color: inherit; }
 .group-row-avatar .group-avatar-fallback svg { width: 100%; height: 100%; }
-.group-row-silenced { width: 13px; height: 13px; margin-left: 5px; vertical-align: -1px; fill: none; stroke: var(--text-muted, currentColor); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
 .message-requests-section { margin: 14px 16px 6px; font-size: 13px; font-weight: 600; color: var(--text-muted, inherit); }
 .message-requests-section:first-child { margin-top: 2px; }
 .message-requests-list > .message-requests-card + .message-requests-card { margin-top: 14px; }

@@ -13329,7 +13329,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 340;
+const APP_BUILD = 341;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -17283,7 +17283,7 @@ function conversationRowHtml(conversationEntry, { selecting = false, selected = 
           <span class="chat-row-time"><span class="chat-row-fetch-slot" data-chat-fetch-for="${escapeHtml(conversationEntry.id)}">${chatFetchIndicatorHtml(conversationEntry.id)}</span>${escapeHtml(time)}</span>
           ${avatarHtmlFor(contact)}
           <span class="chat-meta">
-            <strong>${escapeHtml(isOwnChattingAddress(contact.address) ? "Your Address" /* iOS 7d11735: the list names the self chat for what it is; its header says who you are on chain */ : displayNameForAddress(contact))}${silenced ? `<svg class="chat-row-silenced" viewBox="0 0 24 24" aria-label="Silenced" role="img"><path d="M9.143 17.082a24.248 24.248 0 0 0 5.714 0m-5.714 0a3 3 0 1 0 5.714 0m-5.714 0a23.85 23.85 0 0 1-5.455-1.31 8.964 8.964 0 0 0 2.3-5.523M14.857 17.082a23.85 23.85 0 0 0 5.455-1.31A8.967 8.967 0 0 1 18 9.75v-.7M6 9v.75a8.967 8.967 0 0 0 .312 2.34M6 9a6 6 0 0 1 9.858-4.6M3 3l18 18"/></svg>` : ""}</strong>
+            <strong>${chatRowTitleHtml(escapeHtml(isOwnChattingAddress(contact.address) ? "Your Address" /* iOS 7d11735: the list names the self chat for what it is; its header says who you are on chain */ : displayNameForAddress(contact)), silenced)}</strong>
             ${last
               ? `<span>${chatListDeliveryGlyphHtml(last)}${escapeHtml(preview)}</span>`
               : `<span class="chat-row-none">No messages yet</span>`}
@@ -17391,7 +17391,7 @@ function roomRowHtml(room, { selecting = false, selected = false } = {}) {
           <span class="chat-row-time">${escapeHtml(time)}</span>
           <span class="chat-avatar room-row-avatar" aria-hidden="true">#</span>
           <span class="chat-meta">
-            <strong>#${escapeHtml(room.name)}${room.notify ? "" : `<svg class="group-row-silenced" viewBox="0 0 24 24" role="img" aria-label="Notifications off"><path d="M9.5 19a2.5 2.5 0 0 0 5 0M6 8a6 6 0 0 1 9.6-4.8M18 8c0 5 2 7 2 7H8M4 15s2-2 2-7M3 3l18 18"/></svg>`}</strong>
+            <strong>${chatRowTitleHtml(`#${escapeHtml(room.name)}`, !room.notify)}</strong>
             ${room.preview
               ? `<span>${escapeHtml(room.preview)}</span>`
               : `<span class="chat-row-none">No messages yet</span>`}
@@ -17417,7 +17417,7 @@ function groupRowHtml(g, { selecting = false, selected = false, active = false }
           <span class="chat-row-time">${escapeHtml(time)}</span>
           <span class="chat-avatar group-row-avatar">${groupAvatarHtml(g.photoHex)}</span>
           <span class="chat-meta">
-            <strong>${escapeHtml(g.name || "Group")}${silenced ? `<svg class="group-row-silenced" viewBox="0 0 24 24" role="img" aria-label="Silenced"><path d="M9.5 19a2.5 2.5 0 0 0 5 0M6 8a6 6 0 0 1 9.6-4.8M18 8c0 5 2 7 2 7H8M4 15s2-2 2-7M3 3l18 18"/></svg>` : ""}</strong>
+            <strong>${chatRowTitleHtml(escapeHtml(g.name || "Group"), silenced)}</strong>
             ${preview
               ? `<span>${escapeHtml(preview)}</span>`
               : `<span class="chat-row-none">${countedText(count, "1 member", "{n} members")}</span>`}
@@ -35352,12 +35352,22 @@ function newChatSheetIcon(kind) {
 
 // Square glass tiles, three to a row (iOS f81e8d6): New Chat, New Group Chat, New Public Chat,
 // Chatting Address. Each one's old line is its tooltip and accessible description.
+/** The "Silenced" tag beside a silenced chat's, group's or room's name in the KaChat list (owner,
+ *  2026-11-25, K ef760cfa SilencedPill): a gray pill, plainer than the old bell-slash icon. A function,
+ *  not a const: the boot-time renderChats reaches the rows before a const down here would exist. */
+function silencedPillHtml() { return '<span class="chat-row-silenced-pill">Silenced</span>'; }
+/** A row's name (already escaped), with the Silenced pill after it when silenced. The name sits in
+ *  its own span so it shortens with "..." and the pill is never cut (K: the name truncates first). */
+function chatRowTitleHtml(nameHtml, silenced) {
+  return silenced ? `<span class="chat-row-name-text">${nameHtml}</span>${silencedPillHtml()}` : nameHtml;
+}
+
 function newChatSheetMenuHtml() {
   const rows = [
     { id: "chat", title: "New Chat", subtitle: "Message someone by their address or name." },
     { id: "group", title: "New Group Chat", subtitle: "Start a group with the people you choose." },
-    { id: "public", title: "New Public Chat", subtitle: "Join a public room, or create one." },
-    // Edit Default Public Chats is the gear at the top left of Chats now (K 8cb4c88e), not a row here.
+    // New Public Chat is the Public Chats page's + alone (K ef760cfa), and Edit Default Public Chats
+    // is the gear at the top left of that page (K 8cb4c88e): neither is a row here.
   ];
   return actionRowsSheetHtml("New", rows);
 }

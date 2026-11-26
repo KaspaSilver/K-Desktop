@@ -20,11 +20,13 @@ import { createIndexerTrackedRooms, parseTrackedChannelsResponse, shouldAskTrack
 /// (owner, 2026-11-25, K 961fc05a).
 export const FEATURED_BROADCAST_CHANNELS = Object.freeze(["kaspa", "report-bugs"]);
 
-/// Default rooms retired for a new name, old -> new (K 961fc05a `PublicChatService.retiredChannels`,
-/// owner 2026-11-25: #kachat-bugs is now #report-bugs). An account that had the old room is moved
-/// over once (bell, pin and switched-off state) and the old room is left; joining the old name (a
-/// link, the New Public Chat sheet) opens the new room.
-export const RETIRED_BROADCAST_CHANNELS = Object.freeze({ "kachat-bugs": "report-bugs" });
+/// Default rooms retired for a new name, old -> new (K `PublicChatService.retiredChannels`). An
+/// account that had the old room is moved over once (bell, pin and switched-off state) and the old
+/// room is left; joining the old name (a link, the New Public Chat sheet) opens the new room.
+/// Empty (K ef760cfa): #kachat-bugs was retired for #report-bugs on 2026-11-25, and the same day the
+/// owner brought it back as a room of its own, since the indexer still tracks it: an indexer room
+/// (indexerDefaultBroadcastChannels), under More Rooms with its bell off.
+export const RETIRED_BROADCAST_CHANNELS = Object.freeze({});
 
 /** The room that replaced a retired default room's name, or the name itself (normalized). */
 export function replacementBroadcastChannel(name) {

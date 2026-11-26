@@ -530,9 +530,11 @@ function loadState({ caches = true } = {}) {
   // on. (Desktop used to leave the language rooms unjoined, behind an "Other Languages" row.)
   // Like iOS PublicChatStore (joinedAt = Date() when a room is first stored), an auto-joined
   // room is stamped too, so Room Info shows its "Joined" row.
-  // #kachat-bugs became #report-bugs (K 961fc05a): moved over once, before the defaults join.
+  // A retired room's account is moved over once, before the defaults join (none retired now: K
+  // ef760cfa brought #kachat-bugs back as a room of its own).
   moveRetiredChannels();
   joinDefaultRooms();
+  silenceRoomsOnce();
   migrateCachedReactionRows();
   migrateCachedDeleteRows();
   pruneCache();
@@ -597,6 +599,26 @@ function saveHiddenCurated() {
 // moveRetiredChannels). Desktop never saved the featured rooms as joined (they are joined on every
 // load), so "had the old room" can't be read from the joined list: every account had it.
 const RETIRED_MOVED_KEY = "kachat-broadcast-retired-moved-v1"; // account-scoped: ["kachat-bugs", ...]
+
+// Every room starts silenced (owner, 2026-11-25, K ef760cfa silenceRoomsOnceIfNeeded): the first time
+// an account's rooms load on this build, every bell that's on goes off, including the #kaspa and
+// #kachat-bugs bells older builds turned on by themselves. Once per account; after that the bells are
+// whatever the person picks, kept across updates. Bump the key's version only to silence everyone again.
+const ROOMS_SILENCED_ONCE_KEY = "kachat-rooms-silenced-once-v1"; // account-scoped: "1"
+function silenceRoomsOnce() {
+  if (!deps?.engine?.address) return;
+  const key = deps.accountScopedKey(ROOMS_SILENCED_ONCE_KEY);
+  try { if (localStorage.getItem(key)) return; } catch { return; }
+  const ringing = Object.keys(notifyByChannel).filter((name) => notifyByChannel[name]);
+  for (const name of ringing) delete notifyByChannel[name];
+  if (ringing.length) saveNotify();
+  try { localStorage.setItem(key, "1"); } catch { /* asked again next load */ }
+  if (!ringing.length) return;
+  deps.appendEngineLog?.(`Silenced ${ringing.length} public chat(s) once for this update`);
+  // the push service stops sending these rooms (its registration lists the bell-on rooms)
+  deps.onPushPreferencesChanged?.();
+  syncScanWanted();
+}
 
 /** Moves this account off each retired default room, once: the new room gets the old one's bell
  *  (when it wasn't joined already), its pin in the Public Chats circles and its switched-off state;

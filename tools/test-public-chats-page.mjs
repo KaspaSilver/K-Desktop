@@ -5,7 +5,9 @@
 // - the button's red count is the bell-on rooms' unread on either page; the dock's KaChat badge
 //   counts chats and groups only; the app icon still adds the bell-on rooms;
 // - on the rooms page the + is New Public Chat and the gear is Edit Default Public Chats;
-// - #report-bugs replaced #kachat-bugs (moved over once; the old name opens the new room);
+// - #report-bugs is a default room, and #kachat-bugs an ordinary indexer room again (K ef760cfa: no
+//   room is retired any more);
+// - every account's rooms are silenced once, then keep the person's bell choices (K ef760cfa);
 // - every room the indexer's /broadcast-channels lists is a default room (bell off, More Rooms),
 //   and a switched-off one the indexer dropped is left after 7 days;
 // - a room push waits (at most 4 s) for the open app to fetch its message.
@@ -78,12 +80,13 @@ const engine = { address: "kaspa:qwalletone", onConnectionState: noop, onBroadca
 const scoped = (key) => (engine.address ? `acct:${engine.address}:${key}` : key);
 const removed = [];
 
-// An account from before the rename: #kachat-bugs with its bell on and pinned to the circles.
-localStorage.setItem(scoped("kachat-broadcast-notify-v1"), JSON.stringify({ "kachat-bugs": true }));
+// An account from an older build: #kaspa's and #kachat-bugs' bells turned on by themselves, and its
+// own room's bell on, #kachat-bugs pinned to the circles.
+localStorage.setItem(scoped("kachat-broadcast-notify-v1"), JSON.stringify({ kaspa: true, "kachat-bugs": true, "my-room": true }));
 localStorage.setItem(scoped("kachat-broadcast-channels-v1"), JSON.stringify(["kaspa", "kachat-bugs", "my-room"]));
 localStorage.setItem(scoped(ROOM_PINS_KEY), JSON.stringify(["kachat-bugs", "kaspa"]));
-// A second account had #kachat-bugs switched off.
-localStorage.setItem("acct:kaspa:qwallettwo:kachat-broadcast-hidden-curated-v1", JSON.stringify(["kachat-bugs"]));
+// A second account had a bell on too.
+localStorage.setItem("acct:kaspa:qwallettwo:kachat-broadcast-notify-v1", JSON.stringify({ kaspa: true }));
 
 const rooms = await import("../ui/broadcasts.js");
 rooms.initBroadcasts({
@@ -98,55 +101,48 @@ rooms.initBroadcasts({
 const byName = () => new Map(rooms.chatListRooms().map((room) => [room.name, room]));
 const stored = (key) => JSON.parse(localStorage.getItem(scoped(key)) || "null");
 
-// --- #report-bugs replaced #kachat-bugs ---------------------------------------------------------------
-await test("#report-bugs is a featured room; #kachat-bugs is retired to it", () => {
+// --- #kachat-bugs back, rooms silenced once (K ef760cfa) -----------------------------------------------
+await test("#report-bugs is a featured room; no room is retired, #kachat-bugs is its own room again", () => {
   assert.deepEqual([...FEATURED_BROADCAST_CHANNELS], ["kaspa", "report-bugs"]);
-  assert.deepEqual({ ...RETIRED_BROADCAST_CHANNELS }, { "kachat-bugs": "report-bugs" });
-  assert.equal(replacementBroadcastChannel(" #kaspa "), "#kaspa");
-  assert.equal(replacementBroadcastChannel("KaChat-Bugs"), "report-bugs");
-  assert.equal(isCuratedBroadcastChannel("kachat-bugs"), false, "the old room is no default any more");
-});
-
-await test("an account that had #kachat-bugs is moved over once: bell, pin; the old room is left", () => {
+  assert.deepEqual({ ...RETIRED_BROADCAST_CHANNELS }, {});
+  assert.equal(replacementBroadcastChannel("KaChat-Bugs"), "kachat-bugs");
+  assert.equal(isCuratedBroadcastChannel("kachat-bugs"), false, "not a built-in default: an indexer room");
   const listed = byName();
-  assert.equal(listed.has("kachat-bugs"), false, "the old room is gone");
-  assert.equal(listed.get("report-bugs")?.joined, true, "the new room is in");
-  assert.equal(listed.get("report-bugs").notify, true, "its bell came over");
-  assert.deepEqual(stored(ROOM_PINS_KEY), ["report-bugs", "kaspa"], "its pin came over, in place");
-  assert.equal(stored("kachat-broadcast-notify-v1")["kachat-bugs"], undefined, "the old bell went");
-  assert.ok(!stored("kachat-broadcast-channels-v1").includes("kachat-bugs"), "the old room isn't saved as joined");
-  assert.ok(stored("kachat-broadcast-channels-v1").includes("my-room"), "your own rooms stay");
-  assert.deepEqual(stored("kachat-broadcast-retired-moved-v1"), ["kachat-bugs"], "done once");
-  // a later bell change on the new room isn't undone by another load
-  rooms.setBroadcastRoomNotify("report-bugs", false);
-  rooms.refreshBroadcasts();
-  assert.equal(byName().get("report-bugs").notify, false, "not moved again");
+  assert.equal(listed.get("kachat-bugs")?.joined, true, "an account that had it keeps it");
+  assert.deepEqual(stored(ROOM_PINS_KEY), ["kachat-bugs", "kaspa"], "its pin stays");
 });
 
-await test("an account that had #kachat-bugs switched off has #report-bugs switched off", () => {
+await test("every account's rooms are silenced once, then keep the person's choices", () => {
+  const listed = byName();
+  for (const name of ["kaspa", "kachat-bugs", "my-room"]) assert.equal(listed.get(name)?.notify, false, `${name} silenced`);
+  assert.equal(stored("kachat-rooms-silenced-once-v1"), 1, "done once for this account");
+  // a bell turned on afterwards stays on through later loads
+  rooms.setBroadcastRoomNotify("my-room", true);
+  rooms.refreshBroadcasts();
+  rooms.resetBroadcastsForAccount();
+  assert.equal(byName().get("my-room").notify, true, "not silenced again");
+  rooms.setBroadcastRoomNotify("my-room", false);
+  // another account is silenced on its own first load
   engine.address = "kaspa:qwallettwo";
   rooms.resetBroadcastsForAccount();
-  assert.equal(byName().has("report-bugs"), false, "switched off: not listed");
-  assert.deepEqual(stored("kachat-broadcast-hidden-curated-v1"), ["report-bugs"]);
+  assert.equal(byName().get("kaspa").notify, false);
+  assert.equal(localStorage.getItem("acct:kaspa:qwallettwo:kachat-rooms-silenced-once-v1"), "1");
   engine.address = "kaspa:qwalletone";
   rooms.resetBroadcastsForAccount();
 });
 
-await test("joining the old name opens the new room", () => {
+await test("joining #kachat-bugs opens #kachat-bugs", () => {
   assert.equal(rooms.broadcastJoinError("kachat-bugs"), "");
   assert.equal(rooms.joinBroadcastChannelFromSheet("kachat-bugs"), true);
-  assert.equal(rooms.activeBroadcastChannelName(), "report-bugs");
-  assert.equal(byName().has("kachat-bugs"), false, "the old room isn't joined back");
-  assert.match(roomsSource, /function joinChannel\(rawName\) \{\n[^\n]*\n  const name = replacementBroadcastChannel\(rawName\);/);
-  assert.match(fnSource(roomsSource, "openBroadcastChannelFromNotification"), /replacementBroadcastChannel\(channel\)/);
-  assert.match(fnSource(roomsSource, "openBroadcastRoomFromLink"), /replacementBroadcastChannel\(channel\)/);
+  assert.equal(rooms.activeBroadcastChannelName(), "kachat-bugs");
+  rooms.closeBroadcastRoom();
 });
 
 // --- rooms added on the indexer ----------------------------------------------------------------------
 await test("every room /broadcast-channels lists is a default room, minus machinery and retired names", () => {
   assert.deepEqual(
     indexerDefaultChannelsFrom(["zeta", "kaspa", "chess-arena", "chess-bots", "kplay-arcade", "kachat-bugs", "Alpha", "bad name", "alpha"]),
-    ["alpha", "zeta"],
+    ["alpha", "kachat-bugs", "zeta"],
   );
   assert.deepEqual(indexerDefaultBroadcastChannels(), [], "nothing reported yet");
 });
@@ -291,7 +287,15 @@ await test("badges: the page button counts bell-on rooms, the dock chats and gro
 await test("the rooms page: + is New Public Chat, the gear only there, room links and pushes switch to it", () => {
   assert.match(app, /button\.addEventListener\("click", \(\) => openNewChatSheet\(\{ publicRoom: onPublicChatsPage\(\) \}\)\);/);
   assert.match(fnSource(app, "openNewChatSheet"), /if \(publicRoom\) showJoin\(\); else showMenu\(\);/);
-  assert.match(fnSource(app, "newChatSheetMenuHtml"), /title: "New Public Chat"/, "still in the Chats page's New sheet");
+  // the Chats page's New sheet has only New Chat and New Group Chat (K ef760cfa)
+  assert.doesNotMatch(fnSource(app, "newChatSheetMenuHtml"), /title: "New Public Chat"/);
+  assert.match(fnSource(app, "newChatSheetMenuHtml"), /title: "New Chat"[^\n]*\n[^\n]*title: "New Group Chat"/);
+  // a silenced chat, group or room shows a Silenced pill, not a bell icon (K ef760cfa SilencedPill)
+  assert.equal((app.match(/<strong>\$\{chatRowTitleHtml\(/g) || []).length, 3);
+  assert.match(fnSource(app, "chatRowTitleHtml"), /<span class="chat-row-name-text">\$\{nameHtml\}<\/span>\$\{silencedPillHtml\(\)\}/);
+  assert.match(fnSource(app, "silencedPillHtml"), /chat-row-silenced-pill">Silenced</);
+  assert.match(css, /\.chat-row-silenced-pill \{[^}]*border-radius: 999px/);
+  assert.doesNotMatch(app, /chat-row-silenced"|group-row-silenced"/);
   assert.match(fnSource(app, "syncChatsPublicSettingsGear"), /\|\| chatListPage !== "publicChats"/);
   assert.match(fnSource(app, "openPublicChatsTab"), /setActiveAppTab\("chats"\);\n  setChatListPage\("publicChats"\);/);
   assert.match(app, /if \(activeConversationId\) setActiveConversationId\(null\);\n[^\n]*\n[^\n]*\n\s*setChatListPage\("publicChats"\);\n\s*\}\n\s*syncPublicChatsPane\(\);/, "any room opening shows its page");
