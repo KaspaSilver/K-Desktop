@@ -12667,7 +12667,7 @@ sidebarTabButtons.forEach((button) => {
 });
 
 // A right-click on a dock item that is a Kaspa Hub card on K (Contacts, Portfolio, Cold Storage,
-// Usernames, KaPost, KaPlay, Websites, the Explorer) offers its link: Copy Link and Open (K 961fc05a,
+// Usernames, KaPost, KaPlay, Websites, the Explorer, Kasshi) offers its link: Copy Link and Open (K 961fc05a,
 // a hold on a Hub card). Desktop has no Hub to hold a card in, so the dock item stands in for it.
 sidebarTabButtons.forEach((button) => {
   button.addEventListener("contextmenu", (event) => {
@@ -13390,7 +13390,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 353;
+const APP_BUILD = 354;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -17384,11 +17384,12 @@ function onPublicChatsPage() {
   return chatListPage === "publicChats";
 }
 
-// The cycle button beside the KaChat title (K 961fc05a pageCycleButton): Chats or Public Chats,
+// The cycle button beside the KaChat title (K 961fc05a pageCycleButton): Private Chats or Public Chats,
 // each click fading to the other page. Its red count is the public chats' unread (rooms with their
 // bell on), on either page; the dock's KaChat badge counts the chats and groups (owner, 2026-11-25).
 // (Functions, not consts: the boot-time renderChats reaches here before a const below would exist.)
-function chatListPageOptions() { return [{ id: "chats", title: "Chats" }, { id: "publicChats", title: "Public Chats" }]; }
+// The first page's pill reads "Private Chats" (K 35b112ce; "Chats" until 2026-11-26).
+function chatListPageOptions() { return [{ id: "chats", title: "Private Chats" }, { id: "publicChats", title: "Public Chats" }]; }
 function chatListPageHint() { return "Switches between your chats and public chats"; }
 /** Unread in the public rooms with their bell on: the cycle button's count, and part of the app
  *  icon's (K 961fc05a AppTabBadge.publicRoomUnreadCount). */

@@ -16,7 +16,7 @@
        fetched again once and the page reloads; see public/asset-repair.js. -->
   <script src="/asset-repair.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=448" />
+  <link rel="stylesheet" href="./ui/styles.css?v=449" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (K's globe, dark only since K b0f0a4e6) is the tab icon too. -->
@@ -118,13 +118,13 @@
         <!-- Chats is one list (iOS a062577): the Chats / Group Chats / Public Chats tabs are gone. -->
         <!-- The fixed "Chats" title and search field, outside the list's scroll (iOS PinnedListHeader, KaChat-iPhone d063b897). -->
         <!-- The cycle button beside the title switches the list's two pages (K 961fc05a
-             pageCycleButton): Chats (chats, groups, bots, Message Requests) and Public Chats (the
+             pageCycleButton): Private Chats (chats, groups, bots, Message Requests; "Chats" until K 35b112ce) and Public Chats (the
              rooms, pinned rooms as circles above them). Its red count is the public chats' unread
              (rooms with their bell on); app.js syncChatListPageControls paints it. -->
         <div class="chats-title-row">
           <h1 class="kaposts-title chats-list-title">Chats</h1>
           <span class="chats-page-cycle-wrap">
-            <button class="cycle-button chats-page-cycle" type="button" data-cycle="chats-page" data-chats-page-cycle aria-label="Chats, 1 of 2. Switches between your chats and public chats" title="Switches between your chats and public chats"><span class="cycle-button-title">Chats</span></button>
+            <button class="cycle-button chats-page-cycle" type="button" data-cycle="chats-page" data-chats-page-cycle aria-label="Private Chats, 1 of 2. Switches between your chats and public chats" title="Switches between your chats and public chats"><span class="cycle-button-title">Private Chats</span></button>
           </span>
         </div>
         <div class="pinned-search chats-pinned-search">
@@ -624,20 +624,34 @@
         <!-- Settings as a tab (iOS d54ea87c): the Settings page itself comes up in place (ui/app.js
              syncSettingsTab), so this screen stays empty under it. -->
         <div class="profile-screen" data-app-tab-screen="settings" hidden></div>
+        <!-- Kasshi (K 35b112ce, owner 2026-11-26): its own screen, no longer one of the Websites. K opens
+             kasshi.io in its in-app browser and signs in there with its own window.kachat provider
+             (K 48f5c357); Desktop embeds no sites (CSP frame-src 'none', as Trestly opens in a new
+             tab), so kasshi.io opens in a tab of its own, where the K Extension is that provider. -->
+        <div class="profile-screen kasshi-tab-screen" data-app-tab-screen="kasshi" hidden>
+          <div class="kaposts-header">
+            <h1 class="kaposts-title">Kasshi</h1>
+          </div>
+          <div class="kasshi-card">
+            <span class="kasshi-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path class="fill" fill-rule="evenodd" d="M5.5 4.5h13a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3h-13a3 3 0 0 1-3-3v-9a3 3 0 0 1 3-3ZM10 8.6v6.8l5.8-3.4Z"/></svg></span>
+            <p class="kasshi-card-blurb">Watch and listen, and pay the creator in KAS.</p>
+            <a class="primary-button kasshi-open" href="https://kasshi.io" target="_blank" rel="noopener" data-kasshi-open>Open Kasshi</a>
+            <p class="kasshi-card-hint">Kasshi opens in a new tab. To sign in and pay there with K, use the <a href="https://chromewebstore.google.com/detail/nmajgimchpbddaafohebeacajmcfbeac" target="_blank" rel="noopener">K Extension</a> with your account.</p>
+          </div>
+        </div>
         <div class="profile-screen apps-tab-screen" data-app-tab-screen="apps" hidden>
           <div class="kaposts-header">
             <h1 class="kaposts-title">Kaspa Websites</h1>
           </div>
           <!-- iOS ProfileAppsView: each site's SF Symbol in the accent colour (Kaspa.org: the Kaspa
                logo) in a 68pt material circle, the name under it. Drawn here as inline SVGs:
-               waveform.path.ecg, magnifyingglass, map, play.rectangle.fill, newspaper,
+               waveform.path.ecg, magnifyingglass, map, newspaper (Kasshi has its own screen, K 35b112ce),
                gamecontroller, cart, doc.text.image, chart.bar, hammer, atom, drop.fill. -->
           <div class="profile-apps-grid apps-screen-grid">
             <a class="profile-app-bubble" href="https://kaspa.org" target="_blank" rel="noopener"><span class="profile-app-icon"><img src="./ui/assets/kaspa-logo.png" alt="" /></span><strong>Kaspa.org</strong></a>
             <a class="profile-app-bubble" href="https://kaspa.stream" target="_blank" rel="noopener"><span class="profile-app-icon"><svg viewBox="0 0 24 24"><path d="M2 12h3.6l2.1-4.2 3.1 9.7 3.6-13 2.6 7.5H22"/></svg></span><strong>Kaspa Stream</strong></a>
             <a class="profile-app-bubble" href="https://explorer.kaspa.org" target="_blank" rel="noopener"><span class="profile-app-icon"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.4 15.4 5.6 5.6"/></svg></span><strong>Kaspa Explorer</strong></a>
             <a class="profile-app-bubble" href="https://kasmap.org" target="_blank" rel="noopener"><span class="profile-app-icon"><svg viewBox="0 0 24 24"><path d="m3 6.4 6-2.4 6 2.4 6-2.4v13.6l-6 2.4-6-2.4-6 2.4Z"/><path d="M9 4v13.6M15 6.4V20"/></svg></span><strong>KasMap</strong></a>
-            <a class="profile-app-bubble" href="https://kasshi.io" target="_blank" rel="noopener"><span class="profile-app-icon"><svg viewBox="0 0 24 24"><path class="fill" fill-rule="evenodd" d="M5.5 4.5h13a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3h-13a3 3 0 0 1-3-3v-9a3 3 0 0 1 3-3ZM10 8.6v6.8l5.8-3.4Z"/></svg></span><strong>KasShi</strong></a>
             <a class="profile-app-bubble" href="https://kaspa.news" target="_blank" rel="noopener"><span class="profile-app-icon"><svg viewBox="0 0 24 24"><path d="M16.5 4.5h-11A1.5 1.5 0 0 0 4 6v12a2.5 2.5 0 0 0 2.5 2.5h12A2.5 2.5 0 0 0 21 18V8.5h-4.5"/><path d="M16.5 4.5V18a2.5 2.5 0 0 0 2.5 2.5"/><path d="M7.5 8.5h5.5v3.5H7.5ZM7.5 15h5.5M7.5 17.5h5.5"/></svg></span><strong>Kaspa News</strong></a>
             <a class="profile-app-bubble" href="https://kasplay.fun" target="_blank" rel="noopener"><span class="profile-app-icon"><svg viewBox="0 0 24 24"><path d="M7.6 6.5h8.8a4.8 4.8 0 0 1 4.7 3.9l.9 4.9a2.6 2.6 0 0 1-4.7 1.9L15.9 15H8.1l-1.4 2.2A2.6 2.6 0 0 1 2 15.3l.9-4.9a4.8 4.8 0 0 1 4.7-3.9Z"/><path d="M8 9.3v3.4M6.3 11h3.4"/><circle class="fill" cx="15.4" cy="10" r="1"/><circle class="fill" cx="17.6" cy="12.2" r="1"/></svg></span><strong>KasPlay</strong></a>
             <a class="profile-app-bubble" href="https://kasmart.org" target="_blank" rel="noopener"><span class="profile-app-icon"><svg viewBox="0 0 24 24"><path d="M2.5 3.5h2.6l2.4 11.3h10.4l2.2-8H6"/><circle cx="9.3" cy="19.2" r="1.4"/><circle cx="16.8" cy="19.2" r="1.4"/></svg></span><strong>KasMart</strong></a>
@@ -977,6 +991,11 @@
         <!-- A globe (iOS AppTab.apps: SF "globe"). -->
         <span class="sidebar-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="3.9" ry="9"/><path d="M3 12h18M4.6 7.2h14.8M4.6 16.8h14.8"/></svg></span>
         <span>Websites</span>
+      </button>
+      <button class="sidebar-tab" type="button" data-app-tab="kasshi" hidden>
+        <!-- play.rectangle.fill (K 35b112ce AppTab.kasshi). -->
+        <span class="sidebar-tab-icon" aria-hidden="true"><svg class="tab-glyph-solid" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M5.5 4.5h13a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3h-13a3 3 0 0 1-3-3v-9a3 3 0 0 1 3-3ZM10 8.6v6.8l5.8-3.4Z"/></svg></span>
+        <span>Kasshi</span>
       </button>
       <button class="sidebar-tab" type="button" data-app-tab="kachat-names" hidden>
         <!-- at (KaPay AppTab.kachatNames): the name is under it, so it is not spelled out twice. -->

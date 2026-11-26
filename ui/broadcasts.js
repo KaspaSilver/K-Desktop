@@ -347,8 +347,7 @@ function curatedChannelOn(name) {
 function setCuratedChannel(name, shown) {
   if (!isCuratedBroadcastChannel(name)) return;
   if (shown) hiddenCurated.delete(name); else hiddenCurated.add(name);
-  // still a default room, so it goes if the indexer drops it (K 65f8a765): K joined it, not you
-  if (shown && !joinedChannels.includes(name)) { addJoinedChannel(name); updateAutoJoined((set) => set.add(name)); }
+  if (shown && !joinedChannels.includes(name)) addJoinedChannel(name);
   try { localStorage.setItem(deps.accountScopedKey(HIDDEN_CURATED_KEY), JSON.stringify([...hiddenCurated])); } catch { /* fine */ }
   if (!shown) {
     delete notifyByChannel[name];
@@ -543,75 +542,70 @@ function loadState({ caches = true } = {}) {
 
 /** Joins every default room that isn't switched off (K 961fc05a ensureDefaultChannelsJoined): the
  *  featured rooms always, the language rooms and the rooms added on the indexer unless switched
- *  off, all with their bell off. A room added on the indexer is saved as joined, so it stays as an
- *  ordinary room once the indexer drops it; then any switched-off room the indexer dropped a week
- *  ago is left. */
+ *  off, all with their bell off; then any room the indexer dropped is left once its time is up
+ *  (forgetDroppedDefaultRooms). */
 function joinDefaultRooms() {
   let stamped = false;
   let joinedAdded = false;
-  const joinedBefore = new Set(joinedChannels);
-  const joinedNow = [];
   for (const name of curatedBroadcastChannels()) {
     if (!FEATURED_BROADCAST_CHANNELS.includes(name) && !curatedShown(name)) continue;
     if (!joinedChannels.includes(name)) {
       joinedChannels.push(name);
-      if (!CURATED_BUILT_IN.has(name)) { joinedAdded = true; joinedNow.push(name); }
+      if (!CURATED_BUILT_IN.has(name)) joinedAdded = true;
     }
     if (!joinedAtByChannel[name]) { joinedAtByChannel[name] = Date.now(); stamped = true; }
   }
   const owned = Boolean(deps?.engine?.address);
   if (stamped) { try { saveJoinedAt(); } catch {} }
   if (joinedAdded && owned) saveChannels();
-  if (owned) recordAutoJoined(joinedNow, joinedBefore);
   forgetDroppedDefaultRooms();
 }
 
-// The rooms K joined on this account's behalf (the rooms the indexer lists), per account (K 65f8a765
-// kachat_rooms_auto_joined_v1): once the indexer stops listing one, it's left, because nobody indexes
-// it any more and its history and pushes would stop with no explanation. A room the person joins by
-// name or from a link, or posts, edits, reacts or deletes in, is theirs and stays (keepRoomAsOwn).
-// The built-in rooms are never dropped, so they aren't kept here.
-const AUTO_JOINED_KEY = "kachat-rooms-auto-joined-v1"; // account-scoped: ["room", ...]
-/** How long a room K joined may be missing from the indexer's list before it's left: two of the
+// The joined rooms the indexer's `/broadcast-channels` listed, per account (K 35b112ce
+// kachat_rooms_indexer_listed_v1): once the indexer stops listing one, it's left, because nobody
+// indexes it any more and its history and pushes would stop with no explanation. Any such room goes,
+// even one the person joined by name or posted in (owner, 2026-11-26; until then only the rooms K
+// joined for them, kachat-rooms-auto-joined-v1). A room off the list and not joined is forgotten, so
+// joining it again later keeps it. A room the indexer never listed (your own, or one with its own
+// indexer) stays, and the built-in rooms are never dropped, so they aren't kept here.
+const INDEXER_LISTED_KEY = "kachat-rooms-indexer-listed-v1"; // account-scoped: ["room", ...]
+/** Before K 35b112ce: only the rooms K joined for the person. Read once, into the new set. */
+const LEGACY_AUTO_JOINED_KEY = "kachat-rooms-auto-joined-v1";
+/** How long a room the indexer listed may be missing from its list before it's left: two of the
  *  hourly `/broadcast-channels` reads (K droppedAutoRoomGrace). */
 export const DROPPED_AUTO_ROOM_GRACE_MS = 2 * 60 * 60 * 1000;
-function readAutoJoined() {
+function readIndexerListed() {
   try {
-    const raw = localStorage.getItem(deps.accountScopedKey(AUTO_JOINED_KEY));
-    if (raw == null) return null;
-    const list = JSON.parse(raw);
+    const list = JSON.parse(localStorage.getItem(deps.accountScopedKey(INDEXER_LISTED_KEY)) || "[]");
     return new Set(Array.isArray(list) ? list.filter((name) => typeof name === "string") : []);
-  } catch { return null; }
+  } catch { return new Set(); }
 }
-function updateAutoJoined(change) {
+function updateIndexerListed(change) {
   if (!deps?.engine?.address) return;
-  const before = readAutoJoined();
-  const set = new Set(before || []);
+  const before = readIndexerListed();
+  const set = new Set(before);
   change(set);
-  if (before && set.size === before.size && [...set].every((name) => before.has(name))) return;
-  try { localStorage.setItem(deps.accountScopedKey(AUTO_JOINED_KEY), JSON.stringify([...set].sort())); } catch { /* next load */ }
+  if (set.size === before.size && [...set].every((name) => before.has(name))) return;
+  try { localStorage.setItem(deps.accountScopedKey(INDEXER_LISTED_KEY), JSON.stringify([...set].sort())); } catch { /* next load */ }
 }
-/** Notes the indexer rooms just joined for the person. The first time on this build, the indexer
- *  rooms already joined count too (K joined those itself), except one the person has posted in:
- *  theirs already. Waits for the indexer's list to be known, so that first count isn't empty. */
-function recordAutoJoined(joinedNow, joinedBefore) {
-  const firstRun = readAutoJoined() == null;
-  const indexerRooms = indexerDefaultBroadcastChannels();
-  if (firstRun && !indexerRooms.length && !joinedNow.length) return;
-  const me = deps.engine.address;
-  const earlier = firstRun
-    ? indexerRooms.filter((name) => joinedBefore.has(name)
-      && !(messageCache[name] || []).some((m) => m.senderAddress === me))
-    : [];
-  if (!firstRun && !joinedNow.length) return;
-  updateAutoJoined((set) => { for (const name of [...joinedNow, ...earlier]) set.add(name); });
-}
-/** The person made this room their own (joined it by name or from a link, or posted in it): it
- *  stays when the indexer drops it (K keepRoomAsOwn). */
-function keepRoomAsOwn(rawName) {
-  const name = normalizeBroadcastChannel(rawName);
-  if (!name || !readAutoJoined()?.has(name)) return;
-  updateAutoJoined((set) => set.delete(name));
+/** Adds the rooms on the indexer's list now; forgets ones off it that aren't joined (K
+ *  noteIndexerListedRooms). */
+function noteIndexerListedRooms(joined) {
+  const listed = new Set(indexerDefaultBroadcastChannels());
+  let legacy = [];
+  try {
+    const oldKey = deps.accountScopedKey(LEGACY_AUTO_JOINED_KEY);
+    const raw = localStorage.getItem(oldKey);
+    if (raw != null) {
+      const list = JSON.parse(raw);
+      legacy = Array.isArray(list) ? list.filter((name) => typeof name === "string") : [];
+      localStorage.removeItem(oldKey);
+    }
+  } catch { legacy = []; }
+  updateIndexerListed((set) => {
+    for (const name of [...listed, ...legacy]) set.add(name);
+    for (const name of [...set]) if (!listed.has(name) && !joined.has(name)) set.delete(name);
+  });
 }
 const CURATED_BUILT_IN = new Set([...FEATURED_BROADCAST_CHANNELS, ...LANGUAGE_BROADCAST_CHANNELS]);
 
@@ -719,14 +713,16 @@ const HIDDEN_MISSING_KEY = "kachat-broadcast-hidden-missing-v1"; // account-scop
 
 /** A switched-off room the indexer no longer reports: nothing would ever show it again (no switch
  *  for it any more), so it's left - once it has been missing for DROPPED_ROOM_GRACE_MS, so one short
- *  `/broadcast-channels` answer doesn't forget it was switched off (K 961fc05a). A room K joined for
- *  the person that the indexer dropped is left too, pin included, once it has been missing
- *  DROPPED_AUTO_ROOM_GRACE_MS (K 65f8a765); one the person made their own stays as an ordinary room. */
+ *  `/broadcast-channels` answer doesn't forget it was switched off (K 961fc05a). Any joined room the
+ *  indexer listed and then dropped is left too, pin included, once it has been missing
+ *  DROPPED_AUTO_ROOM_GRACE_MS (K 35b112ce): joined by name or posted in, it goes all the same. */
 function forgetDroppedDefaultRooms(now = Date.now()) {
   if (!deps?.engine?.address) return;
   const curated = new Set(curatedBroadcastChannels());
   const absentHidden = new Set([...hiddenCurated].filter((name) => !curated.has(name)));
-  const absentAuto = [...(readAutoJoined() || [])].filter((name) => joinedChannels.includes(name) && !curated.has(name));
+  const joined = new Set(joinedChannels);
+  noteIndexerListedRooms(joined);
+  const absentAuto = [...readIndexerListed()].filter((name) => joined.has(name) && !curated.has(name));
   const absent = [...new Set([...absentHidden, ...absentAuto])];
   const key = deps.accountScopedKey(HIDDEN_MISSING_KEY);
   let saved;
@@ -747,7 +743,7 @@ function forgetDroppedDefaultRooms(now = Date.now()) {
   if (!dropped.length) return;
   for (const name of dropped) hiddenCurated.delete(name);
   saveHiddenCurated();
-  updateAutoJoined((set) => { for (const name of dropped) set.delete(name); });
+  updateIndexerListed((set) => { for (const name of dropped) set.delete(name); });
   for (const name of dropped) {
     if (!joinedChannels.includes(name)) continue;
     deps.appendEngineLog?.(`#${name} left: the indexer no longer tracks it`);
@@ -1705,8 +1701,6 @@ function retryRoomParts(channel, cluster) {
 }
 /** Sends a row already in the room (status pending) under its pending id. */
 async function sendRoomRow(channel, pendingId, text, { showBubble = true, feeKas = null } = {}) {
-  // posting (a message, an edit, a reaction, a delete) makes the room the person's own (K 65f8a765)
-  keepRoomAsOwn(channel);
   try {
     const txid = await enqueueBroadcastSend(() => sendBroadcastMessage({ engine: deps.engine, channel, content: text, feeKas: feeKas || "0" }));
     if (showBubble) {
@@ -3201,8 +3195,6 @@ function joinChannel(rawName) {
     return;
   }
   addJoinedChannel(name);
-  // joined by the person (New Public Chat, a link): theirs, whatever the indexer does (K 65f8a765)
-  keepRoomAsOwn(name);
   renderChannelList();
   openRoom(name);
 }

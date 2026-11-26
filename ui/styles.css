@@ -13842,3 +13842,27 @@ button.kusdt-activity-row:hover { background: var(--surface-1, rgba(255,255,255,
 .chat-info-count-link:hover:not(:disabled) { text-decoration: underline; }
 .chat-info-count-link:disabled { cursor: default; }
 .chat-info-header-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+
+/* Kasshi (K 35b112ce): its own screen, a card that opens kasshi.io in a new tab. The dock glyph is
+   play.rectangle.fill, a solid shape like the controller's. */
+.sidebar-tab-icon svg.tab-glyph-solid { fill: currentColor; stroke: none; }
+.kasshi-tab-screen {
+  flex: 1; min-height: 0; overflow-y: auto;
+  width: 100%; max-width: 640px; margin: 0 auto;
+  padding: 20px 20px 40px;
+}
+.kasshi-card {
+  display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center;
+  margin-top: 24px; padding: 28px 24px; border-radius: 22px;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.kasshi-card-icon {
+  width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--glass-fill); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: .8px solid rgba(255,255,255,.18); box-shadow: 0 4px 8px rgba(0,0,0,.12); color: var(--accent);
+}
+.kasshi-card-icon svg { width: 30px; height: 30px; fill: currentColor; }
+.kasshi-card-blurb { margin: 0; font-size: 15px; font-weight: 600; color: var(--text); }
+.kasshi-open { display: inline-block; min-width: 180px; text-decoration: none; text-align: center; }
+.kasshi-card-hint { margin: 0; max-width: 420px; font-size: 13px; line-height: 1.45; color: var(--muted); }
+.kasshi-card-hint a { color: var(--kaspa-ink); }

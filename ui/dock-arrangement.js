@@ -12,7 +12,8 @@ export const RAIL_ORDER = [
   "chess",
   // No KaChat Bots item (owner, 2026-11-12): the bots live in Chats, as circles above the list.
   // Explorer (K 961fc05a) took KaChat Stats' place.
-  "explorer", "apps",
+  // Kasshi (K 35b112ce): its own item, no longer one of the Websites.
+  "explorer", "apps", "kasshi",
   "profile", "settings",
 ];
 /** Tabs that were replaced: a saved spot or link asking for the old one lands on the new one.

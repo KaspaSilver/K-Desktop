@@ -19,6 +19,7 @@ export const HUB_LINK_SLUGS = Object.freeze({
   kaplay: Object.freeze({ tab: "chess", label: "Arcade", blurb: "Chess, Snake and 2048, scores on chain." }),
   websites: Object.freeze({ tab: "apps", label: "Websites", blurb: "Websites built on Kaspa." }),
   explorer: Object.freeze({ tab: "explorer", label: "Explorer", blurb: "Blocks, transactions and addresses, live." }),
+  kasshi: Object.freeze({ tab: "kasshi", label: "Kasshi", blurb: "Watch and listen, and pay the creator in KAS." }),
 });
 
 /** The card a slug names, case-insensitively (K `AppTab(linkSlug:)`); null for anything unknown. */

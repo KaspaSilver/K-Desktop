@@ -157,7 +157,7 @@ await test("a room the indexer adds joins with its bell off, as a default room",
   assert.equal(listed.get("dev-room").indexed, true, "a default room: Delete switches it off");
   assert.equal(listed.has("chess-arena"), false, "machinery stays out");
   assert.ok(stored("kachat-broadcast-channels-v1").includes("dev-room"), "saved as joined");
-  assert.ok(stored("kachat-rooms-auto-joined-v1").includes("dev-room"), "remembered as joined by K (K 65f8a765)");
+  assert.ok(stored("kachat-rooms-indexer-listed-v1").includes("dev-room"), "remembered as listed by the indexer (K 35b112ce)");
 });
 
 await test("dropped by the indexer: one K joined is left after 2 hours; switched off is left after 7 days", () => {
@@ -187,35 +187,48 @@ await test("dropped by the indexer: one K joined is left after 2 hours; switched
     assert.ok(removed.includes("quiet-room"), "its pin goes too");
     assert.equal(byName().has("dev-room"), false, "the room K joined is left too (K 65f8a765)");
     assert.ok(removed.includes("dev-room"), "its pin goes too");
-    assert.ok(!stored("kachat-rooms-auto-joined-v1").includes("dev-room"));
+    assert.ok(!stored("kachat-rooms-indexer-listed-v1").includes("dev-room"));
   } finally {
     Date.now = realNow;
   }
 });
 
-await test("a room K joined goes 2 hours after the indexer drops it; one you joined by name or posted in stays", () => {
+await test("any room the indexer listed goes 2 hours after it's dropped, even one joined by name or posted in (K 35b112ce)", () => {
   const realNow = Date.now;
   try {
-    setReportedBroadcastChannels(["kaspa", "brief-room", "kept-room"]);
-    assert.ok(stored("kachat-rooms-auto-joined-v1").includes("kept-room"));
-    rooms.joinBroadcastChannelFromSheet("kept-room"); // joined by name: the person's own
+    // an older build's list (only the rooms K joined) is read once, into the new one
+    localStorage.setItem(scoped("kachat-rooms-auto-joined-v1"), JSON.stringify(["old-room"]));
+    rooms.joinBroadcastChannelFromSheet("old-room");
     rooms.closeBroadcastRoom();
-    assert.ok(!stored("kachat-rooms-auto-joined-v1").includes("kept-room"), "no longer K's to drop");
+    rooms.joinBroadcastChannelFromSheet("never-listed"); // the indexer never had it: yours for good
+    rooms.closeBroadcastRoom();
+    setReportedBroadcastChannels(["kaspa", "brief-room", "kept-room"]);
+    assert.equal(localStorage.getItem(scoped("kachat-rooms-auto-joined-v1")), null, "the old list is gone");
+    assert.ok(stored("kachat-rooms-indexer-listed-v1").includes("old-room"), "moved over");
+    assert.ok(stored("kachat-rooms-indexer-listed-v1").includes("kept-room"));
+    assert.ok(!stored("kachat-rooms-indexer-listed-v1").includes("never-listed"));
+    rooms.joinBroadcastChannelFromSheet("kept-room"); // joined by name: goes all the same now
+    rooms.closeBroadcastRoom();
+    assert.ok(stored("kachat-rooms-indexer-listed-v1").includes("kept-room"), "still the indexer's");
     setReportedBroadcastChannels(["kaspa"]);
     const start = Date.now();
     Date.now = () => start + DROPPED_AUTO_ROOM_GRACE_MS - 60_000;
     rooms.refreshBroadcasts();
     assert.equal(byName().has("brief-room"), true, "under 2 hours: still there");
+    assert.equal(byName().has("kept-room"), true);
     Date.now = () => start + DROPPED_AUTO_ROOM_GRACE_MS + 1000;
     rooms.refreshBroadcasts();
     assert.equal(byName().has("brief-room"), false, "2 hours missing: left");
-    assert.equal(byName().get("kept-room")?.joined, true, "yours: stays as an ordinary room");
+    assert.equal(byName().has("kept-room"), false, "joined by name: left too");
+    assert.equal(byName().has("old-room"), false, "from the old list: left too");
+    assert.equal(byName().get("never-listed")?.joined, true, "never on the indexer's list: stays");
+    assert.deepEqual(stored("kachat-rooms-indexer-listed-v1"), [], "nothing left to watch");
+    rooms.leaveBroadcastChannel?.("never-listed");
   } finally {
     Date.now = realNow;
   }
-  // posting makes a room yours too
-  assert.match(fnSource(roomsSource, "sendRoomRow"), /^function sendRoomRow[^\n]*\n[^\n]*\n  keepRoomAsOwn\(channel\);/);
-  assert.match(fnSource(roomsSource, "joinChannel"), /addJoinedChannel\(name\);\n[^\n]*\n  keepRoomAsOwn\(name\);/);
+  // nothing makes an indexer room "yours" any more: no keepRoomAsOwn
+  assert.doesNotMatch(roomsSource, /keepRoomAsOwn|recordAutoJoined/);
 });
 
 await test("Edit Default Public Chats lists them under More Rooms and asks the indexer within a minute", () => {
@@ -276,7 +289,7 @@ await test("the service worker holds a room push for the open app, at most 4 s",
 // --- the two pages -----------------------------------------------------------------------------------
 await test("a cycle button beside the KaChat title switches Chats and Public Chats", () => {
   assert.match(html, /<div class="chats-title-row">\n\s*<h1 class="kaposts-title chats-list-title">Chats<\/h1>\n\s*<span class="chats-page-cycle-wrap">\n\s*<button class="cycle-button chats-page-cycle" type="button" data-cycle="chats-page" data-chats-page-cycle/);
-  assert.match(app, /function chatListPageOptions\(\) \{ return \[\{ id: "chats", title: "Chats" \}, \{ id: "publicChats", title: "Public Chats" \}\]; \}/);
+  assert.match(app, /function chatListPageOptions\(\) \{ return \[\{ id: "chats", title: "Private Chats" \}, \{ id: "publicChats", title: "Public Chats" \}\]; \}/);
   assert.match(app, /"Switches between your chats and public chats"/);
   assert.match(app, /document\.querySelector\("\[data-chats-page-cycle\]"\)\?\.addEventListener\("click", \(event\) => \{\n\s*const next = event\.currentTarget\.dataset\.cycleNext/);
   const set = fnSource(app, "setChatListPage");

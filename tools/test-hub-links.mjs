@@ -31,9 +31,10 @@ function fnSource(source, name) {
 const MAP = {
   contacts: "address-book", portfolio: "portfolio", "cold-storage": "cold-storage", usernames: "kachat-names",
   kapost: "kaposts", kaplay: "chess", websites: "apps", explorer: "explorer",
+  kasshi: "kasshi", // its own card since K 35b112ce
 };
 
-test("the eight fixed slugs, each to its Desktop screen", () => {
+test("the nine fixed slugs, each to its Desktop screen", () => {
   assert.deepEqual(Object.keys(HUB_LINK_SLUGS).sort(), Object.keys(MAP).sort());
   for (const [slug, tab] of Object.entries(MAP)) {
     assert.equal(hubCardForSlug(slug).tab, tab, slug);
