@@ -44,8 +44,9 @@ await test("Set as Name fills the field without saving; the one in the field rea
   assert.match(app, /if \(chatInfoNameInput\) chatInfoNameInput\.value = setName\.dataset\.chatInfoSetName;\n\s+closeChatInfoSheet\(\);/);
   assert.match(app, /const canSet = !isSelf && !isKachatBot\(address\);/);
 });
-await test("Share Profile sits under the share circle, and shares too", () => {
-  assert.match(html, /data-chat-info-share aria-label="Share this profile"[^>]*><span class="chat-info-share-button"[\s\S]*?<span class="chat-info-share-caption">Share Profile<\/span><\/button>/);
+await test("Share is a capsule beside Add as Contact under the bio (K 2251f15c), and shares", () => {
+  assert.match(html, /<div class="chat-info-header-actions" data-chat-info-header-actions>[\s\S]*?data-chat-info-address-book>[\s\S]*?data-chat-info-share aria-label="Share this profile"[\s\S]*?<span>Share<\/span>\s*<\/button>/);
+  assert.doesNotMatch(html, /chat-info-share-caption/, "the big round Share Profile button is gone");
 });
 // KaChat iOS 148a5331 retired KaPay: every request's QR holds its kachat.app link (kapay:// links
 // older apps made are still read, engine/payment-request.js PAY_LINK_RE).

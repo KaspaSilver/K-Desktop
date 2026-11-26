@@ -60,9 +60,9 @@ test("the card and the chat list read as iOS's do", () => {
   assert.equal(app.split('"Shared a KaPost"').length - 1, 2);
 });
 
-test("a held-back person's link card is the hidden photo tile", () => {
-  assert.match(app, /const linkPhotoHeld = Boolean\(previewable\) && message\.direction === "incoming" && photosAreHidden\(photosUnlockAt\);/);
-  assert.match(app, /: linkPhotoHeld \? buildHiddenPhotoTile\(peerName\)/);
+test("a held-back person's link card is the Tap to View tile (K 2251f15c)", () => {
+  assert.match(app, /const linkPhotoHeld = Boolean\(previewable\) && photoHeldBack\(message, photosUnlockAt\);/);
+  assert.match(app, /: linkPhotoHeld \? buildHiddenPhotoTile\(peerName, message\)/);
 });
 
 console.log(`kapost link cards: ${passed} passed`);

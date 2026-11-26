@@ -13307,6 +13307,11 @@ body.has-backup-banner .app-body { padding-top: calc(var(--topbar-h) + var(--bac
 
 /* An incoming photo that hasn't unlocked says when it will (iOS d1844582 hiddenBubble). */
 .message-photo-hidden small { font-size: 11px; line-height: 1.25; color: inherit; }
+/* Tap to View (K 2251f15c HeldPhotoTile): the held photo's tile is a button, its pill the accent. */
+.message-photo-hidden.message-photo-held { cursor: pointer; font: inherit; font-size: 12px; color: var(--muted); }
+.message-photo-held:hover { background: var(--ios-gray5); }
+.message-photo-held:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.message-photo-held-pill { padding: 6px 12px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-size: 12px; font-weight: 600; }
 
 /* An empty bot chat's prompt, in the middle of the thread (iOS d1844582 botPrompt). */
 .message-area:has(> .bot-chat-prompt) { align-content: center; }
@@ -13803,3 +13808,37 @@ button.kusdt-activity-row:hover { background: var(--surface-1, rgba(255,255,255,
 .group-step-icon svg { width: 14px; height: 14px; fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
 .group-action-note { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.35; }
 @keyframes group-step-spin { to { transform: rotate(360deg); } }
+
+/* ==== User Info opens with Profile's header (K 2251f15c, owner 2026-11-26) ====
+   Banner (the .kachat one, else the accent gradient), the avatar over its edge with See All Posts
+   beside it, the name with its pencil, Following / Followers, the bio (or the address), then Add as
+   Contact and Share. Left-aligned like Profile, no longer centered. */
+.chat-info-header-card { align-items: stretch; gap: 6px; padding: 22px 16px 16px; text-align: left; }
+.chat-info-banner { height: 120px; border-radius: 10px 10px 0 0; }
+.chat-info-banner.placeholder { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 55%, transparent), color-mix(in srgb, var(--accent) 15%, transparent)); }
+.chat-info-banner[hidden] { display: none; }
+.chat-info-avatar-line { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-top: -44px; padding: 0 2px; }
+.chat-info-avatar-line .chat-info-avatar { width: 76px; height: 76px; font-size: 24px; box-shadow: 0 0 0 3px var(--grouped-cell-elevated, var(--panel)); }
+.chat-info-header-card .chat-info-name-row { align-self: flex-start; margin-top: 4px; }
+.chat-info-header-card .chat-info-name-input { text-align: left; font-size: 20px; font-weight: 700; max-width: 100%; }
+/* the pencil beside the name, not at the card's far edge: the field is as wide as what it holds */
+.chat-info-header-card .chat-info-name-input { width: auto; field-sizing: content; min-width: 4ch; }
+.chat-info-header-card .chat-info-address-caption, .chat-info-header-card .chat-info-bio { text-align: left; }
+.chat-info-capsule {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent); font: inherit; font-size: 14px; font-weight: 600; white-space: nowrap; cursor: pointer;
+}
+.chat-info-capsule:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.chat-info-capsule:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chat-info-capsule[hidden], .chat-info-header-actions[hidden], .chat-info-follow-counts[hidden] { display: none; }
+.chat-info-capsule svg { width: 17px; height: 17px; flex: 0 0 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.chat-info-capsule-icon { display: inline-flex; }
+.chat-info-capsule-icon svg { width: 17px; height: 17px; }
+.chat-info-follow-counts { display: flex; gap: 16px; }
+.chat-info-count-link { padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 15px; cursor: pointer; }
+.chat-info-count-link b { color: var(--text); font-weight: 700; }
+.chat-info-count-link:hover:not(:disabled) { text-decoration: underline; }
+.chat-info-count-link:disabled { cursor: default; }
+.chat-info-header-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }

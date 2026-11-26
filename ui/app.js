@@ -59,6 +59,7 @@ import { chatListUnreadCount, chatsTabUnreadCount, debouncedCountPublisher, coal
 import { setBroadcastRoomsNotify } from "./broadcasts.js";
 import { kaPostsWatchedAuthorAddresses, kaPostsHiddenXOnlyKeys } from "./kaposts.js";
 import { openKaPostComposerWithText, openKaPostQuickComposer } from "./kaposts.js";
+import { kaPostsFollowCounts, openKaPostsProfileFor, openKaPostsFollowList } from "./kaposts.js";
 // Terms of Use, Block and tapped room links (KaPosts-iPhone 9e22075); Feed to its top (45de945).
 import { blockKaPostAccount, closeKaPostCovers, kaPostsBlockedAddresses, kaPostsFeedToTop } from "./kaposts.js";
 import { setKaPostsRootMode, syncKaPostsBell, kaPostsUnseenCount } from "./kaposts.js";
@@ -2375,12 +2376,32 @@ function openProfileLink(address) {
 function knownBroadcastRoom(channel) {
   try { return chatListRooms().some((room) => room.name === channel); } catch { return true; }
 }
-/** iOS LazyImageBubble hiddenBubble: eye.slash, "<name> sent a photo", and when it shows. */
-function buildHiddenPhotoTile(senderName) {
-  const hidden = document.createElement("div");
-  hidden.className = "message-photo-hidden";
-  hidden.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7c2 0 3.7.7 5.1 1.6M22 12s-3.6 7-10 7c-2 0-3.7-.7-5.1-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m3 3 18 18"/></svg><span></span><small>It shows 10 minutes after you have both sent a message.</small>';
+// Held photos tapped open (K 2251f15c HeldPhotoReveals), by message, for as long as this page is
+// open: once the 10 minutes are up every photo shows anyway, so nothing is saved.
+const heldPhotoReveals = new Set();
+/** Whether an incoming photo from this message waits behind Tap to View right now. */
+function photoHeldBack(message, photosUnlockAt) {
+  return message.direction === "incoming" && photosAreHidden(photosUnlockAt)
+    && !heldPhotoReveals.has(String(message.txId || message.id || ""));
+}
+/** K 2251f15c HeldPhotoTile: a photo from someone you only just started talking to waits behind
+ *  this tile until 10 minutes after you have both sent a message, and shows once tapped (owner,
+ *  2026-11-26; before, it stayed hidden with no way to see it early). */
+function buildHiddenPhotoTile(senderName, message = null) {
+  const hidden = document.createElement("button");
+  hidden.type = "button";
+  hidden.className = "message-photo-hidden message-photo-held";
+  hidden.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7c2 0 3.7.7 5.1 1.6M22 12s-3.6 7-10 7c-2 0-3.7-.7-5.1-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m3 3 18 18"/></svg><span></span><b class="message-photo-held-pill">Tap to view</b>';
   hidden.querySelector("span").textContent = `${senderName} sent a photo`;
+  hidden.setAttribute("aria-label", `${senderName} sent a photo. Tap to view`);
+  hidden.addEventListener("click", (event) => {
+    // the photo, not the message's own tap (reply, menu)
+    event.stopPropagation();
+    const key = String(message?.txId || message?.id || "");
+    if (!key) return;
+    heldPhotoReveals.add(key);
+    scheduleActiveThreadRerender();
+  });
   return hidden;
 }
 // The native in-app card (iOS KaChatInternalLinkCardView): glyph, eyebrow, title, what a tap does.
@@ -13369,7 +13390,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 352;
+const APP_BUILD = 353;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -17967,7 +17988,7 @@ function renderMessages(conversationEntry) {
   // drawn again. ("Today" moves at midnight, so the date is in it too.)
   const rowContext = JSON.stringify([
     messageSelectionMode, peerAvatarHtml, ownAvatarHtml, peerName, Boolean(requestContact),
-    isAcceptedContact(requestContact, conversationEntry), photosAreHidden(photosUnlockAt), engine.address || "",
+    isAcceptedContact(requestContact, conversationEntry), photosAreHidden(photosUnlockAt), heldPhotoReveals.size, engine.address || "",
     new Date().toDateString(),
   ]);
   if (threadRowCache.entry !== conversationEntry || threadRowCache.context !== rowContext) {
@@ -18154,8 +18175,8 @@ function renderMessages(conversationEntry) {
 
     const partCluster = partsInfo.clusters.get(message.id);
     if (partCluster) {
-      if (partCluster.kind === "photo" && message.direction === "incoming" && photosAreHidden(photosUnlockAt)) {
-        bubble.append(buildHiddenPhotoTile(peerName));
+      if (partCluster.kind === "photo" && photoHeldBack(message, photosUnlockAt)) {
+        bubble.append(buildHiddenPhotoTile(peerName, message));
       } else {
         if (partCluster.kind === "photo") bubble.classList.add("photo-bubble");
         bubble.append(VoiceNotes.buildPartsBody(partCluster, {
@@ -18167,9 +18188,9 @@ function renderMessages(conversationEntry) {
         }));
       }
     } else if (imageEnvelope) {
-      const heldBackPhoto = message.direction === "incoming" && photosAreHidden(photosUnlockAt);
+      const heldBackPhoto = photoHeldBack(message, photosUnlockAt);
       if (heldBackPhoto) {
-        bubble.append(buildHiddenPhotoTile(peerName));
+        bubble.append(buildHiddenPhotoTile(peerName, message));
       } else {
         // Photo-only bubble: no chat-bubble background, just the image (timestamp overlays it).
         bubble.classList.add("photo-bubble");
@@ -18225,10 +18246,10 @@ function renderMessages(conversationEntry) {
         || (previewable && (linkPreviewCache.has(previewable) || approvedPreviewUrls.has(previewable)));
       // A card can show the linked site's picture or the shared photo itself, so while photos from
       // this person are held back nothing is fetched and it is a hidden photo's tile (iOS 4f8e14bb).
-      const linkPhotoHeld = Boolean(previewable) && message.direction === "incoming" && photosAreHidden(photosUnlockAt);
+      const linkPhotoHeld = Boolean(previewable) && photoHeldBack(message, photosUnlockAt);
       const card = internalLink
         ? buildInternalLinkCard(internalLink)
-        : linkPhotoHeld ? buildHiddenPhotoTile(peerName)
+        : linkPhotoHeld ? buildHiddenPhotoTile(peerName, message)
         : previewable ? (autoFetch ? buildLinkPreviewCard(previewable, { autoLoad: true, outgoing: message.direction !== "incoming" }) : buildTapToLoadCard(previewable, conversationEntry)) : null;
       // A link-only message renders as just the preview card (no chat bubble, timestamp below),
       // matching iOS. A link into KaChat is the whole message even with text around it (iOS
@@ -18565,8 +18586,14 @@ function openChatInfoFor(contact, conversationEntry) {
   // (iOS d1844582 isBot). The Address sheet's QR card moves inline while one is open.
   const rowsCard = document.querySelector("[data-chat-info-rows]");
   if (rowsCard) rowsCard.hidden = isBot;
-  const shareButton = document.querySelector("[data-chat-info-share]");
-  if (shareButton) shareButton.hidden = isBot;
+  // Profile's header (K 2251f15c): a bot has its name and address, no posts, counts or actions.
+  const seePosts = document.querySelector("[data-chat-info-see-posts]");
+  if (seePosts) seePosts.hidden = isBot;
+  const headerActions = document.querySelector("[data-chat-info-header-actions]");
+  if (headerActions) headerActions.hidden = isBot;
+  const followCounts = document.querySelector("[data-chat-info-follow-counts]");
+  if (followCounts) followCounts.hidden = isBot;
+  loadChatInfoFollowCounts(contact.address, isBot);
   const botAddress = document.querySelector("[data-chat-info-bot-address]");
   const qrCard = document.querySelector("[data-chat-info-copy-address]");
   if (botAddress && qrCard) {
@@ -18577,6 +18604,7 @@ function openChatInfoFor(contact, conversationEntry) {
   }
   const openChatRow = document.querySelector("[data-chat-info-open-chat]");
   if (openChatRow) openChatRow.hidden = isSelf;
+  // Add as Contact: never on your own card
   const addressBookRow = document.querySelector("[data-chat-info-address-book]");
   if (addressBookRow) addressBookRow.hidden = isSelf;
   refreshChatInfoAddressBookRow();
@@ -18718,9 +18746,12 @@ function paintChatInfoKachat(contact) {
       }
       if (img.getAttribute("src") !== pieces.bannerUrl) img.src = pieces.bannerUrl;
       banner.hidden = false;
+      banner.classList.remove("placeholder");
     } else {
+      // no banner: the accent gradient, as Profile's header (K 2251f15c)
       banner.replaceChildren();
-      banner.hidden = true;
+      banner.hidden = false;
+      banner.classList.add("placeholder");
     }
   }
 
@@ -18829,7 +18860,8 @@ const chatInfoSheetTitle = document.querySelector("[data-chat-info-sheet-title]"
 const chatInfoExplorerLink = document.querySelector("[data-chat-info-explorer-link]");
 const CHAT_INFO_SHEET_TITLES = {
   address: "Address",
-  "kachat-names": ".kachat Names",
+  // "Usernames" (K 2251f15c), as the .kachat tab is named
+  "kachat-names": "Usernames",
   aliases: "Aliases",
   notifications: "Notifications",
 };
@@ -18909,15 +18941,52 @@ document.querySelector("[data-chat-info-open-chat]")?.addEventListener("click", 
   closeChatInfo();
   openOrCreateOneToOne(address);
 });
-// User Info's Address Book row (iOS 00767a4): "Add to Contacts", or "Contacts" once saved (KaChat
-// bc3e1ff3; "Address Book" before).
+// User Info's contact button under the bio (K 2251f15c): "Add as Contact", or "Edit Contact" once
+// saved; the same sheet as before (iOS 00767a4).
 function refreshChatInfoAddressBookRow() {
   const saved = Boolean(chatInfoContactAddress && addressBookEntry(chatInfoContactAddress));
   const title = document.querySelector("[data-chat-info-address-book-title]");
-  if (title) title.textContent = saved ? "Contacts" : "Add to Contacts";
+  if (title) title.textContent = saved ? "Edit Contact" : "Add as Contact";
   const icon = document.querySelector("[data-chat-info-address-book-icon]");
-  if (icon) icon.innerHTML = (saved ? ADDRESS_BOOK_ICONS.bookFill : ADDRESS_BOOK_ICONS.book).replace("<svg ", '<svg class="chat-info-row-icon" ');
+  if (icon) icon.innerHTML = saved ? ADDRESS_BOOK_ICONS.bookFill : ADDRESS_BOOK_ICONS.book;
 }
+
+// Following / Followers in User Info's header (K 2251f15c), read from KaPost when it opens. The
+// key they were read under goes with a tap to the list.
+let chatInfoFollowPubkey = null;
+let chatInfoFollowLoad = 0;
+function loadChatInfoFollowCounts(address, isBot) {
+  const load = ++chatInfoFollowLoad;
+  chatInfoFollowPubkey = null;
+  const following = document.querySelector("[data-chat-info-following-count]");
+  const followers = document.querySelector("[data-chat-info-followers-count]");
+  if (following) following.textContent = "0";
+  if (followers) followers.textContent = "0";
+  for (const button of document.querySelectorAll("[data-chat-info-follow-list]")) button.disabled = true;
+  if (isBot || !address) return;
+  kaPostsFollowCounts(address).then((counts) => {
+    if (load !== chatInfoFollowLoad || chatInfoContactAddress !== address) return;
+    chatInfoFollowPubkey = counts.pubkey;
+    if (following) following.textContent = counts.following.toLocaleString();
+    if (followers) followers.textContent = counts.followers.toLocaleString();
+    for (const button of document.querySelectorAll("[data-chat-info-follow-list]")) button.disabled = !counts.pubkey;
+  }).catch(() => { /* the counts stay 0 */ });
+}
+// See All Posts: their posts and replies on Posts; yours is the Profile tab.
+document.querySelector("[data-chat-info-see-posts]")?.addEventListener("click", () => {
+  const address = chatInfoContactAddress;
+  if (!address) return;
+  closeChatInfo();
+  try { openKaPostsProfileFor(address); } catch { /* Posts not started */ }
+});
+document.querySelector("[data-chat-info-follow-counts]")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-chat-info-follow-list]");
+  const address = chatInfoContactAddress;
+  if (!button || button.disabled || !address || !chatInfoFollowPubkey) return;
+  const pubkey = chatInfoFollowPubkey;
+  closeChatInfo();
+  try { openKaPostsFollowList(address, pubkey, button.dataset.chatInfoFollowList); } catch { /* Posts not started */ }
+});
 document.querySelector("[data-chat-info-address-book]")?.addEventListener("click", async () => {
   const address = chatInfoContactAddress;
   if (!address || address === engine.address) return;

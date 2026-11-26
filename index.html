@@ -16,7 +16,7 @@
        fetched again once and the page reloads; see public/asset-repair.js. -->
   <script src="/asset-repair.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=446" />
+  <link rel="stylesheet" href="./ui/styles.css?v=448" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (K's globe, dark only since K b0f0a4e6) is the tab icon too. -->
@@ -2786,24 +2786,29 @@
         <button class="chat-info-header-button accent" type="button" data-chat-info-save>Save</button>
       </header>
       <div class="account-overlay-body">
-        <!-- This person's kachat.app profile link, the same link-only share your own Profile uses
-             (iOS 95c3760). A round button at the top, not a row (iOS d1844582 shareButton). -->
-        <!-- KaChat 413f6d6d: "Share Profile" under the circle; the words share too. -->
-        <button class="chat-info-share" type="button" data-chat-info-share aria-label="Share this profile" title="Share this profile"><span class="chat-info-share-button" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12"/></svg></span><span class="chat-info-share-caption">Share Profile</span></button>
+        <!-- User Info opens with Profile's header (K 2251f15c, owner 2026-11-26): banner, avatar,
+             See All Posts, the name with its pencil, Following / Followers, the bio, then Add as
+             Contact and Share. The round share circle and the contacts row it replaced are gone. -->
         <div class="profile-card chat-info-header-card">
-          <!-- The contact's .kachat banner, bled to the card's edges (iOS ChatInfoView's header
-               section leads with it when the profile has one). -->
-          <div class="chat-info-banner" data-chat-info-banner hidden></div>
-          <!-- Tapping the avatar opens it full screen. No photo of your own choosing: iOS shows
-               the person's profile picture only. -->
-          <span class="chat-info-avatar-wrap">
-            <button type="button" class="chat-info-avatar-button" data-chat-info-avatar-preview aria-label="View contact photo">
-              <span class="chat-info-avatar" data-chat-info-avatar aria-hidden="true">
-                <span data-chat-info-avatar-initials></span>
-                <img class="chat-info-avatar-image" data-chat-info-avatar-image alt="" hidden />
-              </span>
+          <!-- The .kachat banner, else the accent gradient (K ChatInfoView.profileHeader). -->
+          <div class="chat-info-banner placeholder" data-chat-info-banner></div>
+          <div class="chat-info-avatar-line">
+            <!-- Tapping the avatar opens it full screen. No photo of your own choosing: iOS shows
+                 the person's profile picture only. -->
+            <span class="chat-info-avatar-wrap">
+              <button type="button" class="chat-info-avatar-button" data-chat-info-avatar-preview aria-label="View contact photo">
+                <span class="chat-info-avatar" data-chat-info-avatar aria-hidden="true">
+                  <span data-chat-info-avatar-initials></span>
+                  <img class="chat-info-avatar-image" data-chat-info-avatar-image alt="" hidden />
+                </span>
+              </button>
+            </span>
+            <!-- Their KaPost profile, posts and replies; yours opens the Profile tab. -->
+            <button type="button" class="chat-info-capsule" data-chat-info-see-posts title="Opens their posts and replies.">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+              <span>See All Posts</span>
             </button>
-          </span>
+          </div>
           <!-- A bare field styled like a heading reads as a label rather than something you can
                change; the pencil is what says otherwise, and it focuses the field (iOS). -->
           <span class="chat-info-name-row">
@@ -2812,7 +2817,12 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
             </button>
           </span>
-          <!-- Exactly ONE line sits under the name, as on iOS: their bio when they have one, else
+          <!-- Following and Followers: tap for the lists (K KaPostsFollowListView). -->
+          <span class="chat-info-follow-counts" data-chat-info-follow-counts>
+            <button type="button" class="chat-info-count-link" data-chat-info-follow-list="following"><b data-chat-info-following-count>0</b> Following</button>
+            <button type="button" class="chat-info-count-link" data-chat-info-follow-list="followers"><b data-chat-info-followers-count>0</b> Followers</button>
+          </span>
+          <!-- Exactly ONE line sits under the counts, as on iOS: their bio when they have one, else
                the address. -->
           <span class="chat-info-address-caption" data-chat-info-address-caption></span>
           <p class="chat-info-bio" data-chat-info-bio hidden title="Click to expand"></p>
@@ -2821,6 +2831,18 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>
             <span data-chat-info-linktree-text></span>
           </a>
+          <!-- Add as Contact (Edit Contact once saved: iOS 00767a4's sheet) and Share, the profile's
+               kachat.app link (iOS 95c3760). -->
+          <div class="chat-info-header-actions" data-chat-info-header-actions>
+            <button type="button" class="chat-info-capsule" data-chat-info-address-book>
+              <span class="chat-info-capsule-icon" data-chat-info-address-book-icon aria-hidden="true"></span>
+              <span data-chat-info-address-book-title>Add as Contact</span>
+            </button>
+            <button type="button" class="chat-info-capsule" data-chat-info-share aria-label="Share this profile" title="Share this profile">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12"/></svg>
+              <span>Share</span>
+            </button>
+          </div>
         </div>
 
         <!-- One row per section, each opening its own sheet (iOS's infoCard list). The screen had
@@ -2841,18 +2863,12 @@
           <!-- The address's .kachat names, its primary marked (iOS e52357d). -->
           <button class="chat-info-row" type="button" data-chat-info-sheet="kachat-names" data-chat-info-kachat-names-row hidden disabled>
             <svg class="chat-info-row-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 5 -2.2A9 9 0 1 0 17.5 19"/></svg>
-            <span class="chat-info-row-title">.kachat Names</span>
+            <span class="chat-info-row-title">Usernames</span>
             <svg class="chat-info-row-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
           </button>
           <button class="chat-info-row" type="button" data-chat-info-sheet="aliases">
             <svg class="chat-info-row-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/></svg>
             <span class="chat-info-row-title">Aliases</span>
-            <svg class="chat-info-row-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
-          </button>
-          <!-- "Add to Contacts" / "Contacts" (iOS 00767a4, KaChat bc3e1ff3): save, rename, note, remove. -->
-          <button class="chat-info-row" type="button" data-chat-info-address-book>
-            <span class="chat-info-row-icon-slot" data-chat-info-address-book-icon aria-hidden="true"></span>
-            <span class="chat-info-row-title" data-chat-info-address-book-title>Add to Contacts</span>
             <svg class="chat-info-row-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
           </button>
           <button class="chat-info-row" type="button" data-chat-info-sheet="notifications">

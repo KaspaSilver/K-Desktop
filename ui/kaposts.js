@@ -4860,6 +4860,43 @@ function openProfileFromTap(address, passedPubkey) {
   openPosterProfile(address, passedPubkey);
 }
 
+/** User Info's header (K 2251f15c ChatInfoView): someone's Following / Followers counts and the
+ *  key their lists are read under. null pubkey when the indexer knows no key for them. Your own
+ *  Following counts this device's list, and you're never your own follower (as Profile shows). */
+export async function kaPostsFollowCounts(address) {
+  if (!deps || !address) return { pubkey: null, following: 0, followers: 0 };
+  const mine = Boolean(deps.engine?.address) && sameAddress(address, deps.engine.address);
+  const pubkey = mine ? (safeRequesterPubkey() || await resolveKaPostsPubkey(address)) : await resolveKaPostsPubkey(address);
+  if (!pubkey) return { pubkey: null, following: mine ? prefs.following.filter((a) => a !== address).length : 0, followers: 0 };
+  let details = await fetchKaPostUserDetails({ engine: deps.engine, pubkey }).catch(() => null);
+  if (mine) details = ownProfileDetails(details, pubkey);
+  const whole = (value) => Math.max(0, Math.floor(Number(value) || 0));
+  return {
+    pubkey,
+    following: mine ? prefs.following.filter((a) => a !== address).length : whole(details?.followingCount),
+    followers: whole(details?.followersCount),
+  };
+}
+
+/** See All Posts in User Info: their KaPost profile, posts and replies, on Posts; yours is the
+ *  Profile tab (K 2251f15c). */
+export function openKaPostsProfileFor(address) {
+  if (!deps || !address) return;
+  if (deps.engine?.address && sameAddress(address, deps.engine.address)) { deps.openProfileTab?.(); return; }
+  deps.openKaPostsTab?.();
+  openPosterProfile(address, null);
+}
+
+/** Following / Followers tapped in User Info: the list, on Posts over their profile (on the Profile
+ *  tab over yours), with Back to that profile. */
+export function openKaPostsFollowList(address, pubkey, mode) {
+  if (!deps || !address) return;
+  const which = mode === "followers" ? "followers" : "following";
+  if (deps.engine?.address && sameAddress(address, deps.engine.address)) deps.openProfileTab?.();
+  else deps.openKaPostsTab?.();
+  openFollowListPanel({ address, pubkey, mode: which, parent: { address, pubkey } });
+}
+
 async function openPosterProfile(address, passedPubkey) {
   // opening it is what lets its .kachat pictures be looked up (K 428a797b)
   try { kachatProfileOpened(address); } catch { /* names not started */ }
