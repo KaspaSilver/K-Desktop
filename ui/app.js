@@ -13329,7 +13329,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.3";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 341;
+const APP_BUILD = 342;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -35353,7 +35353,7 @@ function newChatSheetIcon(kind) {
 // Square glass tiles, three to a row (iOS f81e8d6): New Chat, New Group Chat, New Public Chat,
 // Chatting Address. Each one's old line is its tooltip and accessible description.
 /** The "Silenced" tag beside a silenced chat's, group's or room's name in the KaChat list (owner,
- *  2026-11-25, K ef760cfa SilencedPill): a gray pill, plainer than the old bell-slash icon. A function,
+ *  2026-11-25, K ef760cfa SilencedPill; teal since K 53303688): plainer than the old bell-slash icon. A function,
  *  not a const: the boot-time renderChats reaches the rows before a const down here would exist. */
 function silencedPillHtml() { return '<span class="chat-row-silenced-pill">Silenced</span>'; }
 /** A row's name (already escaped), with the Silenced pill after it when silenced. The name sits in
