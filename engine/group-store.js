@@ -1630,26 +1630,84 @@ export class GroupManager {
   // would read one account's groups and write (or send, signed by the next account's key) into the
   // other's. The pass is bound to the account it started for: it stops writing and sending once
   // that changes, and its result comes back empty with `skipped: "account-changed"` (iOS dfaba68).
+  //
+  // Audit 2026-11-27: the messages a pass decodes are only stored once the app has its result, so
+  // nothing the pass moves past them is saved before then. The per-member cursor advances, the
+  // time cursor and the since-read's seen ids are staged on `staged` and kept only when the pass
+  // ran to the end for the account it started for; a pass that is discarded (the account changed
+  // at any point, it threw) leaves the pre-pass positions, and the next pass reads those rows again.
   async syncGroups() {
     if (this._refreshing > 0) return { controls: [], messages: [], skipped: "refreshing" };
     if (this._syncInFlight) return { controls: [], messages: [], skipped: "in-flight" };
     const wallet = this.walletAddress;
-    const pass = this._syncGroupsPass(wallet);
+    const staged = { complete: false, cursors: [], sinceSeen: [], handled: [], sinceBefore: null, rewinds: this._cursorRewinds };
+    const pass = this._syncGroupsPass(wallet, staged);
     this._syncInFlight = pass;
+    let kept = false;
     try {
       const result = await pass;
-      if (this.walletAddress !== wallet) return { controls: [], messages: [], skipped: "account-changed" };
+      // Synchronous from here to the return, so the account can't change between the check and
+      // the cursor write, and the app stores the result under the account the cursors belong to.
+      if (this.walletAddress !== wallet || !staged.complete) return { controls: [], messages: [], skipped: "account-changed" };
+      this._commitStagedCursors(staged);
+      kept = true;
       return result;
-    } finally { if (this._syncInFlight === pass) this._syncInFlight = null; }
+    } finally {
+      if (!kept) this._rollBackStagedPass(staged);
+      if (this._syncInFlight === pass) this._syncInFlight = null;
+    }
   }
 
-  async _syncGroupsPass(wallet = this.walletAddress) {
+  /** The cursor advances of a pass that completed. Each lane only where the stored cursor is still
+   *  the one the pass started from (a reset or another reader meanwhile wins), and none at all
+   *  after a rewindGroupCursors during the pass: the next pass re-reads from the rewound place. */
+  _commitStagedCursors(staged) {
+    if (staged.rewinds !== this._cursorRewinds) return;
+    for (const { groupId, startCursors, newest, newestTimes } of staged.cursors) {
+      this._mutate(groupId, (fresh) => {
+        const cursors = { ...(fresh.cursors || {}) };
+        const cursorTimes = { ...(fresh.cursorTimes || {}) };
+        let changed = false;
+        for (const [blindedHex, cursor] of Object.entries(newest)) {
+          if ((cursors[blindedHex] || null) !== (startCursors[blindedHex] || null)) continue;
+          if (cursors[blindedHex] === cursor) continue;
+          cursors[blindedHex] = cursor;
+          cursorTimes[blindedHex] = newestTimes[blindedHex];
+          changed = true;
+        }
+        if (!changed) return false;
+        fresh.cursors = cursors;
+        fresh.cursorTimes = cursorTimes;
+        return true;
+      });
+    }
+  }
+
+  /** A discarded pass: its cursors were never written; the in-memory positions go back too. */
+  _rollBackStagedPass(staged) {
+    staged.cursors.length = 0;
+    if (staged.sinceBefore != null) this.sinceBlockTime = Math.min(this.sinceBlockTime, staged.sinceBefore);
+    for (const txId of staged.sinceSeen) this._sinceSeen.delete(txId);
+    const state = this._outageState;
+    if (state) for (const txId of staged.handled) state.handled.delete(txId);
+  }
+
+  async _syncGroupsPass(wallet = this.walletAddress, staged = null) {
     const events = [];
     const switched = () => this.walletAddress !== wallet;
+    // Called on its own (no staging), its cursor advances are written when it ends normally.
+    const own = !staged;
+    if (own) staged = { complete: false, cursors: [], sinceSeen: [], handled: [], sinceBefore: null, rewinds: this._cursorRewinds };
+    const finish = (result) => {
+      staged.complete = true;
+      if (own && !switched()) this._commitStagedCursors(staged);
+      return result;
+    };
     if (this._sinceRewind != null) {
       this.sinceBlockTime = Math.min(this.sinceBlockTime, this._sinceRewind);
       this._sinceRewind = null;
     }
+    staged.sinceBefore = this.sinceBlockTime;
     // 0. Backfill recovery invites: publish a self-addressed root (with the group seed) for any
     // admin group that lacks one for its current epoch — i.e. every group created before this
     // feature existed. One-time per group per epoch; after it lands on chain, a seedless import
@@ -1709,7 +1767,7 @@ export class GroupManager {
       if (switched()) return { controls: [], messages: [] };
       const fromChain = [];
       this._drainChainResults(wallet, events, fromChain);
-      return { controls: events, messages: this._takeMemberStatuses(fromChain, events) };
+      return finish({ controls: events, messages: this._takeMemberStatuses(fromChain, events) });
     }
 
     // 1. Discover invites / rotations addressed to us, from the persisted cursor (DSK-041). The
@@ -1757,6 +1815,7 @@ export class GroupManager {
               for (const row of rows) {
                 if (!row.txId || this._sinceSeen.has(row.txId)) continue;
                 this._sinceSeen.add(row.txId);
+                staged.sinceSeen.push(row.txId);
                 if (this._sinceSeen.size > 4000) { for (const old of [...this._sinceSeen].slice(0, 2000)) this._sinceSeen.delete(old); }
                 const parsed = G.parseGroupMessagePayload(row.payloadString);
                 const decoded = this.processMessage(parsed, null, { txId: row.txId, blockTime: row.blockTime });
@@ -1819,22 +1878,9 @@ export class GroupManager {
           }
         }));
         if (!Object.keys(newest).length) return;
-        this._mutate(record.groupId, (fresh) => {
-          const cursors = { ...(fresh.cursors || {}) };
-          const cursorTimes = { ...(fresh.cursorTimes || {}) };
-          let changed = false;
-          for (const [blindedHex, cursor] of Object.entries(newest)) {
-            if ((cursors[blindedHex] || null) !== (startCursors[blindedHex] || null)) continue;
-            if (cursors[blindedHex] === cursor) continue;
-            cursors[blindedHex] = cursor;
-            cursorTimes[blindedHex] = newestTimes[blindedHex];
-            changed = true;
-          }
-          if (!changed) return false;
-          fresh.cursors = cursors;
-          fresh.cursorTimes = cursorTimes;
-          return true;
-        });
+        // Staged, not written: these rows are only stored once the app has the result (audit
+        // 2026-11-27), so the cursors move past them when the pass ends normally (syncGroups).
+        staged.cursors.push({ groupId: record.groupId, startCursors, newest, newestTimes });
       });
     }
     // The first full read establishes "now"; the since reads take over from here.
@@ -1844,12 +1890,16 @@ export class GroupManager {
     // The indexer went down during this pass: what it didn't serve comes from the chain.
     if (this.engine.isGroupIndexerDown?.()) {
       const state = this._outageFor(wallet);
-      for (const message of messages) if (message.txId) state.handled.add(message.txId);
+      for (const message of messages) {
+        if (!message.txId || state.handled.has(message.txId)) continue;
+        state.handled.add(message.txId);
+        staged.handled.push(message.txId);
+      }
       await this._catchUpGroupsFromChain(wallet);
       if (switched()) return { controls: [], messages: [] };
     }
     this._drainChainResults(wallet, events, messages);
-    return { controls: events, messages: this._takeMemberStatuses(messages, events) };
+    return finish({ controls: events, messages: this._takeMemberStatuses(messages, events) });
   }
 }
 

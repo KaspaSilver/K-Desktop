@@ -117,7 +117,7 @@ function writeEntries(database, entries) {
  * Returns { durable } — false means IndexedDB is unusable and every
  * chatStorage*Sync call passes straight through to localStorage.
  */
-export async function initChatStorage({ shouldMigrateKey = () => false, log = () => {} } = {}) {
+export async function initChatStorage({ shouldMigrateKey = () => false, log = () => {}, resolveConflict = null } = {}) {
   if (durable) return { durable };
   try {
     if (typeof indexedDB === "undefined") throw new Error("IndexedDB is not available");
@@ -136,9 +136,20 @@ export async function initChatStorage({ shouldMigrateKey = () => false, log = ()
 
     const toWrite = new Map();
     for (const key of migratable) {
-      if (cache.has(key)) continue; // IndexedDB already owns this key
       const value = localStorage.getItem(key);
       if (value === null) continue;
+      if (cache.has(key)) {
+        // Both hold it: the localStorage copy is the emergency one written when an IndexedDB save
+        // failed (audit 2026-11-27), newer than what IndexedDB kept. The app merges the two
+        // (resolveConflict); without it IndexedDB's copy stands.
+        let merged = null;
+        try { merged = resolveConflict ? resolveConflict(key, cache.get(key), value) : null; } catch { merged = null; }
+        if (typeof merged === "string" && merged !== cache.get(key)) {
+          cache.set(key, merged);
+          toWrite.set(key, merged);
+        }
+        continue;
+      }
       cache.set(key, value);
       toWrite.set(key, value);
     }
@@ -163,6 +174,13 @@ export async function initChatStorage({ shouldMigrateKey = () => false, log = ()
 /** Called (with the Error) whenever a debounced IndexedDB flush fails. */
 export function setChatStorageFlushErrorHandler(handler) {
   flushErrorHandler = typeof handler === "function" ? handler : null;
+}
+
+let flushSuccessHandler = null;
+/** Called after a debounced IndexedDB flush lands: what an emergency localStorage copy held is now
+ *  safely in IndexedDB, and the copy can go. */
+export function setChatStorageFlushSuccessHandler(handler) {
+  flushSuccessHandler = typeof handler === "function" ? handler : null;
 }
 
 /** Synchronous read: warmed cache in IndexedDB mode, localStorage otherwise. */
@@ -224,7 +242,9 @@ function flushPendingWrites() {
   if (!durable || pendingWrites.size === 0) return Promise.resolve();
   const batch = new Map(pendingWrites);
   pendingWrites.clear();
-  return writeEntries(db, batch).catch((error) => {
+  return writeEntries(db, batch).then(() => {
+    try { flushSuccessHandler?.(); } catch { /* the handler's own problem */ }
+  }, (error) => {
     // Re-queue what failed so the next flush retries it — unless a newer write
     // for the same key superseded it in the meantime.
     for (const [key, value] of batch) {

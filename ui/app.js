@@ -122,6 +122,7 @@ import {
   chatStorageSetSync,
   chatStorageRemoveSync,
   flushChatStorage,
+  setChatStorageFlushSuccessHandler,
 } from "./storage.js";
 import {
   MESSAGE_STATUSES,
@@ -169,7 +170,7 @@ import { openEmojiReactionPicker, openComposerEmojiPopover, closeComposerEmojiPo
 // kUSDT (KaPay iOS 3d126db): the state (ui/kusdt-wallet.js) and its screens (ui/kusdt-screens.js).
 import { NETWORK_ID } from "../engine/network.js";
 import { forgetAccount as forgetKusdtStorage, activityId as kusdtActivityId } from "../engine/kusdt-store.js";
-import { createKusdtWallet, holdingIdFor as kusdtHoldingIdFor, manageAddressesHideRefusal, reshowListedHidden, hideAllKeepingListed, KUSDT_LISTED_HIDE_MESSAGE, KUSDT_LISTED_ALERT_TITLE, kasAmountText as kusdtKasAmountText } from "./kusdt-wallet.js";
+import { createKusdtWallet, freshRegularIndex, holdingIdFor as kusdtHoldingIdFor, manageAddressesHideRefusal, reshowListedHidden, hideAllKeepingListed, KUSDT_LISTED_HIDE_MESSAGE, KUSDT_LISTED_ALERT_TITLE, kasAmountText as kusdtKasAmountText } from "./kusdt-wallet.js";
 import { startInlineRename, inlineRenameActive } from "./inline-rename.js";
 import { initKusdtScreens, openManageKusdt, openWalletSend, openKusdtGuide, receiveNotesHtml, closeKusdtForAccountSwitch, openKusdtSend, openTipAssetChooser, kusdtTotalText, kusdtLooking } from "./kusdt-screens.js";
 import { kusdtCoinIconHtml } from "./kusdt-icons.js";
@@ -261,6 +262,9 @@ const MESSAGE_HISTORY_KEY = "kachat-shell-message-history-v1";
 const STATE_BACKUP_KEY = "kachat-shell-state-backup-v1";
 const STATE_BACKUP_MIN_INTERVAL_MS = 60_000;
 let lastStateBackupWriteAt = 0;
+// The emergency localStorage copies a failed IndexedDB save wrote (handleChatStorageFlushError),
+// removed once a later save lands (dropChatStorageFallbackCopies).
+let chatStorageFallbackKeys = new Set();
 // Per-text answers the thread asks of every message on every redraw (is it a control envelope, is
 // it a chess move): each was a trim + JSON.parse of photo/voice JSON up to 200 KB, for the whole
 // chat, not just the drawn window (audit 2026-11-21). Declared up here so an early render finds them.
@@ -290,7 +294,49 @@ function takeSessionActiveHandoff() {
     return handoff?.active === true && Number.isFinite(left) && left >= 0 && left <= VAULT_HANDOFF_TTL_MS;
   } catch { return false; }
 }
-function markSessionActive() { sessionActive = true; }
+function markSessionActive() { sessionActive = true; claimActiveTab(); }
+
+// One tab at a time per account (audit 2026-11-27): every tab keeps the whole chat state in memory
+// and saves all of it, so two tabs on one account overwrote each other's changes, the last writer
+// winning. The tab signed in last claims the account; any other tab on it stops saving and says so,
+// with Use K Here to take it back (a reload, which claims it again).
+const ACTIVE_TAB_ID = (() => { try { return crypto.randomUUID(); } catch { return `${Date.now()}-${Math.random()}`; } })();
+let activeTabChannel = null;
+let stateWritesPausedForOtherTab = false;
+function activeTabChannelFor() {
+  if (activeTabChannel || typeof BroadcastChannel !== "function") return activeTabChannel;
+  try {
+    activeTabChannel = new BroadcastChannel("kachat-active-tab-v1");
+    activeTabChannel.onmessage = (event) => {
+      const data = event?.data;
+      if (data?.type !== "claim" || data.tabId === ACTIVE_TAB_ID || !data.address) return;
+      const mine = engine.address ? canonicalAccountAddress(engine.address) : "";
+      if (mine && mine === data.address) pauseForOtherTab();
+    };
+  } catch { activeTabChannel = null; }
+  return activeTabChannel;
+}
+function claimActiveTab() {
+  const address = engine.address ? canonicalAccountAddress(engine.address) : "";
+  if (!address) return;
+  try { activeTabChannelFor()?.postMessage({ type: "claim", address, tabId: ACTIVE_TAB_ID }); } catch { /* no channel: as before */ }
+}
+function pauseForOtherTab() {
+  if (stateWritesPausedForOtherTab) return;
+  stateWritesPausedForOtherTab = true;
+  appendEngineLog("This account was opened in another tab: this tab stopped saving chats.");
+  const overlay = document.createElement("div");
+  overlay.className = "other-tab-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.innerHTML = `<div class="other-tab-card">
+      <strong>K is open in another tab</strong>
+      <p>K works in one tab at a time for each account, so your chats are never overwritten. Use the other tab, or use K here instead.</p>
+      <button type="button" class="primary-button" data-use-k-here>Use K Here</button>
+    </div>`;
+  overlay.querySelector("[data-use-k-here]").addEventListener("click", () => reloadKaChat());
+  document.body.appendChild(overlay);
+}
 function clearSessionActive() { sessionActive = false; try { sessionStorage.removeItem(SESSION_ACTIVE_KEY); } catch {} }
 function isSessionActive() { return sessionActive; }
 /** Every reload KaChat itself starts goes through here: the unlocked vault and the signed-in
@@ -499,9 +545,13 @@ function isChatStorageKey(key) {
 await initChatStorage({
   shouldMigrateKey: isChatStorageKey,
   log: (line) => { try { appendEngineLog(line); } catch { console.log(line); } },
+  resolveConflict: resolveChatStorageConflict,
 });
 setChatStorageFlushErrorHandler((error) => {
   try { handleChatStorageFlushError(error); } catch (fallbackError) { console.error(fallbackError); }
+});
+setChatStorageFlushSuccessHandler(() => {
+  try { dropChatStorageFallbackCopies(); } catch { /* removed on the next good save */ }
 });
 // The group engine reads and writes those stores through the chat storage from here on.
 setGroupBulkStorage({ get: (key) => chatStorageGetSync(key), set: (key, value) => chatStorageSetSync(key, value) });
@@ -999,7 +1049,11 @@ let passwordMode = "verify";
 function showPasswordError(message) {
   if (passwordErrorEl) { passwordErrorEl.textContent = message; passwordErrorEl.hidden = false; }
 }
+// A saved account other than the open one whose password the prompt checks (the sign-in screen's
+// Delete Account), or null for the open account's.
+let passwordVerifyAddress = null;
 function closePasswordModal(result) {
+  passwordVerifyAddress = null;
   if (passwordModal) passwordModal.hidden = true;
   if (passwordInput) passwordInput.value = "";
   if (passwordConfirmInput) passwordConfirmInput.value = "";
@@ -1010,10 +1064,11 @@ function closePasswordModal(result) {
 // `required`: no way out but to set it (no Cancel, no close button, no click-away) - the local
 // password every account must have (owner, 2026-10-14).
 let passwordRequired = false;
-function requestPassword({ mode = "verify", title, message, allowForgot = false, required = false } = {}) {
+function requestPassword({ mode = "verify", title, message, allowForgot = false, required = false, forAddress = null } = {}) {
   return new Promise((resolve) => {
     if (passwordResolver) { const prev = passwordResolver; passwordResolver = null; prev(false); }
     passwordMode = mode;
+    passwordVerifyAddress = mode === "verify" && forAddress ? String(forAddress) : null;
     passwordResolver = resolve;
     passwordRequired = Boolean(required);
     passwordModal?.querySelectorAll("[data-password-cancel]").forEach((b) => { b.hidden = passwordRequired; });
@@ -1025,7 +1080,7 @@ function requestPassword({ mode = "verify", title, message, allowForgot = false,
     {
       // Also while signed in (seed phrase, private key, a transaction), as iOS gates those with Face
       // ID: the passkey must unwrap this account's current key, so it proves the same as the password.
-      const offerBiometric = mode === "verify" && canOfferBiometricUnlock();
+      const offerBiometric = mode === "verify" && !passwordVerifyAddress && canOfferBiometricUnlock();
       const button = document.querySelector("[data-password-biometric]");
       if (button) { button.hidden = !offerBiometric; button.disabled = false; button.textContent = biometricButtonLabel(); }
       const off = document.querySelector("[data-password-biometric-off]");
@@ -1106,12 +1161,13 @@ passwordForm?.addEventListener("submit", async (event) => {
     }
     closePasswordModal(true);
   } else {
-    const lockout = appPasswordLockoutMessage();
+    const target = passwordVerifyAddress;
+    const lockout = target ? appPasswordLockoutMessage(target) : appPasswordLockoutMessage();
     if (lockout) { showPasswordError(lockout); return; }
     if (submitButton) submitButton.disabled = true;
     let ok = false;
-    try { ok = await verifyAppPassword(pw); } finally { if (submitButton) submitButton.disabled = false; }
-    if (!ok) { showPasswordError(appPasswordLockoutMessage() || "Incorrect password."); return; }
+    try { ok = target ? await unlockKeyVault(pw, target) : await verifyAppPassword(pw); } finally { if (submitButton) submitButton.disabled = false; }
+    if (!ok) { showPasswordError((target ? appPasswordLockoutMessage(target) : appPasswordLockoutMessage()) || "Incorrect password."); return; }
     closePasswordModal(true);
   }
 });
@@ -1780,8 +1836,21 @@ async function openSavedAccountDelete(account) {
   } finally {
     pendingSavedAccountRemoval = null;
   }
+  if (choice !== "remove") return;
+  // Its own password first, as Settings > Delete Account asks (audit 2026-11-27): on the sign-in
+  // screen anyone at the device could otherwise delete an account's sealed words, and the opened
+  // vault is what lets its Nextcloud sign-in be read and revoked.
+  if (vaultHasAppPassword(account.address)) {
+    const ok = await requestPassword({
+      mode: "verify",
+      title: "Delete Account",
+      message: `Enter the password for ${account.name || savedAccountShortAddress(account.address)} to delete it from this device.`,
+      forAddress: account.address,
+    });
+    if (!ok) return;
+  }
   // the sheet may have let another account action start meanwhile
-  if (choice !== "remove" || !beginSavedAccountAction("remove")) return;
+  if (!beginSavedAccountAction("remove")) return;
   try {
     removeSavedAccountFromDevice(account);
   } catch (error) {
@@ -2700,30 +2769,52 @@ function applyPaymentRequestToSendKaspa(request) {
 /** A chatting-address request is paid as a chat payment, the memo encrypted to them inside it
  *  (iOS c6851d6 sendPayment(to:note:)): it lands in your chat with them like any chat payment.
  *  From the address Send Kaspa's From names (iOS 6333dd3; null = the chatting address). */
-async function payPaymentRequestAsChatPayment(request, { amountKas, feeKas, selectedOutpoints, sourceSpendingIndex = null }) {
+async function payPaymentRequestAsChatPayment(request, { amountKas, feeKas, selectedOutpoints, sourceSpendingIndex = null, expectedFeeSompi = null }) {
   const address = request.address;
   let contact = state.contacts.find((entry) => String(entry.address || "").toLowerCase() === address.toLowerCase());
+  let createdContact = null;
   if (!contact) {
     const createdAt = Date.now();
     contact = { id: nowId(), name: "", nameIsCustom: false, address, avatar: initialsFor(shortAddress(address)), createdAt, updatedAt: createdAt, relationshipState: "legacy-manual", handshakeTxid: "" };
     clearDeletedContactAddress(address);
     state.contacts.push(contact);
+    createdContact = contact;
   }
   let conversationEntry = state.conversations.find((entry) => entry.contactId === contact.id);
+  let createdConversation = null;
   if (!conversationEntry) {
     conversationEntry = createConversation({ contactId: contact.id, createdAt: Date.now() });
     state.conversations.push(conversationEntry);
+    createdConversation = conversationEntry;
     refreshSubscriptionAddresses({ restart: true });
     persistState();
     renderChats();
   }
-  const sent = await sendKasPayment(conversationEntry.id, amountKas, {
-    note: request.memo,
-    sourceSpendingIndex,
-    extraFeeSompi: kasToSompi(feeKas) ?? 0n,
-    manualUtxos: selectedOutpoints && selectedOutpoints.length ? selectedOutpoints : null,
-  });
-  if (!sent) throw new Error("A payment is already being sent. Try again in a moment.");
+  // A payment that never went out (cancelled, refused, failed) leaves no empty chat behind (audit
+  // 2026-11-27): what was made for it here goes again, while it still holds no message.
+  const undoNewChat = () => {
+    if (!createdConversation || (createdConversation.messages || []).length) return;
+    state.conversations = state.conversations.filter((entry) => entry !== createdConversation);
+    if (createdContact) state.contacts = state.contacts.filter((entry) => entry !== createdContact);
+    refreshSubscriptionAddresses({ restart: true });
+    persistState();
+    renderChats();
+  };
+  let sent;
+  try {
+    sent = await sendKasPayment(conversationEntry.id, amountKas, {
+      note: request.memo,
+      sourceSpendingIndex,
+      extraFeeSompi: kasToSompi(feeKas) ?? 0n,
+      manualUtxos: selectedOutpoints && selectedOutpoints.length ? selectedOutpoints : null,
+      // the Review's fee, as every other send passes it: one rebuilt dearer sends nothing
+      expectedFeeSompi,
+    });
+  } catch (error) {
+    undoNewChat();
+    throw error;
+  }
+  if (!sent) { undoNewChat(); throw new Error("A payment is already being sent. Try again in a moment."); }
   sendKaspaPaidAsChatPayment = true;
   // Its txid, for the Sent sheet (iOS WithdrawKaspaView send: txId from sendPayment).
   return { txids: typeof sent === "string" ? [sent] : [] };
@@ -6513,6 +6604,8 @@ function reloadStateFromBrowserStorage() {
 }
 
 function persistStateWrites({ includeBackup = true } = {}) {
+  // another tab has this account now: its saves are the ones that count (claimActiveTab)
+  if (stateWritesPausedForOtherTab) return;
   // In IndexedDB mode these set calls update the in-memory cache immediately
   // and flush to disk on a 300ms debounce (coalescing bursts of persistState
   // calls into one write of the latest snapshot). In localStorage-fallback
@@ -6543,9 +6636,9 @@ function persistStateWrites({ includeBackup = true } = {}) {
 
 /** Oldest-first trim of messages imported from a phone backup (transport "phone-backup"),
  *  keeping at most `keepPerConversation` per chat — live desktop messages are never dropped. */
-function trimPhoneBackupMessages(keepPerConversation) {
+function trimPhoneBackupMessages(keepPerConversation, target = state) {
   let removed = 0;
-  for (const entry of state.conversations || []) {
+  for (const entry of target.conversations || []) {
     const messages = entry.messages || [];
     const phone = messages.filter((m) => m.transport === "phone-backup");
     if (phone.length <= keepPerConversation) continue;
@@ -6598,22 +6691,60 @@ let chatStorageFlushErrorNotified = false;
  *  quota-aware trimming path so a crash right now cannot lose everything since the last
  *  successful flush. (trimPhoneBackupMessages only mutates state here, in this failure path —
  *  exactly like the old localStorage-quota behavior.) */
+/** At start-up, a chat key held by both IndexedDB and localStorage: the localStorage one is the
+ *  emergency copy a failed IndexedDB save wrote (handleChatStorageFlushError), newer but possibly
+ *  short of phone-backup messages. Message history is merged by id (nothing is lost); the state
+ *  and its backup take the newer copy, whose messages the history merge fills back in. */
+function resolveChatStorageConflict(key, idbValue, localValue) {
+  if (key === MESSAGE_HISTORY_KEY || key.endsWith(`:${MESSAGE_HISTORY_KEY}`)) {
+    const older = JSON.parse(idbValue || "{}") || {};
+    const newer = JSON.parse(localValue || "{}") || {};
+    const merged = { ...older };
+    for (const [conversationId, messages] of Object.entries(newer)) {
+      const byId = new Map();
+      for (const message of [...(Array.isArray(older[conversationId]) ? older[conversationId] : []), ...(Array.isArray(messages) ? messages : [])]) {
+        const id = message?.id || message?.txid;
+        if (id) byId.set(id, message);
+      }
+      merged[conversationId] = [...byId.values()];
+    }
+    return JSON.stringify(merged);
+  }
+  if (key === STORAGE_KEY || key.endsWith(`:${STORAGE_KEY}`) || key === STATE_BACKUP_KEY || key.endsWith(`:${STATE_BACKUP_KEY}`)) return localValue;
+  return null;
+}
+
+/** The emergency localStorage copies, once a later IndexedDB save has landed: they'd otherwise be
+ *  merged over newer data at the next start. */
+function dropChatStorageFallbackCopies() {
+  if (!chatStorageFallbackKeys.size) return;
+  for (const key of chatStorageFallbackKeys) { try { localStorage.removeItem(key); } catch { /* next time */ } }
+  chatStorageFallbackKeys = new Set();
+  chatStorageFlushErrorNotified = false;
+}
+
 function handleChatStorageFlushError(error) {
   appendEngineLog(`IndexedDB save failed (${userFacingError(error)}) — writing localStorage fallback copy.`);
   if (!chatStorageFlushErrorNotified) {
     chatStorageFlushErrorNotified = true;
     try { showCopyToast("Saving chats to IndexedDB failed. Using localStorage fallback."); } catch { /* early init */ }
   }
+  // The copy is written from a snapshot: trimming phone-backup messages to fit localStorage must
+  // never touch the live state, or the next good IndexedDB save would store the trimmed chats and
+  // the imported history would be gone for good (audit 2026-11-27).
+  const snapshot = { ...state, conversations: (state.conversations || []).map((entry) => ({ ...entry })) };
   const writeLocal = (includeBackup) => {
-    const serialized = JSON.stringify(state);
-    localStorage.setItem(accountScopedKey(STORAGE_KEY), serialized);
-    if (includeBackup) localStorage.setItem(accountScopedKey(STATE_BACKUP_KEY), serialized);
-    const history = Object.fromEntries((state.conversations || []).map((entry) => [entry.id, entry.messages || []]));
-    localStorage.setItem(accountScopedKey(MESSAGE_HISTORY_KEY), JSON.stringify(history));
+    const serialized = JSON.stringify(snapshot);
+    const keys = [accountScopedKey(STORAGE_KEY), accountScopedKey(MESSAGE_HISTORY_KEY)];
+    localStorage.setItem(keys[0], serialized);
+    if (includeBackup) { localStorage.setItem(accountScopedKey(STATE_BACKUP_KEY), serialized); keys.push(accountScopedKey(STATE_BACKUP_KEY)); }
+    const history = Object.fromEntries((snapshot.conversations || []).map((entry) => [entry.id, entry.messages || []]));
+    localStorage.setItem(keys[1], JSON.stringify(history));
+    for (const key of keys) chatStorageFallbackKeys.add(key);
   };
   try { writeLocal(true); return; } catch { /* quota — trim and retry */ }
   for (const keep of [100, 25, 0]) {
-    trimPhoneBackupMessages(keep);
+    trimPhoneBackupMessages(keep, snapshot);
     try { writeLocal(false); return; } catch { /* still full — trim harder */ }
   }
   appendEngineLog("localStorage fallback copy also failed — conversation state is only in memory.");
@@ -8154,6 +8285,19 @@ function isPaymentBubble(message) {
 /// Removes the payment bubbles whose (lowercased) txid is in `txIds` from every chat, hidden for
 /// good the way a deleted message is (hiddenMessageKeys), so neither the stored history nor an
 /// archive import brings them back. Returns how many went; the caller persists.
+/** How many of the messages about to go (`goneIds`) are among the chat's unread ones, its newest
+ *  `unreadCount` incoming messages (audit 2026-11-27): an old, read payment card leaving must not
+ *  take a real message's unread mark with it. Read before the messages are removed. */
+function unreadAmong(conversationEntry, goneIds) {
+  const unread = Math.max(0, Number(conversationEntry?.unreadCount || 0));
+  if (!unread) return 0;
+  const newestIncoming = (conversationEntry.messages || [])
+    .filter((message) => message.direction === "incoming")
+    .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+    .slice(0, unread);
+  return newestIncoming.filter((message) => goneIds.has(message.id)).length;
+}
+
 function removeSuppressedPaymentMessages(txIds) {
   if (!txIds?.size) return 0;
   // a token payment's covenant transaction is hidden as a KAS payment, but its own bubble (kUSDT
@@ -8170,8 +8314,8 @@ function removeSuppressedPaymentMessages(txIds) {
       ...(conversationEntry.hiddenMessageKeys || []),
       ...gone.flatMap((message) => [message.id, message.txid].filter(Boolean).map(String)),
     ])];
+    const goneIncoming = unreadAmong(conversationEntry, goneIds);
     conversationEntry.messages = conversationEntry.messages.filter((message) => !goneIds.has(message.id));
-    const goneIncoming = gone.filter((message) => message.direction === "incoming").length;
     if (goneIncoming) conversationEntry.unreadCount = Math.max(0, Number(conversationEntry.unreadCount || 0) - goneIncoming);
     const last = lastMessageFor(conversationEntry);
     conversationEntry.lastActivityAt = last?.createdAt || conversationEntry.createdAt;
@@ -8897,6 +9041,9 @@ function recordGlobalNotification(item) {
     timestamp: Number(item.timestamp) || Date.now(),
     targetKind: item.targetKind || item.source || null,
     targetId: item.targetId || null,
+    // when it reached the bell: a payment or mention found late carries its own older time, and
+    // was read as seen already (audit 2026-11-27)
+    recordedAt: Date.now(),
   });
   globalNotifications = globalNotifications.slice(0, NOTIF_CENTER_MAX);
   persistNotifCenter();
@@ -8919,8 +9066,12 @@ function recordMentionNotification({ sender, place, preview, txId, blockTime, ta
     targetId: `${target}|${txId}`,
   });
 }
+/** Unread: reached the bell after it was last opened (rows saved before recordedAt use their time). */
+function notifIsUnread(n) {
+  return Number(n?.recordedAt || n?.timestamp || 0) > notifCenterLastSeenAt;
+}
 function unreadNotifCount() {
-  return globalNotifications.filter((n) => n.timestamp > notifCenterLastSeenAt).length;
+  return globalNotifications.filter(notifIsUnread).length;
 }
 function updateNotifBadge() {
   try { refreshTabBadges(); } catch {}
@@ -8935,7 +9086,7 @@ function renderNotifCenter() {
     return;
   }
   list.innerHTML = globalNotifications.map((n) => `
-    <button type="button" class="notif-center-row${n.timestamp > notifCenterLastSeenAt ? " unread" : ""}" data-notif-id="${escapeHtml(n.id)}">
+    <button type="button" class="notif-center-row${notifIsUnread(n) ? " unread" : ""}" data-notif-id="${escapeHtml(n.id)}">
       <span class="notif-center-source notif-src-${escapeHtml(n.source)}">${escapeHtml(NOTIF_SOURCE_LABELS[n.source] || "")}</span>
       <span class="notif-center-copy"><strong>${escapeHtml(n.title)}</strong>${n.body ? `<small>${escapeHtml(n.body)}</small>` : ""}</span>
       <span class="notif-center-time">${escapeHtml(formatRelativeTime(n.timestamp))}</span>
@@ -10517,8 +10668,8 @@ function takePaymentOutOfSelfChat(txId) {
     const goneIds = new Set(gone.map((entry) => entry.id));
     const keys = gone.flatMap((entry) => [entry.id, entry.txid].filter(Boolean));
     conversationEntry.hiddenMessageKeys = [...new Set([...(conversationEntry.hiddenMessageKeys || []), ...keys.map(String)])];
+    const goneIncoming = unreadAmong(conversationEntry, goneIds);
     conversationEntry.messages = conversationEntry.messages.filter((entry) => !goneIds.has(entry.id));
-    const goneIncoming = gone.filter((entry) => entry.direction === "incoming").length;
     if (goneIncoming) conversationEntry.unreadCount = Math.max(0, Number(conversationEntry.unreadCount || 0) - goneIncoming);
     const last = lastMessageFor(conversationEntry);
     conversationEntry.lastActivityAt = last?.createdAt || conversationEntry.createdAt;
@@ -11016,11 +11167,29 @@ async function openBuyKaspa({ toChatting = false } = {}) {
 // default: the next regular address, kept apart from your username and chats) or the Chatting
 // Address. That address is copied before the tab opens, to paste into Trestly's Kaspa address field.
 // Once the kUSDT is in, Buy Kaspa with kUSDT trades it for KAS.
+/** The next regular address that has really never been used (audit 2026-11-27): past every revealed
+ *  one, skipping those holding kUSDT, and checked on chain, since after a restore Discover only
+ *  reveals addresses that still hold something. A slot the network can't answer for is taken as
+ *  fresh. Null without words. */
+async function verifiedFreshRegularIndex(owner = engine.address) {
+  if (!activeAccountMnemonic()) return null;
+  const taken = [...kusdtListedSpendingIndices()];
+  let index = freshRegularIndex(getSpendingState(owner).maxIndex, taken);
+  for (let tries = 0; tries < 20; tries += 1) {
+    const address = deriveSpendingAddressAt(index);
+    if (!address) return null;
+    const used = await spendingAddressUsedState(address, owner);
+    if (used !== true) return index;
+    index = freshRegularIndex(index, taken);
+  }
+  return index;
+}
+
 async function openDebitCardBuy({ toChatting = false } = {}) {
   if (!engine.address) return;
   const owner = engine.address;
-  const freshIndex = activeAccountMnemonic() ? getSpendingState(owner).maxIndex + 1 : null;
-  const freshAddress = freshIndex != null ? deriveSpendingAddressAt(freshIndex) : null;
+  let freshIndex = activeAccountMnemonic() ? freshRegularIndex(getSpendingState(owner).maxIndex, [...kusdtListedSpendingIndices()]) : null;
+  let freshAddress = freshIndex != null ? deriveSpendingAddressAt(freshIndex) : null;
   const options = [
     freshAddress ? { id: "fresh", title: "Fresh Address", subtitle: "A new address that has never been used, so this purchase stays apart from your username and chats." } : null,
     { id: "chatting", title: "Chatting Address", subtitle: "The address you chat from." },
@@ -11032,6 +11201,12 @@ async function openDebitCardBuy({ toChatting = false } = {}) {
     options,
   });
   if (!choice || engine.address !== owner) return;
+  if (choice === "fresh") {
+    // checked on chain now that it's chosen: one used before a restore is skipped
+    const verified = await verifiedFreshRegularIndex(owner);
+    if (engine.address !== owner) return;
+    if (verified != null) { freshIndex = verified; freshAddress = deriveSpendingAddressAt(verified); }
+  }
   const address = choice === "fresh" ? freshAddress : owner;
   if (!address) return;
   try { await copyTextToClipboard(address); } catch { /* shown below to copy by hand */ }
@@ -13705,7 +13880,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 369;
+const APP_BUILD = 370;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -13785,6 +13960,9 @@ document.querySelector("[data-profile-licenses]")?.addEventListener("click", () 
 function recordOutgoingPaymentChat({ destination, amountKas, txid }) {
   const clean = String(destination || "").trim();
   if (!clean || clean === engine.address) return;
+  // One of this account's own addresses is never a chat partner (audit 2026-11-27): a send from the
+  // Chatting Address to Address #3 made a chat with yourself.
+  try { if (ownPaymentAddresses().has(clean.toLowerCase())) return; } catch { /* addresses not ready */ }
   // A contract (script) address is never a chat partner, and a suppressed tx never a payment (iOS 32fdaa4).
   if (isScriptAddress(clean) || isSuppressedPaymentTxId(txid)) return;
   let contact = state.contacts.find((entry) => entry.address === clean);
@@ -14246,7 +14424,15 @@ function sendKaspaExceedsBalance() {
   return amount > available;
 }
 function sendKaspaCanReview() {
-  return Boolean(sendKaspaRecipient) && sendKaspaAmountSompi() != null && !sendKaspaExceedsBalance() && sendKaspaMaxBusy === 0;
+  return Boolean(sendKaspaRecipient) && sendKaspaAmountSompi() != null && !sendKaspaExceedsBalance() && sendKaspaMaxBusy === 0
+    && !sendKaspaSendsToItself();
+}
+/** From is the address the Kaspa is going to (audit 2026-11-27: kUSDT's Fund This Address on the
+ *  Chatting Address opened with From on the Chatting Address too): it would only pay a fee. */
+function sendKaspaSendsToItself() {
+  if (sendKaspaCompound || !sendKaspaRecipient) return false;
+  const from = String(sendKaspaSourceAddress() || "").toLowerCase();
+  return Boolean(from) && from === String(sendKaspaRecipient).toLowerCase();
 }
 // The recipient's name: the domain it resolved from, else its Address Book name.
 function sendKaspaRecipientName() {
@@ -14281,14 +14467,15 @@ const sendKaspaFromBody = sendKaspaSteps.addStep("from", {
   question: "Where are you sending from?",
   className: "ss-from-step",
   back: () => sendKaspaBackFrom("from"),
-  canContinue: () => !(sendKaspaChoosingFrom && sendKaspaSourceIndex == null),
+  canContinue: () => !(sendKaspaChoosingFrom && sendKaspaSourceIndex == null) && !sendKaspaSendsToItself(),
   onContinue: () => goSendKaspaStep("amount"),
-  onShow: () => { if (sendKaspaChoosingFrom) showSendKaspaAddressList(); },
+  onShow: () => { if (sendKaspaChoosingFrom) showSendKaspaAddressList(); else paintSendKaspaFromStep(); },
 });
 const sendKaspaFromSection = sendKaspaModal?.querySelector("[data-send-kaspa-from]");
 if (sendKaspaFromSection) sendKaspaFromBody.append(sendKaspaFromSection);
 sendKaspaFromBody.insertAdjacentHTML("beforeend", `
   <p class="ss-note" data-send-kaspa-from-note hidden>Pick which of your addresses the Kaspa leaves from.</p>
+  <p class="ss-note warn" data-send-kaspa-self-note hidden>This is the address the Kaspa is going to. Choose another address to send from.</p>
   <div class="sk-source-list ss-address-list" data-send-kaspa-from-list role="listbox" aria-label="Your addresses" hidden></div>`);
 let sendKaspaFromList = null;
 function showSendKaspaAddressList() {
@@ -14313,6 +14500,8 @@ function paintSendKaspaFromStep() {
   const list = sendKaspaFromBody.querySelector("[data-send-kaspa-from-list]");
   if (note) note.hidden = !choosing;
   if (list) list.hidden = !choosing;
+  const selfNote = sendKaspaFromBody.querySelector("[data-send-kaspa-self-note]");
+  if (selfNote) selfNote.hidden = !sendKaspaSendsToItself();
   sendKaspaFromList?.setSelected(sendKaspaSourceIndex == null ? null : sendKaspaSourceAddress());
   sendKaspaSteps.refresh();
 }
@@ -14491,6 +14680,10 @@ function sendKaspaPinnedKas() {
     ? sendKaspaKasPin.kas : null;
 }
 function sendKaspaResolveAmountKas() {
+  // A Max fill is the exact sompi the send pays, whichever unit shows (audit 2026-11-27: in your
+  // currency the field holds a floored figure, and the Review recomputed a slightly smaller KAS).
+  const maxPin = sendKaspaMaxMode && !sendKaspaCompound ? sendKaspaMaxPin : null;
+  if (maxPin && maxPin.source === sendKaspaSourceIndex && maxPin.amountSompi != null) return kasTextFromSompi(maxPin.amountSompi);
   const pinned = sendKaspaPinnedKas();
   if (pinned != null) return pinned;
   const raw = Number(sendKaspaAmountInput?.value);
@@ -14840,10 +15033,15 @@ async function fillMaxAmountNow() {
   if (sendKaspaAvailableKas == null) {
     try {
       const b = sendKaspaUnreservedBalance(await sendKaspaLoadBalance());
-      sendKaspaAvailableKas = Number(b.totalKas);
-      if (!sendKaspaUtxos.length) sendKaspaUtxos = b.entries;
+      // only for the address it was read for: From may have changed meanwhile, and that switch
+      // loads its own balance (audit 2026-11-27)
+      if (source === sendKaspaSourceIndex && token === sendKaspaMaxToken) {
+        sendKaspaAvailableKas = Number(b.totalKas);
+        if (!sendKaspaUtxos.length) sendKaspaUtxos = b.entries;
+      }
     } catch { /* handled below */ }
   }
+  if (source !== sendKaspaSourceIndex || token !== sendKaspaMaxToken) return;
   const spendable = sendKaspaSpendableKas();
   if (spendable == null || !isFinite(spendable)) { setSendKaspaError("Balance unavailable right now."); return; }
 
@@ -15200,7 +15398,13 @@ const sendKaspaController = makeSendController({
     // from whichever address From names (iOS 6333dd3 sendPayment(sourceSpendingIndex:)).
     const request = sendKaspaPaymentRequest;
     if (request?.toChattingAddress && request.address.toLowerCase() === String(destination || "").toLowerCase()) {
-      return payPaymentRequestAsChatPayment(request, { amountKas, feeKas, selectedOutpoints, sourceSpendingIndex: sendKaspaSourceIndex });
+      return payPaymentRequestAsChatPayment(request, {
+        amountKas, feeKas, selectedOutpoints, sourceSpendingIndex: sendKaspaSourceIndex,
+        expectedFeeSompi: kasToSompi(trimKas8(sendKaspaTotalFeeKas())),
+      }).catch((error) => {
+        if (error?.code === SEND_FEE_CHANGED) scheduleSendKaspaFeeEstimate();
+        throw error;
+      });
     }
     // The fee the Review shows: a send rebuilt at the swipe from coins that changed since, which
     // would pay more, sends nothing (SEND_FEE_CHANGED) and the Review works its fee out again
@@ -32177,8 +32381,10 @@ queueMicrotask(async () => {
       revealNextSwapAddress: async () => {
         if (!activeAccountMnemonic()) { showCopyToast("This account has no 12 or 24 words."); return null; }
         const owner = engine.address;
-        const next = getSpendingState(owner).maxIndex + 1;
-        saveSpendingState({ maxIndex: next }, owner);
+        // never used, checked on chain, and not holding kUSDT (audit 2026-11-27)
+        const next = await verifiedFreshRegularIndex(owner);
+        if (next == null || engine.address !== owner) return null;
+        if (getSpendingState(owner).maxIndex < next) saveSpendingState({ maxIndex: next }, owner);
         try { renderSpendingList(); } catch { /* the address screens are not up */ }
         return next;
       },
@@ -32311,6 +32517,11 @@ queueMicrotask(async () => {
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible" && engine.address) { try { refreshKachatExpiredBanner(); } catch { /* next time */ } }
       });
+      // and every 5 minutes while the window shows: a name that expires with K left open gets its
+      // dot without waiting for a registry change (audit 2026-11-27)
+      window.setInterval(() => {
+        if (document.visibilityState === "visible" && engine.address) { try { refreshKachatExpiredBanner(); } catch { /* next time */ } }
+      }, 5 * 60_000);
     }
     initKachatMarket({
       escapeHtml, showToast: showCopyToast, confirmDialog, chooseDialog, alertDialog, promptDialog, infoSheet,

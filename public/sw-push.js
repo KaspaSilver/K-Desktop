@@ -248,6 +248,13 @@
       suppress: false,
     };
     const otherNetwork = (address) => Boolean(account && address && prefixOf(address) && prefixOf(address) !== prefixOf(account));
+    // A wallet push (a .kachat name event, Received KAS, KaPost activity) for an account that isn't
+    // the one the app mirrored (audit 2026-11-27): a removed account still registered on the other
+    // network's push server, sharing this browser's subscription. The push says whose it is when it
+    // carries an account field; Received KAS also by its address, which has to be this account's
+    // own or one it watches (the mirrored addressLabels, the chatting address included).
+    const namedAccount = lower(p.account || p.primary_address || p.wallet_address || p.recipient);
+    const forAnotherAccount = Boolean(account && namedAccount && (namedAccount !== account || otherNetwork(namedAccount)));
 
     if (type === "contextual" || type === "payment" || type === "handshake" || type === "audio") {
       if (!sender || sender === account || otherNetwork(sender) || has(m.blocked, sender)) out.suppress = true;
@@ -342,6 +349,7 @@
     }
 
     if (type === "kaposts") {
+      if (forAnotherAccount) out.suppress = true;
       // someone this account muted or blocked on KaPost never rings (KaPost 369794e)
       const actor = lower(p.actor_pubkey);
       if (actor && Array.isArray(m.kapostsHidden) && m.kapostsHidden.includes(actor.length === 66 ? actor.slice(2) : actor)) out.suppress = true;
@@ -380,6 +388,7 @@
     }
 
     if (type === "name_event") {
+      if (forAnotherAccount) out.suppress = true;
       out.title = String(p.title || "").trim() || ".kachat";
       out.options.body = String(p.body || "").trim();
       out.options.tag = `kachat-name-${String(p.dedup || p.tx_id || p.name || "event").slice(0, 64)}`;
@@ -389,6 +398,10 @@
 
     if (type === "address_activity") {
       const address = String(p.address || "").trim();
+      const watched = m.addressLabels && typeof m.addressLabels === "object" ? Object.keys(m.addressLabels).map(lower) : [];
+      if (forAnotherAccount || otherNetwork(address)) out.suppress = true;
+      // Not this account's address nor one it watches (an older mirror without labels: not judged).
+      else if (account && address && watched.length && lower(address) !== account && watched.indexOf(lower(address)) < 0) out.suppress = true;
       const kas = String(p.amount_kas || "").trim() || kasFromSompi(p.amount_sompi);
       out.title = kas ? `Received ${kas} ${unit}` : "Funds received";
       out.options.body = String(((m.addressLabels || {})[lower(address)]) || "").trim() || shortAddress(address);

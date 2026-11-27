@@ -268,10 +268,17 @@ export async function checkKachatNamesNews() {
 
     // Names that left this wallet: sold, bought through an offer, or freed (reclaimed - claiming an
     // expired name frees it first). A transfer or release is your own doing and needs no notice.
+    // A history lookup that fails keeps the name's last entry in the snapshot, so the next check
+    // looks again; once the lookup answers the name leaves the snapshot and is told once (audit
+    // 2026-11-27: a failed lookup used to read as "nothing happened" and the sale was never told).
     for (const name of Object.keys(old?.names || {})) {
       if (next.names[name]) continue;
-      let history = [];
-      try { history = await registry.history(name); } catch { history = []; }
+      let history;
+      try { history = await registry.history(name); } catch {
+        next.names[name] = old.names[name];
+        continue;
+      }
+      if (!Array.isArray(history)) history = [];
       const last = history.find((e) => ["sale", "offer_accepted", "offer_accept", "transfer", "release", "reclaim"].includes(e.op));
       if (!last) continue;
       const display = kachatNameDisplay(name);
@@ -301,8 +308,14 @@ export async function checkKachatNamesNews() {
         post(`myoffer-${id}`, name, "Offer accepted", `${display} is yours now.`);
         continue;
       }
-      let history = [];
-      try { history = await registry.history(name); } catch { history = []; }
+      // As for names above: a failed lookup keeps the offer, asked about again next check, rather
+      // than telling it "returned" when it may have been declined or expired.
+      let history;
+      try { history = await registry.history(name); } catch {
+        next.myOffers[id] = name;
+        continue;
+      }
+      if (!Array.isArray(history)) history = [];
       const op = history.find((e) => ["offer_decline", "offer_refund", "offer_withdraw"].includes(e.op))?.op;
       if (op === "offer_decline") {
         post(`myoffer-${id}`, name, `Offer on ${display} declined`, `The owner declined it. The ${KAS_UNIT} is back with you.`);

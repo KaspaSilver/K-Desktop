@@ -41,6 +41,8 @@
 .ss-question { margin: 0; font-size: 22px; font-weight: 700; line-height: 1.25; text-align: left; }
 .ss-question.ss-center { text-align: center; font-size: 20px; }
 .ss-note { margin: -6px 0 0; font-size: 13px; line-height: 1.4; color: var(--muted); }
+.ss-note.warn { color: var(--ios-orange, #ff9f0a); font-weight: 600; }
+.ss-note[hidden] { display: none; }
 
 /* iOS SendContinueButton: a teal capsule pinned at the bottom, beside Cancel on a first step. */
 .ss-bar {

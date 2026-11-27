@@ -45,7 +45,7 @@ function tokenSandbox() {
     'const TOKEN_PAYMENT_BUBBLES_KEY = "kachat-token-payment-bubbles-v1";',
     fnSource("normalizePaymentTxId"), fnSource("isPaymentBubble"),
     fnSource("tokenPaymentBubbleTxIds"), fnSource("markTokenPaymentBubble"),
-    fnSource("removeSuppressedPaymentMessages"),
+    fnSource("unreadAmong"), fnSource("removeSuppressedPaymentMessages"),
     "this.api = { tokenPaymentBubbleTxIds, markTokenPaymentBubble, removeSuppressedPaymentMessages };",
   ].join("\n"), context);
   return context;

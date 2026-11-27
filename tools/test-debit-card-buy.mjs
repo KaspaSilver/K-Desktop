@@ -30,7 +30,10 @@ test("Debit Card: where the kUSDT lands, copied, then Trestly's /buy in a new ta
   assert.match(card, /id: "fresh", title: "Fresh Address"/);
   assert.match(card, /id: "chatting", title: "Chatting Address"/);
   assert.match(card, /if \(toChatting\) options\.reverse\(\);/, "the funding card puts the Chatting Address first");
-  assert.match(card, /getSpendingState\(owner\)\.maxIndex \+ 1/, "a regular address, never a quantum one");
+  assert.match(card, /freshRegularIndex\(getSpendingState\(owner\)\.maxIndex, \[\.\.\.kusdtListedSpendingIndices\(\)\]\)/, "a regular address, never a quantum one, past the kUSDT ones");
+  // checked on chain once chosen (audit 2026-11-27): after a restore one used before is skipped
+  assert.match(card, /if \(choice === "fresh"\) \{\n\s+[^\n]*\n\s+const verified = await verifiedFreshRegularIndex\(owner\);/);
+  assert.match(fn("verifiedFreshRegularIndex"), /const used = await spendingAddressUsedState\(address, owner\);\n\s+if \(used !== true\) return index;/);
   const copy = card.indexOf("copyTextToClipboard(address)");
   const open = card.indexOf('window.open(`${site}/buy`, "_blank", "noopener,noreferrer")');
   assert.ok(copy > 0 && open > copy, "copied before the tab opens");

@@ -485,12 +485,56 @@ export async function webPushSignOut(wallet = null) {
   signOutRunning = run;
   try { await run; } finally { if (signOutRunning === run) signOutRunning = null; }
 }
-/** An account removed from this device: its registration goes if it was this browser's. */
+/** Every network's saved registration: [{ key, stored }]. Mainnet and testnet each keep their own
+ *  (regKey), against their own push server, for the one browser subscription they share. */
+function savedRegistrations(storage = globalThis.localStorage) {
+  const found = [];
+  try {
+    for (let i = 0; i < storage.length; i += 1) {
+      const key = storage.key(i);
+      if (!key || !key.startsWith(`${REG_KEY_PREFIX}:`)) continue;
+      let stored = null;
+      try { stored = JSON.parse(storage.getItem(key) || "null"); } catch { stored = null; }
+      if (stored && typeof stored === "object") found.push({ key, stored });
+    }
+  } catch { /* no storage */ }
+  return found;
+}
+const sameAddress = (a, b) => Boolean(a) && String(a).trim().toLowerCase() === String(b || "").trim().toLowerCase();
+
+/** An account removed from this device: its registration goes if it was this browser's, on this
+ *  network and on the other one (audit 2026-11-27: a registration left on the other network's push
+ *  server kept pushing the removed account's notices to the shared subscription). The other
+ *  network's is removed with the device key, at the server it was made with (its saved `base`). */
 export async function webPushForgetAccount(address) {
+  const currentKey = regKey();
   const stored = loadRegistration();
   // Compared case-insensitively: a stored "kaspa:QZ…" and a removed "kaspa:qz…" are one address,
   // and a raw compare left the removed account's registration ringing (audit 2026-11-13).
-  if (stored?.wallet && String(stored.wallet).trim().toLowerCase() === String(address || "").trim().toLowerCase()) await webPushSignOut(null);
+  const currentGoes = sameAddress(stored?.wallet, address);
+  if (currentGoes) await webPushSignOut(null);
+  for (const { key, stored: other } of savedRegistrations()) {
+    if (key === currentKey || !sameAddress(other.wallet, address)) continue;
+    // The same server and endpoint as this network's registration for another account: removing it
+    // there would remove that account's too, so only the saved line goes.
+    const shared = !currentGoes && stored?.endpoint && other.endpoint === stored.endpoint && cleanBase(other.base) === cleanBase(stored.base);
+    if (other.endpoint && other.base && !shared) {
+      try {
+        await unregisterEndpoint({ base: cleanBase(other.base), endpoint: other.endpoint });
+        log(`unregistered the removed account on ${key.slice(REG_KEY_PREFIX.length + 1) || "the other network"}`);
+      } catch (error) {
+        // Kept, marked: the next start on that network finds another account's registration on
+        // this endpoint and removes or moves it with the device key (syncOnce).
+        const failures = Number(other.removeFailures || 0) + 1;
+        log(`could not unregister the removed account on the other network (${failures}): ${error.message}`);
+        if (failures < 5) {
+          try { localStorage.setItem(key, JSON.stringify({ ...other, removeFailures: failures, forgotten: true })); } catch { /* fine */ }
+          continue;
+        }
+      }
+    }
+    try { localStorage.removeItem(key); } catch { /* fine */ }
+  }
 }
 
 // ---- badge, focus, taps -------------------------------------------------------------------------
