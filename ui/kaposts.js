@@ -7062,9 +7062,8 @@ function buildFeedDrawer() {
         <h2 class="kaposts-drawer-title">Posts</h2>
         <button class="kaposts-drawer-close" type="button" data-kaposts-drawer-close aria-label="Close menu">${XMARK_SVG}</button>
       </header>
-      <div class="kaposts-drawer-divider" aria-hidden="true"></div>
       <nav class="kaposts-drawer-rows" aria-label="Posts sections">
-        ${KAPOSTS_FEED_MENU.map(({ key, title }) => `<button class="kaposts-drawer-row" type="button" data-kaposts-drawer-item="${key}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${FEED_MENU_ICONS[key]}"/></svg><span>${title}</span></button>`).join("")}
+        ${KAPOSTS_FEED_MENU.map(({ key, title }) => `<button class="kaposts-drawer-row" type="button" data-kaposts-drawer-item="${key}"><span class="kaposts-drawer-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${FEED_MENU_ICONS[key]}"/></svg></span><span>${title}</span></button>`).join("")}
       </nav>
     </section>`;
   document.body.appendChild(drawerEl);
@@ -7095,7 +7094,7 @@ function buildFeedDrawer() {
 function setDrawerPosition(offsetPx, { animate = true, open = drawerOpen } = {}) {
   if (!drawerEl || !drawerCardEl) return;
   const width = drawerCardEl.offsetWidth || kapostsDrawerWidth(window.innerWidth);
-  const x = open ? Math.min(0, offsetPx) : -width - 16;
+  const x = open ? Math.min(0, offsetPx) : -width - 32; // past the 12px inset too
   drawerEl.classList.toggle("dragging", !animate);
   drawerEl.classList.toggle("kaposts-drawer-open", open);
   drawerCardEl.style.transform = `translate3d(${x}px, 0, 0)`;

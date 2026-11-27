@@ -59,15 +59,15 @@ assert.deepEqual(KAPOSTS_FEED_MENU.map((item) => item.title), ["Search", "Drafts
 assert.deepEqual(KAPOSTS_FEED_MENU.map((item) => item.key), ["search", "drafts", "bookmarks", "muted", "blocked", "scheduled"]);
 
 // The card: 86% of the width up to 440 px; closes past a third, or on a flick past half.
-assert.equal(kapostsDrawerWidth(390), 390 * 0.86);
-assert.equal(kapostsDrawerWidth(1200), 440);
+assert.equal(kapostsDrawerWidth(390), 390 * 0.74);
+assert.equal(kapostsDrawerWidth(1200), 340);
 assert.equal(kapostsDrawerShouldClose({ dx: -120, panelWidth: 330 }), true, "dragged past a third");
 assert.equal(kapostsDrawerShouldClose({ dx: -100, panelWidth: 330 }), false, "short of a third");
 assert.equal(kapostsDrawerShouldClose({ dx: -40, predicted: -200, panelWidth: 330 }), true, "flicked past half");
 assert.equal(kapostsDrawerShouldClose({ dx: 80, predicted: 300, panelWidth: 330 }), false, "rightward never closes");
-assert.equal(kapostsDrawerDim(0, 330), 0.45, "45% while open");
-assert.equal(kapostsDrawerDim(-165, 330), 0.225, "half as dim half way out");
-assert.equal(kapostsDrawerDim(60, 330), 0.45, "a rightward drag does not lighten it");
+assert.equal(kapostsDrawerDim(0, 330), 0.3, "30% while open (K b49a021d)");
+assert.equal(kapostsDrawerDim(-165, 330), 0.15, "half as dim half way out");
+assert.equal(kapostsDrawerDim(60, 330), 0.3, "a rightward drag does not lighten it");
 assert.equal(kapostsDrawerDim(-400, 330), 0, "never below zero");
 
 // Axis lock: nothing until 12 px, then whichever way it went further.

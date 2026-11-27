@@ -12720,6 +12720,10 @@ function openNewTabsForSignIn() {
 /// Kaspa Hub as selected, and clicking Kaspa Hub again is the way back out, the same button that
 /// got you in (iOS EcosystemRouter).
 let hubSection = null;
+// More's last section (K bfb902b7), and when you left it for another tab (null while you're on it):
+// after a minute away it's forgotten and More's next click is the menu again (K b49a021d).
+let lastHubSection = null;
+let hubLeftAt = null;
 
 function setActiveAppTab(tab) {
   // Public Chats is no screen of its own any more: its rooms are KaChat's second page (K 961fc05a;
@@ -12749,6 +12753,9 @@ function setActiveAppTab(tab) {
     else button.removeAttribute("aria-current");
   });
 
+  // the clock for forgetting More's section (K b49a021d HubRouter.rememberFor)
+  if (tab === "hub") hubLeftAt = null;
+  else if (currentAppTab === "hub" && lastHubSection && !hubLeftAt) hubLeftAt = Date.now();
   currentAppTab = tab;
   syncChatsDockItems();
   toolbarBalanceScreen = screenTab;
@@ -13117,13 +13124,24 @@ hubGrid?.addEventListener("click", (event) => {
 // and is what More shows from then on: from another tab, More goes straight back to it as you left
 // it; More while in it brings up the menu to pick another; with nothing picked yet (or the menu up)
 // More opens (or closes) the menu. A computer's dock holds every screen and has no More.
-let lastHubSection = null;
+const HUB_REMEMBER_FOR_MS = 60_000;
+function forgetStaleHubSection() {
+  if (!lastHubSection || !hubLeftAt || Date.now() - hubLeftAt <= HUB_REMEMBER_FOR_MS) return;
+  lastHubSection = null;
+  hubLeftAt = null;
+}
+/** More's sections in alphabetical order, by the name shown (K b49a021d alphabeticalTabs), so a new
+ *  section lands where its name says. */
+function hubMenuTabs() {
+  return hubVisibleTabs().slice().sort((a, b) => tabFullName(a).localeCompare(tabFullName(b), undefined, { numeric: true, sensitivity: "base" }));
+}
 let hubMenuEl = null;
 function hubMenuOpen() { return Boolean(hubMenuEl && !hubMenuEl.hidden); }
 function closeHubMenu() { if (hubMenuEl) hubMenuEl.hidden = true; }
 function hubButtonTapped() {
   if (hubMenuOpen()) { closeHubMenu(); return; }
   if (currentAppTab === "hub" && hubSection) { openHubMenu(); return; }
+  forgetStaleHubSection();
   if (lastHubSection && hubVisibleTabs().includes(lastHubSection)) { openHubSectionFromMenu(lastHubSection); return; }
   openHubMenu();
 }
@@ -13156,7 +13174,7 @@ function openHubMenu() {
     document.body.appendChild(hubMenuEl);
   }
   const current = currentAppTab === "hub" ? hubSection : null;
-  hubMenuEl.querySelector("[data-hub-menu]").innerHTML = hubVisibleTabs().map((tab) => {
+  hubMenuEl.querySelector("[data-hub-menu]").innerHTML = hubMenuTabs().map((tab) => {
     const count = tabUnreadCount(tab);
     return `<button type="button" class="hub-menu-row${tab === current ? " current" : ""}" role="menuitem" data-hub-menu-tab="${escapeHtml(tab)}">
         <span class="hub-menu-icon" aria-hidden="true">${tabIconMarkup(tab)}</span>
@@ -13653,7 +13671,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 363;
+const APP_BUILD = 364;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of

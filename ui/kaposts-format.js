@@ -207,7 +207,8 @@ export function kapostsPagerTarget({ selection, pageCount, dx, dy = 0, predicted
 /** The card's width: most of the screen, with enough of the feed left showing to tap it closed
  *  (iOS `min(width * 0.86, 440)`). */
 export function kapostsDrawerWidth(viewportWidth) {
-  return Math.min((Number(viewportWidth) || 0) * 0.86, 440);
+  // A glass card, 74% of the screen up to 340 px (K b49a021d; was 86% / 440 px).
+  return Math.min((Number(viewportWidth) || 0) * 0.74, 340);
 }
 
 /** Whether a drag on the open card closes it (iOS KaPostsFeedDrawer onEnded): dragged left by a
@@ -221,7 +222,7 @@ export function kapostsDrawerShouldClose({ dx, predicted = dx, panelWidth }) {
 export function kapostsDrawerDim(dx, panelWidth) {
   if (!(panelWidth > 0)) return 0;
   const progress = Math.max(0, 1 + Math.min(0, Number(dx) || 0) / panelWidth);
-  return 0.45 * progress;
+  return 0.3 * progress; // 30% (K b49a021d; was 45%)
 }
 
 // --- Default tip and payment request cards (iOS 4c0d5a8, 0b9fd28) --------------------------------
