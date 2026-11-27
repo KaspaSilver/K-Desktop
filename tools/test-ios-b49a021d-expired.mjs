@@ -54,5 +54,9 @@ await test("reminders for every name; renewal and expiry only where push doesn't
   assert.equal(kinds(R.wantedReminders([n], { graceMs: BigInt(7 * day), renewWindowMs: BigInt(day) }, ctx)), "renew,grace,lastcall", "no week's warning in a short grace");
   assert.match(notifier, /updateReminders\(wallet, owned, params, \{ pushCovered: \(n\) => pushOn && bytesEqual\(n\.owner, me\) \}\)/);
   assert.match(app, /pushCoversChatting: \(\) => webPushStatus\(\)\.state === "on",/);
+  // and the notifier keeps it (audit 2026-11-27: Build 366 dropped it, so names on the chatting
+  // address got both the push and a local reminder)
+  assert.match(notifier, /canNotify: allowed = null, pushCoversChatting = null \} = \{\}\) \{/);
+  assert.match(notifier, /deps = \{ record, log, notify, canNotify: [^}]*, pushCoversChatting \};/);
 });
 console.log(`ios b49a021d expired: ${passed} passed`);

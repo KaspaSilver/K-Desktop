@@ -373,9 +373,11 @@ function scheduleCheck() {
  * shows a local renewal reminder as an OS notification and `canNotify()` says whether one can be
  * shown now (iOS d1026de: both optional - without them there are no reminders).
  */
-export function startKachatNamesNotifier({ record, log = null, notify = null, canNotify: allowed = null } = {}) {
+export function startKachatNamesNotifier({ record, log = null, notify = null, canNotify: allowed = null, pushCoversChatting = null } = {}) {
   if (typeof record !== "function") return;
-  deps = { record, log, notify, canNotify: allowed ?? (notify ? () => true : () => false) };
+  // `pushCoversChatting()`: Web Push is on, so the indexer's renewal and expiry pushes reach the
+  // chatting address and its names need only the grace-ending reminders (K b49a021d).
+  deps = { record, log, notify, canNotify: allowed ?? (notify ? () => true : () => false), pushCoversChatting };
   const rt = kachatNames();
   if (!rt) return; // mainnet: no registry, no .kachat news
   if (watchedRegistry !== rt.registry) {
