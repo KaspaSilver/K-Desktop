@@ -2557,14 +2557,14 @@ function buildInternalLinkCard(link) {
     : isProfile
       ? '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>'
       : '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2"/><path d="M8.5 15.5a5 5 0 0 1 0-7M15.5 8.5a5 5 0 0 1 0 7M5.6 18.4a9 9 0 0 1 0-12.8M18.4 5.6a9 9 0 0 1 0 12.8"/></svg>';
-  const eyebrow = isPost ? (entry?.action === "reply" ? "KaPost reply" : entry?.action === "quote" ? "KaPost quote" : "KaPost") : isProfile ? "KaChat Profile" : "Public Chat Room";
+  const eyebrow = isPost ? (entry?.action === "reply" ? "Reply" : entry?.action === "quote" ? "Quote" : "Post") : isProfile ? "KaChat Profile" : "Public Chat Room";
   const title = isPost
-    ? (entry?.authorName || "A post on KaPost")
+    ? (entry?.authorName || "A post")
     : isProfile
       ? (profileContact ? displayNameForAddress(profileContact) : (kachatNamesUiEnabled() ? identityNameForAddress(link.address) : shortAddress(link.address)))
       : `#${link.channel}`;
   const subtitle = isPost
-    ? (entry?.snippet || (entry?.action === "quote" ? "Reposted a post." : "Tap to open it in KaPost."))
+    ? (entry?.snippet || (entry?.action === "quote" ? "Reposted a post." : "Tap to open it in Posts."))
     : isProfile
       ? (profileContact ? "Tap to see their User Info." : "Tap to see their profile on K.")
       // iOS: a featured room or one in your list just opens; any other is joined on the tap.
@@ -7092,7 +7092,7 @@ function chatListDeliveryGlyphHtml(message) {
 const WEB_LINK_RE = /https?:\/\/\S+/i;
 function webLinkPreviewLabel(text) {
   const internal = firstInternalLinkIn(text);
-  if (internal?.kind === "kapost") return "Shared a KaPost";
+  if (internal?.kind === "kapost") return "Shared a post";
   if (internal?.kind === "profile") return "Shared a KaChat profile";
   if (internal?.kind === "broadcast") return `Public chat room #${internal.channel}`;
   if (internal?.kind === "pay") return kasLabel(`Payment request: ${paymentRequestAmountText(internal.request)} KAS`);
@@ -7112,7 +7112,7 @@ function chatListPreviewText(message) {
   // text is just a web link below.
   const internal = firstInternalLinkIn(unwrapped);
   if (internal && unwrapped.trim() === internal.raw) {
-    if (internal.kind === "kapost") return "Shared a KaPost";
+    if (internal.kind === "kapost") return "Shared a post";
     if (internal.kind === "profile") return "Shared a KaChat profile";
     if (internal.kind === "broadcast") return `Public chat room #${internal.channel}`;
     if (internal.kind === "pay") return kasLabel(`Payment request: ${paymentRequestAmountText(internal.request)} KAS`);
@@ -9007,7 +9007,7 @@ const NOTIF_CENTER_MAX = 100;
 const notifOverlay = document.querySelector("[data-notif-overlay]");
 let globalNotifications = [];
 let notifCenterLastSeenAt = 0;
-const NOTIF_SOURCE_LABELS = { kaposts: "KaPost", group: "Group", broadcast: "Public Chats", wallet: "Wallet", kachat: ".kachat", mention: "Mention" };
+const NOTIF_SOURCE_LABELS = { kaposts: "Posts", group: "Group", broadcast: "Public Chats", wallet: "Wallet", kachat: ".kachat", mention: "Mention" };
 // The Profile bell is for broadcasts and for Kaspa arriving on your addresses (chatting,
 // spending, cold storage). KaPosts has its own bell inside KaPosts, and group @mentions ping
 // the chat itself, so neither lands here.
@@ -9045,7 +9045,21 @@ function recordGlobalNotification(item) {
     // was read as seen already (audit 2026-11-27)
     recordedAt: Date.now(),
   });
+  // newest first before the trim (K d88891ea M8): rows found late carry older times, and the
+  // 100 kept are the newest, not the last 100 added
+  globalNotifications.sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
   globalNotifications = globalNotifications.slice(0, NOTIF_CENTER_MAX);
+  persistNotifCenter();
+  updateNotifBadge();
+  if (notifOverlay && !notifOverlay.hidden) renderNotifCenter();
+}
+/** Room messages deleted for everyone: their mention rows leave the bell (K d88891ea L10). */
+function removeMentionNotifications(txIds) {
+  const gone = new Set((txIds || []).map((id) => `mention-${String(id || "").toLowerCase()}`));
+  if (!gone.size) return;
+  const before = globalNotifications.length;
+  globalNotifications = globalNotifications.filter((n) => !gone.has(String(n.id || "").toLowerCase()));
+  if (globalNotifications.length === before) return;
   persistNotifCenter();
   updateNotifBadge();
   if (notifOverlay && !notifOverlay.hidden) renderNotifCenter();
@@ -13704,6 +13718,16 @@ function kachatExpiredDismissed(address) {
   try { return new Set(JSON.parse(localStorage.getItem(kachatExpiredDismissStoreKey(address)) || "[]")); } catch { return new Set(); }
 }
 async function refreshKachatExpiredBanner() {
+  // one read at a time (K d88891ea L19): launch, the registry and the timer often ask together
+  if (refreshKachatExpiredBanner.running) { refreshKachatExpiredBanner.again = true; return; }
+  refreshKachatExpiredBanner.running = true;
+  try { await readKachatExpiredBanner(); }
+  finally {
+    refreshKachatExpiredBanner.running = false;
+    if (refreshKachatExpiredBanner.again) { refreshKachatExpiredBanner.again = false; refreshKachatExpiredBanner(); }
+  }
+}
+async function readKachatExpiredBanner() {
   const address = engine.address;
   if (!address || !kachatNamesLaunched()) {
     renderKachatExpiredBanner.state = null;
@@ -13880,7 +13904,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 373;
+const APP_BUILD = 374;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -14258,10 +14282,12 @@ function closeSendKaspaModal() {
   // ended: a send went out, or not. Once per opening.
   const onClosed = sendKaspaOnClosed;
   sendKaspaOnClosed = null;
-  if (wasOpen && onClosed) { try { onClosed({ sent: sendKaspaSentThisOpen }); } catch { /* the opener's own problem */ } }
+  if (wasOpen && onClosed) { try { onClosed({ sent: sendKaspaSentThisOpen, txid: sendKaspaSentTxIdThisOpen }); } catch { /* the opener's own problem */ } }
 }
 let sendKaspaOnClosed = null;
 let sendKaspaSentThisOpen = false;
+// the send's transaction id, for an opener that records it (Swap's deposit, K d88891ea M1)
+let sendKaspaSentTxIdThisOpen = null;
 // The screen is built from the shared Send Kaspa pieces (send-kaspa-components.js, iOS 4d0324f),
 // mounted before the element lookups below.
 mountSendPieces(sendKaspaModal, {
@@ -15442,7 +15468,7 @@ const sendKaspaController = makeSendController({
   // iOS parity: a send from the CHATTING address (not a spending index, not a
   // compound) surfaces as a chat with the destination holding the payment bubble.
   onSent: ({ txid, destination, amountKas }) => {
-    if (txid) sendKaspaSentThisOpen = true;
+    if (txid) { sendKaspaSentThisOpen = true; sendKaspaSentTxIdThisOpen = String(txid); }
     // A request paid as a chat payment already has its bubble in that chat.
     if (sendKaspaPaidAsChatPayment) { sendKaspaPaidAsChatPayment = false; return; }
     if (sendKaspaCompound || sendKaspaSourceIndex != null) return;
@@ -15462,6 +15488,7 @@ function openSendKaspaModal(options = {}) {
   sendKaspaSourceIndex = spendingIndex;
   sendKaspaOnClosed = typeof options?.onClosed === "function" ? options.onClosed : null;
   sendKaspaSentThisOpen = false;
+  sendKaspaSentTxIdThisOpen = null;
   sendKaspaSourceLabel = null;
   // From an address's own page the Kaspa leaves from that address, with no other to pick (iOS
   // 7a8102b); every other send keeps the choice.
@@ -31715,7 +31742,8 @@ initWebPush({
   mirror: webPushMirror,
   focusKey: webPushFocusKey,
   log: (text) => appendEngineLog(text),
-  onStatus: () => renderWebPushStatus(),
+  // and username reminders follow it: on or off, the pushes they stand in for come or not (K d88891ea L9)
+  onStatus: () => { renderWebPushStatus(); try { kachatNamesNotificationSettingsChanged(); } catch { /* not started */ } },
   onPush: (data = {}) => {
     // A KaPost push is the notice; the poll brings the bell's count and the list (K 961fc05a pollSoon).
     if (data.type === "kaposts") { try { pollKaPostNotificationsSoon(); } catch { /* KaPost not started */ } return; }
@@ -32253,6 +32281,7 @@ queueMicrotask(async () => {
       openUserInfo: (address) => openProfileForAddress(address),
       // a new room message that @'s you: a row in Profile's bell (K d089011f)
       recordMention: (mention) => recordMentionNotification(mention),
+      removeMentions: (txIds) => removeMentionNotifications(txIds),
       openChat: (address, name) => openChatWithAddress({ address, name }),
       payInKaspa: (address, name) => openChatWithAddressForKaspa({ address, name }),
       addressCopiedToastText,
@@ -32344,10 +32373,10 @@ queueMicrotask(async () => {
       // Not Now on an agreement, or Done: back to the Wallet.
       leaveSwap: () => setActiveAppTab("wallet"),
       // the deposit screen's Send KAS from K: Send Kaspa filled in with the deposit (K SwapDepositScreen)
-      sendKasTo: ({ address, amountText }) => {
+      sendKasTo: ({ address, amountText, onClosed = null }) => {
         const amountSompi = sompiFromUserText(String(amountText || ""));
         if (!address || amountSompi == null) return;
-        openSendKaspaModal({ paymentRequest: makePaymentRequest({ address, amountSompi }) });
+        openSendKaspaModal({ paymentRequest: makePaymentRequest({ address, amountSompi }), onClosed });
       },
       // kUSDT through Trestly's pool (K 5.4 TrestlyTrade).
       kusdt: swapKusdtDeps(),
@@ -32565,6 +32594,11 @@ queueMicrotask(async () => {
     // The Explorer (K 961fc05a): kaspa.stream, live blocks from K's node while its home shows,
     // K Activity from K's indexer, fees from Kaspalytics. It replaced KaChat Stats.
     initExplorer({
+      // this account's own key, which the Explorer refuses to look up (K d88891ea L5)
+      isOwnSecretHex: (text) => {
+        const hex = String(text || "").trim().toLowerCase();
+        return Boolean(engine.privateKeyHex) && hex === String(engine.privateKeyHex).toLowerCase();
+      },
       escapeHtml,
       showToast: showCopyToast,
       copyText: copyTextToClipboard,

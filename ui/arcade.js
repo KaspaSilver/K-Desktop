@@ -757,7 +757,7 @@ function share() {
       j.shareResult(result);
       // the sheet shows how it went; once it has gone, a toast does
       if (j === job && sheetOpen) return;
-      if (result?.ok) deps().showToast?.("Posted to KaPost");
+      if (result?.ok) deps().showToast?.("Posted");
       else if (!result?.unknown) deps().showToast?.(j.shareNote || "The post didn't go out.");
     },
   });

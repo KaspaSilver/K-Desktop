@@ -1,7 +1,9 @@
 // Rename in place on an address card (K b49a021d InlineRename / InlineRenameField; owner,
 // 2026-11-27: "no pop-up"). Rename turns the card's name into a text field with the cursor in it,
-// the quantum tag steps aside and the Rename button reads Done. Each keystroke is saved, an empty
-// name goes back to the default, and Enter, Escape, Done or a click elsewhere ends it.
+// the quantum tag steps aside and the Rename button reads Done. The name is saved once, when Enter,
+// Done or a click elsewhere ends it (K d88891ea M6/L20: saving each keystroke left a cleared
+// account name as its first letter, and redrew on every key); an empty name goes back to the
+// default; Escape ends it without saving.
 //
 // Used by Manage Addresses, Manage kUSDT and Cold Storage. A list that repaints on a timer checks
 // inlineRenameActive() first, so the field isn't wiped while it's typed in; onDone repaints it.
@@ -61,15 +63,15 @@ export function startInlineRename(card, { key = "", current = "", placeholder = 
 
   // The card's body opens the address's history on a click or Enter: not while typing in it.
   const stop = (event) => event.stopPropagation();
+  let cancelled = false;
   const onKey = (event) => {
     event.stopPropagation();
+    if (event.key === "Escape") cancelled = true;
     if (event.key === "Enter" || event.key === "Escape") { event.preventDefault(); input.blur(); }
   };
-  const onInput = () => { try { onChange?.(input.value); } catch { /* saved on the next keystroke */ } };
   input.addEventListener("click", stop);
   input.addEventListener("pointerdown", stop);
   input.addEventListener("keydown", onKey);
-  input.addEventListener("input", onInput);
 
   const session = {
     card,
@@ -79,6 +81,8 @@ export function startInlineRename(card, { key = "", current = "", placeholder = 
       active = null;
       input.removeEventListener("blur", session.finish);
       lastEnded = { key, at: Date.now() };
+      // saved once, as it ends; Escape keeps the name it had
+      if (!cancelled && input.value !== current) { try { onChange?.(input.value); } catch { /* the name stays as it was */ } }
       card.classList.remove("renaming");
       input.remove();
       nameEl.hidden = false;

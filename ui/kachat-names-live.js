@@ -3863,7 +3863,12 @@ export async function kachatExpiredNames(walletAddress) {
   // Profile's own five-minute window: a shorter one refreshed in between (iOS 9de981a)
   await rt.registry.refreshIfStale({ maxAge: 300 });
   const grace = graceMs();
-  const owned = await rt.registry.namesOf(key, { includeInactive: true });
+  // Every address of this wallet, not only the chatting one (K d88891ea M5): a name an older Buy
+  // From claimed on a spending address showed the red pill in the list but no dot or count.
+  const mine = String(rt.actions?.myAddress || "").toLowerCase() === String(walletAddress || "").toLowerCase();
+  const owned = mine && typeof rt.actions.ownNamesAndOffers === "function"
+    ? (await rt.actions.ownNamesAndOffers({ heldOnly: true })).names
+    : await rt.registry.namesOf(key, { includeInactive: true });
   return owned
     .filter((n) => n.status(grace) === Status.grace)
     .sort((a, b) => (a.expiresAt < b.expiresAt ? -1 : a.expiresAt > b.expiresAt ? 1 : 0))

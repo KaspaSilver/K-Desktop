@@ -844,7 +844,7 @@ function guideStepHtml(step) {
         ${guideStepHeader("Make it your name", "Set it as your primary name and it's how you appear everywhere in K.", GUIDE_ICON.personCard)}
         ${guideBullets([
           "People can find you and message you by typing your name.",
-          "They can send you Kaspa to yourname.kachat instead of a long address.",
+          "They can send you Kaspa to @yourname instead of a long address.",
           "Your profile link shows your name.",
         ])}`;
     case "keepIt":

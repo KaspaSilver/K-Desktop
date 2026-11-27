@@ -16,10 +16,12 @@ const css = read("ui/styles.css");
 let passed = 0;
 function test(name, fn) { fn(); passed += 1; console.log(`ok - ${name}`); }
 
-test("the field takes the name's place, saves each keystroke and ends on Enter, Escape or blur", () => {
+test("the field takes the name's place, saves once as it ends (K d88891ea), Escape keeps the old name", () => {
   assert.match(inline, /nameEl\.hidden = true;\n\s+nameEl\.after\(input\);\n\s+card\.classList\.add\("renaming"\);/);
   assert.match(inline, /button\.innerHTML = `<span class="address-card-action-circle">\$\{CHECK_ICON\}<\/span><span>Done<\/span>`;/);
-  assert.match(inline, /const onInput = \(\) => \{ try \{ onChange\?\.\(input\.value\); \}/);
+  assert.doesNotMatch(inline, /addEventListener\("input"/, "no save per keystroke");
+  assert.match(inline, /if \(!cancelled && input\.value !== current\) \{ try \{ onChange\?\.\(input\.value\); \}/);
+  assert.match(inline, /if \(event\.key === "Escape"\) cancelled = true;/);
   assert.match(inline, /if \(event\.key === "Enter" \|\| event\.key === "Escape"\) \{ event\.preventDefault\(\); input\.blur\(\); \}/);
   assert.match(inline, /input\.addEventListener\("blur", session\.finish\);/);
   assert.match(inline, /input\.addEventListener\("click", stop\);/, "typing never opens the history");

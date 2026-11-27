@@ -54,10 +54,11 @@ test("a post not found is asked again after five minutes", () => {
 });
 
 test("the card and the chat list read as iOS's do", () => {
-  assert.match(app, /entry\?\.authorName \|\| "A post on KaPost"/);
-  assert.match(app, /"Tap to open it in KaPost\."/);
+  // "Posts" since K d88891ea (no KaPost in what people read)
+  assert.match(app, /entry\?\.authorName \|\| "A post"/);
+  assert.match(app, /"Tap to open it in Posts\."/);
   assert.doesNotMatch(app, /Shared a KaPost post/);
-  assert.equal(app.split('"Shared a KaPost"').length - 1, 2);
+  assert.equal(app.split('"Shared a post"').length - 1, 2);
 });
 
 test("a held-back person's link card is the Tap to View tile (K 2251f15c)", () => {

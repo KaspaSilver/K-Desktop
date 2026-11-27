@@ -392,7 +392,7 @@ function notation(played) {
 function shareButtonHtml(g) {
   // May have gone through (iOS 4922804): no Retry - a second stamp of the same game - and nothing
   // to share until it is known to be on chain.
-  const title = g.stamp === "stamped" ? "Share to KaPost" : g.stamp === "failed" ? "Retry the stamp" : g.stamp === "unconfirmed" ? "Not confirmed" : "Stamping the result…";
+  const title = g.stamp === "stamped" ? "Share to Posts" : g.stamp === "failed" ? "Retry the stamp" : g.stamp === "unconfirmed" ? "Not confirmed" : "Stamping the result…";
   const waiting = g.stamp === "sending" || g.stamp === "none" || g.stamp === "unconfirmed";
   return `<button class="chess-bot-share" type="button" data-chess-bot-share ${waiting ? "disabled" : ""}>${ICON_SHARE}<span>${title}</span></button>`;
 }

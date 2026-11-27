@@ -874,6 +874,7 @@ function liveResultsHtml(text) {
     case "noUsername": row = note(`No username ${m.name}`); break;
     case "notAnAddress": row = note("That isn't a valid Kaspa address."); break;
     case "notFound": row = note("No transaction or block with that ID."); break;
+    case "idOnSearch": row = note("Press Return to look up this transaction or block."); break;
     case "unreachable": row = note(UNREACHABLE); break;
     default:
       row = `<div class="kx-looking"><span class="initial-sync-spinner" aria-hidden="true"></span><span class="kx-muted">Looking up ${esc(text.length > 40 ? shortId(text) : text)}…</span></div>`;
@@ -899,6 +900,9 @@ function scheduleLookUp() {
   const token = ++home.typedToken;
   const text = home.query.trim();
   if (!text) { home.typed = { type: "none" }; paintSearch(); return; }
+  // A 64-character hex id is looked up only on Search (K d88891ea L5): typed or pasted, it could be
+  // a private key, and the lookup sends it to the explorer's server.
+  if (queryKind(text).kind === "id") { home.typed = { type: "idOnSearch" }; paintSearch(); return; }
   home.typed = { type: "lookingUp" };
   paintSearch();
   home.typedTimer = setTimeout(() => { lookUpTyped(text, token).catch(() => {}); }, 350);
@@ -961,6 +965,13 @@ function openTyped(route) {
 async function runSearch(text) {
   const trimmed = String(text || "").trim();
   if (!trimmed || home.searching) return;
+  // one of this wallet's own keys is never sent anywhere (K d88891ea L5)
+  let ownSecret = false;
+  try { ownSecret = Boolean(deps.isOwnSecretHex?.(trimmed)); } catch { ownSecret = false; }
+  if (ownSecret) {
+    alertDialog({ title: "That's a Private Key", message: "It wasn't looked up or sent anywhere. Never paste a private key into a search." }).catch(() => {});
+    return;
+  }
   home.searching = true;
   paintSearch();
   let route = null;

@@ -623,7 +623,7 @@ function renderDeposit(id) {
     <div class="profile-card swap-deposit-card"><small>Amount to Send</small><strong class="swap-deposit-amount">${esc(`${groupedFigure(swap.fromAmount)} ${from.displayName}`)}</strong>
       <button type="button" class="swap-copy-pill" data-swap-copy-amount="${esc(swap.fromAmount)}">${ICONS.copy}<span>Copy Amount</span></button></div>
     ${swap.payinExtraId ? depositTagBox(swap.payinExtraId) : ""}
-    ${from.ticker === "kas" ? `<button type="button" class="primary-button swap-send-kas" data-swap-send-kas="${esc(swap.id)}">Send KAS from K</button>` : ""}
+    ${from.ticker === "kas" ? depositSendKasHtml(swap) : ""}
     <div class="profile-card swap-deposit-card"><small>Transaction ID</small><code>${esc(swap.id)}</code>
       <span class="swap-deposit-id-actions">
         <button type="button" class="swap-copy-pill" data-swap-copy-id="${esc(swap.id)}">${ICONS.copy}<span>Copy ID</span></button>
@@ -632,12 +632,27 @@ function renderDeposit(id) {
     ${swap.toAmount ? `<p class="swap-step-note centered">${esc(`You get about ${groupedFigure(swap.toAmount)} ${to.displayName}, sent to ${shortMiddle(swap.payoutAddress)}.`)}</p>` : ""}
   </div>`;
 }
-/** Checks ChangeNOW every 10 s while the deposit screen shows; a finished order becomes Complete. */
+/** "Send KAS from K", only while the order waits for its deposit and K hasn't sent it; once sent,
+ *  the transaction instead (K d88891ea M1: the deposit could be paid twice before ChangeNOW saw it). */
+function depositSendKasHtml(swap) {
+  if (swap.kasSendTxId) {
+    return `<div class="profile-card swap-deposit-card"><small>Sent from K</small><code>${esc(swap.kasSendTxId)}</code>
+      <button type="button" class="swap-copy-pill" data-swap-copy-txid="${esc(swap.kasSendTxId)}">${ICONS.copy}<span>Copy</span></button></div>`;
+  }
+  const status = String(swap.status || "new").toLowerCase();
+  if (status !== "new" && status !== "waiting") return "";
+  return `<button type="button" class="primary-button swap-send-kas" data-swap-send-kas="${esc(swap.id)}">Send KAS from K</button>`;
+}
+/** A swap that has ended, one way or another: nothing more to ask ChangeNOW (K d88891ea L18). */
+const SWAP_END_STATES = new Set(["finished", "failed", "refunded", "expired"]);
+/** Checks ChangeNOW every 10 s while the deposit screen shows; a finished order becomes Complete,
+ *  and any other end stops the checks. */
 function syncDepositPolling(step) {
   const wanted = step.kind === "deposit" && started && !document.hidden && Boolean(rootEl?.isConnected) && isScreenShown();
   if (!wanted) { if (depositTimer) { window.clearTimeout(depositTimer); depositTimer = null; } return; }
   if (depositTimer) return;
   const id = step.id;
+  if (SWAP_END_STATES.has(String(history.find((x) => x.id === id)?.status || "").toLowerCase())) return;
   depositTimer = window.setTimeout(async () => {
     depositTimer = null;
     const status = await refreshSwapStatus(id);
@@ -1281,7 +1296,8 @@ async function refreshSwapStatus(id) {
     const status = response?.status || null;
     if (!status) return null;
     const swap = history.find((s) => s.id === id);
-    if (swap) { swap.status = status; saveHistory(); }
+    // saved only when it moved (K d88891ea L18)
+    if (swap && swap.status !== status) { swap.status = status; saveHistory(); }
     return status;
   } catch (error) {
     noteUnavailable(error);
@@ -1809,10 +1825,28 @@ export function initSwaps(dependencies) {
       try { await deps.copyTextToClipboard(copyAmount.dataset.swapCopyAmount); deps.showToast?.("Amount copied"); } catch { /* clipboard refused */ }
       return;
     }
+    const copySent = event.target.closest("[data-swap-copy-txid]");
+    if (copySent && rootEl.contains(copySent)) {
+      try { await deps.copyTextToClipboard(copySent.dataset.swapCopyTxid); deps.showToast?.("Transaction ID copied"); } catch { /* clipboard refused */ }
+      return;
+    }
     const sendKas = event.target.closest("[data-swap-send-kas]");
     if (sendKas) {
       const swap = history.find((x) => x.id === sendKas.dataset.swapSendKas);
-      if (swap) deps.sendKasTo?.({ address: swap.payinAddress, amountText: swap.fromAmount });
+      if (swap) {
+        deps.sendKasTo?.({
+          address: swap.payinAddress, amountText: swap.fromAmount,
+          // the send is recorded on the swap: the button gives way to it (K d88891ea M1)
+          onClosed: ({ sent, txid } = {}) => {
+            if (!sent) return;
+            const now = history.find((x) => x.id === swap.id);
+            if (!now) return;
+            now.kasSendTxId = txid || "sent";
+            saveHistory();
+            render();
+          },
+        });
+      }
       return;
     }
     const addPortfolio = event.target.closest("[data-swap-add-portfolio]");

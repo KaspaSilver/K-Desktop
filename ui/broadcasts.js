@@ -1153,6 +1153,8 @@ function removeRoomRows(channel, rows, ids) {
     if (wanted.has(target.toLowerCase())) { delete edits[target]; editsGone = true; }
   }
   if (editsGone) saveEdits();
+  // and a mention of you in one leaves the bell with it (K d88891ea L10)
+  try { deps.removeMentions?.([...wanted]); } catch { /* the bell's own problem */ }
   return removed;
 }
 /** Delete envelopes seen in a room, [{ target, sender }] (K applyIncomingDeletes). Returns how many
@@ -1848,8 +1850,15 @@ function recordRoomMentions(channel, rows) {
   const me = String(deps.engine.address || "").toLowerCase();
   if (!me || !deps.mentionUsernameOf?.(deps.engine.address)) return;
   const hiddenHere = hiddenIn(channel);
+  // Only what's new to you (K d88891ea M8): a room's history loaded on joining (30 days of it)
+  // made every past mention a row, all unread, and pushed newer rows out. Not from before you
+  // joined the room, and never over a week old.
+  const joined = Number(joinedAtByChannel[channel] || 0);
+  const weekAgo = Date.now() - 7 * 86_400_000;
   for (const row of rows) {
     if (String(row.senderAddress || "").toLowerCase() === me || hiddenHere.has(row.senderAddress)) continue;
+    const at = Number(row.blockTime || 0);
+    if (at && (at < weekAgo || (joined && at < joined))) continue;
     const preview = humanizeBroadcastContent(row.content);
     if (!roomTextMentionsMe(preview)) continue;
     deps.recordMention({

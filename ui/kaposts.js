@@ -1618,7 +1618,7 @@ function renderStatus() {
   // The indexer is what lists posts: while it's away the feed says why it isn't complete.
   const down = !kapostsUnavailableHere() && kaPostIndexerIsDown();
   statusEl.hidden = !down;
-  statusEl.textContent = down ? "KaPost's server isn't answering. Showing saved posts and new ones from the network." : "";
+  statusEl.textContent = down ? "The Posts server isn't answering. Showing saved posts and new ones from the network." : "";
 }
 
 /// New posts off the block stream while the indexer is down, into whichever feed is showing.
@@ -2023,11 +2023,11 @@ const BOT_CARD_CROWN_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d=
 /// KaPostBotChallengeCard). A click opens KaPlay on that bot.
 function botChallengeCardHtml(challenge, pid) {
   return `
-    <button type="button" class="kaposts-bot-card" data-kaposts-bot-challenge="${pid}" title="Opens KaPlay to play this bot.">
+    <button type="button" class="kaposts-bot-card" data-kaposts-bot-challenge="${pid}" title="Opens Arcade to play this bot.">
       <span class="kaposts-bot-card-top">
         <span class="kaposts-bot-card-icon">${BOT_CARD_CROWN_SVG}</span>
         <span class="kaposts-bot-card-copy">
-          <span class="kaposts-bot-card-eyebrow">KaPlay Challenge</span>
+          <span class="kaposts-bot-card-eyebrow">Arcade Challenge</span>
           <span class="kaposts-bot-card-title">${deps.escapeHtml(botChallengeTitle(challenge))}</span>
         </span>
       </span>
@@ -2050,7 +2050,7 @@ function arcadeChallengeCardHtml(challenge, pid) {
       <span class="kaposts-bot-card-pill">Play</span>`;
   return pid == null
     ? `<div class="kaposts-bot-card kaposts-arcade-card" inert>${inner}</div>`
-    : `<button type="button" class="kaposts-bot-card kaposts-arcade-card" data-kaposts-arcade-challenge="${pid}" title="Opens KaPlay to play this game.">${inner}</button>`;
+    : `<button type="button" class="kaposts-bot-card kaposts-arcade-card" data-kaposts-arcade-challenge="${pid}" title="Opens Arcade to play this game.">${inner}</button>`;
 }
 
 /// Puts each post's site link card in place of its link once painted: the card is DOM, its image
@@ -3082,7 +3082,7 @@ async function continueThread(localId) {
 /// The part of a thread a Not confirmed stopped, kept only if the person says so (iOS ee5ec98).
 async function offerThreadRemainderDraft(state) {
   const owner = accountGuard(() => deps?.engine?.address);
-  const save = await deps.confirmDialog?.({ title: "KaPost", message: KAPOSTS_THREAD_UNCONFIRMED_PROMPT, confirmLabel: "Save as Draft", cancelLabel: "Not Now" });
+  const save = await deps.confirmDialog?.({ title: "Posts", message: KAPOSTS_THREAD_UNCONFIRMED_PROMPT, confirmLabel: "Save as Draft", cancelLabel: "Not Now" });
   if (!save || !owner.still()) return;
   const draft = threadRemainderDraft(state, nowId());
   if (!draft) return;
@@ -4008,7 +4008,7 @@ function scheduleEdit(post, text) {
       mutatePost(post.id, (p) => settleFailedKaPostEdit(p, error, restore));
       deps.appendEngineLog?.(`KaPost edit failed: ${error.message}`);
       // iOS fae6686: a failed edit says so in an alert (it used to be logged and nothing more).
-      deps.alertDialog?.({ title: "KaPost", message: kapostOutcomeUnknown(error) ? SEND_OUTCOME_UNKNOWN_MESSAGE : `Couldn't save the edit: ${actionErrorText(error)}`, confirmLabel: "OK" });
+      deps.alertDialog?.({ title: "Posts", message: kapostOutcomeUnknown(error) ? SEND_OUTCOME_UNKNOWN_MESSAGE : `Couldn't save the edit: ${actionErrorText(error)}`, confirmLabel: "OK" });
     }
     renderAll();
   }, () => {
@@ -4035,7 +4035,7 @@ function scheduleDelete(post) {
       // It may have landed: the card stays dimmed, with no second Delete on offer (iOS ee5ec98).
       mutatePost(post.id, (p) => settleFailedKaPostDelete(p, error));
       deps.appendEngineLog?.(`KaPost delete failed: ${error.message}`);
-      deps.alertDialog?.({ title: "KaPost", message: kapostOutcomeUnknown(error) ? SEND_OUTCOME_UNKNOWN_MESSAGE : `Couldn't delete the post: ${actionErrorText(error)}`, confirmLabel: "OK" });
+      deps.alertDialog?.({ title: "Posts", message: kapostOutcomeUnknown(error) ? SEND_OUTCOME_UNKNOWN_MESSAGE : `Couldn't delete the post: ${actionErrorText(error)}`, confirmLabel: "OK" });
     } finally {
       deletesInFlight.delete(post.remoteId);
     }
@@ -4830,7 +4830,7 @@ function renderSearchResults(panel) {
     results.innerHTML = `
       <div class="no-results-card kaposts-empty">
         <svg class="kaposts-empty-icon" viewBox="0 0 24 24"><path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg>
-        <strong>Search KaPost</strong>
+        <strong>Search Posts</strong>
         <span>Find posts by what they say, and people by their name or domain. Only people who have posted appear.</span>
       </div>`;
     return;
@@ -5386,7 +5386,7 @@ async function pollKaPostNotificationsForPings() {
     if (!isRecentForBanner(n.timestamp, { maxAgeMs: KAPOST_BANNER_MAX_AGE_MS })) continue;
     if (!claimKaPostsBanner(`${actorAddress}|${target || n.postId || ""}|${n.contentType || ""}|${n.voteType || ""}`)) continue;
     deps.postDesktopNotification?.({
-      title: "KaPost",
+      title: "Posts",
       body: `${posterName(actorAddress)} ${kaPostsNotificationAction(n, text)}`,
       tag: `kachat-kaposts-${n.id}`,
       key: n.id, // its push's tx_id: none if that push already came (K b0f0a4e6)
@@ -6308,7 +6308,7 @@ async function cancelScheduledPost(id) {
     rememberCancel: (txId) => savePendingScheduledCancels([...pendingScheduledCancels(), txId]),
     log: (line) => deps.appendEngineLog?.(line),
   });
-  if (problem) deps.alertDialog?.({ title: "KaPost", message: problem, confirmLabel: "OK" });
+  if (problem) deps.alertDialog?.({ title: "Posts", message: problem, confirmLabel: "OK" });
   renderAll();
 }
 
@@ -6879,8 +6879,8 @@ function renderKaPostsUnavailable() {
     <div class="no-results-card kaposts-empty">
       ${/* iOS KaPostsUnavailableView's "text.bubble" */ ""}
       <svg class="kaposts-empty-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"/></svg>
-      <strong>KaPost isn't available on Testnet yet</strong>
-      <span>There is no KaPost indexer for testnet. Turn off Testnet in Settings > Connection to read and post on mainnet.</span>
+      <strong>Posts isn't available on Testnet yet</strong>
+      <span>There is no Posts indexer for testnet. Turn off Testnet in Settings > Connection to read and post on mainnet.</span>
     </div>`;
 }
 

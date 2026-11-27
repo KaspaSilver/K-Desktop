@@ -2597,7 +2597,7 @@ function buildModals() {
             <button class="cold-inline-link" type="button" data-portfolio-import-paste>Paste</button>
             <button class="cold-inline-link" type="button" data-portfolio-import-scan>Scan QR</button>
           </div>
-          <p class="portfolio-import-note" data-portfolio-import-manual>Enter a Kaspa address or a username like name.kachat. Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import.</p>
+          <p class="portfolio-import-note" data-portfolio-import-manual>Enter a Kaspa address or a username like @alice. Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import.</p>
           <p class="portfolio-import-progress" data-portfolio-import-progress></p>
         </div>
         <div class="modal-actions" data-portfolio-import-manual>
