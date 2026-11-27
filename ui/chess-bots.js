@@ -20,7 +20,7 @@ import {
   addBotResult, parseBotRecords, addStampedWin, parseStampedWins, indexerBotBoards, botBoardRows,
   sampleStampContent, chessBotBestMove, ChessBotGame,
 } from "../engine/chess-bot.js";
-import { botSharePostText, botChallengeBannerText } from "../engine/chess-bot-links.js";
+import { botSharePostText, botChallengeBannerText, botConfirmedBy } from "../engine/chess-bot-links.js";
 import { LEADERBOARD_PERIODS } from "../engine/chess-tournament.js";
 import { sendBroadcastMessage, broadcastPayloadBytes } from "../engine/broadcasts.js";
 import { confirmDialog } from "./dialogs.js";
@@ -266,12 +266,16 @@ function starsHtml(level) {
   return `<span class="chess-bot-stars" role="img" aria-label="Level ${level} of 5">${html}</span>`;
 }
 
-/** What a challenge asks, at the top of the screen it opened (ChessBotChallengeBanner). */
+/** What a challenge asks, at the top of the screen it opened (ChessBotChallengeBanner). The
+ *  winner is named only when the post the link came from was theirs (`challenge.author`, the
+ *  post's signer, set by the Posts card click); anything else - another poster, a link opened
+ *  from outside - says "Someone" (audit 2026-11-27, as arcade challenges, 2026-11-24 #21). */
 function challengeBannerHtml() {
   const bot = chessBot(challenge?.level);
   if (!bot) return "";
+  const confirmed = botConfirmedBy(challenge, challenge.author || null);
   const text = botChallengeBannerText({
-    challenge, botName: bot.name, who: challenge.by ? (deps().displayNameFor?.(challenge.by) || challenge.by) : "",
+    challenge, botName: bot.name, who: confirmed ? (deps().displayNameFor?.(confirmed) || confirmed) : "",
     unlocked: isBotUnlocked(loadRecords(), bot.level),
   });
   return `<div class="chess-bot-challenge">${ICON_CROSSED_FLAGS}<span>${esc(text)}</span></div>`;
@@ -634,7 +638,8 @@ export function openChessBots() {
 }
 
 /** A challenge link (ChessHomeView.takeChallenge): that bot's screen with the challenge at the top,
- *  or the ladder if the bot is still locked, which says who to beat first. */
+ *  or the ladder if the bot is still locked, which says who to beat first. `link.author` (optional)
+ *  is the signer of the post it came from; without it the banner names no one. */
 export function openChessBotChallengeScreen(link) {
   challenge = link;
   if (isBotUnlocked(loadRecords(), link.level)) {

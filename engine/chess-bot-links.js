@@ -108,10 +108,21 @@ export function botChallengeIn(text) {
   return null;
 }
 
+/** The challenge's `by`, but only when the post the link came from was signed by that address
+ *  (`author`, the post's poster); null otherwise. A link is just text anyone can write, so naming
+ *  `by` on its word alone let a post say "@someone beat the bot" for anyone (audit 2026-11-27, as
+ *  arcadeConfirmedBy for arcade challenges, audit 2026-11-24 #21). A link opened from outside
+ *  (no post, so no author) names no one. */
+export function botConfirmedBy(challenge, author) {
+  const by = challenge?.by;
+  return by && author && String(by).toLowerCase() === String(author).toLowerCase() ? by : null;
+}
+
 /** What a challenge asks, at the top of the screen it opened (iOS ChessBotChallengeBanner). `who`
- *  is the display name of the address that won. A move count past iOS's 999 is left out. */
+ *  is the display name of the CONFIRMED winner (botConfirmedBy) - empty or null says "Someone".
+ *  A move count past iOS's 999 is left out. */
 export function botChallengeBannerText({ challenge, botName, who, unlocked }) {
-  const person = challenge.by ? who : "Someone";
+  const person = challenge.by && who ? who : "Someone";
   const moves = challenge.moves != null && challenge.moves <= BANNER_MOVES_MAX ? challenge.moves : null;
   const claim = moves != null
     ? `${person} beat ${botName} in ${moves} moves. Can you do it in fewer?`

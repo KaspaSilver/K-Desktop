@@ -516,6 +516,7 @@ function seedPager(pager, rawItems, pagination, idOf = (item) => item?.id) {
   pager.cursor = nextPageCursor(pagination);
   pager.hasMore = Boolean(pager.cursor);
   pager.loading = false;
+  pager.firstPageGeneration = null;
   pager.error = null;
   pager.stalled = false;
   pager.unproductive = 0;
@@ -1202,15 +1203,19 @@ const expandedCommentIds = new Set();
 /// every level; expanding in place keeps you where you are.
 async function loadCommentReplies(comment) {
   if (!comment?.remoteId) return;
-  if (threadPagers.get(comment.id)?.loading) return;
+  // A page one still in flight for this comment blocks a second - unless navigation made it
+  // stale, when it will never land here and would hold "View replies" dead (audit 2026-11-27).
+  const current = threadPagers.get(comment.id);
+  if (current?.loading && !threadFirstPageStale(current)) return;
   const pager = makePager({ pageSize: PAGER_THREAD_PAGE_SIZE });
   pager.loading = true;
-  threadPagers.set(comment.id, pager);
   const generation = threadGeneration;
+  pager.firstPageGeneration = generation;
+  threadPagers.set(comment.id, pager);
   renderThread();
   try {
     const page = await fetchReplies({ engine: deps.engine, postId: comment.remoteId, limit: PAGER_THREAD_PAGE_SIZE });
-    if (generation !== threadGeneration || threadPagers.get(comment.id) !== pager) return;
+    if (generation !== threadGeneration || threadPagers.get(comment.id) !== pager) { letThreadPagerGo(comment.id, pager); return; }
     const replies = (page?.posts || []).map(mapRemotePost).filter(Boolean);
     seedPager(pager, page?.posts, page?.pagination);
     mutatePost(comment.id, (target) => {
@@ -1218,11 +1223,56 @@ async function loadCommentReplies(comment) {
       target.comments = [...target.comments, ...replies.filter((reply) => !known.has(reply.remoteId))];
     });
   } catch (error) {
-    if (generation !== threadGeneration || threadPagers.get(comment.id) !== pager) return;
+    if (generation !== threadGeneration || threadPagers.get(comment.id) !== pager) { letThreadPagerGo(comment.id, pager); return; }
     pager.loading = false;
+    pager.firstPageGeneration = null;
     pager.error = userFacingError(error);
   }
   renderThread();
+}
+
+/// A thread or comment pager whose page one is still marked loading by a load that navigation
+/// made stale (a newer thread generation): that load returns early and never clears it, so the
+/// list would say "Loading..." forever and refuse to load again (audit 2026-11-27).
+function threadFirstPageStale(pager) {
+  return Boolean(pager?.loading && pager.firstPageGeneration != null && pager.firstPageGeneration !== threadGeneration);
+}
+
+/// A page one that came back stale lets go of the pager it was filling - if it is still the one
+/// stored - so the thread or comment loads afresh when it is shown again (resumeRevealedThread,
+/// a tap on View replies) instead of keeping a spinner nothing will stop.
+function letThreadPagerGo(id, pager) {
+  if (threadPagers.get(id) === pager) threadPagers.delete(id);
+}
+
+/// The thread Back revealed (or that is on top again after one was removed): whatever its page one
+/// or its expanded comments' page ones lost to navigation loads again. A thread whose page did land
+/// keeps it and its cursor, as before.
+function resumeRevealedThread() {
+  const id = threadStack[threadStack.length - 1];
+  const post = id != null ? findPost(id) : null;
+  if (!post?.remoteId) return;
+  const pager = threadPagers.get(post.id);
+  if (!pager || threadFirstPageStale(pager)) {
+    loadThreadFirstPage(post, null).catch(() => {});
+    return;
+  }
+  reloadExpandedReplies(post, { all: false });
+}
+
+/// The expanded comments of the open thread `post` that need their replies again: every one when
+/// the thread's page one was just replaced (`all` - the fresh rows carry no nested replies), else
+/// only those whose own page one never landed.
+function reloadExpandedReplies(post, { all }) {
+  const fresh = findPost(post.id) || post;
+  for (const comment of fresh.comments || []) {
+    if (!comment?.remoteId || !expandedCommentIds.has(comment.id)) continue;
+    const pager = threadPagers.get(comment.id);
+    if (!all && pager && !threadFirstPageStale(pager)) continue;
+    if (all && pager?.loading && !threadFirstPageStale(pager)) continue; // already loading for this thread
+    threadPagers.delete(comment.id);
+    loadCommentReplies(comment);
+  }
 }
 
 /// The next page of an expanded comment's inline chain (its footer sentinel).
@@ -1230,7 +1280,6 @@ function loadMoreCommentReplies(commentId) {
   const comment = findPost(commentId);
   const pager = threadPagers.get(commentId);
   if (!comment?.remoteId || !pager) return;
-  const generation = threadGeneration;
   return runPager(pager, {
     fetchPage: async (before, limit) => {
       const result = await fetchReplies({ engine: deps.engine, postId: comment.remoteId, limit, before });
@@ -1248,7 +1297,10 @@ function loadMoreCommentReplies(commentId) {
       renderThread();
       return added;
     },
-    isStale: () => generation !== threadGeneration || !expandedCommentIds.has(commentId),
+    // Stale once this pager is replaced or dropped (every navigation that retires thread cursors
+    // clears or replaces it), not on any newer thread generation: a quoted post opened and Back
+    // while a page was in flight used to drop the page and leave "Loading more..." on screen.
+    isStale: () => threadPagers.get(commentId) !== pager || !expandedCommentIds.has(commentId),
     onUpdate: () => renderThread(),
   });
 }
@@ -3248,10 +3300,28 @@ async function openThread(post, { scrollToRemoteId = null, ensureComment = null 
   // The real chain above this post, not just the levels you happened to tap through.
   loadAncestorsFor(post);
   if (!post.remoteId) return;
+  await loadThreadFirstPage(post, pager, { ensureComment });
+}
+
+/**
+ * A thread's page one of replies, into `pager` (a fresh one when null - Back revealing a thread
+ * whose page never landed). A page made stale by navigation (a quoted post opened before the
+ * replies came, the rail, the Profile tab) lets go of its pager rather than leaving it loading:
+ * it used to return with `loading` still true, so Back showed the thread spinning forever
+ * (audit 2026-11-27).
+ */
+async function loadThreadFirstPage(post, pager, { ensureComment = null } = {}) {
+  if (!pager) {
+    pager = makePager({ pageSize: PAGER_THREAD_PAGE_SIZE });
+    pager.loading = true;
+    threadPagers.set(post.id, pager);
+    renderThread();
+  }
   const generation = ++threadGeneration;
+  pager.firstPageGeneration = generation;
   try {
     const result = await fetchReplies({ engine: deps.engine, postId: post.remoteId, limit: PAGER_THREAD_PAGE_SIZE });
-    if (generation !== threadGeneration) return;
+    if (generation !== threadGeneration) { letThreadPagerGo(post.id, pager); return; }
     const replies = result.posts.map(mapRemotePost).filter(Boolean);
     seedPager(pager, result.posts, result.pagination);
     mutatePost(post.id, (p) => {
@@ -3266,12 +3336,15 @@ async function openThread(post, { scrollToRemoteId = null, ensureComment = null 
       if (ensuredId && !p.comments.some((c) => c.remoteId === ensuredId)) p.comments = [...p.comments, ensureComment];
     });
     renderThread();
+    // Comments left expanded here came back without their replies: they load again.
+    reloadExpandedReplies(post, { all: true });
     // Walk the author's own continuation (if any) so the Thread section can render.
     await loadSelfThreadChain(findPost(post.id) || post);
     if (generation === threadGeneration) renderThread();
   } catch (error) {
-    if (generation !== threadGeneration) return;
+    if (generation !== threadGeneration) { letThreadPagerGo(post.id, pager); return; }
     pager.loading = false;
+    pager.firstPageGeneration = null;
     pager.error = userFacingError(error);
     deps.appendEngineLog?.(`KaPost replies load failed: ${error.message}`);
     renderThread();
@@ -3283,7 +3356,6 @@ function loadMoreThreadReplies(postId) {
   const post = findPost(postId);
   const pager = threadPagers.get(postId);
   if (!post?.remoteId || !pager) return;
-  const generation = threadGeneration;
   return runPager(pager, {
     fetchPage: async (before, limit) => {
       const result = await fetchReplies({ engine: deps.engine, postId: post.remoteId, limit, before });
@@ -3304,7 +3376,9 @@ function loadMoreThreadReplies(postId) {
       renderThread();
       return added;
     },
-    isStale: () => generation !== threadGeneration || threadStack[threadStack.length - 1] !== postId,
+    // As loadMoreCommentReplies: stale when the pager is replaced or dropped or the thread is not on
+    // top, so a page that comes back after Back revealed this thread again still lands.
+    isStale: () => threadPagers.get(postId) !== pager || threadStack[threadStack.length - 1] !== postId,
     onUpdate: () => renderThread(),
   });
 }
@@ -4055,6 +4129,8 @@ export function setKaPostsRootMode(mode) {
     if (!changed && isRootProfilePanel(activePanel) && threadStack.length === 0) { renderPanel(); return; }
     threadStack = [];
     threadGeneration += 1;
+    threadPagers.clear(); // as openKaPostsSection: no pager left loading by the thread we left
+    clearPagerSentinel("thread");
     panelOverThread = false;
     pendingThreadScrollRemoteId = null;
     if (deps.engine.address) openPosterProfile(deps.engine.address, safeRequesterPubkey());
@@ -4066,6 +4142,8 @@ export function setKaPostsRootMode(mode) {
   if (!changed) return;
   threadStack = [];
   threadGeneration += 1;
+  threadPagers.clear();
+  clearPagerSentinel("thread");
   panelOverThread = false;
   pendingThreadScrollRemoteId = null;
   activePanel = null;
@@ -4862,6 +4940,10 @@ function freshKeptProfilePanel(address, passedPubkey) {
     || !kapostsKeptPageFresh({ loadedAt: kept.loadedAt, freshMs: PROFILE_FRESH_MS, changedAt: lastOwnKaPostActivityAt(address) })) return null;
   const panel = kept.panel;
   if (panel.loading || !(panel.posts.length || panel.replies.length)) return null;
+  // A tab still marked loading belongs to a load from before this open (the caller has just moved
+  // panelGeneration on, so it no longer applies and won't clear it here): that panel would come
+  // back spinning with its refresh dead, so it loads afresh instead (audit 2026-11-27).
+  if (Object.values(panel.pagers || {}).some((pager) => pager?.loading)) return null;
   if (passedPubkey && panel.pubkey && passedPubkey.toLowerCase() !== panel.pubkey.toLowerCase()) return null;
   return panel;
 }
@@ -5008,15 +5090,24 @@ async function refreshProfilePanel(panel) {
   if (panel.pagers?.[tab]?.loading) return;
   const generation = panelGeneration;
   // A fresh pager: a load-more still in flight on the old one sees it was replaced and drops out.
+  const previous = panel.pagers[tab];
   const pager = makePager();
   panel.pagers[tab] = pager;
   pager.loading = true;
   renderPanel();
+  // A refresh made stale by navigation (Followers opened, then Back) hands the tab its old pager
+  // back, with the rows it still shows: it used to return with this one loading for good, so the
+  // kept panel came back with a dead refresh button and no more pages (audit 2026-11-27).
+  const giveBack = () => {
+    if (panel.pagers[tab] !== pager) return;
+    panel.pagers[tab] = previous || makePager();
+    if (activePanel === panel) renderPanel();
+  };
   try {
     const content = tab === "replies"
       ? await fetchUserReplies({ engine: deps.engine, pubkey: panel.pubkey, limit: PAGER_PAGE_SIZE })
       : await fetchUserPosts({ engine: deps.engine, pubkey: panel.pubkey, limit: PAGER_PAGE_SIZE });
-    if (activePanel !== panel || generation !== panelGeneration || panel.pagers[tab] !== pager) return;
+    if (activePanel !== panel || generation !== panelGeneration || panel.pagers[tab] !== pager) { giveBack(); return; }
     const mapped = content.posts.map(mapRemotePost).filter(Boolean);
     const rows = tab === "replies" ? mapped : mapped.filter((post) => !post.parentRemoteId);
     panel[tab] = content.outage ? mergeOutageRows(panel[tab] || [], rows) : rows;
@@ -5025,11 +5116,11 @@ async function refreshProfilePanel(panel) {
     renderPanel();
   } catch (error) {
     deps.appendEngineLog?.(`KaPost profile refresh failed: ${error.message}`);
-    if (activePanel === panel && panel.pagers[tab] === pager) {
+    if (activePanel === panel && generation === panelGeneration && panel.pagers[tab] === pager) {
       pager.loading = false;
       pager.error = userFacingError(error);
       renderPanel();
-    }
+    } else giveBack();
   }
 }
 
@@ -6958,6 +7049,10 @@ function openKaPostsSection(key) {
   if (key === "settings") { deps.openKaPostsSettings?.(); return; }
   threadStack = [];
   threadGeneration += 1; // drops any reply page still in flight for the thread we left
+  // ...and every thread cursor with it, so a thread opened again starts from a fresh page one
+  // rather than a pager its stale page left loading (audit 2026-11-27).
+  threadPagers.clear();
+  clearPagerSentinel("thread");
   // The rail always leaves the thread, so nothing here is an over-thread panel.
   panelOverThread = false;
   pendingThreadScrollRemoteId = null;
@@ -7376,6 +7471,8 @@ export function initKaPosts(dependencies) {
       clearPagerSentinel("thread");
     }
     renderThread();
+    // Back to an outer thread: a page one the inner one made stale loads again (audit 2026-11-27).
+    if (threadStack.length > 0) resumeRevealedThread();
     // Thread was opened from a profile/bookmarks panel: return to THAT panel, not the feed.
     if (threadStack.length === 0 && activePanel) {
       renderPanel();
@@ -7612,13 +7709,14 @@ export function initKaPosts(dependencies) {
       if (url) deps.openKaChatLink?.(url);
       return;
     }
-    // A post's KaPlay challenge card (KaPost 9e22075): KaPlay, on that bot.
+    // A post's KaPlay challenge card (KaPost 9e22075): KaPlay, on that bot. The post's signer goes
+    // with it: the banner names the winner only when it is them (audit 2026-11-27, as arcade).
     const botCard = event.target.closest("[data-kaposts-bot-challenge]");
     if (botCard) {
       event.stopPropagation();
       const post = findPost(botCard.dataset.kapostsBotChallenge);
       const found = post ? botChallengeIn(postDisplayText(post)) : null;
-      if (found) deps.openKaChatLink?.(found.challenge.url);
+      if (found) deps.openKaChatLink?.(found.challenge.url, { author: post.posterAddress || null });
       return;
     }
     // A post's arcade challenge card (K 518fdc8c): KaPlay, on that game. The post's signer goes

@@ -2404,7 +2404,7 @@ function openKaChatInternalLink(link) {
   else if (link.kind === "broadcast") { closeOpenSheets(); openPublicChatsTab(); try { openBroadcastRoomFromLink(link.channel); } catch {} }
   else if (link.kind === "profile") openProfileLink(link.address);
   else if (link.kind === "pay") openPaymentRequest(link.request);
-  else if (link.kind === "kaplayBot") openKaPlayChallenge(link.challenge).catch(() => {});
+  else if (link.kind === "kaplayBot") openKaPlayChallenge({ ...link.challenge, author: link.author || null }).catch(() => {}); // the post's poster: only they are named as the winner (audit 2026-11-27)
   else if (link.kind === "kaplayArcade") openKaPlayArcadeChallenge(link.challenge, link.author || null);
 }
 /** A Kaspa Hub card's link (K 961fc05a `.openHubSection`): Desktop has no Hub, so it opens that
@@ -13880,7 +13880,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 371;
+const APP_BUILD = 372;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
