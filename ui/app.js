@@ -105,7 +105,7 @@ import "./cycle-button.css";
 import { updateCycleButton, restartFade } from "./cycle-button.js";
 import { initNextcloud, noteContactActivity, resetNextcloudForAccount, uploadNextcloudMedia, isNextcloudConnected, openNextcloudMediaPicker, nextcloudDirectOnly, storedNextcloudLoginsFor, revokeNextcloudLogins } from "./nextcloud.js";
 // Swap (K 5.4 SwapView): ChangeNOW for other coins and kUSDT through Trestly's pool; the Wallet's Swap button and the dock.
-import { initSwaps, refreshSwaps, resetSwapsForAccount, selectSwapCoin } from "./swaps.js";
+import { initSwaps, refreshSwaps, resetSwapsForAccount, selectSwapCoin, openSwapFlow } from "./swaps.js";
 import { kusdtWalletCore } from "../engine/kusdt-wallet-core.js";
 import { kusdtDeployment } from "../engine/kusdt.js";
 import { sealBackupEnvelope, openBackupEnvelope, openEncryptedArchive } from "./backup-crypto.js";
@@ -10905,8 +10905,23 @@ document.querySelector("[data-wallet-send]")?.addEventListener("click", () => {
 });
 document.querySelector("[data-wallet-receive]")?.addEventListener("click", () => { openReceiveKaspaScreen(); });
 document.querySelector("[data-wallet-request]")?.addEventListener("click", () => { if (engine.address) openCreatePaymentRequest(); });
-// Swap beside them (K 5.4 WalletView; it replaced Swap Stablecoins): the Swap screen (ui/swaps.js).
-document.querySelector("[data-wallet-swap-action]")?.addEventListener("click", () => { if (engine.address) setActiveAppTab("swaps"); });
+// Buy and Sell (K 824a30bb: Swap is gone from the row), and the Buy/Sell History card: the Buy/Sell
+// steps (ui/swaps.js). Buy Kaspa with Debit Card isn't on Desktop: Buy goes straight to crypto, as
+// K's Buy does wherever the card isn't offered.
+function openBuySell(start, options = {}) {
+  if (!engine.address) return;
+  try { openSwapFlow(start, options); } catch { /* not started */ }
+  setActiveAppTab("swaps");
+}
+document.querySelector("[data-wallet-buy]")?.addEventListener("click", () => openBuySell("buy"));
+document.querySelector("[data-wallet-sell]")?.addEventListener("click", () => openBuySell("sell"));
+document.querySelector("[data-wallet-swap-history]")?.addEventListener("click", () => openBuySell("history"));
+// A chat's "Fund your chatting address" card: Buy Kaspa, landing on the Chatting Address (K 824a30bb).
+document.addEventListener("click", (event) => {
+  if (!event.target.closest?.("[data-funding-buy]")) return;
+  if (fundingGateModalEl && !fundingGateModalEl.hidden) fundingGateModalEl.hidden = true;
+  openBuySell("buy", { toChatting: true });
+});
 document.querySelector("[data-wallet-refresh]")?.addEventListener("click", async (event) => {
   const button = event.currentTarget;
   button.classList.add("spinning");
@@ -12714,7 +12729,7 @@ function backToChatsListFromDock() {
 // ---------------------------------------------------------------------------
 
 /** Full names, used in the More grid where a dock label is too short. */
-const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "Swap", chess: "Arcade", "kachat-names": "Usernames" };
+const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "Buy/Sell", chess: "Arcade", "kachat-names": "Usernames" };
 
 function tabFullName(tab) {
   if (TAB_FULL_NAMES[tab]) return TAB_FULL_NAMES[tab];
@@ -13403,7 +13418,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 357;
+const APP_BUILD = 358;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -16748,6 +16763,7 @@ function showFundingGateModal() {
           <canvas width="360" height="360" data-funding-modal-qr></canvas>
           <button type="button" class="chat-funding-gate-address" data-funding-modal-address title="Copy address"></button>
           <button type="button" class="secondary-button" data-funding-modal-copy>Copy Address</button>
+          <button type="button" class="primary-button chat-funding-buy" data-funding-buy>+ Buy Kaspa</button>
         </div>
       </div>`;
     document.body.appendChild(fundingGateModalEl);
@@ -31904,8 +31920,14 @@ queueMicrotask(async () => {
       currencySymbol: () => currencyMeta().symbol.trim(),
       // Swap's state is the account's own (K audit 2026-11-24 #5).
       account: () => engine.address,
-      // Not Now on an agreement: back to the Wallet.
+      // Not Now on an agreement, or Done: back to the Wallet.
       leaveSwap: () => setActiveAppTab("wallet"),
+      // the deposit screen's Send KAS from K: Send Kaspa filled in with the deposit (K SwapDepositScreen)
+      sendKasTo: ({ address, amountText }) => {
+        const amountSompi = sompiFromUserText(String(amountText || ""));
+        if (!address || amountSompi == null) return;
+        openSendKaspaModal({ paymentRequest: makePaymentRequest({ address, amountSompi }) });
+      },
       // kUSDT through Trestly's pool (K 5.4 TrestlyTrade).
       kusdt: swapKusdtDeps(),
       // Choose Address (iOS SwapAddressPickerView): every revealed spending address of either chain

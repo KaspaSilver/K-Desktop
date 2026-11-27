@@ -16,7 +16,7 @@
        fetched again once and the page reloads; see public/asset-repair.js. -->
   <script src="/asset-repair.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=452" />
+  <link rel="stylesheet" href="./ui/styles.css?v=454" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (K's globe, dark only since K b0f0a4e6) is the tab icon too. -->
@@ -239,6 +239,7 @@
               <canvas width="320" height="320" data-broadcast-funding-gate-qr></canvas>
               <button type="button" class="chat-funding-gate-address" data-broadcast-funding-gate-address title="Copy address"></button>
               <button type="button" class="secondary-button" data-broadcast-funding-gate-copy>Copy Address</button>
+              <button type="button" class="primary-button chat-funding-buy" data-funding-buy>+ Buy Kaspa</button>
             </div>
             <!-- @ suggestions (K 157790b0): everyone who has written here, then your contacts. -->
             <div class="mention-suggestions room-mention-suggestions" data-broadcast-mention-suggestions hidden></div>
@@ -452,6 +453,7 @@
                 <strong>Fund your chatting address to start chatting</strong>
                 <canvas width="360" height="360" data-funding-gate-qr></canvas>
                 <button type="button" class="chat-funding-gate-address" data-funding-gate-address title="Copy address"></button>
+                <button type="button" class="primary-button chat-funding-buy" data-funding-buy>+ Buy Kaspa</button>
               </div>
               <!-- A payment request link in the text being typed (iOS bfe9f022 ComposerPaymentRequestPreview). -->
               <div class="composer-pay-preview" data-composer-pay-preview hidden></div>
@@ -520,6 +522,7 @@
                   <strong>Fund your chatting address to start chatting</strong>
                   <canvas width="320" height="320" data-group-funding-gate-qr></canvas>
                   <button type="button" class="chat-funding-gate-address" data-group-funding-gate-address title="Copy address"></button>
+                <button type="button" class="primary-button chat-funding-buy" data-funding-buy>+ Buy Kaspa</button>
                 </div>
                 <div class="broadcast-fee-row"><span class="fee-pill" data-group-fee hidden>fee: -- KAS</span></div>
 
@@ -896,15 +899,15 @@
               <span class="wallet-action-circle" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v16M5.5 13.5 12 20l6.5-6.5"/></svg></span>
               <span>Receive</span>
             </button>
-            <button class="wallet-action" type="button" data-wallet-request>
-              <span class="wallet-action-circle" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6.5 3h7.8L18.5 7.2V20a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v4.5h4.5M8.5 12h7M8.5 16h7"/></svg></span>
-              <span>Request</span>
+            <!-- Buy and Sell, each its own button (K 824a30bb, owner 2026-11-26); Request Payment and
+                 Buy/Sell History are cards below. They open the Buy/Sell steps (ui/swaps.js). -->
+            <button class="wallet-action" type="button" data-wallet-buy>
+              <span class="wallet-action-circle" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+              <span>Buy</span>
             </button>
-            <!-- K 5.4 WalletView: Swap beside Send, Receive and Request (it replaced Swap Stablecoins);
-                 opens the Swap screen (ui/swaps.js). -->
-            <button class="wallet-action" type="button" data-wallet-swap-action>
-              <span class="wallet-action-circle" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8h15M15 4l4 4-4 4"/><path d="M20 16H5M9 12l-4 4 4 4"/></svg></span>
-              <span>Swap</span>
+            <button class="wallet-action" type="button" data-wallet-sell>
+              <span class="wallet-action-circle" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span>
+              <span>Sell</span>
             </button>
           </div>
 
@@ -936,6 +939,12 @@
             <span>Chatting Address</span>
             <span class="profile-row-trailing"><svg viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5l5 5-5 5"/></svg></span>
           </button>
+          <!-- Request moved off the button row into the list (K 824a30bb). -->
+          <button class="profile-card profile-recovery-row" type="button" data-wallet-request>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 3h7.8L18.5 7.2V20a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v4.5h4.5M8.5 12h7M8.5 16h7"/></svg>
+            <span>Request Payment</span>
+            <span class="profile-row-trailing"><svg viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5l5 5-5 5"/></svg></span>
+          </button>
 
           <!-- Wallet's cards are Chatting Address and Your Usernames (K 518fdc8c; Swap Stablecoins went:
                Swap is a button beside Send / Receive / Request). Your Usernames: the account's .kachat
@@ -948,6 +957,12 @@
               <span class="profile-domains-count" data-profile-domains-count></span>
               <svg viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5l5 5-5 5"/></svg>
             </span>
+          </button>
+          <!-- Buy/Sell History under Your Usernames (K 824a30bb). -->
+          <button class="profile-card profile-recovery-row" type="button" data-wallet-swap-history>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3.5 4.5V8H7"/><path d="M12 7.5V12l3 2"/></svg>
+            <span>Buy/Sell History</span>
+            <span class="profile-row-trailing"><svg viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5l5 5-5 5"/></svg></span>
           </button>
         </div>
 
@@ -1011,9 +1026,9 @@
         <span>Contacts</span>
       </button>
       <button class="sidebar-tab" type="button" data-app-tab="swaps" hidden>
-        <!-- arrow.left.arrow.right (iOS AppTab.swap). -->
+        <!-- arrow.left.arrow.right. "Buy/Sell" since K 824a30bb (Swap is Buy and Sell on the Wallet). -->
         <span class="sidebar-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8h15M15 4l4 4-4 4"/><path d="M20 16H5M9 12l-4 4 4 4"/></svg></span>
-        <span>Swap</span>
+        <span>Buy/Sell</span>
       </button>
       <button class="sidebar-tab" type="button" data-app-tab="chess" hidden>
         <!-- The logo's controller (KaPlay 45f28d9 ControllerTabIcon, design/app-icon/kachat-chess-tab.svg). -->

@@ -20,17 +20,18 @@ function test(name, fn) {
 const walletStart = html.indexOf('data-app-tab-screen="wallet"');
 const wallet = html.slice(walletStart, html.indexOf("</section>", walletStart));
 
-test("the rows alike, in K's order, after the actions (K 5.4: Swap Stablecoins went, Swap is an action)", () => {
+test("the rows alike, in K's order, after the actions (K 824a30bb: Request Payment and Buy/Sell History are rows)", () => {
   const rows = [...wallet.matchAll(/<button class="profile-card profile-recovery-row" type="button" (data-[a-z-]+)>[\s\S]*?<span>([^<]+)<\/span>/g)]
     .map((m) => [m[1], m[2]]);
   assert.deepEqual(rows, [
     ["data-open-chatting-address", "Chatting Address"],
+    ["data-wallet-request", "Request Payment"],
     ["data-open-domains-screen", "Your Usernames"],
+    ["data-wallet-swap-history", "Buy/Sell History"],
   ]);
-  assert.ok(wallet.indexOf("data-wallet-request") < wallet.indexOf("data-wallet-swap-action"), "Swap beside Send / Receive / Request");
-  assert.ok(wallet.indexOf("data-wallet-swap-action") < wallet.indexOf("data-open-chatting-address"));
-  assert.doesNotMatch(wallet, /data-wallet-swap>|Swap Stablecoins<\/span>/);
-  assert.equal((wallet.match(/class="profile-row-trailing"/g) || []).length, 2, "each with its chevron");
+  assert.ok(wallet.indexOf("data-wallet-sell") < wallet.indexOf("data-open-chatting-address"), "Buy and Sell are actions above them");
+  assert.doesNotMatch(wallet, /data-wallet-swap>|Swap Stablecoins<\/span>|data-wallet-swap-action/);
+  assert.equal((wallet.match(/class="profile-row-trailing"/g) || []).length, 4, "each with its chevron");
   assert.match(css, /\.wallet-screen \.profile-recovery-row > svg\.qr-glyph \{ fill: currentColor; stroke: none; \}/);
 });
 

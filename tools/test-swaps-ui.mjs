@@ -145,18 +145,18 @@ revealGate(1);
 await settle();
 createGate({ id: "ex-alice", payinAddress: "0xDEPOSITALICE", payoutAddress: "kaspa:qalice-1", fromAmount: 100, toAmount: 1000, status: "new" });
 await settle();
-r.check(root.innerHTML.includes("Send USDC Coin (Polygon) to this address"), "the deposit card names the coin to send");
+// K 824a30bb: the exchange made goes on to its own deposit screen
+r.check(root.innerHTML.includes("Send 100 USDC Coin (Polygon)") && root.innerHTML.includes("to buy Kaspa"), "the deposit screen names the coin to send");
 r.check(root.innerHTML.includes("Amount to Send") && root.innerHTML.includes("100 USDC Coin (Polygon)"), "the deposit card says how much to send");
 r.check(root.innerHTML.includes("kaspa:qalice-1"), "the deposit card shows the payout address ChangeNOW answered");
 r.check(historyOf("kaspa:qalice").length === 1, "the swap is filed for the open account");
-r.check(!root.innerHTML.includes("data-swap-open-spending"), "no Go to Spending Addresses link on a deposit that isn't KAS");
-await click("data-swap-flip");
-r.check(!root.innerHTML.includes("0xDEPOSITALICE") && !root.innerHTML.includes("Send Kaspa to this address"),
-  "after a flip the deposit card is gone, never relabelled with the newly selected side");
+r.check(!root.innerHTML.includes("data-swap-send-kas"), "no Send KAS from K on a deposit that isn't KAS");
+r.check(root.innerHTML.includes("Waiting for payment"), "it waits for the payment");
+await click("data-swap-done");
+r.check(!root.innerHTML.includes("0xDEPOSITALICE"), "Done leaves the deposit screen; the order stays in the history");
 
 // 4. ChangeNOW's answer without the payout address asked for is refused: no deposit address shows
 // and nothing is filed (K audit 2026-11-24 #6).
-await click("data-swap-flip");
 await type("100");
 await click("data-swap-create");
 revealGate(1);

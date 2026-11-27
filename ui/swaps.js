@@ -1,4 +1,9 @@
-// Swap: the Wallet's Swap button (beside Send, Receive and Request) and the Swap item in the dock.
+// Buy and Sell (K 824a30bb, owner 2026-11-26): the Wallet's Buy and Sell buttons and its Buy/Sell
+// History card, and the Buy/Sell item in the dock. Step by step, as K's SwapView now goes: pick the coin
+// ("What do you want to pay with?" / "What do you want for your Kaspa?"), then, buying, where the Kaspa
+// lands (a fresh address, the default, or one of yours; with kUSDT the address that pays), then the
+// order (You Pay / You Get), then ChangeNOW's deposit screen, checked every 10 s while it shows, and
+// Purchase / Sale Complete with Add to Portfolio; a kUSDT order ends on Order Sent. Code names stay Swap.
 // The desktop port of K iOS SwapView / SwapService as of K 5.4 (518fdc8c): ChangeNOW for coins on
 // other networks, and kUSDT natively through Trestly's pool on Kaspa (engine/kusdt-trade.js).
 //
@@ -25,7 +30,7 @@
 // Styles: ui/swaps.css.
 
 import "./swaps.css";
-import { cycleBarHtml, cycleChanged } from "./cycle-button.js";
+import { cycleChanged } from "./cycle-button.js";
 import kaspaLogoUrl from "./assets/kaspa-logo.png";
 import coinAda from "./assets/coins/coin_ada.png";
 import coinBch from "./assets/coins/coin_bch.png";
@@ -161,7 +166,17 @@ let history = [];
 let agreements = { changenow: false, trestly: false };
 let agreementChecked = false;      // the open agreement's checkbox
 let coinBeforeTrestly = null;      // the ChangeNOW coin to go back to when Trestly's agreement is put off
-let tab = "swap";                  // "swap" | "history"
+// Where the screen is (K SwapView Start + its path): the root page, then the steps after it.
+// Roots: "home" (the dock item's: Buy Kaspa, Sell Kaspa, Buy/Sell History), "buy", "sell", "history".
+// Steps: { kind: "destination" | "form" | "deposit" | "complete" | "kusdtDone", id?, message? }.
+let flowStart = "home";
+let flowPath = [];
+let toChattingStart = false;       // opened to fund the chatting address: bought Kaspa lands there
+let payoutToChatting = false;      // the buy's Kaspa lands on the Chatting Address
+let destinationChoosing = false;   // Choose an Address on the "where" step
+let destinationEntries = null;     // that step's list of your addresses, once read
+let coinListState = { query: "", expanded: new Set() };
+let depositTimer = null;
 // True = KAS is what you send. iOS default false: most people open Swap to acquire KAS.
 let kasIsSendSide = false;
 let otherCoin = USDC_POLYGON;
@@ -233,7 +248,7 @@ function refreshKusdtBalances({ force = false } = {}) {
   deps.kusdt.balancesOf(target.address).then((read) => {
     if (!read || kusdtBalances.key !== key) return;
     kusdtBalances = { key, at: Date.now(), kasSompi: read.kasSompi ?? null, units: read.units ?? null };
-    if (isKusdt() && tab === "swap") renderFormLight();
+    if (isKusdt() && currentStep().kind === "form") renderFormLight();
   }).catch(() => {});
 }
 function currentKusdtBalances() {
@@ -366,18 +381,314 @@ function kusdtTarget() {
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
+function currentStep() {
+  return flowPath.length ? flowPath[flowPath.length - 1] : { kind: flowStart };
+}
+function stepTitle(step) {
+  switch (step.kind) {
+    case "home": return "Buy/Sell";
+    case "buy": case "destination": return "Buy Kaspa";
+    case "sell": return "Sell Kaspa";
+    case "history": return "Buy/Sell History";
+    case "form": return kasIsSendSide ? `Sell Kaspa for ${otherCoin.displayName}` : `Buy Kaspa with ${otherCoin.displayName}`;
+    case "deposit": return "Send Payment";
+    case "complete": return history.find((x) => x.id === step.id)?.toTicker === "kas" ? "Purchase Complete" : "Sale Complete";
+    case "kusdtDone": return "Order Sent";
+    default: return "Buy/Sell";
+  }
+}
+/** The step's page: back goes one step up (a deposit, a completion and Order Sent have none: Done). */
 function render() {
   if (!rootEl || !deps) return;
-  const header = `<div class="kaposts-header"><h1 class="kaposts-title">Swap</h1></div>`;
-  // Swap / Swap History on the cycle button (K 518fdc8c SwapView PageCycleBar): each click fades to
-  // the other page.
-  const tabs = cycleBarHtml({ name: "swap-page", options: [["swap", "Swap"], ["history", "Swap History"]], value: tab, attrs: "data-swap-tab" });
-  const fade = cycleChanged("page:swap", tab) ? " cycle-fade" : "";
+  const step = currentStep();
+  const finished = step.kind === "deposit" || step.kind === "complete" || step.kind === "kusdtDone";
+  const canBack = !finished && (flowPath.length > 0 || flowStart !== "home");
+  const header = `<div class="kaposts-header swap-flow-header">
+      ${canBack ? `<button type="button" class="swap-flow-back" data-swap-back aria-label="Back">${svg('<path d="M15 5 8 12l7 7"/>')}</button>` : ""}
+      <h1 class="kaposts-title">${esc(stepTitle(step))}</h1>
+      ${finished && step.kind === "deposit" ? `<button type="button" class="swap-link strong swap-flow-done" data-swap-done>Done</button>` : ""}
+    </div>`;
   const kind = currentKind();
-  const overlay = tab === "swap" && !agreements[kind] ? renderAgreement(kind) : "";
-  rootEl.innerHTML = `<div class="swap-root">${header}${tabs}<div class="swap-page${fade}">${tab === "swap" ? renderSwapPage() : renderHistory()}</div>${overlay}</div>`;
-  const qr = rootEl.querySelector("[data-swap-qr]");
-  if (qr?.dataset.swapQr) deps.engine.drawQrFor(qr, qr.dataset.swapQr, { dark: "#06110f", light: "#ffffff" }).catch(() => {});
+  const overlay = step.kind === "form" && !agreements[kind] ? renderAgreement(kind) : "";
+  const fade = cycleChanged("page:swap", `${flowStart}:${flowPath.length}:${step.kind}`) ? " cycle-fade" : "";
+  rootEl.innerHTML = `<div class="swap-root">${header}<div class="swap-page${fade}">${renderStep(step)}</div>${overlay}</div>`;
+  rootEl.querySelectorAll("[data-swap-qr]").forEach((qr) => {
+    if (qr.dataset.swapQr) deps.engine.drawQrFor(qr, qr.dataset.swapQr, { dark: "#06110f", light: "#ffffff" }).catch(() => {});
+  });
+  syncDepositPolling(step);
+}
+function renderStep(step) {
+  switch (step.kind) {
+    case "home": return renderHome();
+    case "buy": return renderCoinChoice("What do you want to pay with?");
+    case "sell": return renderCoinChoice("What do you want for your Kaspa?");
+    case "history": return renderHistory();
+    case "destination": return renderDestination();
+    case "form": return renderSwapPage();
+    case "deposit": return renderDeposit(step.id);
+    case "complete": return renderComplete(step.id);
+    case "kusdtDone": return renderSent(step.message);
+    default: return "";
+  }
+}
+
+/** The dock item's page: the Wallet's Buy and Sell buttons and its Buy/Sell History card. */
+function renderHome() {
+  const row = (attr, title, subtitle, icon) => `<button type="button" class="profile-card swap-home-row" ${attr}>
+      <span class="swap-home-icon" aria-hidden="true">${icon}</span>
+      <span class="swap-home-copy"><strong>${esc(title)}</strong><small>${esc(subtitle)}</small></span>
+      ${ICONS.chevronRight}
+    </button>`;
+  return `<div class="swap-home">
+    ${row('data-swap-start="buy"', "Buy Kaspa", "Pay with another coin, like kUSDT or Bitcoin.", svg('<path d="M12 5v14M5 12h14"/>'))}
+    ${row('data-swap-start="sell"', "Sell Kaspa", "Get another coin for your Kaspa.", svg('<path d="M5 12h14"/>'))}
+    ${row('data-swap-start="history"', "Buy/Sell History", "Your orders and where each one is.", svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'))}
+  </div>`;
+}
+
+/** What to pay with (Buy) or what to get (Sell), K SwapCoinChoiceList: kUSDT, then USD Coin and
+ *  Tether folded by network, then the rest; search, since the list is long. */
+function coinChoiceRows() {
+  const query = String(coinListState.query || "").trim().toLowerCase();
+  const every = [KUSDT_COIN, ...PINNED_GROUP_TICKERS.flatMap((t) => CURATED_COINS.filter((c) => c.ticker === t)),
+    ...CURATED_COINS.filter((c) => !GROUPED_TICKERS[c.ticker])];
+  if (query) {
+    return every.filter((c) => c.displayName.toLowerCase().includes(query) || c.ticker.toLowerCase().includes(query))
+      .map((coin) => ({ kind: "coin", coin }));
+  }
+  const rows = [];
+  const seen = new Set();
+  for (const coin of every) {
+    const siblings = every.filter((c) => c.ticker === coin.ticker);
+    if (GROUPED_TICKERS[coin.ticker] && siblings.length > 1 && !isTrestlyCoin(coin)) {
+      if (seen.has(coin.ticker)) continue;
+      seen.add(coin.ticker);
+      rows.push({ kind: "group", ticker: coin.ticker, count: siblings.length, coin });
+      if (coinListState.expanded.has(coin.ticker)) for (const c of siblings) rows.push({ kind: "network", coin: c });
+    } else rows.push({ kind: "coin", coin });
+  }
+  return rows;
+}
+function coinSymbol(coin) { return isTrestlyCoin(coin) ? "kUSDT" : coin.ticker.toUpperCase(); }
+function renderCoinChoiceList() {
+  return coinChoiceRows().map((row) => {
+    if (row.kind === "group") {
+      const open = coinListState.expanded.has(row.ticker);
+      return `<button type="button" class="profile-card swap-choice-row" data-swap-choice-group="${esc(row.ticker)}" aria-expanded="${open}">
+          ${coinIcon(row.coin)}<span class="swap-choice-copy"><strong>${esc(GROUPED_TICKERS[row.ticker])}</strong><small>${esc(`${row.ticker.toUpperCase()} on ${row.count} networks`)}</small></span>
+          <span class="swap-picker-chevron${open ? " open" : ""}">${ICONS.chevronDown}</span>
+        </button>`;
+    }
+    const coin = row.coin;
+    return `<button type="button" class="profile-card swap-choice-row${row.kind === "network" ? " indented" : ""}" data-swap-choice="${esc(isTrestlyCoin(coin) ? "kusdt" : `${coin.ticker}:${coin.network}`)}">
+        ${coinIcon(coin)}<span class="swap-choice-copy"><strong>${esc(coin.displayName)}</strong><small>${esc(coinSymbol(coin))}</small></span>
+        ${ICONS.chevronRight}
+      </button>`;
+  }).join("");
+}
+function renderCoinChoice(question) {
+  return `<div class="swap-choice">
+    <h2 class="swap-step-question">${esc(question)}</h2>
+    <input class="field-input swap-search" type="search" data-swap-choice-search placeholder="Search coins" value="${esc(coinListState.query)}" autocomplete="off" />
+    <div class="swap-choice-list" data-swap-choice-list>${renderCoinChoiceList()}</div>
+  </div>`;
+}
+
+/** Buying: "Where should your Kaspa land?" (K SwapDestinationStep). Through ChangeNOW: a fresh
+ *  address (the default: the purchase stays apart from your username and chats) or one of yours,
+ *  the Chatting Address too. With kUSDT: the address that pays, since Trestly's trade lands its
+ *  Kaspa on the same one. */
+function renderDestination() {
+  if (isKusdt()) {
+    const st = sheetState.destinationKusdt;
+    if (!st) { loadKusdtDestinations(); }
+    const current = kusdtTarget()?.address;
+    const rows = (st?.choices || []).map((c, i) => {
+      const on = c.address === current;
+      return `<button type="button" class="profile-card swap-dest-row${on ? " picked" : ""}" data-swap-dest-kusdt="${i}" aria-pressed="${on}">
+        <span class="swap-kusdt-from-mark${on ? " on" : ""}">${on ? ICONS.checkCircle : ICONS.circle}</span>
+        <span class="swap-address-copy"><strong>${esc(c.label)}</strong><small class="mono">${esc(shortMiddle(c.address))}</small><small>${esc(formatKusdt(c.units ?? 0n))}</small></span>
+      </button>`;
+    }).join("");
+    return `<div class="swap-dest">
+      <h2 class="swap-step-question">Where should your Kaspa land?</h2>
+      <p class="swap-step-note">kUSDT is paid from one address, and your Kaspa lands on that same address.</p>
+      ${st && !st.loading ? rows : `<div class="swap-checking"><span class="kaposts-spinner" aria-hidden="true"></span></div>`}
+      <button type="button" class="primary-button swap-continue" data-swap-continue>Continue</button>
+    </div>`;
+  }
+  const picked = destinationChoosing ? (payoutToChatting ? account() : (toAddressOverrideIndex != null ? toAddress : null)) : null;
+  const canContinue = !destinationChoosing || Boolean(picked);
+  let body;
+  if (destinationChoosing) {
+    if (!destinationEntries) loadDestinationEntries();
+    const chatting = account();
+    const rows = [];
+    if (chatting) rows.push(`<button type="button" class="profile-card swap-dest-row${payoutToChatting ? " picked" : ""}" data-swap-dest-chatting>
+        <span class="swap-kusdt-from-mark${payoutToChatting ? " on" : ""}">${payoutToChatting ? ICONS.checkCircle : ICONS.circle}</span>
+        <span class="swap-address-copy"><strong>Chatting Address</strong><small class="mono">${esc(shortMiddle(chatting))}</small></span>
+      </button>`);
+    for (const e of destinationEntries || []) {
+      const on = !payoutToChatting && toAddressOverrideIndex === e.index;
+      rows.push(`<button type="button" class="profile-card swap-dest-row${on ? " picked" : ""}" data-swap-dest-index="${e.index}">
+        <span class="swap-kusdt-from-mark${on ? " on" : ""}">${on ? ICONS.checkCircle : ICONS.circle}</span>
+        <span class="swap-address-copy"><strong>${esc(e.label)} <b class="${e.used ? "used" : "unused"}">${e.used ? "Used" : "Unused"}</b></strong><small class="mono">${esc(e.shortAddress)}</small><small>${esc(formatQuotedAmount(e.kas))} KAS</small></span>
+      </button>`);
+    }
+    body = destinationEntries ? rows.join("") : `${rows.join("")}<div class="swap-checking"><span class="kaposts-spinner" aria-hidden="true"></span></div>`;
+  } else {
+    body = `<div class="profile-card swap-dest-fresh">
+        <p>A new address that has never been used, so this purchase stays apart from your username and chats.</p>
+        ${toAddress ? `<code>${esc(toAddress)}</code>` : ""}
+      </div>`;
+  }
+  return `<div class="swap-dest">
+    <h2 class="swap-step-question">Where should your Kaspa land?</h2>
+    <div class="swap-dest-pills">
+      <button type="button" class="swap-pill${destinationChoosing ? "" : " selected"}" data-swap-dest-fresh>Fresh Address</button>
+      <button type="button" class="swap-pill${destinationChoosing ? " selected" : ""}" data-swap-dest-choose>Choose an Address</button>
+    </div>
+    ${body}
+    <button type="button" class="primary-button swap-continue" data-swap-continue ${canContinue ? "" : "disabled"}>Continue</button>
+  </div>`;
+}
+async function loadKusdtDestinations() {
+  const st = { choices: [], loading: true };
+  sheetState.destinationKusdt = st;
+  let choices = [];
+  try { choices = (await deps.kusdt?.fromChoices?.()) || []; } catch { choices = []; }
+  if (sheetState.destinationKusdt !== st) return;
+  // the Chatting Address first, then every address holding kUSDT, most first (K kusdtChoices)
+  st.choices = choices.filter((c, i) => c.spendingIndex == null || (c.units != null && BigInt(c.units) > 0n) || i === 0);
+  st.loading = false;
+  if (currentStep().kind === "destination") render();
+}
+async function loadDestinationEntries() {
+  const marker = {};
+  loadDestinationEntries.marker = marker;
+  const entries = await deps.listSpendingAddresses().catch(() => []);
+  if (loadDestinationEntries.marker !== marker) return;
+  destinationEntries = entries.filter((e) => !e.hidden);
+  if (currentStep().kind === "destination") render();
+}
+
+/** A ChangeNOW order's deposit (K SwapDepositScreen): what to send and where, the status from
+ *  Waiting for payment on, the transaction ID. Drawn from the exchange made, never the coins picked
+ *  now (K audit 2026-11-24 #2). */
+function depositStatus(swap, to) {
+  const status = String(swap.status || "").toLowerCase();
+  const problem = ["failed", "refunded", "expired", "verifying"].includes(status);
+  const lines = {
+    confirming: ["Payment received", "Waiting for it to confirm."],
+    exchanging: ["Exchanging", "ChangeNOW is converting your coins."],
+    sending: [`Sending your ${to.displayName}`, "Almost done."],
+    failed: [swapStatusName(status), "ChangeNOW couldn't finish this order. Check it on ChangeNOW."],
+    refunded: [swapStatusName(status), "ChangeNOW sent the coins back."],
+    expired: [swapStatusName(status), "Nothing arrived in time. Start a new order."],
+    verifying: [swapStatusName(status), "ChangeNOW is checking this order."],
+  };
+  const [title, detail] = lines[status] || ["Waiting for payment", "Send the amount above. This screen updates by itself."];
+  return `<div class="profile-card swap-deposit-status${problem ? " problem" : ""}">
+      ${problem ? `<span class="swap-deposit-warn">${ICONS.warning}</span>` : `<span class="kaposts-spinner small" aria-hidden="true"></span>`}
+      <span><strong>${esc(title)}</strong><small>${esc(detail)}</small></span>
+    </div>`;
+}
+function coinOf(ticker, network) {
+  if (ticker === "kas") return KAS;
+  if (isTrestlyCoin({ ticker, network })) return KUSDT_COIN;
+  return coinByKey(`${ticker}:${network}`) || { ticker, network, displayName: String(ticker || "").toUpperCase() };
+}
+function groupedFigure(text) {
+  const raw = String(text ?? "");
+  const [whole, frac] = raw.split(".");
+  if (!/^\d+$/.test(whole || "")) return raw;
+  return `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${frac != null ? `.${frac}` : ""}`;
+}
+function renderDeposit(id) {
+  const swap = history.find((x) => x.id === id);
+  if (!swap) return `<div class="swap-checking"><span class="kaposts-spinner" aria-hidden="true"></span></div>`;
+  const from = coinOf(swap.fromTicker, swap.fromNetwork);
+  const to = coinOf(swap.toTicker, swap.toNetwork);
+  const payin = String(swap.payinAddress || "");
+  return `<div class="swap-deposit">
+    <div class="swap-deposit-head">
+      <h2>${esc(`Send ${groupedFigure(swap.fromAmount)} ${from.displayName}`)}</h2>
+      <p>${esc(to.ticker === "kas" ? "to buy Kaspa" : `to sell it for ${to.displayName}`)}</p>
+    </div>
+    ${depositStatus(swap, to)}
+    ${payin ? `<button type="button" class="swap-qr-button" data-swap-copy="${esc(payin)}" aria-label="Copy deposit address"><canvas class="swap-qr" data-swap-qr="${esc(payin)}" width="200" height="200"></canvas></button>` : ""}
+    <div class="profile-card swap-deposit-card"><small>Deposit Address</small><code>${esc(payin)}</code>
+      <button type="button" class="swap-copy-pill" data-swap-copy="${esc(payin)}">${ICONS.copy}<span>Copy Address</span></button></div>
+    <div class="profile-card swap-deposit-card"><small>Amount to Send</small><strong class="swap-deposit-amount">${esc(`${groupedFigure(swap.fromAmount)} ${from.displayName}`)}</strong>
+      <button type="button" class="swap-copy-pill" data-swap-copy-amount="${esc(swap.fromAmount)}">${ICONS.copy}<span>Copy Amount</span></button></div>
+    ${swap.payinExtraId ? depositTagBox(swap.payinExtraId) : ""}
+    ${from.ticker === "kas" ? `<button type="button" class="primary-button swap-send-kas" data-swap-send-kas="${esc(swap.id)}">Send KAS from K</button>` : ""}
+    <div class="profile-card swap-deposit-card"><small>Transaction ID</small><code>${esc(swap.id)}</code>
+      <span class="swap-deposit-id-actions">
+        <button type="button" class="swap-copy-pill" data-swap-copy-id="${esc(swap.id)}">${ICONS.copy}<span>Copy ID</span></button>
+        <a class="swap-link strong" href="https://changenow.io/exchange/txs/${encodeURIComponent(swap.id)}" target="_blank" rel="noopener noreferrer">View on ChangeNOW</a>
+      </span></div>
+    ${swap.toAmount ? `<p class="swap-step-note centered">${esc(`You get about ${groupedFigure(swap.toAmount)} ${to.displayName}, sent to ${shortMiddle(swap.payoutAddress)}.`)}</p>` : ""}
+  </div>`;
+}
+/** Checks ChangeNOW every 10 s while the deposit screen shows; a finished order becomes Complete. */
+function syncDepositPolling(step) {
+  const wanted = step.kind === "deposit" && started && !document.hidden && Boolean(rootEl?.isConnected) && isScreenShown();
+  if (!wanted) { if (depositTimer) { window.clearTimeout(depositTimer); depositTimer = null; } return; }
+  if (depositTimer) return;
+  const id = step.id;
+  depositTimer = window.setTimeout(async () => {
+    depositTimer = null;
+    const status = await refreshSwapStatus(id);
+    const now = currentStep();
+    if (now.kind !== "deposit" || now.id !== id) return;
+    if (String(status || "").toLowerCase() === "finished") flowPath[flowPath.length - 1] = { kind: "complete", id };
+    render();
+  }, 10_000);
+}
+function isScreenShown() {
+  const screen = rootEl?.closest?.("[data-app-tab-screen]");
+  return !screen || !screen.hidden;
+}
+function renderComplete(id) {
+  const swap = history.find((x) => x.id === id);
+  const from = swap ? coinOf(swap.fromTicker, swap.fromNetwork) : null;
+  const to = swap ? coinOf(swap.toTicker, swap.toNetwork) : null;
+  return `<div class="swap-finish">
+    <span class="swap-finish-mark" aria-hidden="true">${ICONS.checkCircle}</span>
+    <h2>${esc(swap?.toTicker === "kas" ? "Purchase Complete" : "Sale Complete")}</h2>
+    ${swap ? `<p>${esc(`You paid ${groupedFigure(swap.fromAmount)} ${from.displayName}`)}${swap.toAmount ? `<br>${esc(`You got about ${groupedFigure(swap.toAmount)} ${to.displayName}`)}` : ""}</p>` : ""}
+    ${swap ? `<button type="button" class="primary-button swap-finish-button" data-swap-add-portfolio="${esc(swap.id)}" ${swap.addedToPortfolio ? "disabled" : ""}>${swap.addedToPortfolio ? "Added to Portfolio" : "Add to Portfolio"}</button>` : ""}
+    <button type="button" class="secondary-button swap-finish-button" data-swap-done>Done</button>
+  </div>`;
+}
+/** A kUSDT order Trestly's pool took (K SwapSentScreen). */
+function renderSent(message) {
+  return `<div class="swap-finish">
+    <span class="swap-finish-mark" aria-hidden="true">${ICONS.checkCircle}</span>
+    <h2>Order Sent</h2>
+    <p>${esc(message || "")}</p>
+    <button type="button" class="primary-button swap-finish-button" data-swap-done>Done</button>
+  </div>`;
+}
+/** The pair picked on the coin screen (K choosePair): Kaspa is always one side, so which side it's on
+ *  sets the direction. Buying goes on to "where", selling straight to the order. */
+function choosePair(coin, kasSends) {
+  if (kasIsSendSide !== kasSends) flipDirection();
+  setOtherCoin(coin);
+  amountText = "";
+  receiveAmountText = "";
+  editedSide = "send";
+  clearCreatedSwap();
+  toAddressOverrideIndex = null;
+  payoutToChatting = !kasSends && toChattingStart;
+  destinationChoosing = payoutToChatting;
+  destinationEntries = null;
+  delete sheetState.destinationKusdt;
+  refreshToAddress();
+  flowPath.push({ kind: kasSends ? "form" : "destination" });
+  rescheduleEstimate();
+  render();
 }
 
 /** The kind's agreement (K 5.4 SwapAgreementsView, one card): its third party, its terms, one box. */
@@ -420,7 +731,7 @@ function renderSwapPage() {
   // ChangeNOW isn't reachable from this site: kUSDT still is.
   const other = `<div class="swap-unavailable-actions">
       <button type="button" class="secondary-button" data-swap-pick-kusdt>Swap kUSDT Instead</button>
-      <button type="button" class="swap-link strong" data-swap-pick-coin>Choose Another Coin</button>
+      <button type="button" class="swap-link strong" data-swap-back>Choose Another Coin</button>
     </div>`;
   if (availability === "needs-key") {
     return `<div class="hub-empty swap-unavailable swap-own-key">
@@ -448,9 +759,8 @@ function renderSwapPage() {
  *  for the other card's input: a spinner where the number will land, not an empty field. A card
  *  that isn't `editable` shows the quote (kUSDT's You Get: the pool quotes from what you send). */
 function amountCard({ label, coin, value, field, quoting, editable = true, available = null, max = false }) {
-  const badge = coin.ticker === "kas"
-    ? `<span class="swap-coin-badge">${coinIcon(coin)}<span>${esc(coin.displayName)}</span></span>`
-    : `<button type="button" class="swap-coin-badge pickable" data-swap-pick-coin>${coinIcon(coin)}<span>${esc(coin.displayName)}</span>${ICONS.chevronDown}</button>`;
+  // the coin was picked on its own step (K 824a30bb): no picker here
+  const badge = `<span class="swap-coin-badge">${coinIcon(coin)}<span>${esc(coin.displayName)}</span></span>`;
   const input = quoting
     ? `<span class="swap-amount-quoting"><span class="kaposts-spinner small" aria-hidden="true"></span></span>`
     : `<input class="swap-amount-input" type="text" inputmode="decimal" autocomplete="transaction-amount" placeholder="0.00" aria-label="${esc(label)}" data-swap-field="${field}" value="${esc(value)}"${editable ? "" : " readonly tabindex=\"-1\""} />`;
@@ -481,7 +791,6 @@ function renderSwapForm() {
   const canSwap = estimateState.status === "success" && !busy && (!kusdt || kusdtQuote != null);
   const loading = estimateState.status === "loading";
   const needsPayout = toCoin().ticker !== "kas" && !kusdt;
-  const created = !kusdt ? createState.result : null;
   const target = kusdt ? kusdtTarget() : null;
   // kUSDT swaps spend what K holds: the balance beside "You Send", and Max (K 6b99c6dd). A
   // ChangeNOW coin is paid from elsewhere.
@@ -496,27 +805,20 @@ function renderSwapForm() {
     canMax = max != null && max > 0n;
   }
   return `
-    ${amountCard({ label: "You Send", coin: fromCoin(), value: amountText, field: "send", quoting: editedSide === "get" && loading, available, max: canMax })}
+    ${amountCard({ label: "You Pay", coin: fromCoin(), value: amountText, field: "send", quoting: editedSide === "get" && loading, available, max: canMax })}
     ${kusdt && kasIsSendSide ? `<p class="swap-max-note">${esc(kusdtBuyKeepNote())}</p>` : ""}
-    <div class="swap-action-row">
-      <button type="button" class="swap-flip" data-swap-flip aria-label="Switch direction" title="Switch direction">${ICONS.flip}</button>
-      <button type="button" class="swap-go${canSwap ? "" : " disabled"}" data-swap-create ${canSwap ? "" : "disabled"}>${busy ? `<span class="kaposts-spinner small" aria-hidden="true"></span>` : (kusdt ? "Swap" : "Get Deposit Address")}</button>
-    </div>
     ${amountCard({ label: "You Get", coin: toCoin(), value: receiveAmountText, field: "get", quoting: editedSide === "send" && loading, editable: !kusdt })}
     ${needsPayout ? `<input class="field-input swap-payout-input" type="text" data-swap-payout placeholder="Receive ${esc(toCoin().displayName)} at" value="${esc(payoutAddressText)}" autocomplete="off" autocapitalize="none" spellcheck="false" />` : ""}
     ${needsPayout && needsMemo(toCoin()) ? `<div class="swap-payout-tag">
       <input class="field-input swap-payout-input" type="text" inputmode="numeric" data-swap-payout-tag placeholder="Destination tag (optional)" value="${esc(payoutExtraIdText)}" autocomplete="off" autocapitalize="none" spellcheck="false" />
       <small>${esc(SWAP_TEXT.tagHint)}</small>
     </div>` : ""}
-    ${kusdt ? `<div class="profile-card swap-address-row">
-      <span class="swap-address-copy"><small>${kasIsSendSide ? "Swap From (kUSDT Lands Here)" : "Swap From (KAS Lands Here)"}</small><strong>${esc(target ? `${target.label} · ${shortMiddle(target.address)}` : "")}</strong></span>
+    ${kusdt && kasIsSendSide ? `<div class="profile-card swap-address-row">
+      <span class="swap-address-copy"><small>Swap From (kUSDT Lands Here)</small><strong>${esc(target ? `${target.label} · ${shortMiddle(target.address)}` : "")}</strong></span>
       <button type="button" class="swap-link strong" data-swap-kusdt-from>Change</button>
-    </div>` : !kasIsSendSide ? `<div class="profile-card swap-address-row">
-      <span class="swap-address-copy"><small>Receiving KAS At</small><strong>${esc(shortMiddle(toAddress))}</strong></span>
-      <button type="button" class="swap-link strong" data-swap-change-address>Change</button>
     </div>` : ""}
     <div class="profile-card swap-rate-card"><small>Rate</small><span class="${estimateState.status === "failed" ? "bad" : ""}">${esc(rateText())}</span></div>
-    ${created ? renderResultCard(created) : ""}
+    <button type="button" class="primary-button swap-go-wide${canSwap ? "" : " disabled"}" data-swap-create ${canSwap ? "" : "disabled"}>${busy ? `<span class="kaposts-spinner small" aria-hidden="true"></span>` : (kasIsSendSide ? "Sell Kaspa" : "Buy Kaspa")}</button>
     ${kusdt
       ? `<a class="swap-powered" href="${esc(trestlyTermsUrl())}" target="_blank" rel="noopener noreferrer">Powered by Trestly</a>`
       : `<a class="swap-powered" href="https://changenow.io/terms-of-use/changenow-terms" target="_blank" rel="noopener noreferrer">Powered by ChangeNOW</a>`}
@@ -531,33 +833,6 @@ function depositTagBox(tag) {
     <button type="button" class="swap-tag-value" data-swap-copy-tag="${esc(tag)}" aria-label="Copy destination tag">${esc(tag)}</button>
     <p>${esc(SWAP_TEXT.tagRequired)}</p>
     <button type="button" class="swap-link strong swap-tag-copy" data-swap-copy-tag="${esc(tag)}">${ICONS.copy}<span>Copy Destination Tag</span></button>
-  </div>`;
-}
-
-/** The deposit card, drawn from the exchange ChangeNOW created (its coins, amount, addresses and
- *  tag), never from the coins picked now (K audit 2026-11-24 #2). Its status is the live history
- *  entry's, so Refresh Status shows. */
-function renderResultCard(created) {
-  const swap = history.find((s) => s.id === created.transaction.id) || created.transaction;
-  const deposit = created.fromCoin;
-  const payin = String(swap.payinAddress || "");
-  return `<div class="profile-card swap-result-card">
-    ${deposit.ticker === "kas" ? `<button type="button" class="swap-result-link" data-swap-open-spending>${ICONS.arrowRightCircle}<span>Go to Spending Addresses</span>${ICONS.chevronRight}</button>` : ""}
-    <strong>Send ${esc(deposit.displayName)} to this address</strong>
-    <span class="swap-result-amount"><small>Amount to Send</small><b>${esc(`${swap.fromAmount} ${deposit.displayName}`)}</b></span>
-    ${payin ? `<button type="button" class="swap-qr-button" data-swap-copy="${esc(payin)}" aria-label="Copy deposit address"><canvas class="swap-qr" data-swap-qr="${esc(payin)}" width="180" height="180"></canvas></button>` : ""}
-    <button type="button" class="swap-mono-button" data-swap-copy="${esc(payin)}">${esc(payin)}</button>
-    ${swap.payinExtraId ? depositTagBox(swap.payinExtraId) : ""}
-    <span class="swap-result-payout"><small>Payout Address</small><code>${esc(swap.payoutAddress)}</code>${swap.payoutExtraId ? `<small>Destination Tag: ${esc(swap.payoutExtraId)}</small>` : ""}</span>
-    <small>Status: ${esc(swapStatusName(swap.status))}</small>
-    <div class="swap-result-id">
-      <small>ChangeNOW Exchange ID</small>
-      <button type="button" class="swap-mono-button light" data-swap-copy-id="${esc(swap.id)}">${esc(swap.id)}</button>
-    </div>
-    <div class="swap-result-actions">
-      <button type="button" class="swap-link strong" data-swap-refresh="${esc(swap.id)}">Refresh Status</button>
-      <a class="swap-link strong" href="https://changenow.io/exchange/txs/${encodeURIComponent(swap.id)}" target="_blank" rel="noopener noreferrer">View on ChangeNOW</a>
-    </div>
   </div>`;
 }
 
@@ -788,8 +1063,10 @@ async function executeSwap() {
     let payoutAddress = "";
     if (to.ticker === "kas") {
       // A fresh, never-used spending address (the next legacy slot, iOS 28ecee0), reserved now that
-      // the swap is real - unless one was picked to reuse.
-      if (toAddressOverrideIndex != null) {
+      // the swap is real - unless one was picked on the "where" step (the Chatting Address too).
+      if (payoutToChatting) {
+        payoutAddress = startedOn;
+      } else if (toAddressOverrideIndex != null) {
         payoutAddress = deps.spendingAddressAt(toAddressOverrideIndex) || "";
       } else {
         const freshIndex = await deps.revealNextSwapAddress();
@@ -838,8 +1115,10 @@ async function executeSwap() {
     editedSide = "send";
     estimateState = IDLE_ESTIMATE;
     toAddressOverrideIndex = null;
+    payoutToChatting = false;
     refreshToAddress();
-    deps.showToast?.("Swap started");
+    // its deposit screen (K: a ChangeNOW exchange made goes on to SwapDepositScreen)
+    flowPath.push({ kind: "deposit", id: transaction.id });
   } catch (error) {
     if (!sameAccount()) return; // the other account's screen has nothing to do with it
     if (noteUnavailable(error)) { createState = { status: "idle", result: null, errorMessage: null }; return; }
@@ -892,7 +1171,9 @@ async function executeKusdtSwap() {
     const record = kusdtSwapRecord(done);
     try { deps.kusdt?.noteSwap?.({ record, target, owner: startedOn }); } catch { /* the notice's own problem */ }
     if (account() === startedOn) {
-      deps.showToast?.(record?.text || "Swap sent");
+      // its own screen (K SwapSentScreen), from the order page
+      if (currentStep().kind === "form") flowPath.push({ kind: "kusdtDone", message: record?.text || "Swap sent" });
+      else deps.showToast?.(record?.text || "Swap sent");
       amountText = "";
       receiveAmountText = "";
       kusdtQuote = null;
@@ -1210,6 +1491,7 @@ function confirmAddToPortfolio(portfolioId) {
   const name = st.portfolios.find((p) => p.id === portfolioId)?.name || "portfolio";
   closeSheet("portfolio");
   deps.showToast?.(`Added to ${name}`);
+  render(); // Purchase / Sale Complete reads Added to Portfolio
 }
 
 // ---------------------------------------------------------------------------
@@ -1235,6 +1517,9 @@ function putOffAgreement() {
     render();
     return;
   }
+  // the order isn't left waiting behind its agreement: the dock's Buy/Sell starts over
+  flowPath = [];
+  flowStart = "home";
   deps.leaveSwap?.();
   render();
 }
@@ -1254,9 +1539,11 @@ export function refreshSwaps() {
 export function selectSwapCoin(key) {
   if (!started) return;
   const coin = key === "kusdt" ? KUSDT_COIN : coinByKey(key);
-  if (coin) setOtherCoin(coin);
-  tab = "swap";
-  render();
+  if (!coin) return;
+  // straight on the order for that coin, as K's kUSDT screens open Swap
+  flowStart = isTrestlyCoin(coin) ? "sell" : "buy";
+  flowPath = [];
+  choosePair(coin, isTrestlyCoin(coin));
 }
 
 /** Another account (or none): nothing of the last one's swap stays on screen or goes into the next
@@ -1281,7 +1568,22 @@ export function resetSwapsForAccount() {
   kusdtFrom = null;
   kusdtQuote = null;
   toAddressOverrideIndex = null;
+  payoutToChatting = false;
+  flowStart = "home";
+  flowPath = [];
   refreshToAddress();
+  render();
+}
+
+/** Opens the flow where the Wallet asked (K SwapView Start): "buy", "sell", "history" or "home".
+ *  `toChatting`: opened to fund the chatting address, so bought Kaspa is set to land there. */
+export function openSwapFlow(start = "home", { toChatting = false } = {}) {
+  if (!started) return;
+  flowStart = ["buy", "sell", "history"].includes(start) ? start : "home";
+  flowPath = [];
+  toChattingStart = Boolean(toChatting);
+  coinListState = { query: "", expanded: new Set() };
+  clearCreatedSwap();
   render();
 }
 
@@ -1358,8 +1660,90 @@ export function initSwaps(dependencies) {
       render();
       return;
     }
-    const tabButton = event.target.closest("[data-swap-tab]");
-    if (tabButton) { tab = tabButton.dataset.cycleNext === "history" ? "history" : "swap"; render(); return; }
+    if (event.target.closest("[data-swap-back]")) {
+      if (flowPath.length) flowPath.pop(); else flowStart = "home";
+      render();
+      return;
+    }
+    if (event.target.closest("[data-swap-done]")) {
+      flowPath = [];
+      flowStart = "home";
+      deps.leaveSwap?.();
+      render();
+      return;
+    }
+    const startButton = event.target.closest("[data-swap-start]");
+    if (startButton) { openSwapFlow(startButton.dataset.swapStart); return; }
+    const group = event.target.closest("[data-swap-choice-group]");
+    if (group) {
+      const ticker = group.dataset.swapChoiceGroup;
+      if (coinListState.expanded.has(ticker)) coinListState.expanded.delete(ticker); else coinListState.expanded.add(ticker);
+      const list = rootEl.querySelector("[data-swap-choice-list]");
+      if (list) list.innerHTML = renderCoinChoiceList(); else render();
+      return;
+    }
+    const choice = event.target.closest("[data-swap-choice]");
+    if (choice) {
+      const coin = choice.dataset.swapChoice === "kusdt" ? KUSDT_COIN : coinByKey(choice.dataset.swapChoice);
+      if (coin) choosePair(coin, currentStep().kind === "sell");
+      return;
+    }
+    if (event.target.closest("[data-swap-dest-fresh]")) {
+      destinationChoosing = false;
+      payoutToChatting = false;
+      toAddressOverrideIndex = null;
+      refreshToAddress();
+      render();
+      return;
+    }
+    if (event.target.closest("[data-swap-dest-choose]")) { destinationChoosing = true; render(); return; }
+    if (event.target.closest("[data-swap-dest-chatting]")) {
+      payoutToChatting = true;
+      toAddressOverrideIndex = null;
+      render();
+      return;
+    }
+    const destIndex = event.target.closest("[data-swap-dest-index]");
+    if (destIndex) {
+      payoutToChatting = false;
+      toAddressOverrideIndex = Number(destIndex.dataset.swapDestIndex);
+      refreshToAddress();
+      render();
+      return;
+    }
+    const destKusdt = event.target.closest("[data-swap-dest-kusdt]");
+    if (destKusdt) {
+      const c = sheetState.destinationKusdt?.choices?.[Number(destKusdt.dataset.swapDestKusdt)];
+      if (!c) return;
+      kusdtFrom = c.spendingIndex == null ? null : { label: c.label, address: c.address, spendingIndex: c.spendingIndex };
+      kusdtQuote = null;
+      render();
+      return;
+    }
+    if (event.target.closest("[data-swap-continue]")) {
+      if (destinationChoosing && !isKusdt() && !payoutToChatting && toAddressOverrideIndex == null) return;
+      flowPath.push({ kind: "form" });
+      rescheduleEstimate();
+      render();
+      return;
+    }
+    const copyAmount = event.target.closest("[data-swap-copy-amount]");
+    if (copyAmount) {
+      try { await deps.copyTextToClipboard(copyAmount.dataset.swapCopyAmount); deps.showToast?.("Amount copied"); } catch { /* clipboard refused */ }
+      return;
+    }
+    const sendKas = event.target.closest("[data-swap-send-kas]");
+    if (sendKas) {
+      const swap = history.find((x) => x.id === sendKas.dataset.swapSendKas);
+      if (swap) deps.sendKasTo?.({ address: swap.payinAddress, amountText: swap.fromAmount });
+      return;
+    }
+    const addPortfolio = event.target.closest("[data-swap-add-portfolio]");
+    if (addPortfolio && rootEl.contains(addPortfolio)) {
+      const swap = history.find((x) => x.id === addPortfolio.dataset.swapAddPortfolio);
+      if (swap) openAddToPortfolio(swap);
+      return;
+    }
     if (event.target.closest("[data-swap-agree]")) {
       if (!agreementChecked) return;
       acceptAgreement(currentKind());

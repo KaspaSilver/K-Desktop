@@ -291,7 +291,6 @@
 
 /* The Wallet's Swap button (K 5.4: beside Send, Receive and Request): four across while it shows.
    Here rather than ui/styles.css so the rule ships with the button's screen. */
-.wallet-actions:has(> [data-wallet-swap-action]:not([hidden])) { grid-template-columns: repeat(4, 1fr); }
 
 /* Available and Max on a kUSDT swap (K 6b99c6dd): the balance beside "You Send", a Max pill in the
    field's row, and why Max on a buy is less than the balance. */
@@ -301,3 +300,58 @@
 .swap-max { flex: none; border: 1px solid var(--line); background: var(--surface-1); color: var(--kaspa-ink, var(--accent)); font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; cursor: pointer; }
 .swap-max:hover { background: var(--fill-tertiary, rgba(255,255,255,.06)); }
 .swap-max-note { margin: -4px 4px 4px; font-size: 12px; color: var(--muted); line-height: 1.4; }
+
+/* Buy/Sell step by step (K 824a30bb): a back arrow beside each step's title, the coin to pick, where
+   the Kaspa lands, the deposit, and Purchase / Sale Complete or Order Sent. */
+.swap-flow-header { display: flex; align-items: center; gap: 10px; }
+.swap-flow-header .kaposts-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.swap-flow-back { flex: 0 0 auto; width: 32px; height: 32px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: var(--fill-tertiary); color: var(--text); cursor: pointer; }
+.swap-flow-back svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.swap-flow-done { flex: 0 0 auto; }
+.swap-home, .swap-choice, .swap-dest, .swap-deposit { display: flex; flex-direction: column; gap: 10px; }
+.swap-home-row, .swap-choice-row, .swap-dest-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px; text-align: left; color: var(--text); cursor: pointer; font: inherit; }
+.swap-home-row > svg, .swap-choice-row > svg { width: 14px; height: 14px; flex: 0 0 auto; fill: none; stroke: var(--muted); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.swap-home-icon { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: rgba(112,199,186,.15); color: var(--kaspa-ink); }
+.swap-home-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.swap-home-copy, .swap-choice-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.swap-home-copy strong, .swap-choice-copy strong { font-size: 16px; }
+.swap-home-copy small, .swap-choice-copy small { color: var(--muted); font-size: 12px; }
+.swap-choice-row .swap-coin-icon { width: 34px; height: 34px; }
+.swap-choice-row.indented { margin-left: 24px; width: calc(100% - 24px); padding: 11px 14px; }
+.swap-choice-row.indented .swap-coin-icon { width: 26px; height: 26px; }
+.swap-step-question { margin: 4px 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+.swap-step-note { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.swap-step-note.centered { text-align: center; }
+.swap-dest-pills { display: flex; gap: 10px; }
+.swap-pill { padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.swap-pill.selected { border-color: transparent; background: var(--kaspa); color: var(--on-accent); }
+.swap-dest-row.picked { box-shadow: inset 0 0 0 1.5px var(--kaspa); }
+.swap-dest-row .swap-address-copy small.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.swap-dest-fresh { padding: 16px; }
+.swap-dest-fresh p { margin: 0 0 8px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.swap-dest-fresh code { display: block; font-size: 12px; overflow-wrap: anywhere; }
+.swap-continue, .swap-go-wide { width: 100%; height: 50px; border-radius: 999px; font-size: 16px; margin-top: 6px; }
+.swap-continue:disabled, .swap-go-wide.disabled { opacity: .45; cursor: default; }
+.swap-deposit-head { text-align: center; padding-top: 6px; }
+.swap-deposit-head h2 { margin: 0; font-size: 22px; }
+.swap-deposit-head p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.swap-deposit-status { display: flex; align-items: center; gap: 12px; padding: 16px; }
+.swap-deposit-status > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.swap-deposit-status small { color: var(--muted); font-size: 12px; }
+.swap-deposit-warn svg { width: 22px; height: 22px; fill: none; stroke: #f5a524; stroke-width: 2; }
+.swap-deposit .swap-qr-button { align-self: center; padding: 14px; border: 0; border-radius: 16px; background: #fff; cursor: pointer; }
+.swap-deposit .swap-qr { width: 200px; height: 200px; display: block; }
+.swap-deposit-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 16px; }
+.swap-deposit-card small { color: var(--muted); font-size: 12px; }
+.swap-deposit-card code { font-size: 12px; overflow-wrap: anywhere; }
+.swap-deposit-amount { font-size: 19px; }
+.swap-copy-pill { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 0; border-radius: 999px; background: rgba(112,199,186,.15); color: var(--kaspa-ink); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.swap-copy-pill svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; }
+.swap-deposit-id-actions { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 10px; }
+.swap-send-kas { height: 50px; border-radius: 999px; font-size: 16px; }
+.swap-finish { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 40px 10px 20px; text-align: center; }
+.swap-finish-mark svg { width: 72px; height: 72px; fill: none; stroke: #34c759; stroke-width: 1.6; }
+.swap-finish h2 { margin: 0; font-size: 26px; }
+.swap-finish p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.swap-finish-button { width: 100%; max-width: 420px; height: 50px; border-radius: 999px; font-size: 16px; }
+.swap-finish-button:disabled { opacity: .5; }

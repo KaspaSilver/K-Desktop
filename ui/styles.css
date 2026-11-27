@@ -13219,7 +13219,7 @@ body.settings-tab [data-account-overlay] .settings-done-button { visibility: hid
 .wallet-balance-part span { font-size: 12px; color: var(--muted); }
 .wallet-balance-part strong { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Three 60pt accent circles with black icons. */
-.wallet-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.wallet-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; } /* Send, Receive, Buy, Sell (K 824a30bb) */
 .wallet-action { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 15px; cursor: pointer; }
 .wallet-action-circle { width: 60px; height: 60px; display: grid; place-items: center; border-radius: 50%; background: var(--kaspa); color: #000; }
 .wallet-action-circle svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
@@ -13905,3 +13905,6 @@ button.kusdt-activity-row:hover { background: var(--surface-1, rgba(255,255,255,
 /* The empty Public Chats page (K 824a30bb): what goes here, and Add Room. */
 .empty-rooms-card p { max-width: 300px; }
 .empty-rooms-add { padding: 10px 18px; border-radius: 999px; cursor: pointer; }
+
+/* The funding card's Buy Kaspa (K 824a30bb): the Wallet's Buy, landing on the Chatting Address. */
+.chat-funding-buy { width: 100%; max-width: 320px; height: 44px; border-radius: 999px; font-size: 15px; cursor: pointer; }

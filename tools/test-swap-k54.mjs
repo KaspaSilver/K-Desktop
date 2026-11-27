@@ -230,7 +230,9 @@ await check("XRP -> KAS: the deposit tag shows as required, with Copy, and is ke
   await click("data-swap-create");
   await settle();
   const html = root.innerHTML;
-  assert.match(html, /Send XRP to this address/);
+  // its own deposit screen since K 824a30bb
+  assert.match(html, /Send 1\.5 XRP/);
+  assert.match(html, /to buy Kaspa/);
   assert.match(html, /Amount to Send[\s\S]*1\.5 XRP/);
   assert.match(html, /Destination Tag \(Memo\)/);
   assert.match(html, /data-swap-copy-tag="987654"/);
@@ -243,8 +245,12 @@ await check("XRP -> KAS: the deposit tag shows as required, with Copy, and is ke
 });
 
 await check("KAS -> XRP: a payout tag field; a bad tag is refused before ChangeNOW; a good one goes as extraId", async () => {
-  await click("data-swap-flip");
-  assert.doesNotMatch(root.innerHTML, /rChangeNowShared/, "the flip took the old deposit card away");
+  // Sell Kaspa, then XRP: the order (K 824a30bb, no flip)
+  swaps.openSwapFlow("sell");
+  handlers.click({ target: el({ "data-swap-choice": { dataset: { swapChoice: "xrp:xrp" } } }) });
+  await settle();
+  assert.doesNotMatch(root.innerHTML, /rChangeNowShared/, "a new order never shows the old deposit");
+  assert.match(root.innerHTML, /Sell Kaspa for XRP/);
   assert.match(root.innerHTML, /data-swap-payout-tag/);
   assert.match(root.innerHTML, /Destination tag \(optional\)/);
   typePayout("rMyExchange");
@@ -264,7 +270,8 @@ await check("KAS -> XRP: a payout tag field; a bad tag is refused before ChangeN
   assert.equal(body.address, "rMyExchange");
   const record = historyOf("kaspa:qalice").find((s) => s.id === "ex-kas-xrp");
   assert.equal(record?.payoutExtraId, "4242");
-  assert.match(root.innerHTML, /Destination Tag: 4242/);
+  assert.match(root.innerHTML, /to sell it for XRP/);
+  assert.match(root.innerHTML, /data-swap-send-kas="ex-kas-xrp"/, "Kaspa in: Send KAS from K");
 });
 
 await check("an answer that doesn't match is refused: no deposit address shows, nothing is filed", async () => {
@@ -284,8 +291,9 @@ await check("history and agreements are per account; another account starts clea
   assert.ok(historyOf("kaspa:qalice").length >= 2);
   account = "kaspa:qbob";
   swaps.resetSwapsForAccount();
-  handlers.click({ target: el({ "data-swap-tab": { dataset: { swapTab: "swap" } } }) });
-  await settle();
+  // Buy Kaspa with XRP: where it lands, then the order, where the agreement is asked
+  swaps.selectSwapCoin("xrp:xrp");
+  await click("data-swap-continue");
   assert.equal(historyOf("kaspa:qbob").length, 0);
   assert.doesNotMatch(root.innerHTML, /rChangeNowShared|kaspa:qalice/, "nothing of the other account on screen");
   assert.match(root.innerHTML, /Before You Swap/, "ChangeNOW's agreement asked on this account");
@@ -581,15 +589,18 @@ await check("text: status names in words, whole sentences for Buy and Sell (#34,
   assert.doesNotMatch(read("ui", "swaps.js"), /\$\{prefill\.type === "buy" \? "Buy" : "Sell"\}/);
 });
 
-await check("the Wallet: Swap beside Send / Receive / Request, no Swap Stablecoins, always shown", () => {
+await check("the Wallet: Send, Receive, Buy, Sell (K 824a30bb); Request Payment and Buy/Sell History are cards", () => {
   const html = read("index.html");
   const app = read("ui", "app.js");
-  const wallet = html.slice(html.indexOf("data-wallet-send"), html.indexOf("data-open-chatting-address"));
-  assert.ok(wallet.indexOf("data-wallet-request") < wallet.indexOf("data-wallet-swap-action"));
-  assert.doesNotMatch(html, /type="button" data-wallet-swap>/);
-  // Simple Mode, which hid it, is gone (audit 2026-11-25).
+  const row = html.slice(html.indexOf('<div class="wallet-actions">'), html.indexOf("data-backup-hygiene-card"));
+  const order = ["data-wallet-send", "data-wallet-receive", "data-wallet-buy", "data-wallet-sell"].map((m) => row.indexOf(m));
+  assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), "Send, Receive, Buy, Sell");
+  assert.doesNotMatch(row, /data-wallet-request|data-wallet-swap-action/);
+  assert.match(html, /data-wallet-request>[\s\S]*?<span>Request Payment<\/span>/);
+  assert.match(html, /data-wallet-swap-history>[\s\S]*?<span>Buy\/Sell History<\/span>/);
   assert.doesNotMatch(app, /walletSwapAction\.hidden|tabAllowed/);
-  assert.match(app, /\[data-wallet-swap-action\]"\)\?\.addEventListener\("click", \(\) => \{ if \(engine\.address\) setActiveAppTab\("swaps"\); \}\);/);
+  assert.match(app, /\[data-wallet-buy\]"\)\?\.addEventListener\("click", \(\) => openBuySell\("buy"\)\);/);
+  assert.match(app, /\[data-wallet-sell\]"\)\?\.addEventListener\("click", \(\) => openBuySell\("sell"\)\);/);
   assert.equal(AM.sanitizeAmountInput("1,5"), "1.5");
 });
 

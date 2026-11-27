@@ -140,7 +140,8 @@ await test("each place K lists has the cycle button", () => {
   assert.match(read("ui", "coldstorage.js"), /cycleBarHtml\(\{ name: "cold-address", options: COLD_ADDRESS_PAGES/);
   // the Explorer (K 961fc05a; it replaced Stats), Swap, Chess's 1v1 / Tournaments pages
   assert.match(read("ui", "explorer.js"), /cycleBarHtml\(\{ name: "kx-home-page", options: HOME_PAGES/);
-  assert.match(read("ui", "swaps.js"), /cycleBarHtml\(\{ name: "swap-page", options: \[\["swap", "Swap"\], \["history", "Swap History"\]\]/);
+  // Swap / Swap History went in K 824a30bb: Buy/Sell History is its own page (ui/swaps.js)
+  assert.doesNotMatch(read("ui", "swaps.js"), /cycleBarHtml\(\{ name: "swap-page"/);
   assert.match(chess, /const kindPages = \(duel\) => \[\["play", duel \? "1v1" : "Tournaments"\], \["active", "Active"\], \["finished", "Finished"\]\];/);
   assert.match(chess, /cycleBarHtml\(\{ name: `chess-kind-\$\{view\.mode\}`/);
   // every leaderboard's This month / All time: the arcade's and Chess's

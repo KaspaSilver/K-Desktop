@@ -453,7 +453,7 @@ await check("app.js hooks: Delete Account, Address Activity, Manage Addresses §
 
 await check("index.html: the pager and its pills, Swap, the Help row, the Trestly field, the CSS version", () => {
   for (const marker of ["data-wallet-card-pager", "data-wallet-card-pill=\"1\">kUSDT", "data-kusdt-card", "kUSDT Balance", "Held On", "KAS Held With It",
-    "Tap to Manage", "data-wallet-swap-action", "data-help-kusdt", "kUSDT Guide",
+    "Tap to Manage", "data-wallet-buy", "data-help-kusdt", "kUSDT Guide",
     "What kUSDT is, where it lives, and how sending and swapping work.", "data-endpoint=\"trestlyApi\"", "Trestly API URL",
     "data-chatting-address-notes", "data-spending-qr-notes"]) assert.ok(html.includes(marker), marker);
   // 417 came with kUSDT; later builds only move it up.
