@@ -74,7 +74,7 @@ const {
   indexerDefaultBroadcastChannels, setReportedBroadcastChannels, isCuratedBroadcastChannel, DROPPED_ROOM_GRACE_MS,
 } = engineMod;
 const roomsModForGrace = await import("../ui/broadcasts.js");
-const { DROPPED_AUTO_ROOM_GRACE_MS } = roomsModForGrace;
+const { DROPPED_ROOM_MISS_SPACING_MS } = roomsModForGrace;
 const { shouldAskTrackedRooms, TRACKED_ASK_INTERVAL_MS } = await import("../engine/indexer-tracked-rooms.js");
 const { ROOM_PINS_KEY } = await import("../ui/room-pins.js");
 
@@ -166,18 +166,22 @@ await test("a room the indexer adds is offered in Add Room, never joined for any
   assert.ok(stored("kachat-rooms-indexer-listed-v1").includes("dev-room"), "remembered as listed by the indexer (K 35b112ce)");
 });
 
-await test("dropped by the indexer: a joined room it listed is left after 2 hours", () => {
+await test("dropped by the indexer: a joined room it listed is left after two fresh answers an hour apart", () => {
   const realNow = Date.now;
   try {
+    const start = Date.now();
     setReportedBroadcastChannels(["kaspa"]);
     const listed = byName();
     assert.equal(listed.get("dev-room")?.joined, true, "kept for now");
     assert.equal(listed.get("dev-room").indexed, false, "no longer a default room");
     assert.equal(rooms.addRoomChoices().rooms.some((room) => room.name === "quiet-room"), false, "no longer offered");
-    const start = Date.now();
-    Date.now = () => start + DROPPED_AUTO_ROOM_GRACE_MS + 1000;
+    // time alone, and the saved list, leave nothing (audit 2026-11-27)
+    Date.now = () => start + 3 * DROPPED_ROOM_MISS_SPACING_MS;
     rooms.refreshBroadcasts();
-    assert.equal(byName().has("dev-room"), false, "left");
+    rooms.resetBroadcastsForAccount();
+    assert.equal(byName().get("dev-room")?.joined, true, "hours later, with no fresh answer: still there");
+    setReportedBroadcastChannels(["kaspa"]);
+    assert.equal(byName().has("dev-room"), false, "the second answer that lacks it: left");
     assert.ok(removed.includes("dev-room"), "its pin goes too");
     assert.ok(!stored("kachat-rooms-indexer-listed-v1").includes("dev-room"));
   } finally {
@@ -185,7 +189,7 @@ await test("dropped by the indexer: a joined room it listed is left after 2 hour
   }
 });
 
-await test("any room the indexer listed goes 2 hours after it's dropped, even one joined by name or posted in (K 35b112ce)", () => {
+await test("any room the indexer listed goes after two answers lack it, even one joined by name or posted in (K 35b112ce)", () => {
   const realNow = Date.now;
   try {
     // an older build's list (only the rooms K joined) is read once, into the new one
@@ -203,15 +207,15 @@ await test("any room the indexer listed goes 2 hours after it's dropped, even on
     rooms.joinBroadcastChannelFromSheet("kept-room"); // joined by name: goes all the same now
     rooms.closeBroadcastRoom();
     assert.ok(stored("kachat-rooms-indexer-listed-v1").includes("kept-room"), "still the indexer's");
-    setReportedBroadcastChannels(["kaspa"]);
     const start = Date.now();
-    Date.now = () => start + DROPPED_AUTO_ROOM_GRACE_MS - 60_000;
-    rooms.refreshBroadcasts();
-    assert.equal(byName().has("brief-room"), true, "under 2 hours: still there");
+    setReportedBroadcastChannels(["kaspa"]);
+    Date.now = () => start + DROPPED_ROOM_MISS_SPACING_MS - 60_000;
+    setReportedBroadcastChannels(["kaspa"]);
+    assert.equal(byName().has("brief-room"), true, "a second answer under an hour later doesn't count: still there");
     assert.equal(byName().has("kept-room"), true);
-    Date.now = () => start + DROPPED_AUTO_ROOM_GRACE_MS + 1000;
-    rooms.refreshBroadcasts();
-    assert.equal(byName().has("brief-room"), false, "2 hours missing: left");
+    Date.now = () => start + DROPPED_ROOM_MISS_SPACING_MS + 1000;
+    setReportedBroadcastChannels(["kaspa"]);
+    assert.equal(byName().has("brief-room"), false, "two answers an hour apart lacked it: left");
     assert.equal(byName().has("kept-room"), false, "joined by name: left too");
     assert.equal(byName().has("old-room"), false, "from the old list: left too");
     assert.equal(byName().get("never-listed")?.joined, true, "never on the indexer's list: stays");

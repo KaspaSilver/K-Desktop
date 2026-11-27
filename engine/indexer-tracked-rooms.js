@@ -35,6 +35,19 @@ export function parseTrackedChannelsResponse(json, normalize = (name) => String(
   return json.channels.filter((name) => typeof name === "string").map(normalize).filter(Boolean);
 }
 
+// Every successful `/broadcast-channels` answer, changed or not (setReported). `onChange` hears only
+// changes, and a room that's missing from one answer must be seen missing from more than one before
+// it's left (ui/broadcasts.js forgetDroppedDefaultRooms), so the answers themselves are told here.
+const answerListeners = new Set();
+
+/** `fn({ channels, at })` runs on every answer handed to any tracked-room set's `setReported`
+ *  (`channels`: the normalized names, sorted; `at`: the set's clock). Returns an unsubscribe. */
+export function onTrackedRoomsAnswer(fn) {
+  if (typeof fn !== "function") return () => {};
+  answerListeners.add(fn);
+  return () => answerListeners.delete(fn);
+}
+
 /**
  * The tracked-room set over a key-value `storage` (localStorage's getItem/setItem; a missing or
  * throwing one just means nothing persists). `onChange()` fires when the set changes, so the
@@ -102,16 +115,22 @@ export function createIndexerTrackedRooms({
       return out;
     },
 
-    /** The app-wide indexer's list, as `/broadcast-channels` answered. True when it changed. */
+    /** The app-wide indexer's list, as `/broadcast-channels` answered. True when it changed. The
+     *  answer listeners (onTrackedRoomsAnswer) hear of it either way, after `onChange`. */
     setReported(channels) {
       load();
       const names = new Set((Array.isArray(channels) ? channels : []).map(normalize).filter(Boolean));
       const changed = names.size !== reported.size || [...names].some((name) => !reported.has(name));
-      if (!changed) return false;
-      reported = names;
-      write(reportedKey, [...names].sort());
-      onChange();
-      return true;
+      if (changed) {
+        reported = names;
+        write(reportedKey, [...names].sort());
+        onChange();
+      }
+      const answer = { channels: [...names].sort(), at: now() };
+      for (const listener of [...answerListeners]) {
+        try { listener(answer); } catch { /* one listener must not stop the others */ }
+      }
+      return changed;
     },
 
     /** `channel`'s indexer just returned rows for it. True when that made it a tracked room. */

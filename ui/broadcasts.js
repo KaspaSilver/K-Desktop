@@ -36,6 +36,7 @@ import {
   DROPPED_ROOM_GRACE_MS,
   broadcastContentDigest,
 } from "../engine/broadcasts.js";
+import { onTrackedRoomsAnswer } from "../engine/indexer-tracked-rooms.js";
 import { ROOM_PINS_KEY, parseRoomPins } from "./room-pins.js";
 import { setSettingItem, onSettingsStorageFull } from "./settings-storage.js";
 import { roomCacheForStorage, restoreTruncatedRow, pruneRoomEdits } from "./room-cache-budget.js";
@@ -406,6 +407,14 @@ function loadState({ caches = true } = {}) {
   // The message, reaction and edit caches are this module's own state: once read, the copy in
   // memory is the newer one. Re-reading them on every tab show cost a parse of every room.
   if (caches || !cachesLoaded) {
+    // Read again over rows already held (the stored copy is trimmed): each room pages its older
+    // history in again, or the rows the trim cut would never come back (audit 2026-11-27).
+    if (cachesLoaded) {
+      deepBackfilled.clear();
+      deepBackfillDone.clear();
+      deepBackfillFloor.clear();
+      deepBackfillResume.clear();
+    }
     try {
       messageCache = JSON.parse(localStorage.getItem(CACHE_KEY) || "{}") || {};
     } catch { messageCache = {}; }
@@ -453,7 +462,8 @@ function loadState({ caches = true } = {}) {
 
 /** No room is joined for the person any more (K 824a30bb, owner 2026-11-26): Public Chats starts
  *  empty and fills only with rooms they add. What's left here: stamping a joined room's "Joined"
- *  time, and leaving any room the indexer dropped once its time is up (forgetDroppedDefaultRooms). */
+ *  time, and keeping the indexer's listed rooms up to date (forgetDroppedDefaultRooms; a room it
+ *  dropped is left only from a fresh answer, handleTrackedRoomsAnswer, never from this). */
 function joinDefaultRooms() {
   let stamped = false;
   for (const name of joinedChannels) {
@@ -473,9 +483,40 @@ function joinDefaultRooms() {
 const INDEXER_LISTED_KEY = "kachat-rooms-indexer-listed-v1"; // account-scoped: ["room", ...]
 /** Before K 35b112ce: only the rooms K joined for the person. Read once, into the new set. */
 const LEGACY_AUTO_JOINED_KEY = "kachat-rooms-auto-joined-v1";
-/** How long a room the indexer listed may be missing from its list before it's left: two of the
- *  hourly `/broadcast-channels` reads (K droppedAutoRoomGrace). */
-export const DROPPED_AUTO_ROOM_GRACE_MS = 2 * 60 * 60 * 1000;
+/** How many fresh `/broadcast-channels` answers must lack a room the indexer listed before it's
+ *  left, and how far apart they must be: two of the hourly reads (K droppedAutoRoomGrace), each
+ *  one this device actually got. A saved list from an earlier session never counts (audit
+ *  2026-11-27: an empty answer and a restart the next day left every room). */
+export const DROPPED_ROOM_MISSES = 2;
+export const DROPPED_ROOM_MISS_SPACING_MS = 60 * 60 * 1000;
+
+/**
+ * One fresh `/broadcast-channels` answer applied to the rooms' miss record
+ * (`{ [room]: { since, misses, lastAt } }`, `since` the first answer that lacked it, `lastAt` the
+ * last one counted). Each room in `absent` (watched, and lacking from this answer) counts one more
+ * miss, at most one per DROPPED_ROOM_MISS_SPACING_MS; every other room's record goes (it's back on
+ * the list, or not watched any more), so a room that comes back starts over. Returns the new record
+ * and the rooms to leave: missed DROPPED_ROOM_MISSES times, and `graceMs(room)` since the first.
+ * Pure (tools/test-audit-2026-11-27-rooms.mjs).
+ */
+export function applyRoomListAnswer(saved, absent, now, graceMs = () => 0) {
+  const record = {};
+  const dropped = [];
+  const held = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+  for (const name of new Set(absent)) {
+    const old = Object.prototype.hasOwnProperty.call(held, name) ? held[name] : null;
+    const valid = old && typeof old === "object" && Number(old.misses) >= 1
+      && Number(old.since) > 0 && Number(old.lastAt) >= Number(old.since) && Number(old.lastAt) <= now;
+    const entry = valid
+      ? { since: Number(old.since), misses: Math.floor(Number(old.misses)), lastAt: Number(old.lastAt) }
+      : { since: now, misses: 1, lastAt: now };
+    if (valid && now - entry.lastAt >= DROPPED_ROOM_MISS_SPACING_MS) { entry.misses += 1; entry.lastAt = now; }
+    const grace = Math.max(0, Number(graceMs(name)) || 0);
+    if (entry.misses >= DROPPED_ROOM_MISSES && now - entry.since >= grace) dropped.push(name);
+    else record[name] = entry;
+  }
+  return { record, dropped };
+}
 function readIndexerListed() {
   try {
     const list = JSON.parse(localStorage.getItem(deps.accountScopedKey(INDEXER_LISTED_KEY)) || "[]");
@@ -511,16 +552,61 @@ function noteIndexerListedRooms(joined) {
 }
 const CURATED_BUILT_IN = new Set([...FEATURED_BROADCAST_CHANNELS, ...LANGUAGE_BROADCAST_CHANNELS]);
 
+/**
+ * Whether an account other than `ownKey`'s still has `name` joined, from the account-scoped joined
+ * lists in `keys` (every storage key; each account's list is `<prefix>:<address>:` + CHANNELS_KEY).
+ * `read(key)` gives a key's value. Pure (tools/test-audit-2026-11-27-rooms.mjs).
+ */
+export function roomJoinedByOtherAccount(keys, ownKey, read, name) {
+  const suffix = `:${CHANNELS_KEY}`;
+  for (const key of Array.isArray(keys) ? keys : []) {
+    if (typeof key !== "string" || key === ownKey || !key.endsWith(suffix)) continue;
+    try {
+      const list = JSON.parse(read(key) || "[]");
+      if (Array.isArray(list) && list.includes(name)) return true;
+    } catch { /* not a list: not joined */ }
+  }
+  return false;
+}
+/** The room cache is one for every account on this device (public chain data): another account
+ *  that still has `name` joined keeps its rows. A storage that can't list its keys says no. */
+function roomKeptForAnotherAccount(name) {
+  let keys;
+  try {
+    if (typeof localStorage?.key !== "function" || !Number.isFinite(Number(localStorage.length))) return false;
+    keys = [];
+    for (let i = 0; i < localStorage.length; i += 1) keys.push(localStorage.key(i));
+  } catch { return false; }
+  return roomJoinedByOtherAccount(keys, deps.accountScopedKey(CHANNELS_KEY), (key) => localStorage.getItem(key), name);
+}
+
 /** A room's data on this device goes, with no redraw (leaving a room, a retired or dropped room):
- *  its place in the list, its bell and settings, its cached messages, reactions and edits. */
+ *  its place in the list, its bell and settings, its read marker, and its cached messages,
+ *  reactions and edits - those only when no other account here still has the room (audit
+ *  2026-11-27: the cache is shared, and leaving used to empty the room for every account). */
 function forgetRoom(name) {
   joinedChannels = joinedChannels.filter((c) => c !== name);
   saveChannels();
-  delete messageCache[name];
-  saveCache();
-  delete reactionsCache[name];
+  const keepRows = roomKeptForAnotherAccount(name);
+  if (keepRows) {
+    // the other account keeps the room's history; only this account's own unsent rows go
+    const me = String(deps.engine?.address || "");
+    const rows = messageCache[name] || [];
+    const kept = rows.filter((m) => !(m?.status && String(m.senderAddress || "") === me && !pendingSendsThisRun.has(m.txId)));
+    if (kept.length !== rows.length) { messageCache[name] = kept; saveCache(); }
+  } else {
+    delete messageCache[name];
+    saveCache();
+    delete reactionsCache[name];
+    saveReactions();
+  }
   appliedRowsByChannel.delete(name); // rejoining must apply its reactions and edits again
-  saveReactions();
+  // rejoining counts from then, not every message since this account last read it (audit 2026-11-27)
+  if (readMarkerByChannel[name] != null || markedUnread[name]) {
+    delete readMarkerByChannel[name];
+    delete markedUnread[name];
+    saveRead();
+  }
   delete listenByChannel[name];
   saveListen();
   delete indexerByChannel[name];
@@ -529,14 +615,22 @@ function forgetRoom(name) {
   saveJoinedAt();
   if (notifyByChannel[name]) { delete notifyByChannel[name]; saveNotify(); }
   // its edits and paging state go with it (KaPost 369794e: leaving a room deletes its data)
-  delete editsCache[name];
-  saveEdits();
+  if (!keepRows) {
+    delete editsCache[name];
+    saveEdits();
+  }
   for (const key of [...failedRoomEdits.keys()]) if (String(key).startsWith(`${name}:`)) failedRoomEdits.delete(key);
   deepBackfilled.delete(name);
   deepBackfillFloor.delete(name);
   deepBackfillDone.delete(name);
   deepBackfillResume.delete(name);
   roomNewestSeen.delete(name);
+}
+/** forgetRoom, and the room's pane closes (its poll stops) when it was the open one (audit
+ *  2026-11-27: the pane stayed up, dead, its 8 s poll refilling the left room's cache). */
+function dropRoom(name) {
+  forgetRoom(name);
+  if (activeChannel === name) closeRoom();
 }
 
 function saveHiddenCurated() {
@@ -588,8 +682,7 @@ function clearAutoAddedRoomsOnce() {
     if (!autoAdded.has(name) || isServiceBroadcastChannel(name)) continue;
     const wanted = !switchedOff.has(name) && (Boolean(notifyByChannel[name]) || pins.includes(name));
     if (wanted) continue;
-    if (activeChannel === name) activeChannel = null;
-    forgetRoom(name);
+    dropRoom(name);
     try { deps.onRoomRemoved?.(name); } catch { /* the app's pins */ }
     left.push(name);
   }
@@ -637,56 +730,64 @@ function moveRetiredChannels() {
       }
     } catch { /* pins are best-effort */ }
     if (readMarkerByChannel[old] != null || markedUnread[old]) { delete readMarkerByChannel[old]; delete markedUnread[old]; saveRead(); }
-    if (activeChannel === old) activeChannel = null;
-    forgetRoom(old);
+    dropRoom(old);
   }
   if (changed) { try { localStorage.setItem(key, JSON.stringify(moved)); } catch { /* moved again next load: nothing left to move */ } }
 }
 
-// Since when each switched-off room has been missing from the default rooms, per account (K
-// 961fc05a kachat_broadcast_hidden_missing_<wallet>).
-const HIDDEN_MISSING_KEY = "kachat-broadcast-hidden-missing-v1"; // account-scoped: { [channel]: ms }
+// How many fresh answers have lacked each watched room, per account (K 961fc05a
+// kachat_broadcast_hidden_missing_<wallet>, which kept only since when): applyRoomListAnswer's record.
+const ROOMS_MISSING_KEY = "kachat-rooms-indexer-missing-v2"; // account-scoped: { [channel]: { since, misses, lastAt } }
+/** The old record: since when, by wall clock, a room had been missing from whatever list was saved.
+ *  Not trusted (a saved list from days ago counted), so it's dropped and counting starts over. */
+const LEGACY_HIDDEN_MISSING_KEY = "kachat-broadcast-hidden-missing-v1";
 
 /** A switched-off room the indexer no longer reports: nothing would ever show it again (no switch
- *  for it any more), so it's left - once it has been missing for DROPPED_ROOM_GRACE_MS, so one short
- *  `/broadcast-channels` answer doesn't forget it was switched off (K 961fc05a). Any joined room the
- *  indexer listed and then dropped is left too, pin included, once it has been missing
- *  DROPPED_AUTO_ROOM_GRACE_MS (K 35b112ce): joined by name or posted in, it goes all the same. */
-function forgetDroppedDefaultRooms(now = Date.now()) {
-  if (!deps?.engine?.address) return;
-  const curated = new Set(curatedBroadcastChannels());
-  const absentHidden = new Set([...hiddenCurated].filter((name) => !curated.has(name)));
+ *  for it any more), so it's left - once DROPPED_ROOM_GRACE_MS has passed since the first fresh
+ *  answer that lacked it, so one short `/broadcast-channels` answer doesn't forget it was switched
+ *  off (K 961fc05a). Any joined room the indexer listed and then dropped is left too, pin included
+ *  (K 35b112ce): joined by name or posted in, it goes all the same. Either way only from `answer`, a
+ *  fresh `/broadcast-channels` answer this session (handleTrackedRoomsAnswer), and only once
+ *  DROPPED_ROOM_MISSES of those, an hour apart, have lacked it (applyRoomListAnswer); an empty
+ *  answer counts for nothing. With no answer (boot, a change from served rows) the listed rooms are
+ *  noted and nothing is left. Returns how many joined rooms were left. */
+function forgetDroppedDefaultRooms({ answer = null } = {}) {
+  if (!deps?.engine?.address) return 0;
   const joined = new Set(joinedChannels);
   noteIndexerListedRooms(joined);
+  if (!answer || !Array.isArray(answer.channels) || !answer.channels.length) return 0;
+  const now = Number.isFinite(Number(answer.at)) ? Number(answer.at) : Date.now();
+  // the answer is already the reported list, so the default rooms are the answer's
+  const curated = new Set(curatedBroadcastChannels());
+  const absentHidden = new Set([...hiddenCurated].filter((name) => !curated.has(name)));
   const absentAuto = [...readIndexerListed()].filter((name) => joined.has(name) && !curated.has(name));
   const absent = [...new Set([...absentHidden, ...absentAuto])];
-  const key = deps.accountScopedKey(HIDDEN_MISSING_KEY);
+  const key = deps.accountScopedKey(ROOMS_MISSING_KEY);
   let saved;
   try { saved = JSON.parse(localStorage.getItem(key) || "{}"); } catch { saved = {}; }
   if (!saved || typeof saved !== "object" || Array.isArray(saved)) saved = {};
-  // back on the indexer's list, or switched on again: its clock stops
-  const missing = {};
-  for (const name of absent) missing[name] = Number(saved[name]) > 0 ? Number(saved[name]) : now;
-  const dropped = Object.keys(missing).filter((name) =>
-    now - missing[name] >= (absentHidden.has(name) ? DROPPED_ROOM_GRACE_MS : DROPPED_AUTO_ROOM_GRACE_MS));
-  for (const name of dropped) delete missing[name];
-  if (JSON.stringify(missing) !== JSON.stringify(saved)) {
+  try { localStorage.removeItem(deps.accountScopedKey(LEGACY_HIDDEN_MISSING_KEY)); } catch { /* gone next time */ }
+  const { record, dropped } = applyRoomListAnswer(saved, absent, now,
+    (name) => (absentHidden.has(name) ? DROPPED_ROOM_GRACE_MS : 0));
+  if (JSON.stringify(record) !== JSON.stringify(saved)) {
     try {
-      if (Object.keys(missing).length) localStorage.setItem(key, JSON.stringify(missing));
+      if (Object.keys(record).length) localStorage.setItem(key, JSON.stringify(record));
       else localStorage.removeItem(key);
-    } catch { /* asked again next load */ }
+    } catch { /* counted again from the next answer */ }
   }
-  if (!dropped.length) return;
+  if (!dropped.length) return 0;
   for (const name of dropped) hiddenCurated.delete(name);
   saveHiddenCurated();
   updateIndexerListed((set) => { for (const name of dropped) set.delete(name); });
+  let left = 0;
   for (const name of dropped) {
     if (!joinedChannels.includes(name)) continue;
     deps.appendEngineLog?.(`#${name} left: the indexer no longer tracks it`);
-    if (activeChannel === name) activeChannel = null;
-    forgetRoom(name);
+    dropRoom(name);
     try { deps.onRoomRemoved?.(name); } catch { /* the app's pins */ }
+    left += 1;
   }
+  return left;
 }
 
 // Every room starts silenced, bell off (K 8cb4c88e, owner 2026-11-24, for new installs): #kaspa and
@@ -1840,12 +1941,18 @@ function syncRoomBell() {
   bell.title = label;
 }
 
+/** A row another account on this device is still sending, or failed or couldn't confirm sending:
+ *  the room cache is shared, but an unsent row is its sender's own, never a message here (audit
+ *  2026-11-27). Its chain copy, if it went out, comes in as an ordinary row. */
+function isOtherAccountsUnsentRow(m) {
+  return Boolean(m?.status) && String(m.senderAddress || "") !== String(deps?.engine?.address || "");
+}
 function lastVisibleMessage(name) {
   const hidden = hiddenIn(name);
   const rows = messageCache[name] || [];
   for (let i = rows.length - 1; i >= 0; i -= 1) {
     const m = rows[i];
-    if (hidden.has(m.senderAddress)) continue;
+    if (hidden.has(m.senderAddress) || isOtherAccountsUnsentRow(m)) continue;
     if (deps.parseReactionEnvelope?.(m.content)) continue;
     return m;
   }
@@ -2591,7 +2698,7 @@ function renderRoom() {
 
   const hidden = hiddenIn(activeChannel);
   const visibleRoomMessages = (messageCache[activeChannel] || []).filter((m) =>
-    !hidden.has(m.senderAddress) && !deps.parseReactionEnvelope?.(m.content) && !deps.parseEditEnvelope?.(m.content));
+    !hidden.has(m.senderAddress) && !isOtherAccountsUnsentRow(m) && !deps.parseReactionEnvelope?.(m.content) && !deps.parseEditEnvelope?.(m.content));
   // A long voice note: one bubble at its first part, the others hidden (KaPost 1b15521).
   roomParts = groupParts(visibleRoomMessages, ROOM_PART_ACCESSORS);
   for (const [key, cluster] of roomParts.clusters) {
@@ -3059,8 +3166,8 @@ async function probeIndexerForRoom(channel) {
 // that turned out to be tracked gets its history and the 8 s poll, as a default room does.
 function handleTrackedRoomsChanged() {
   if (!deps) return;
-  // a room the operator just added on the indexer joins (bell off), and a switched-off one it
-  // dropped a week ago is left (K 961fc05a IndexerTrackedRooms.didChange)
+  // the listed rooms are noted (K 961fc05a IndexerTrackedRooms.didChange); a room the indexer
+  // dropped is left only from fresh answers (handleTrackedRoomsAnswer), never from a change alone
   if (deps.engine?.address) joinDefaultRooms();
   syncScanWanted();
   renderChannelList();
@@ -3071,6 +3178,15 @@ function handleTrackedRoomsChanged() {
     backfillChannel(channel, { quiet: true });
     startPolling(channel);
   }
+}
+
+/** A fresh `/broadcast-channels` answer (every one, changed or not; after handleTrackedRoomsChanged
+ *  for a changed one): the only thing that counts toward leaving a room the indexer dropped. */
+function handleTrackedRoomsAnswer(answer) {
+  if (!deps?.engine?.address) return;
+  if (!forgetDroppedDefaultRooms({ answer })) return;
+  syncScanWanted();
+  renderChannelList();
 }
 
 function closeRoom() {
@@ -3370,7 +3486,7 @@ function renderRoomInfoPanel() {
   const keptFor = isIndexerTrackedBroadcastChannel(channel) ? (keptDays === 1 ? "1 day" : `${keptDays} days`) : "";
   // What the room shows (iOS messages(forChannel:)): hidden senders are not counted.
   const hidden = hiddenIn(channel);
-  const rows = (messageCache[channel] || []).filter((m) => !hidden.has(m.senderAddress));
+  const rows = (messageCache[channel] || []).filter((m) => !hidden.has(m.senderAddress) && !isOtherAccountsUnsentRow(m));
   const people = new Set(rows.map((m) => m.senderAddress).filter(Boolean)).size;
   const times = rows.map((m) => Number(m.blockTime) || 0).filter(Boolean);
   const fmt = (ms) => new Date(ms).toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
@@ -3537,7 +3653,10 @@ export function resetBroadcastsForAccount() {
   roomNewestSeen.clear();
   failedRoomEdits.clear();
   activeChannel = null;
-  loadState();
+  // The message, reaction and edit caches are every account's (public chain data): the copy in
+  // memory is the complete one, and reading back the trimmed stored copy cut each room's history
+  // with nothing to page it back in (audit 2026-11-27).
+  loadState({ caches: false });
   syncScanWanted();
   renderChannelList();
   renderRoom();
@@ -3747,6 +3866,7 @@ export function initBroadcasts(dependencies) {
   // Rooms added on the indexer count like default rooms (iOS 21c480d): ask which ones on open
   // and on coming back to the app (at most hourly), and follow the set when it changes.
   onIndexerTrackedRoomsChange(handleTrackedRoomsChanged);
+  onTrackedRoomsAnswer(handleTrackedRoomsAnswer);
   refreshIndexerTrackedRooms().catch(() => {});
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refreshIndexerTrackedRooms().catch(() => {});
