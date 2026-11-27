@@ -599,7 +599,8 @@ await check("the Wallet: Send, Receive, Buy, Sell (K 824a30bb); Request Payment 
   assert.match(html, /data-wallet-request>[\s\S]*?<span>Request Payment<\/span>/);
   assert.match(html, /data-wallet-swap-history>[\s\S]*?<span>Buy\/Sell History<\/span>/);
   assert.doesNotMatch(app, /walletSwapAction\.hidden|tabAllowed/);
-  assert.match(app, /\[data-wallet-buy\]"\)\?\.addEventListener\("click", \(\) => openBuySell\("buy"\)\);/);
+  // Buy first asks Crypto or Debit Card on mainnet (tools/test-debit-card-buy.mjs)
+  assert.match(app, /\[data-wallet-buy\]"\)\?\.addEventListener\("click", \(\) => openBuyKaspa\(\)\);/);
   assert.match(app, /\[data-wallet-sell\]"\)\?\.addEventListener\("click", \(\) => openBuySell\("sell"\)\);/);
   assert.equal(AM.sanitizeAmountInput("1,5"), "1.5");
 });

@@ -10913,15 +10913,67 @@ function openBuySell(start, options = {}) {
   try { openSwapFlow(start, options); } catch { /* not started */ }
   setActiveAppTab("swaps");
 }
-document.querySelector("[data-wallet-buy]")?.addEventListener("click", () => openBuySell("buy"));
+document.querySelector("[data-wallet-buy]")?.addEventListener("click", () => openBuyKaspa());
 document.querySelector("[data-wallet-sell]")?.addEventListener("click", () => openBuySell("sell"));
 document.querySelector("[data-wallet-swap-history]")?.addEventListener("click", () => openBuySell("history"));
 // A chat's "Fund your chatting address" card: Buy Kaspa, landing on the Chatting Address (K 824a30bb).
 document.addEventListener("click", (event) => {
   if (!event.target.closest?.("[data-funding-buy]")) return;
   if (fundingGateModalEl && !fundingGateModalEl.hidden) fundingGateModalEl.hidden = true;
-  openBuySell("buy", { toChatting: true });
+  openBuyKaspa({ toChatting: true });
 });
+
+// The Wallet's Buy (K 824a30bb BuyKaspaSheet): Buy Kaspa with Crypto or with Debit Card, on mainnet;
+// elsewhere Buy goes straight to crypto (Trestly sells by card on mainnet only).
+async function openBuyKaspa({ toChatting = false } = {}) {
+  if (!engine.address) return;
+  if (IS_TESTNET) { openBuySell("buy", { toChatting }); return; }
+  const choice = await chooseDialog({
+    title: "Buy Kaspa",
+    options: [
+      { id: "crypto", title: "Buy Kaspa with Crypto", subtitle: "Pay with another coin, like kUSDT or Bitcoin." },
+      { id: "card", title: "Buy Kaspa with Debit Card", subtitle: "Pay by card on Trestly's site. It lands as kUSDT, then you buy Kaspa with it." },
+    ],
+  });
+  if (choice === "crypto") openBuySell("buy", { toChatting });
+  else if (choice === "card") openDebitCardBuy({ toChatting });
+}
+
+// Buy Kaspa with Debit Card on Desktop (owner, 2026-11-27): K runs Trestly's buy page inside the app
+// and signs its one USDC permit as the buyer's Ethereum wallet (K bc0e6ba9 CardBuy); Desktop embeds no
+// sites (CSP frame-src 'none'), so the page opens in a new tab and the buyer's own Ethereum wallet
+// signs there. What K's first step asks stays: "Where should your kUSDT land?", Fresh Address (the
+// default: the next regular address, kept apart from your username and chats) or the Chatting
+// Address. That address is copied before the tab opens, to paste into Trestly's Kaspa address field.
+// Once the kUSDT is in, Buy Kaspa with kUSDT trades it for KAS.
+async function openDebitCardBuy({ toChatting = false } = {}) {
+  if (!engine.address) return;
+  const owner = engine.address;
+  const freshIndex = activeAccountMnemonic() ? getSpendingState(owner).maxIndex + 1 : null;
+  const freshAddress = freshIndex != null ? deriveSpendingAddressAt(freshIndex) : null;
+  const options = [
+    freshAddress ? { id: "fresh", title: "Fresh Address", subtitle: "A new address that has never been used, so this purchase stays apart from your username and chats." } : null,
+    { id: "chatting", title: "Chatting Address", subtitle: "The address you chat from." },
+  ].filter(Boolean);
+  if (toChatting) options.reverse();
+  const choice = await chooseDialog({
+    title: "Where should your kUSDT land?",
+    message: "Trestly's buy page opens in a new tab. Its card payment buys USDC into your own Ethereum wallet, which signs once, and Trestly's bridge sends it to this address as kUSDT. The address is copied for you to paste there.",
+    options,
+  });
+  if (!choice || engine.address !== owner) return;
+  const address = choice === "fresh" ? freshAddress : owner;
+  if (!address) return;
+  try { await copyTextToClipboard(address); } catch { /* shown below to copy by hand */ }
+  const site = String(kusdtDeployment(NETWORK_ID)?.siteUrl || "https://trestly.io").replace(/\/+$/, "");
+  window.open(`${site}/buy`, "_blank", "noopener,noreferrer");
+  // the fresh address joins Manage Addresses (and kUSDT's lookups) now that it's handed out
+  if (choice === "fresh" && getSpendingState(owner).maxIndex < freshIndex) {
+    saveSpendingState({ maxIndex: freshIndex }, owner);
+    try { renderSpendingList(); } catch { /* the address screens are not up */ }
+  }
+  showCopyToast(`${addressCopiedToastText(address)}. Paste it into Trestly's Kaspa address field.`);
+}
 document.querySelector("[data-wallet-refresh]")?.addEventListener("click", async (event) => {
   const button = event.currentTarget;
   button.classList.add("spinning");
@@ -13479,7 +13531,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 360;
+const APP_BUILD = 361;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
