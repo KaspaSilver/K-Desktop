@@ -20,8 +20,9 @@ test("Receive: regular slots, recycled hidden unused ones first, else past the r
   assert.match(fn, /return state\.maxIndex \+ 1;/);
 });
 test("Address Actions: a Generate row for each kind, iOS's words", () => {
-  assert.match(app, /\{ id: "generate-regular", title: "Generate Non-Quantum Address", subtitle: "A regular address, like Receive gives you\. Works with everything, kUSDT included\." \}/);
-  assert.match(app, /\{ id: "generate", title: "Generate Quantum-Resistant Address", subtitle: "Keeps its key hidden until it spends\. For Kaspa only: kUSDT can't be traded from it\." \}/);
+  // the floating + asks which (K 824a30bb), with the kUSDT warning on the quantum one
+  assert.match(app, /\{ id: "generate-regular", title: "Regular Address", subtitle: "Like Receive gives you\. Works with everything, kUSDT included\." \}/);
+  assert.match(app, /\{ id: "generate", title: "Quantum-Protected Address", subtitle: "Keeps its key hidden until it spends\. kUSDT can't be sent to or received on it\." \}/);
   assert.match(app, /if \(isQuantumIndex\(i\) !== quantum\) continue;/);
 });
 test("Wallet's sweep shows only new addresses; one you hid stays hidden", () => {

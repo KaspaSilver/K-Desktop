@@ -26,12 +26,12 @@ await test("no Terms to agree to on the website (owner, 2026-11-21); the text st
   assert.doesNotMatch(read("ui", "kapost-terms.css"), /kapost-terms-cover/);
 });
 
-await test("every Manage kUSDT row has its menu; the Chatting Address's is Copy, QR, Combine", () => {
+await test("Manage kUSDT's cards (K 824a30bb): Copy, Send, Receive, Rename (not the Chatting Address); the ⋮ keeps the rest", () => {
   assert.doesNotMatch(kusdt, /chatting-address-row-chevron kusdt-row-chevron/);
-  assert.match(kusdt, /chatting \? null : \{ id: "rename"/);
+  assert.match(kusdt, /chatting \? null : \{ id: "rename", title: "Rename" \}/);
   assert.match(kusdt, /chatting \? null : \{ id: "send-chatting"/);
   assert.match(kusdt, /chatting \? null : \{ id: "hide"/);
-  assert.match(kusdt, /\{ id: "copy", title: "Copy Address"/);
+  assert.match(kusdt, /const hasMore = !chatting \|\| h\.coinCount > 1;/, "the Chatting Address's ⋮ only with Combine Coins");
 });
 
 await test("the new icon set is there and is the tab icon", () => {

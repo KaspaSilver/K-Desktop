@@ -20,7 +20,8 @@ function test(name, fn) {
 
 test("the chatting address shows Contains domain, and is asked about first", () => {
   assert.match(app, /function chattingAddressRowHtml\(hasDomain = false\) \{/);
-  assert.match(app, /<span class="spending-address-usage chatting-used">Used<\/span>\$\{domainTag\}/);
+  // the card's Used, then Contains username (K 824a30bb ManagedAddressCard)
+  assert.match(app, /<span class="address-card-usage used">Used<\/span>\n\s*\$\{domainTag\}/);
   assert.match(app, /const domainLookup = \[\.\.\.\(engine\.address \? \[engine\.address\] : \[\]\), \.\.\.enriched\.map\(\(e\) => e\.address\)\];/);
   assert.match(app, /kachatOwnersOfNames\(domainLookup\)/);
   assert.match(app, /chattingAddressRowHtml\(domainOwning\.has\(engine\.address\)\)/);

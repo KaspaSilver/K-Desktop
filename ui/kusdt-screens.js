@@ -75,7 +75,7 @@ export const KUSDT_TEXT = Object.freeze({
   risk: "Not independently audited yet. Hold only what you can afford to lose.",
   aboutCoin: "Every kUSDT coin holds 1.5 KAS. It goes along with the kUSDT when you send it.",
   emptyTitle: "No kUSDT Yet",
-  emptyText: "Receive it on a fresh address, or swap KAS for it with Swap on the Wallet tab.",
+  emptyText: "Receive it on a fresh address, or sell KAS for it with Sell on the Wallet tab.",
   historyEmpty: "No kUSDT activity yet.",
   historyEmptyNote: "Sends, receives and combines on this computer show here from now on.",
   visibilityEmptyPage: "These addresses couldn't be derived right now. Go back a page or reopen this screen to retry.",
@@ -1013,27 +1013,40 @@ function mountManage() {
       <header class="chatting-address-header">
         ${backButtonHtml("data-kusdt-manage-close")}
         <span class="chatting-address-balance">Manage ${esc(SYMBOL)}</span>
-        <button class="chatting-address-back domains-refresh" type="button" data-kusdt-manage-refresh aria-label="Refresh" title="Refresh">${KUSDT_ICONS.refresh}</button>
+        <!-- laid out as Manage Addresses (K 824a30bb): Discover kUSDT Addresses (K pulls for it) and
+             kUSDT Address Visibility at the top right -->
+        <div class="manage-address-toolbar">
+          <button class="manage-address-icon-button" type="button" data-kusdt-manage-refresh aria-label="Discover ${esc(SYMBOL)} Addresses" title="Discover ${esc(SYMBOL)} Addresses">${KUSDT_ICONS.refresh}</button>
+          <button class="manage-address-icon-button" type="button" data-kusdt-manage-visibility aria-label="${esc(SYMBOL)} Address Visibility" title="${esc(SYMBOL)} Address Visibility">${KUSDT_ICONS.checklist}</button>
+        </div>
       </header>
       <div class="manage-address-body">
         <div data-kusdt-manage-summary></div>
         <div class="manage-address-list kusdt-holding-list" data-kusdt-manage-list></div>
       </div>
-      <button type="button" class="spending-actions-fab" data-kusdt-actions aria-label="${esc(SYMBOL)} Actions" title="${esc(SYMBOL)} Actions">${KUSDT_ICONS.sliders}</button>
+      <button type="button" class="spending-actions-fab" data-kusdt-actions aria-label="New Address" title="New Address"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
     </div>`);
   manageEl.querySelector("[data-kusdt-manage-close]").addEventListener("click", () => { manageEl.hidden = true; });
   manageEl.querySelector("[data-kusdt-manage-refresh]").addEventListener("click", async (event) => {
     const button = event.currentTarget;
     button.classList.add("spinning");
     button.disabled = true;
-    try { await wallet.discover(); } finally { button.classList.remove("spinning"); button.disabled = false; }
+    try { await runDiscover(); } finally { button.classList.remove("spinning"); button.disabled = false; }
   });
-  manageEl.querySelector("[data-kusdt-actions]").addEventListener("click", () => openActionsSheet());
+  manageEl.querySelector("[data-kusdt-manage-visibility]").addEventListener("click", () => openVisibility());
+  // the floating + adds a fresh regular address (K 824a30bb; the kUSDT Actions sheet is gone)
+  manageEl.querySelector("[data-kusdt-actions]").addEventListener("click", async () => {
+    const number = await wallet.generateFresh();
+    if (number != null) deps.showToast?.(`Address #${number} is ready.`);
+    renderManage();
+  });
   manageEl.addEventListener("click", (event) => {
     if (event.target.closest("[data-kusdt-about]")) { openAboutKusdt(); return; }
     if (event.target.closest("[data-kusdt-hidden-note]")) { openVisibility(); return; }
     const menu = event.target.closest("[data-kusdt-row-menu]");
     if (menu) { event.stopPropagation(); openRowMenu(menu.dataset.kusdtRowMenu); return; }
+    const action = event.target.closest("[data-kusdt-card-action]");
+    if (action) { event.stopPropagation(); if (!action.disabled) runCardAction(action.dataset.kusdtCardAction, action.dataset.id); return; }
     const row = event.target.closest("[data-kusdt-row]");
     if (row) openAddressPage(row.dataset.kusdtRow);
   });
@@ -1053,21 +1066,56 @@ function summaryHtml() {
   </div>`;
 }
 
+// Each address on the card Manage Addresses uses (K 824a30bb ManagedAddressCard), with no quantum tag:
+// kUSDT is never on a quantum address. Copy, Send, Receive and Rename (not the Chatting Address), Tap
+// to View History; the ⋮ holds Send to Chatting Address, Combine Coins and Hide.
+const CARD_ICONS = {
+  copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
+  send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+  receive: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
+  rename: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.9 4.5a2.1 2.1 0 0 1 3 3L8.5 18.9 4 20l1.1-4.5Z"/></svg>',
+};
 function holdingRowHtml(h) {
   const label = holdingLabel(h);
   const used = isHoldingUsed(h, { usedIndices: manageUsed, activity: wallet.activity() });
   const chatting = h.spendingIndex == null;
+  const id = esc(h.id);
+  const buttons = [
+    { id: "copy", title: "Copy" },
+    { id: "send", title: "Send", disabled: !(h.units > 0n) },
+    { id: "receive", title: "Receive" },
+    chatting ? null : { id: "rename", title: "Rename" },
+  ].filter(Boolean);
+  const hasMore = !chatting || h.coinCount > 1;
   return `
-    <div class="spending-address-row kusdt-holding-row${chatting ? " chatting-address-row" : ""}">
-      <button type="button" class="spending-address-row-main" data-kusdt-row="${esc(h.id)}" aria-label="Open ${esc(label)}">
-        <span class="spending-address-label">${esc(label)}<span class="kusdt-row-icon${chatting ? " chatting" : ""}">${chatting ? KUSDT_ICONS.chat : KUSDT_ICONS.eyeSlash}</span></span>
-        <span class="spending-address-value">${esc(shortKusdtAddress(h.address))}</span>
-        <span class="spending-address-balance kusdt-row-amount">${esc(formatKusdt(h.units))}<small>${esc(`${kas(BigInt(h.coinCount) * KAS_PER_COIN)} held with it`)}</small></span>
-        <span class="spending-address-row-tags"><span class="spending-address-usage ${used ? "used" : "unused"}">${used ? "Used" : "Unused"}</span></span>
-      </button>
-      ${/* Every row has its ⋮, the Chatting Address's too (KaChat iOS 148a5331, owner's call). */ ""}
-      <div class="spending-address-row-menu-wrap"><button type="button" class="spending-row-menu-btn" data-kusdt-row-menu="${esc(h.id)}" aria-label="Address Actions">${KUSDT_ICONS.ellipsisVertical}</button></div>
+    <div class="spending-address-row address-card kusdt-holding-row${chatting ? " chatting-address-row" : ""}">
+      <div class="address-card-body" data-kusdt-row="${id}" role="button" tabindex="0" aria-label="Open ${esc(label)}">
+        <span class="address-card-head"><strong class="address-card-name">${esc(label)}</strong>
+          ${hasMore ? `<span class="spending-address-row-menu-wrap"><button type="button" class="spending-row-menu-btn" data-kusdt-row-menu="${id}" aria-label="More">${KUSDT_ICONS.ellipsisVertical}</button></span>` : ""}
+        </span>
+        <span class="address-card-amount">${esc(formatKusdt(h.units))}</span>
+        <span class="address-card-worth">${esc(`${kusdtDollars(h.units)} · ${kas(BigInt(h.coinCount) * KAS_PER_COIN)} held with it`)}</span>
+        <span class="address-card-usage ${used ? "used" : "unused"}">${used ? "Used" : "Unused"}</span>
+        <span class="address-card-actions">${buttons.map((b) => `<button type="button" class="address-card-action" data-kusdt-card-action="${b.id}" data-id="${id}"${b.disabled ? " disabled" : ""}><span class="address-card-action-circle">${CARD_ICONS[b.id]}</span><span>${esc(b.title)}</span></button>`).join("")}</span>
+        <span class="address-card-history">Tap to View History<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
+      </div>
     </div>`;
+}
+async function runCardAction(what, id) {
+  const h = wallet.holdingById(id);
+  if (!h) return;
+  if (what === "copy") {
+    try { await deps.copyText(h.address); deps.showToast?.(deps.addressCopiedToastText?.(h.address) || "Address copied"); } catch { /* clipboard blocked */ }
+  } else if (what === "send") {
+    if (h.units > 0n) openKusdtSend({ startFrom: h });
+  } else if (what === "receive") {
+    openKusdtReceive({ fixedHolding: h });
+  } else if (what === "rename" && h.spendingIndex != null) {
+    const next = await promptDialog({ title: "Rename Address", label: "Label", message: "Give this address a label to help you recognize it.", initial: deps.customLabel?.(h.spendingIndex) || "", confirmLabel: "Save" });
+    if (next == null) return;
+    deps.renameSpending?.(h.spendingIndex, String(next).trim());
+    renderManage();
+  }
 }
 
 function renderManage() {
@@ -1097,13 +1145,10 @@ export function openManageKusdt() {
 async function openRowMenu(id) {
   const h = wallet.holdingById(id);
   if (!h) return;
-  // The Chatting Address's ⋮ has only Copy, Show QR Code and Combine Coins (KaChat iOS 148a5331):
-  // it can't be renamed, hidden or sent to itself.
+  // The ⋮ holds Send to Chatting Address, Combine Coins (more than one coin) and Hide; the Chatting
+  // Address's only Combine Coins (K 824a30bb): Copy, Send, Receive and Rename are the card's.
   const chatting = h.spendingIndex == null;
   const options = [
-    chatting ? null : { id: "rename", title: "Rename Address", subtitle: "Gives this address a label of your own." },
-    { id: "copy", title: "Copy Address", subtitle: "Puts the full address on the clipboard." },
-    { id: "qr", title: "Show QR Code", subtitle: "Full screen, for scanning with another device." },
     chatting ? null : { id: "send-chatting", title: "Send to Chatting Address", subtitle: "Moves kUSDT from this address to your Chatting Address.", disabled: !(h.units > 0n) },
     h.coinCount > 1 ? { id: "combine", title: "Combine Coins", subtitle: "Merges its coins into one and gives the extra KAS back." } : null,
     chatting ? null : { id: "hide", title: "Hide Address", subtitle: `Removes it from this list. Re-enable it in ${SYMBOL} Address Visibility.`, destructive: true },
@@ -1129,47 +1174,9 @@ async function openRowMenu(id) {
   }
 }
 
-// kUSDT Actions (iOS actionsSheet): Generate, Discover, Visibility. Discover belongs to the screen:
-// closing the sheet doesn't stop it.
+// Discover belongs to the screen (K 824a30bb: the top right's button, a pull on K): leaving doesn't
+// stop it.
 let discovering = null; // { checking, found, account }
-async function openActionsSheet() {
-  const progressHtml = () => (discovering ? `<div class="kusdt-discover-progress" data-kusdt-discover-progress>
-      ${spinnerLine(`Checking address #${discovering.checking}`)}
-      <p class="field-hint">${esc(discovering.found ? `${discovering.found} found so far` : `No addresses with ${SYMBOL} yet`)}</p>
-    </div>` : "");
-  const pick = await openChoiceSheet({
-    title: `${SYMBOL} Actions`,
-    extraHtml: '<div data-kusdt-discover-slot></div>',
-    rows: [
-      { id: "generate", iconHtml: iconHtml("plusSquares"), title: "Generate New Address", subtitle: "Adds a brand-new regular address of yours to this list.", chevron: false },
-      { id: "discover", iconHtml: iconHtml("magnifier"), title: "Discover kUSDT Addresses", subtitle: "Finds your addresses holding kUSDT.", disabled: Boolean(discovering), chevron: false },
-      { id: "visibility", iconHtml: iconHtml("checklist"), title: "kUSDT Address Visibility", subtitle: "Check off which addresses holding kUSDT are on the list.", chevron: false },
-    ],
-    onMount: (host) => {
-      const slot = host.querySelector("[data-kusdt-discover-slot]");
-      slot.innerHTML = progressHtml();
-      if (discovering) host.querySelector(".kusdt-sheet-cancel").textContent = "Close and Keep Scanning";
-      actionsSheetPaint = () => {
-        if (host.hidden) { actionsSheetPaint = null; return; }
-        slot.innerHTML = progressHtml();
-        const discoverRow = host.querySelector('[data-kusdt-sheet-pick="discover"]');
-        if (discoverRow) discoverRow.disabled = Boolean(discovering);
-        host.querySelector(".kusdt-sheet-cancel").textContent = discovering ? "Close and Keep Scanning" : "Cancel";
-      };
-    },
-  });
-  actionsSheetPaint = null;
-  if (pick === "generate") {
-    const number = await wallet.generateFresh();
-    if (number != null) deps.showToast?.(`Address #${number} is ready.`);
-    renderManage();
-  } else if (pick === "discover") {
-    runDiscover();
-    openActionsSheet();
-  } else if (pick === "visibility") {
-    openVisibility();
-  }
-}
 async function runDiscover() {
   if (discovering) return;
   const owner = deps.account();
@@ -1310,7 +1317,7 @@ function mountAddressPage() {
         <p class="settings-group-label kusdt-history-title">${esc(SYMBOL)} History</p>
         <div class="manage-address-list kusdt-history" data-kusdt-page-history></div>
       </div>
-      <div class="manage-address-actions">
+      <div class="manage-address-actions" data-kusdt-page-actions hidden>
         <button type="button" class="chatting-address-copy" data-kusdt-page-receive>${KUSDT_ICONS.qr}<span>Receive</span></button>
         <button type="button" class="chatting-address-copy manage-address-send-button" data-kusdt-page-send>${KUSDT_ICONS.send}<span>Send</span></button>
       </div>
@@ -1373,7 +1380,8 @@ function renderAddressPage() {
   pageEl.querySelector("[data-kusdt-page-card]").innerHTML = `
     <span class="spending-detail-balance-label">${esc(holdingLabel(h))}</span>
     <span class="spending-detail-balance-value">${esc(formatKusdt(h.units))}</span>
-    <small class="kusdt-page-kas">${esc(`${kas(BigInt(h.coinCount) * KAS_PER_COIN)} held with it`)}</small>`;
+    <small class="kusdt-page-kas">${esc(`${kas(BigInt(h.coinCount) * KAS_PER_COIN)} held with it`)}</small>
+    <code class="spending-detail-address">${esc(h.address)}</code>`;
   const rows = wallet.activity(h);
   pageEl.querySelector("[data-kusdt-page-history]").innerHTML = rows.length
     ? rows.map(activityRowHtml).join("")
@@ -1489,7 +1497,7 @@ const GUIDE_CARDS = [
   { icon: "arrowUp", title: "Sending kUSDT", detail: "A send takes a little KAS from the same address for the network fee, plus 1.5 KAS for your change coin when you keep some kUSDT. If the address is short, Fund This Address tops it up from another of your addresses." },
   { icon: "merge", title: "Combine Coins", detail: "Each payment you receive is its own coin with its own 1.5 KAS. Combine Coins, in an address's menu, merges them into one and gives the extra KAS back." },
   // Desktop rewrite (owner, 2026-11-20): Trestly's own site, in a new tab, not inside the app.
-  { icon: "swap", title: "Swapping", detail: "To swap KAS and kUSDT, click Swap on the Wallet tab and choose kUSDT (Kaspa). K trades it through Trestly's pool with Trestly's own code, and asks you to approve each swap before anything is signed. To add to the pool, use Trestly's own site." },
+  { icon: "swap", title: "Swapping", detail: "To trade KAS and kUSDT, click Buy or Sell on the Wallet tab and choose kUSDT (Kaspa). K trades it through Trestly's pool with Trestly's own code, and asks you to approve each swap before anything is signed. To add to the pool, use Trestly's own site." },
   { icon: "clock", title: "History", detail: "kUSDT history is kept on this computer: sends, combines and payments received from now on. What happened before, or in another app, isn't shown." },
   { icon: "warning", title: "The Risks", detail: KUSDT_TEXT.risk, tone: "warn" },
 ];

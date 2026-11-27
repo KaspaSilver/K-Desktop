@@ -116,8 +116,10 @@ await test("the chats tab is Chats (K 47631a48, was KaChat); the wallet tab is W
   assert.match(app, /wallet: "Wallet", kachat: ".kachat", mention: "Mention" \};/);
   const kusdt = read("ui", "kusdt-screens.js");
   assert.doesNotMatch(kusdt, /KaPay tab/);
-  // K 5.4: Swap Stablecoins went; the Wallet's Swap button is named instead.
-  assert.equal((kusdt.match(/Swap on the Wallet tab/g) || []).length, 2);
+  // K 5.4: Swap Stablecoins went; since K 824a30bb the Wallet's Buy and Sell are named instead.
+  assert.doesNotMatch(kusdt, /Swap on the Wallet tab/);
+  assert.match(kusdt, /with Sell on the Wallet tab\./);
+  assert.match(kusdt, /click Buy or Sell on the Wallet tab/);
   assert.doesNotMatch(kusdt, /Swap Stablecoins on the Wallet tab/);
   assert.doesNotMatch(html, /KaPay<\/(span|h1)>/);
 });

@@ -10078,7 +10078,7 @@ function openOwnAddressHistory(address) {
     setManageAddressTab("transactions");
     openManageAddressScreen();
   } else if (found.kind === "spending") {
-    openSpendingDetailScreen(found.index);
+    openSpendingDetailScreen(found.index, { showsSendReceive: true });
   } else {
     setActiveAppTab("cold-storage");
     openColdAddressHistory(address)
@@ -11090,70 +11090,100 @@ async function refreshSpendingSummary() {
 // "primary" here: no star, no Set as Primary, no Send All To Primary.
 // Each spending row: click the body to open the address's detail (transactions + send/receive);
 // the ⋯ button opens Rename / Copy / Show QR / Hide.
-// The quantum-safe (KIP-22) state of a row, told honestly (iOS bba1b1e quantumShield):
-// - shield: the key has never been on chain (receiving any number of times reveals nothing).
-// - slashed shield: this address SPENT once, so its key is public forever; orange when funds sit on
-//   it again (move them to a fresh address), gray when it is empty.
-const QUANTUM_SHIELD_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2 4 5.3v6.2c0 5 3.4 9.3 8 10.5 4.6-1.2 8-5.5 8-10.5V5.3Z"/></svg>';
-// shield.slash.fill: the shield with a gap cut along the slash (the mask), then the slash itself.
-const QUANTUM_SHIELD_SLASH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><defs><mask id="quantum-shield-cut"><rect width="24" height="24" fill="#fff"/><path d="M3.5 3.5 20.5 20.5" stroke="#000" stroke-width="5.4" stroke-linecap="round"/></mask></defs><path mask="url(#quantum-shield-cut)" d="M12 2.2 4 5.3v6.2c0 5 3.4 9.3 8 10.5 4.6-1.2 8-5.5 8-10.5V5.3Z"/><path class="quantum-shield-slash" d="M3.5 3.5 20.5 20.5"/></svg>';
-function quantumShieldHtml(index, spent, funded) {
-  if (spent) {
-    return `<span class="quantum-shield spent${funded ? " funded" : ""}" data-quantum-shield="${index}" role="img" aria-label="Key revealed by a spend" title="Key revealed by a spend">${QUANTUM_SHIELD_SLASH_SVG}</span>`;
-  }
-  return `<span class="quantum-shield safe" data-quantum-shield="${index}" role="img" aria-label="Quantum-safe" title="Quantum-safe">${QUANTUM_SHIELD_SVG}</span>`;
+// Each address is a card like the Total Balance card (K 824a30bb ManagedAddressCard, owner
+// 2026-11-26): its name with the Quantum Protected / Not Quantum Protected tag beside it, the ⋮, the
+// balance large, its worth in your currency, Used / Unused (large), Contains username, then Copy,
+// Send, Receive and Rename (no Rename on the Chatting Address), and "Tap to View History". The
+// address itself isn't on the card; its history page shows it in full.
+/** The quantum tag (K QuantumProtectionTag): green on a quantum address that never spent; orange on
+ *  one whose key a spend revealed while funds sit on it; gray otherwise (a regular address too). */
+function quantumTagHtml(index, spent, funded) {
+  const quantum = isQuantumIndex(index);
+  const protectedNow = quantum && !spent;
+  const tone = protectedNow ? "safe" : (quantum && spent && funded ? "warn" : "plain");
+  return `<span class="quantum-tag ${tone}" data-quantum-shield="${index}">${protectedNow ? "Quantum Protected" : "Not Quantum Protected"}</span>`;
+}
+function addressCardWorthHtml(kasText) {
+  const kas = Number(String(kasText || "").replace(/[^0-9.]/g, ""));
+  if (!Number.isFinite(kas) || String(kasText || "").startsWith("--") || kasText === "…") return "";
+  const fiat = kasFiatTextNow(kas, () => { if (spendingManageScreen && !spendingManageScreen.hidden) renderSpendingList(); });
+  return fiat ? `<span class="address-card-worth">${escapeHtml(fiat.replace(/^≈\s*/, ""))}</span>` : "";
+}
+const ADDRESS_CARD_ICONS = {
+  copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
+  send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+  receive: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
+  rename: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.9 4.5a2.1 2.1 0 0 1 3 3L8.5 18.9 4 20l1.1-4.5Z"/></svg>',
+};
+function addressCardButtonsHtml(buttons) {
+  return `<span class="address-card-actions">${buttons.map((b) => `<button type="button" class="address-card-action" ${b.attr}${b.disabled ? " disabled" : ""}><span class="address-card-action-circle">${ADDRESS_CARD_ICONS[b.icon]}</span><span>${escapeHtml(b.title)}</span></button>`).join("")}</span>`;
+}
+function addressCardUsageHtml(used) {
+  return used === true
+    ? '<span class="address-card-usage used">Used</span>'
+    : used === false
+      ? '<span class="address-card-usage unused">Unused</span>'
+      : '<span class="address-card-usage checking">Checking</span>';
 }
 function spendingRowHtml(index, address, state, balanceText, used, hasDomain = false, { funded = false } = {}) {
   const label = spendingLabelFor(state, index);
-  const shield = isQuantumIndex(index) ? quantumShieldHtml(index, state.qSpent?.includes(String(address || "").toLowerCase()), funded) : "";
-  // Three states (iOS): Used, Unused, and Checking while the history probe has not answered -
-  // claiming "Unused" before it has could invite address reuse.
-  const usage = used === true
-    ? '<span class="spending-address-usage used">Used</span>'
-    : used === false
-      ? '<span class="spending-address-usage unused">Unused</span>'
-      : '<span class="spending-address-usage checking">Checking</span>';
+  const tag = quantumTagHtml(index, state.qSpent?.includes(String(address || "").toLowerCase()), funded);
   const domainTag = hasDomain ? '<span class="spending-address-domain-tag">Contains username</span>' : "";
-  // Any address can be hidden, funded ones too (iOS 245a5d2): it comes back from Address Visibility.
+  // The ⋮ keeps Send to Chatting Address and Hide (K 824a30bb); the rest are the card's buttons.
   const menuItems = [
     `<button type="button" role="menuitem" class="spending-row-menu-item" data-spending-action="rename" data-index="${index}">Rename Address</button>`,
     `<button type="button" role="menuitem" class="spending-row-menu-item" data-spending-action="copy" data-index="${index}">Copy Address</button>`,
     `<button type="button" role="menuitem" class="spending-row-menu-item" data-spending-action="receive" data-index="${index}">Show QR Code</button>`,
+    `<button type="button" role="menuitem" class="spending-row-menu-item" data-spending-action="send" data-index="${index}">Send</button>`,
     `<button type="button" role="menuitem" class="spending-row-menu-item" data-spending-action="hide" data-index="${index}">Hide Address</button>`,
   ].join("");
   return `
-    <div class="spending-address-row" data-spending-row="${index}"${funded ? " data-spending-funded" : ""}>
-      <button type="button" class="spending-address-row-main" data-spending-open="${index}" aria-label="Open ${escapeHtml(label)}">
-        <span class="spending-address-label">${escapeHtml(label)}${shield}</span>
-        <span class="spending-address-value">${escapeHtml(spendingShortAddress(address))}</span>
-        <span class="spending-address-balance" data-spending-balance-cell="${index}">${escapeHtml(balanceText)}</span>
-        <span class="spending-address-row-tags">${usage}${domainTag}</span>
-      </button>
-      <div class="spending-address-row-menu-wrap">
-        <button type="button" class="spending-row-menu-btn" data-spending-menu-toggle="${index}" aria-label="Address actions for ${escapeHtml(label)}">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
-        </button>
-        <div class="spending-row-menu" data-spending-menu="${index}" role="menu" hidden>${menuItems}</div>
+    <div class="spending-address-row address-card" data-spending-row="${index}"${funded ? " data-spending-funded" : ""}>
+      <div class="address-card-body" data-spending-open="${index}" role="button" tabindex="0" aria-label="Open ${escapeHtml(label)}">
+        <span class="address-card-head"><strong class="address-card-name">${escapeHtml(label)}</strong>${tag}
+          <span class="spending-address-row-menu-wrap">
+            <button type="button" class="spending-row-menu-btn" data-spending-menu-toggle="${index}" aria-label="More for ${escapeHtml(label)}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+            </button>
+            <span class="spending-row-menu" data-spending-menu="${index}" role="menu" hidden>${menuItems}</span>
+          </span>
+        </span>
+        <span class="address-card-amount" data-spending-balance-cell="${index}">${escapeHtml(balanceText)}</span>
+        ${addressCardWorthHtml(balanceText)}
+        ${addressCardUsageHtml(used)}
+        ${domainTag}
+        ${addressCardButtonsHtml([
+          { attr: `data-spending-card-action="copy" data-index="${index}"`, icon: "copy", title: "Copy" },
+          { attr: `data-spending-card-action="send" data-index="${index}"`, icon: "send", title: "Send", disabled: !funded },
+          { attr: `data-spending-card-action="receive" data-index="${index}"`, icon: "receive", title: "Receive" },
+          { attr: `data-spending-card-action="rename" data-index="${index}"`, icon: "rename", title: "Rename" },
+        ])}
+        <span class="address-card-history">Tap to View History<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
       </div>
     </div>`;
 }
 
-// The chatting address, first in the list (iOS 6333dd3 chattingAddressRow): it opens its own
-// screen (history, UTXOs, Domains, Send / Receive), the one Profile's Chatting row used to.
+// The chatting address, first in the list (iOS 6333dd3 chattingAddressRow), on the same card: Copy,
+// Send and Receive (it keeps its name), and its history opens its own screen.
 function chattingAddressRowHtml(hasDomain = false) {
-  const address = engine.address || "";
-  // Contains username beside Used when it holds a .kachat name (K 428a797b ManageAddressesView).
   const domainTag = hasDomain ? '<span class="spending-address-domain-tag">Contains username</span>' : "";
   const balanceText = currentBalanceKas != null && currentBalanceKas !== "" ? `${formatKasExact(currentBalanceKas)} ${KAS_UNIT}` : `-- ${KAS_UNIT}`;
+  const funded = Number(currentBalanceKas) > 0;
   return `
-    <div class="spending-address-row chatting-address-row">
-      <button type="button" class="spending-address-row-main" data-spending-open-chatting aria-label="Open Chatting Address">
-        <span class="spending-address-label">Chatting Address<svg class="chatting-address-row-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 6.5A2.5 2.5 0 0 1 5 4h8.5A2.5 2.5 0 0 1 16 6.5v3A2.5 2.5 0 0 1 13.5 12H7.5L4 15v-3.2A2.5 2.5 0 0 1 2.5 9.5Z"/><path d="M10.5 11.5A2.5 2.5 0 0 1 13 9h6.5A2.5 2.5 0 0 1 22 11.5v3A2.5 2.5 0 0 1 19.5 17h-3L13 20v-3h0a2.5 2.5 0 0 1-2.5-2.5Z"/></svg></span>
-        <span class="spending-address-value">${escapeHtml(spendingShortAddress(address))}</span>
-        <span class="spending-address-balance" data-chatting-row-balance>${escapeHtml(balanceText)}</span>
-        <span class="spending-address-row-tags"><span class="spending-address-usage chatting-used">Used</span>${domainTag}</span>
-      </button>
-      <svg class="chatting-address-row-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+    <div class="spending-address-row address-card chatting-address-row">
+      <div class="address-card-body" data-spending-open-chatting role="button" tabindex="0" aria-label="Open Chatting Address">
+        <span class="address-card-head"><strong class="address-card-name">Chatting Address</strong><span class="quantum-tag plain">Not Quantum Protected</span></span>
+        <span class="address-card-amount" data-chatting-row-balance>${escapeHtml(balanceText)}</span>
+        ${addressCardWorthHtml(balanceText)}
+        <span class="address-card-usage used">Used</span>
+        ${domainTag}
+        ${addressCardButtonsHtml([
+          { attr: 'data-chatting-card-action="copy"', icon: "copy", title: "Copy" },
+          { attr: 'data-chatting-card-action="send"', icon: "send", title: "Send", disabled: !funded },
+          { attr: 'data-chatting-card-action="receive"', icon: "receive", title: "Receive" },
+        ])}
+        <span class="address-card-history">Tap to View History<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
+      </div>
     </div>`;
 }
 
@@ -11284,7 +11314,7 @@ async function renderSpendingList() {
     if (await quantumAddressSpentState(e.address) !== true) continue;
     if (token !== spendingListToken) return;
     const cell = spendingListEl.querySelector(`[data-quantum-shield="${e.index}"]`);
-    if (cell) cell.outerHTML = quantumShieldHtml(e.index, true, e.kas > 0);
+    if (cell) cell.outerHTML = quantumTagHtml(e.index, true, e.kas > 0);
   }
 }
 
@@ -11675,6 +11705,25 @@ spendingRowSwipes = spendingListEl ? attachRowSwipes(spendingListEl, {
 }) : null;
 
 spendingListEl?.addEventListener("click", async (event) => {
+  // A card's own buttons (K 824a30bb ManagedAddressCard): Copy, Send, Receive, Rename.
+  const cardAction = event.target.closest("[data-spending-card-action]");
+  if (cardAction) {
+    event.stopPropagation();
+    if (cardAction.disabled) return;
+    spendingListEl.querySelector(`[data-spending-action="${cardAction.dataset.spendingCardAction}"][data-index="${cardAction.dataset.index}"]`)?.click();
+    return;
+  }
+  const chattingAction = event.target.closest("[data-chatting-card-action]");
+  if (chattingAction) {
+    event.stopPropagation();
+    if (chattingAction.disabled || !engine.address) return;
+    const what = chattingAction.dataset.chattingCardAction;
+    if (what === "copy") {
+      try { await copyTextToClipboard(engine.address); showCopyToast(addressCopiedToastText(engine.address)); } catch (error) { appendEngineLog(error.message); }
+    } else if (what === "send") openSendKaspaModal();
+    else if (what === "receive") openChattingAddressScreen();
+    return;
+  }
   const btn = event.target.closest("[data-spending-action]");
   if (btn) {
     closeAllSpendingMenus();
@@ -11690,6 +11739,9 @@ spendingListEl?.addEventListener("click", async (event) => {
       const addr = deriveSpendingAddressAt(index);
       if (!addr) { showCopyToast("Address is not ready yet."); return; }
       openSpendingQrScreen(index, addr);
+    } else if (action === "send") {
+      // Send Kaspa from this address (K 824a30bb: the card's Send)
+      openSendKaspaModal({ spendingIndex: index, lockSource: true });
     } else if (action === "rename") {
       // Starts from the address's own label, empty when it has none (iOS renameText = entry.label ?? "").
       const current = spendingCustomLabel(state, index);
@@ -11722,10 +11774,9 @@ spendingListEl?.addEventListener("click", async (event) => {
     const state = getSpendingState();
     const address = deriveSpendingAddressAt(index);
     // No Set as Primary any more (iOS 6333dd3); Hide for every address (245a5d2).
+    // The ⋮ keeps Send to Chatting Address and Hide (K 824a30bb): Copy, Send, Receive and Rename
+    // are the card's buttons.
     const options = [
-      { id: "rename", title: "Rename Address", subtitle: "Gives this address a label of your own." },
-      { id: "copy", title: "Copy Address", subtitle: "Puts the full address on the clipboard." },
-      { id: "receive", title: "Show QR Code", subtitle: "Full screen, for scanning with another device." },
       // KaChat iOS 5b7c772c / KaPay 17bda71: this address's Kaspa to the chatting address.
       { id: "send-chatting", title: "Send to Chatting Address", subtitle: "Moves Kaspa from this address to your Chatting Address.", disabled: !menuToggle.closest("[data-spending-row]")?.hasAttribute("data-spending-funded") },
       { id: "hide", title: "Hide Address", subtitle: "Removes it from this list. Re-enable it in Address Visibility." },
@@ -12138,12 +12189,16 @@ function paintKachatAddressDomains(panelSelector, address) {
   if (el && address) renderAddressDomainsTab(el, address);
 }
 
-async function openSpendingDetailScreen(index) {
+async function openSpendingDetailScreen(index, { showsSendReceive = false } = {}) {
   if (!spendingDetailScreen) return;
   const address = deriveSpendingAddressAt(index);
   if (!address) { showCopyToast("Address is not ready yet."); return; }
   spendingDetailIndex = index;
   spendingDetailAddress = address;
+  const fullAddress = spendingDetailScreen.querySelector("[data-spending-detail-address]");
+  if (fullAddress) fullAddress.textContent = address;
+  const actions = spendingDetailScreen.querySelector("[data-spending-detail-actions]");
+  if (actions) actions.hidden = !showsSendReceive;
   const state = getSpendingState();
   if (spendingDetailTitle) spendingDetailTitle.textContent = spendingLabelFor(state, index);
   // The list's last-known balance until the live one lands (iOS shows the row's entry).
@@ -12255,23 +12310,21 @@ async function openSpendingActionsSheet(summary = "") {
       confirmLabel: "Close and Keep Scanning",
     });
   } else {
+    // The floating + asks Regular Address or Quantum-Protected Address (K 824a30bb, owner
+    // 2026-11-26: the Address Actions sheet is gone; Address Visibility and Discover Addresses are
+    // the buttons at the top right).
     spendingActionsSheet = { token, mode: "menu" };
     const choice = await chooseDialog({
-      title: "Address Actions",
+      title: "New Address",
       options: [
-        // Two kinds, made on purpose (KaPay 3d126db / KaChat 5b7c772c): Receive gives regular ones.
-        { id: "generate-regular", title: "Generate Non-Quantum Address", subtitle: "A regular address, like Receive gives you. Works with everything, kUSDT included." },
-        { id: "generate", title: "Generate Quantum-Resistant Address", subtitle: "Keeps its key hidden until it spends. For Kaspa only: kUSDT can't be traded from it." },
-        { id: "discover", title: "Discover Addresses", subtitle: "Finds addresses holding a balance or a username." },
-        { id: "visibility", title: "Address Visibility", subtitle: "Check off every address you want on the list, in one sitting." },
+        { id: "generate-regular", title: "Regular Address", subtitle: "Like Receive gives you. Works with everything, kUSDT included." },
+        { id: "generate", title: "Quantum-Protected Address", subtitle: "Keeps its key hidden until it spends. kUSDT can't be sent to or received on it." },
       ],
       footer: summary,
     });
     if (spendingActionsSheet?.token === token) spendingActionsSheet = null;
     if (choice === "generate") spendingGenerateBtn?.click();
     else if (choice === "generate-regular") revealNextSpendingAddress({ quantum: false });
-    else if (choice === "discover") { spendingScanBtn?.click(); if (spendingDiscovering) openSpendingActionsSheet(); }
-    else if (choice === "visibility") spendingVisibilityOpenBtn?.click();
     return;
   }
   // Closed by hand (a sheet replaced by the next one never resolves).
@@ -12284,6 +12337,13 @@ spendingActionsToggle?.addEventListener("click", (event) => {
   event.stopPropagation();
   if (spendingActionsToggle.disabled) return;
   openSpendingActionsSheet();
+});
+// Discover Addresses at the top right (K 824a30bb: a pull on the list there; Desktop has no pull):
+// the scan, with its progress in the sheet it always had.
+document.querySelector("[data-spending-discover]")?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  if (!spendingDiscovering) spendingScanBtn?.click();
+  if (spendingDiscovering) openSpendingActionsSheet();
 });
 document.addEventListener("click", (event) => {
   if (!event.target.closest(".spending-actions-wrap")) closeSpendingActionsMenu();
@@ -13418,7 +13478,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 358;
+const APP_BUILD = 359;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
