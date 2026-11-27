@@ -13705,7 +13705,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 366;
+const APP_BUILD = 367;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -32133,7 +32133,7 @@ queueMicrotask(async () => {
   try {
     initSwaps({
       engine, escapeHtml, accountScopedKey, showToast: showCopyToast,
-      explorerAddressUrl, addressCopiedToastText, copyTextToClipboard,
+      explorerAddressUrl, explorerTxUrl, addressCopiedToastText, copyTextToClipboard,
       currencySymbol: () => currencyMeta().symbol.trim(),
       // Swap's state is the account's own (K audit 2026-11-24 #5).
       account: () => engine.address,

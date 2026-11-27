@@ -177,6 +177,31 @@ export function swapStatusName(status) {
   return key.replace(/(^|[\s_-])(\p{L})/gu, (m, sep, ch) => sep + ch.toUpperCase()) || "New";
 }
 
+/** A ticker as people read it: "kUSDT", else upper case ("KAS", "USDC") (K b49a021d). */
+export function displayTicker(ticker) {
+  const t = String(ticker || "");
+  return t.toLowerCase() === "kusdt" ? "kUSDT" : t.toUpperCase();
+}
+
+/** A kUSDT swap through Trestly's pool, as a Buy/Sell History entry (K b49a021d recordKusdtSwap):
+ *  its Kaspa txid is its id, both addresses the one it traded from, the amounts as people type them,
+ *  "finished" once the network accepted it, "sending" while it may still land. Null without a txid. */
+export function kusdtSwapHistoryEntry({ txid, bought, confirmed, kasText, kusdtText, address, now = Date.now() }) {
+  if (typeof txid !== "string" || !txid) return null;
+  return {
+    id: txid,
+    fromTicker: bought ? "kas" : "kusdt", fromNetwork: "kaspa",
+    toTicker: bought ? "kusdt" : "kas", toNetwork: "kaspa",
+    fromAmount: bought ? kasText : kusdtText, toAmount: bought ? kusdtText : kasText,
+    payinAddress: address, payoutAddress: address,
+    status: confirmed ? "finished" : "sending",
+    createdAt: now,
+    kasSendTxId: txid,
+    addedToPortfolio: false,
+    provider: "trestly",
+  };
+}
+
 /** Plain decimal text for a quoted amount: up to 8 places, trailing zeros trimmed, never scientific
  *  notation (iOS SwapService.formatQuotedAmount). Shown in the card and, for a "You Get" quote,
  *  sent back to ChangeNOW as the send amount the exchange is created with. */
@@ -398,7 +423,7 @@ export function portfolioPrefill(swap) {
     amountKas,
     fiatValue,
     timestamp: Number(swap.createdAt) || Date.now(),
-    notes: `ChangeNOW swap ${swap.id}`,
+    notes: swap?.provider === "trestly" ? `kUSDT swap (Trestly) ${swap.id}` : `ChangeNOW swap ${swap.id}`,
   };
 }
 

@@ -74,7 +74,7 @@ const dataModule = (source) => `data:text/javascript,${encodeURIComponent(source
 const STUBS = {
   "./portfolio.js": dataModule(`export const listPortfolios = () => []; export const addTransactionToPortfolio = () => {}; export const portfolioIdsContainingTx = () => new Set();`),
   "./dialogs.js": dataModule(`export const confirmDialog = async () => true;`),
-  "../engine/endpoints.js": dataModule(`export const proxiedUrl = (url) => "/nc-proxy/" + encodeURIComponent(url);`),
+  "../engine/endpoints.js": dataModule(`export const proxiedUrl = (url) => "/nc-proxy/" + encodeURIComponent(url); export const getEndpoint = () => "";`),
 };
 registerHooks({
   resolve(specifier, context, nextResolve) {

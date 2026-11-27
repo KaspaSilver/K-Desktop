@@ -136,7 +136,7 @@ export function swapRecord(done) {
   const paid = bought ? kas : kusdt;
   const got = bought ? kusdt : kas;
   return {
-    txid, bought, confirmed,
+    txid, bought, confirmed, amountIn, amountOut,
     title: confirmed ? "Swap Complete" : "Swap Sent",
     text: confirmed ? `Swapped ${paid} for ${got}` : `Swap sent: ${paid} for ${got}`,
     kusdtUnits: bought ? amountOut : amountIn,

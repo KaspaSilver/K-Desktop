@@ -56,8 +56,9 @@ import {
   KAS, KUSDT_COIN, CURATED_COINS, USDC_POLYGON, GROUPED_TICKERS, PINNED_GROUP_TICKERS, SWAP_UNAVAILABLE_TITLE,
   sameCoin, isTrestlyCoin, coinByKey, needsMemo, isValidMemo, payoutExtraIdFor, cleanSwapAmount, answerMatches,
   swapStatusName, formatQuotedAmount, createChangeNowClient, createSwapQuoter, rateLine, portfolioPrefill,
-  swapSourceTxId,
+  swapSourceTxId, displayTicker, kusdtSwapHistoryEntry,
 } from "./swap-quote.js";
+import { getEndpoint } from "../engine/endpoints.js";
 import {
   createTrestlyTrade, quoteKusdtSwap, kusdtSwapAmountIn, kusdtQuoteText, kusdtRateText, minimumOut, swapRecord as kusdtSwapRecord,
   kasAmountLabel, TRADE_CODE,
@@ -837,7 +838,45 @@ function depositTagBox(tag) {
 }
 
 function historyLine(swap) {
-  return `${esc(swap.fromAmount)} ${esc(String(swap.fromTicker || "").toUpperCase())} → ${esc(fmt8(swap.toAmount))} ${esc(String(swap.toTicker || "").toUpperCase())}`;
+  const trestly = swap.provider === "trestly";
+  return `${esc(swap.fromAmount)} ${esc(displayTicker(swap.fromTicker))} → ${esc(trestly ? swap.toAmount : fmt8(swap.toAmount))} ${esc(displayTicker(swap.toTicker))}`;
+}
+/** Which service ran it (K b49a021d): kUSDT swaps go through Trestly's pool on Kaspa. */
+function providerName(swap) { return swap.provider === "trestly" ? "Trestly" : "ChangeNOW"; }
+
+/** A kUSDT swap goes into Buy/Sell History with the ChangeNOW ones (K b49a021d recordKusdtSwap). */
+function recordKusdtSwap(record, address) {
+  if (!record?.txid || !account() || history.some((s) => s.id === record.txid)) return;
+  if (record.amountIn == null || record.amountOut == null) return;
+  const kasUnits = record.bought ? record.amountIn : record.amountOut;
+  const kusdtUnits = record.bought ? record.amountOut : record.amountIn;
+  const entry = kusdtSwapHistoryEntry({
+    txid: record.txid, bought: record.bought, confirmed: record.confirmed,
+    kasText: kasTextFromSompi(kasUnits), kusdtText: typedKusdt(kusdtUnits), address,
+  });
+  if (!entry) return;
+  history.unshift(entry);
+  saveHistory();
+}
+
+/** Whether the network accepted a transaction: true, false (not known to the REST API) or null (no
+ *  answer). A kUSDT swap's Refresh Status asks this, never ChangeNOW (K b49a021d). */
+async function transactionAccepted(txId) {
+  const base = String(getEndpoint("kaspaApi") || "").trim().replace(/\/+$/, "");
+  if (!base || !/^[0-9a-fA-F]{64}$/.test(String(txId || ""))) return null;
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timer = setTimeout(() => controller?.abort(), 10_000);
+  try {
+    const response = await fetch(`${base}/transactions/${encodeURIComponent(txId)}?inputs=false&outputs=false&resolve_previous_outpoints=no`, { headers: { Accept: "application/json" }, cache: "no-store", signal: controller?.signal });
+    if (response.status === 404) return false;
+    if (response.status !== 200) return null;
+    const json = await response.json();
+    return json?.is_accepted === true;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function renderHistory() {
@@ -847,7 +886,7 @@ function renderHistory() {
       <button type="button" class="profile-card swap-history-row" data-swap-open="${esc(swap.id)}">
         <span class="swap-history-copy">
           <strong>${historyLine(swap)}</strong>
-          <small>${esc(dateText(swap.createdAt))}</small>
+          <small>${esc(dateText(swap.createdAt))} · ${esc(providerName(swap))}</small>
         </span>
         <span class="swap-status ${statusClass(swap.status)}">${esc(swapStatusName(swap.status))}</span>
       </button>
@@ -1171,6 +1210,8 @@ async function executeKusdtSwap() {
     const record = kusdtSwapRecord(done);
     try { deps.kusdt?.noteSwap?.({ record, target, owner: startedOn }); } catch { /* the notice's own problem */ }
     if (account() === startedOn) {
+      // and in Buy/Sell History, with the ChangeNOW swaps (K b49a021d)
+      try { recordKusdtSwap(record, target.address); } catch { /* the history's own problem */ }
       // its own screen (K SwapSentScreen), from the order page
       if (currentStep().kind === "form") flowPath.push({ kind: "kusdtDone", message: record?.text || "Swap sent" });
       else deps.showToast?.(record?.text || "Swap sent");
@@ -1227,6 +1268,14 @@ function answerApproval(approved) {
 
 /** Fresh status from ChangeNOW (history updated either way); null when it could not be reached. */
 async function refreshSwapStatus(id) {
+  // A kUSDT swap asks the network whether its transaction was accepted (K b49a021d).
+  const trestly = history.find((s) => s.id === id && s.provider === "trestly");
+  if (trestly) {
+    const accepted = await transactionAccepted(id);
+    if (accepted == null) return null;
+    if (accepted && trestly.status !== "finished") { trestly.status = "finished"; saveHistory(); }
+    return trestly.status;
+  }
   try {
     const response = await client.status(id);
     const status = response?.status || null;
@@ -1420,6 +1469,35 @@ function renderSwapDetails(id) {
   if (!swap) { closeSheet("details"); return; }
   const refreshing = Boolean(sheetState.details?.id === id && sheetState.details.refreshing);
   sheetState.details = { id, refreshing };
+  const statusRow = `<p class="swap-details-label">Status</p>
+      <div class="swap-details-group swap-details-status"><strong class="swap-status ${statusClass(swap.status)}">${esc(swapStatusName(swap.status))}</strong>${swap.status === "finished" ? `<button type="button" class="swap-link strong" data-swap-add-portfolio="${esc(swap.id)}">Add to Portfolio</button>` : ""}</div>`;
+  const refreshButton = `<button type="button" class="swap-details-action" data-swap-refresh="${esc(swap.id)}" ${refreshing ? "disabled" : ""}><span>Refresh Status</span>${refreshing ? `<span class="kaposts-spinner small" aria-hidden="true"></span>` : ""}</button>`;
+  // A kUSDT swap through Trestly's pool on Kaspa (K b49a021d): the address it traded from, its
+  // status and its Kaspa transaction. No deposit address or exchange id: nothing went to a third party.
+  if (swap.provider === "trestly") {
+    const txUrl = deps.explorerTxUrl?.(swap.id) || "";
+    openSheet("details", `${sheetHeader("Swap Details", { closeLabel: "Done" })}
+    <div class="swap-details">
+      <div class="swap-details-group">
+        <div class="swap-details-head">
+          <strong>${historyLine(swap)}</strong>
+          <small>${esc(dateText(swap.createdAt))}</small>
+        </div>
+      </div>
+      <p class="swap-details-label">Swapped Through</p>
+      <div class="swap-details-group"><span class="swap-details-text">Trestly's kUSDT pool on Kaspa</span></div>
+      <p class="swap-details-label">Address</p>
+      <div class="swap-details-group"><button type="button" class="swap-mono-button light" data-swap-copy="${esc(swap.payoutAddress)}">${esc(swap.payoutAddress)}</button></div>
+      ${statusRow}
+      <p class="swap-details-label">Transaction ID</p>
+      <div class="swap-details-group"><button type="button" class="swap-mono-button light" data-swap-copy-txid="${esc(swap.id)}">${esc(swap.id)}</button></div>
+      <div class="swap-details-group swap-details-actions">
+        ${refreshButton}
+        ${txUrl ? `<a class="swap-details-action" href="${esc(txUrl)}" target="_blank" rel="noopener noreferrer">View in Explorer</a>` : ""}
+      </div>
+    </div>`, "swap-sheet-tall");
+    return;
+  }
   openSheet("details", `${sheetHeader("Swap Details", { closeLabel: "Done" })}
     <div class="swap-details">
       <div class="swap-details-group">
@@ -1434,12 +1512,11 @@ function renderSwapDetails(id) {
       ${swap.payinExtraId ? `<div class="swap-details-group">${depositTagBox(swap.payinExtraId)}</div>` : ""}
       <p class="swap-details-label">Payout Address</p>
       <div class="swap-details-group"><button type="button" class="swap-mono-button light" data-swap-copy="${esc(swap.payoutAddress)}">${esc(swap.payoutAddress)}</button>${swap.payoutExtraId ? `<small class="swap-details-tag">Destination Tag: ${esc(swap.payoutExtraId)}</small>` : ""}</div>
-      <p class="swap-details-label">Status</p>
-      <div class="swap-details-group swap-details-status"><strong class="swap-status ${statusClass(swap.status)}">${esc(swapStatusName(swap.status))}</strong>${swap.status === "finished" ? `<button type="button" class="swap-link strong" data-swap-add-portfolio="${esc(swap.id)}">Add to Portfolio</button>` : ""}</div>
+      ${statusRow}
       <p class="swap-details-label">ChangeNOW Exchange ID</p>
       <div class="swap-details-group"><button type="button" class="swap-mono-button light" data-swap-copy-id="${esc(swap.id)}">${esc(swap.id)}</button></div>
       <div class="swap-details-group swap-details-actions">
-        <button type="button" class="swap-details-action" data-swap-refresh="${esc(swap.id)}" ${refreshing ? "disabled" : ""}><span>Refresh Status</span>${refreshing ? `<span class="kaposts-spinner small" aria-hidden="true"></span>` : ""}</button>
+        ${refreshButton}
         <a class="swap-details-action" href="https://changenow.io/exchange/txs/${encodeURIComponent(swap.id)}" target="_blank" rel="noopener noreferrer">View on ChangeNOW</a>
       </div>
     </div>`, "swap-sheet-tall");
@@ -1887,9 +1964,15 @@ export function initSwaps(dependencies) {
       if (copy) { copyAddress(copy.dataset.swapCopy); return; }
       const copyId = event.target.closest("[data-swap-copy-id]");
       if (copyId) { copyExchangeId(copyId.dataset.swapCopyId); return; }
+      const copyTxid = event.target.closest("[data-swap-copy-txid]");
+      if (copyTxid) {
+        try { await deps.copyTextToClipboard(copyTxid.dataset.swapCopyTxid); deps.showToast?.("Transaction ID copied"); } catch { /* clipboard refused */ }
+        return;
+      }
       const refresh = event.target.closest("[data-swap-refresh]");
       if (refresh) {
         const st = sheetState.details;
+        const isTrestly = history.some((s) => s.id === refresh.dataset.swapRefresh && s.provider === "trestly");
         if (!st || st.refreshing) return;
         st.refreshing = true;
         renderSwapDetails(st.id);
@@ -1898,7 +1981,7 @@ export function initSwaps(dependencies) {
           sheetState.details.refreshing = false;
           renderSwapDetails(st.id);
         }
-        deps.showToast?.(status ? `Status: ${swapStatusName(status)}` : "Couldn't reach ChangeNOW - try again");
+        deps.showToast?.(status ? `Status: ${swapStatusName(status)}` : isTrestly ? "Couldn't reach the network - try again" : "Couldn't reach ChangeNOW - try again");
         render();
         return;
       }
