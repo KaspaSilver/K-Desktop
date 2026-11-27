@@ -561,9 +561,10 @@ function screens() {
     return "";
   };
   r.check(/quantumAddresses: normalizeQuantumRecords\(raw\.quantumAddresses\)/.test(fn("normalizeAccount")), "screens: an account keeps its quantum addresses");
-  r.check(/"Add Quantum-Resistant Address", "Scan a KCC-3 address from KasSigner's address screen\."/.test(fn("renderColdActionsSheet")), "screens: Address Actions > Add Quantum-Resistant Address");
+  // K b49a021d: the floating + asks Regular Address or Quantum-Protected Address (scanned from the unit).
+  r.check(/title: "Quantum-Protected Address", subtitle: "Scan a KCC-3 address from KasSigner's address screen\." \}/.test(fn("openNewAddressChooser")) && /kind: "quantum-add"/.test(fn("openNewAddressChooser")), "screens: the floating + > Quantum-Protected Address");
   const addressSheet = fn("renderColdAddressSheet");
-  r.check(/Edit Address Number/.test(addressSheet) && /Stop Watching/.test(addressSheet) && /isColdQuantumIndex\(i\)/.test(addressSheet), "screens: a quantum row's ⋯ has Edit Address Number and Stop Watching");
+  r.check(/Edit Address Number/.test(addressSheet) && /Stop Watching/.test(addressSheet) && /isColdQuantumIndex\(i\)/.test(addressSheet), "screens: a quantum card's ⋮ has Edit Address Number and Stop Watching");
   const actions = fn("handleAddressAction");
   r.check(/stop-watching[\s\S]*balanceSompi \|\| 0\) > 0[\s\S]*confirmModal\(\{[\s\S]*Stop Watching This Address\?/.test(actions), "screens: Stop Watching asks first when the address holds coins");
   r.check(/currentIndexOf\(account, entry\)/.test(actions), "screens: rename and hide file under the row's current index");
@@ -575,7 +576,8 @@ function screens() {
   r.check(/i <= account\.maxIndex/.test(fn("runAddressAction")), "screens: Generate More stays on the kpub's chain");
   r.check(/COLD_QUANTUM_INDEX_BASE \+ position/.test(fn("listColdWatchedAddresses")), "screens: quantum addresses are watched for Received KAS");
   r.check(/fetchBalancesBatch\(all\)/.test(fn("loadDetail")) && /coldQuantumSpentState/.test(fn("loadDetail")), "screens: quantum balances load with the rest, and the shield's spent state behind them");
-  r.check(/coldQuantumShieldHtml\(entry\)/.test(fn("addressRowHtml")), "screens: the shield on a quantum row");
+  // K b49a021d: Manage Addresses' quantum tag beside the card's name, in place of the shield.
+  r.check(/coldQuantumTagHtml\(entry\)/.test(fn("addressCardHtml")), "screens: the quantum tag on an address card");
   const build = fn("sendBuild");
   r.check(/releaseQuantumChange\(flow\.reservedChange\)[\s\S]*freshQuantumChangeAddress\(flow\.fromAddress\)[\s\S]*changeAddress,[\s\S]*quantumUnitIndex:/.test(build), "screens: a quantum send's change is picked fresh (the old pick handed back) and the number sent");
   r.check(/!unsigned\.changeAddress[\s\S]*releaseQuantumChange\(changeAddress\)/.test(build), "screens: no change after all hands the pick back");

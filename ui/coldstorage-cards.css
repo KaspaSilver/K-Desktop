@@ -1,0 +1,61 @@
+/* Cold Storage on Manage Addresses' cards (K b49a021d; ui/coldstorage.js). The cards themselves are
+   styles.css's .address-card (the Total Balance look); this is what only Cold Storage has: the
+   account card's lock and trash, a regular address's Hide at the top right, the Discover progress
+   under the Total Balance, the full address on an address's balance card, the kpub QR screen, and
+   the swipe to hide. */
+
+/* The list of account cards, and the account's address cards. */
+[data-cold-root] .cold-account-list,
+[data-cold-root] .cold-address-list { display: flex; flex-direction: column; gap: 12px; }
+[data-cold-root] .cold-account-list { margin-bottom: 4px; }
+
+/* The account card's lock before its name (K lock.fill in the accent). */
+.cold-card-lock { display: inline-grid; place-items: center; flex: 0 0 auto; color: var(--kaspa-ink, var(--kaspa)); }
+.cold-card-lock svg { width: 17px; height: 17px; fill: currentColor; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.cold-card-lock svg path { fill: none; stroke-width: 2.2; }
+
+/* The top-right button: the account's red trash, a regular address's Hide (eye with a slash). */
+.cold-card-corner {
+  margin-left: auto; flex: 0 0 auto; width: 32px; height: 32px; padding: 0;
+  display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent;
+  color: var(--muted); cursor: pointer;
+}
+.cold-card-corner:hover { background: var(--surface-2, rgba(255, 255, 255, .05)); }
+.cold-card-corner svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.cold-card-trash { color: var(--ios-red, #ff3b30); }
+
+/* Discover Addresses' progress, under the Total Balance (K b49a021d discoveryStatus). */
+.cold-discover-status { display: flex; align-items: center; gap: 8px; margin: -4px 4px 12px; min-width: 0; }
+.cold-discover-status .sk-spinner { margin: 0; flex: 0 0 auto; }
+.cold-discover-status strong { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.cold-discover-found { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* An address's page: the full address on its balance card (K b49a021d). */
+.address-balance-card-address {
+  display: block; margin-top: 8px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px; color: var(--muted); overflow-wrap: anywhere; user-select: text;
+}
+
+/* The kpub QR (K b49a021d ColdStorageKpubQRView), on the receive screens' white card. */
+.cold-kpub-screen .chatting-address-body { justify-content: flex-start; gap: 16px; }
+.cold-kpub-title { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; color: #06110f; }
+.cold-kpub-title-icon {
+  width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center;
+  border-radius: 50%; background: var(--kaspa, #70c7ba); color: #000;
+}
+.cold-kpub-title-icon svg { width: 15px; height: 15px; fill: currentColor; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.cold-kpub-title-icon svg path { fill: none; stroke-width: 2.6; }
+.cold-kpub-name { margin: 0; font-size: 14px; font-weight: 600; color: rgba(6, 17, 15, .6); overflow-wrap: anywhere; }
+.cold-kpub-eye .receive-note-icon { color: #ff9f0a; }
+.cold-kpub-screen .chatting-address-card { cursor: copy; }
+.cold-kpub-screen [data-cold-kpub-close] { cursor: pointer; }
+
+/* Swipe left to hide an address (Manage Addresses' machinery, ui/row-swipe.js): the action layer
+   sits in the screen, beside its card. */
+[data-cold-root] { position: relative; }
+[data-cold-root] .cold-address-list > .cold-address-card { touch-action: pan-y pinch-zoom; }
+.cold-address-card.row-swipe-settling { transition: transform .22s cubic-bezier(.2, .9, .25, 1); }
+[data-cold-root] > .chat-row-actions { border-radius: 22px; }
+@media (prefers-reduced-motion: reduce) {
+  .cold-address-card.row-swipe-settling { transition-duration: .01s; }
+}

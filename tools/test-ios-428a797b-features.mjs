@@ -37,7 +37,8 @@ test("Cold Storage's total is a balance card with its worth on mainnet", () => {
 test("a copied kpub leaves the clipboard after 30 seconds, from every copy", () => {
   assert.doesNotMatch(cold, /writeText\(account\.kpub\)/);
   assert.equal((cold.match(/copyKpub\(account\.kpub\);/g) || []).length, 2);
-  assert.match(cold, /if \(qrModal\.dataset\.kpub === "1"\) \{ copyKpub\(payload\); return; \}/);
+  // the kpub QR screen copies it with a click anywhere (K b49a021d), the card's Copy kpub too
+  assert.match(cold, /const account = accounts\.find\(\(a\) => a\.id === kpubScreen\.dataset\.accountId\);\n\s*if \(account\) copyKpub\(account\.kpub\);/);
   assert.match(cold, /kpubClipboardTimer = window\.setTimeout\(\(\) => \{ navigator\.clipboard\?\.writeText\(" "\)/);
 });
 

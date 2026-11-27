@@ -239,13 +239,17 @@ await test("Manage Addresses: swipe left to hide, a full swipe hides at once", (
   assert.equal((app.match(/spendingRowSwipes\?\.refresh\(\);/g) || []).length, 2);
 });
 
-await test("Cold Storage: no kpub on screen, Copy kpub in Address Actions, the floating button, Paste reads the clipboard", () => {
+// K b49a021d moved Copy kpub from Address Actions to the account's card on the list, and the
+// floating button became Manage Addresses' + (Regular or Quantum-Protected address).
+await test("Cold Storage: no kpub on screen, Copy kpub on the account card, the floating +, Paste reads the clipboard", () => {
   assert.doesNotMatch(cold, /cold-summary-kpub|class="cold-kpub"|truncateMiddle/);
-  assert.match(cold, /\$\{row\("copy-kpub", "Copy kpub", "Puts this account's kpub on the clipboard\. It reveals all its addresses\.", COPY_ICON\)\}/);
-  assert.match(cold, /class="spending-actions-fab cold-actions-fab" data-cold-actions-toggle aria-label="Address Actions"/);
-  assert.match(cold, /payloadEl\.textContent = kpub \? "" : payload;/);
+  assert.match(cold, /\{ attr: `data-cold-account-action="copy" data-id="\$\{account\.id\}"`, icon: "copy", title: "Copy kpub" \}/);
+  assert.match(cold, /class="spending-actions-fab cold-actions-fab" data-cold-new-address aria-label="New Address"/);
+  // the kpub QR screen has no element for the kpub as text; only its canvas is drawn from it
+  assert.doesNotMatch(cold, /textContent = account\.kpub|\$\{[^}]*\.kpub\)?\}/);
+  assert.match(cold, /drawQrFor\(canvas, account\.kpub, /);
   assert.match(cold, /if \(clip && validateKpub\(clip\)\) \{ beginImport\(clip\); return; \}\n\s*deps\.showToast\?\.\("Not a valid kpub"\);/);
-  assert.match(cold, /\$\{balanceCardHtml\(displayLabelFor\(account, entry\.index\), balanceSompi, renderAddressScreen\)\}/);
+  assert.match(cold, /\$\{balanceCardHtml\(displayLabelFor\(account, entry\.index\), balanceSompi, renderAddressScreen, entry\.address\)\}/);
   assert.doesNotMatch(cold, /spending-detail-balance-label">Balance/);
 });
 

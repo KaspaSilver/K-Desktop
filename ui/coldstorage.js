@@ -1,13 +1,14 @@
 // Cold Storage tab — desktop match of iOS's ColdStorageListView + ColdStorageDetailView:
-// KasSigner kpub ACCOUNTS (extended public keys), not raw addresses. The list shows named
-// accounts and a ⋯ menu (Copy kpub / Rename); "Paste kpub" and "Scan" live at the bottom
-// exactly like iOS. No kpub is ever shown as text (K b0f0a4e6): it reveals every address of the
-// account, so it is only copied. Opening an account mirrors the iOS detail screen: Name, the
-// full-width Total Balance card, per-address rows (label, short address, balance, Used/Unused
-// badge, ⋯ menu with Rename / Copy / QR / Hide), the floating Address Actions button (Generate
-// More / Discover with the same gap-limit-20 scan as iOS, Copy kpub), and a red
-// trash to remove the account. Keys never enter the picture — signing (compound/withdraw)
-// stays on the KasSigner device.
+// KasSigner kpub ACCOUNTS (extended public keys), not raw addresses. The list shows each account
+// on Manage Addresses' card look (K b49a021d ColdStorageAccountCard): a lock and its name, a red
+// trash, its balance and worth, then Copy kpub, kpub QR, Rename (in place) and Alerts On / Off,
+// and "Tap to View Addresses"; "Paste kpub" and "Scan" live at the bottom exactly like iOS. No
+// kpub is ever shown as text (K b0f0a4e6): it reveals every address of the account, so it is only
+// copied or shown as a QR. Opening an account is laid out as Manage Addresses (K b49a021d): the
+// full-width Total Balance card, each address on Manage Addresses' address card, Discover
+// Addresses and Address Visibility at the top right, and the floating + for a Regular or a
+// Quantum-Protected address. Keys never enter the picture — signing (send/compound) stays on the
+// KasSigner device.
 
 import { getEndpoint } from "../engine/endpoints.js";
 import { NETWORK_ID, KAS_UNIT, lowercasedKaspaAddress } from "../engine/network.js";
@@ -15,7 +16,12 @@ import { sompiFromUserText, kasToSompi, fiatTextFloorFromSompi, checkedUtxoAnswe
 import { kachatOwnersOfNames } from "./kachat-names-live.js";
 import { renderAddressDomainsTab } from "./address-domains-tab.js";
 import { cycleBarHtml, cycleChanged } from "./cycle-button.js";
-import { userFacingError, alertDialog } from "./dialogs.js";
+import { userFacingError, alertDialog, chooseDialog, ACTION_TILE_ICONS } from "./dialogs.js";
+// Rename in place on the account and address cards (K b49a021d InlineRename), and swipe left to
+// hide an address, as Manage Addresses has both.
+import { startInlineRename, inlineRenameActive } from "./inline-rename.js";
+import { attachRowSwipes } from "./row-swipe.js";
+import { receiveNoteIcon } from "./kusdt-icons.js";
 import { drawKasSignerFrame } from "../engine/qr.js";
 import jsQR from "jsqr";
 import {
@@ -33,6 +39,11 @@ import {
   ownChangeHistoryAmount, QUANTUM_CHAIN_RECEIVE, QUANTUM_CHAIN_CHANGE,
 } from "./cold-quantum.js";
 import { quantumSpentFromHistory } from "../engine/quantum.js";
+// The card rules (K b49a021d): the sort, Used / Unused, the quantum tag, the toasts.
+import {
+  sortColdEntries, coldUsageState, coldQuantumTone, coldDiscoverySummary, coldAccountRenameValue,
+  coldAlertsToast, coldHideRefusal,
+} from "./cold-cards.js";
 import { closeActiveScanner, scanKaspaAddress, scanQrCode } from "./qr-scan.js";
 import { transactionBelongsInHistory } from "../engine/sync.js";
 import {
@@ -47,6 +58,7 @@ import {
 } from "./send-steps.js";
 import "./send-steps.css";
 import "./coldstorage-steps.css";
+import "./coldstorage-cards.css";
 import { listPortfolios, addTransactionToPortfolio, portfolioIdsContainingTx, historicalKasPrice, parsePortfolioNumber, formatPortfolioCurrency } from "./portfolio.js";
 
 const COLD_ACCOUNTS_KEY = "kachat-cold-accounts-v1"; // account-scoped: [{ id, label, kpub, addedAt, maxIndex, labels, hidden }]
@@ -83,10 +95,15 @@ let addrToken = 0;
 let detailDomainOwning = new Set();
 /// The open account's quantum addresses whose key a spend has put on chain (the slashed shield).
 let detailQuantumSpent = new Set();
-/// What the last discover on this account turned up, shown in the Address Actions sheet.
-let detailDiscoverySummary = null;
-/// Live scan position while discovering (iOS DiscoveryProgress): `{ checkingIndex, foundCount }`.
+/// Live scan position while discovering (iOS DiscoveryProgress): `{ checkingIndex, foundCount }`,
+/// shown under the Total Balance (K b49a021d discoveryStatus).
 let detailDiscoveryProgress = null;
+/// Each account's balance on the list's card (K b49a021d ColdStorageListView.balances): its
+/// addresses summed, the last known at once, then read live. account id -> sompi.
+const listBalances = new Map();
+let listBalancesToken = 0;
+/// The account screen's swipe left to hide (Manage Addresses' machinery, ui/row-swipe.js).
+let detailRowSwipes = null;
 
 function nowId() {
   return typeof crypto?.randomUUID === "function" ? crypto.randomUUID() : `c-${Date.now()}-${Math.random()}`;
@@ -432,16 +449,18 @@ function currentIndexOf(account, entry) {
   return isColdQuantumIndex(entry.index) ? quantumIndexOf(account.quantumAddresses, entry.address) : entry.index;
 }
 
-// The hot wallet's shield (ui/app.js quantumShieldHtml, iOS quantumShield): green while the key has
-// never been on chain, slashed once the address spent - orange with coins on it again, gray empty.
+// The quantum tag beside a card's name (ui/app.js quantumTagHtml, K QuantumProtectionTag; K b49a021d
+// quantumState(for:)): green "Quantum Protected" while a quantum address's key has never been on
+// chain; orange "Not Quantum Protected" once a spend revealed it and Kaspa sits on it again; gray
+// otherwise, a regular address included. The shield stays in Address Visibility's quantum section.
 const COLD_QUANTUM_SHIELD_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2 4 5.3v6.2c0 5 3.4 9.3 8 10.5 4.6-1.2 8-5.5 8-10.5V5.3Z"/></svg>';
-const COLD_QUANTUM_SHIELD_SLASH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><defs><mask id="cold-quantum-shield-cut"><rect width="24" height="24" fill="#fff"/><path d="M3.5 3.5 20.5 20.5" stroke="#000" stroke-width="5.4" stroke-linecap="round"/></mask></defs><path mask="url(#cold-quantum-shield-cut)" d="M12 2.2 4 5.3v6.2c0 5 3.4 9.3 8 10.5 4.6-1.2 8-5.5 8-10.5V5.3Z"/><path class="quantum-shield-slash" d="M3.5 3.5 20.5 20.5"/></svg>';
-function coldQuantumShieldHtml(entry) {
-  if (detailQuantumSpent.has(String(entry.address || "").toLowerCase())) {
-    const funded = (entry.balanceSompi || 0) > 0;
-    return `<span class="quantum-shield spent${funded ? " funded" : ""}" role="img" aria-label="Key revealed by a spend" title="Key revealed by a spend">${COLD_QUANTUM_SHIELD_SLASH_SVG}</span>`;
-  }
-  return `<span class="quantum-shield safe" role="img" aria-label="Quantum-safe" title="Quantum-safe">${COLD_QUANTUM_SHIELD_SVG}</span>`;
+function coldQuantumTagHtml(entry) {
+  const tone = coldQuantumTone({
+    quantum: isColdQuantumIndex(entry.index),
+    spent: detailQuantumSpent.has(String(entry.address || "").toLowerCase()),
+    funded: (entry.balanceSompi || 0) > 0,
+  });
+  return `<span class="quantum-tag ${tone}">${tone === "safe" ? "Quantum Protected" : "Not Quantum Protected"}</span>`;
 }
 
 async function fetchBalance(address) {
@@ -528,10 +547,8 @@ function fmtKasExact(sompi) {
 const LOCK_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.75" y="10.5" width="16.5" height="10" rx="2.4"/><path d="M7.5 10.5V7.125a4.5 4.5 0 0 1 9 0V10.5"/></svg>`;
 const BELL_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4l2-2ZM10 21h4"/></svg>`;
 const PENCIL_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L18.5 9.5a2.12 2.12 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l3 3"/></svg>`;
-const COPY_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>`;
 const QR_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3z"/></svg>`;
 const TRASH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M9 7V5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5v2"/></svg>`;
-const DOTS_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>`;
 const MERGE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v6a4 4 0 0 0 4 4v6M16 4v6a4 4 0 0 1-4 4"/><path d="m9 17 3 3 3-3"/></svg>`;
 const PIE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.18 15.9A10 10 0 1 1 8.1 2.82"/><path d="M22 12A10 10 0 0 0 12 2v10Z"/></svg>`;
 const EXTERNAL_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4 10.5 13.5"/><path d="M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></svg>`;
@@ -552,17 +569,79 @@ const MOVED_ICON = "⇄";
 
 const COLD_LIST_SPINNER ='<div class="cold-detail-spinner"><span class="initial-sync-spinner" aria-hidden="true"></span></div>';
 
-const CHECKLIST_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 6 2 2 3-3"/><path d="M11 6h10"/><path d="m3 12.5 2 2 3-3"/><path d="M11 12.5h10"/><path d="m3 19 2 2 3-3"/><path d="M11 19h10"/></svg>`;
+// Manage Addresses' top-right buttons (index.html data-spending-discover / data-open-spending-visibility).
+const DISCOVER_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>`;
+const VISIBILITY_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3.5 6 1.6 1.6L8 4.8M3.5 12l1.6 1.6L8 10.8M3.5 18l1.6 1.6L8 16.8M11 6.2h9.5M11 12.2h9.5M11 18.2h9.5"/></svg>`;
+const PLUS_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`;
+const VDOTS_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>`;
+const EYE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>`;
+const CHEVRON_RIGHT_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>`;
+/// The card buttons' glyphs: Manage Addresses' (ui/app.js ADDRESS_CARD_ICONS), plus the account
+/// card's kpub QR and Alerts On / Off (K bell.fill / bell.slash).
+const CARD_ICONS = {
+  copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
+  send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+  receive: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
+  rename: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.9 4.5a2.1 2.1 0 0 1 3 3L8.5 18.9 4 20l1.1-4.5Z"/></svg>',
+  qr: QR_ICON,
+  bell: BELL_ICON,
+  bellSlash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.2 5.9A6 6 0 0 1 18 11v5l2 2H8M6 11v5l-2 2h4M10 21h4M3 3l18 18"/></svg>',
+};
 
 function render() {
   if (!rootEl) return;
+  // A card's name is being typed: the rename's end repaints (ui/inline-rename.js), so nothing on a
+  // timer wipes the field meanwhile.
+  if (inlineRenameActive()) return;
   closeAllColdMenus();
   if (activeAccountId && activeAddressIndex !== null) renderAddressScreen();
   else if (activeAccountId && showingVisibility) renderVisibility();
   else if (activeAccountId) renderDetail();
   else renderList();
-  // The Address Actions sheet shows the discover's progress, so it redraws with the screen.
-  if (!modalsEl?.querySelector("[data-cold-actions-modal]")?.hidden) renderColdSheet();
+}
+
+/** A card's amount: exact, with the unit, or "--" while it isn't known yet. */
+function cardAmountText(sompi) {
+  return sompi === undefined || sompi === null ? `-- ${KAS_UNIT}` : `${fmtKasExact(sompi)} ${KAS_UNIT}`;
+}
+
+/** A card's worth in your currency (mainnet only), as Manage Addresses' cards show it. */
+function cardWorthHtml(sompi, redraw) {
+  if (sompi === undefined || sompi === null) return "";
+  const fiat = deps.kasFiatText?.(Number(sompi) / 1e8, () => { if (rootEl?.isConnected) redraw(); }) || "";
+  return fiat ? `<span class="address-card-worth">${deps.escapeHtml(String(fiat).replace(/^≈\s*/, ""))}</span>` : "";
+}
+
+/** A row of card buttons (ui/app.js addressCardButtonsHtml): `{ attr, icon, title, disabled }`. */
+function cardButtonsHtml(buttons) {
+  return `<span class="address-card-actions">${buttons.map((b) => `<button type="button" class="address-card-action" ${b.attr}${b.disabled ? " disabled" : ""}><span class="address-card-action-circle">${CARD_ICONS[b.icon]}</span><span>${deps.escapeHtml(b.title)}</span></button>`).join("")}</span>`;
+}
+
+/// One account on Manage Addresses' card (K b49a021d ColdStorageAccountCard): a lock and its name,
+/// the red trash at the top right, its balance (its addresses summed) and worth, then Copy kpub,
+/// kpub QR, Rename (in place) and Alerts On / Off, and "Tap to View Addresses". The whole card
+/// opens the account; there is no ⋮.
+function accountCardHtml(account) {
+  const sompi = listBalances.get(account.id);
+  const name = deps.escapeHtml(account.label);
+  const alertsOn = account.receiveNotifications !== false;
+  return `
+    <div class="spending-address-row address-card cold-account-card" data-cold-account-card="${account.id}">
+      <div class="address-card-body" data-cold-open="${account.id}" role="button" tabindex="0" aria-label="Open ${name}">
+        <span class="address-card-head"><span class="cold-card-lock" aria-hidden="true">${LOCK_ICON}</span><strong class="address-card-name">${name}</strong>
+          <button type="button" class="cold-card-corner cold-card-trash" data-cold-remove-account="${account.id}" aria-label="Remove Account" title="Remove Account">${TRASH_ICON}</button>
+        </span>
+        <span class="address-card-amount" data-cold-account-amount="${account.id}">${deps.escapeHtml(cardAmountText(sompi))}</span>
+        ${cardWorthHtml(sompi, () => { if (!activeAccountId) render(); })}
+        ${cardButtonsHtml([
+          { attr: `data-cold-account-action="copy" data-id="${account.id}"`, icon: "copy", title: "Copy kpub" },
+          { attr: `data-cold-account-action="qr" data-id="${account.id}"`, icon: "qr", title: "kpub QR" },
+          { attr: `data-cold-account-action="rename" data-id="${account.id}" data-rename-button`, icon: "rename", title: "Rename" },
+          { attr: `data-cold-account-action="notify" data-id="${account.id}"`, icon: alertsOn ? "bell" : "bellSlash", title: alertsOn ? "Alerts On" : "Alerts Off" },
+        ])}
+        <span class="address-card-history">Tap to View Addresses${CHEVRON_RIGHT_ICON}</span>
+      </div>
+    </div>`;
 }
 
 function renderList() {
@@ -576,18 +655,7 @@ function renderList() {
            <strong>No Cold Storage Accounts</strong>
            <p>Scan or paste a kpub exported from your KasSigner device to watch its balance.</p>
          </div>`
-      : accounts.map((account) => `
-          <div class="chat-row cold-account-row">
-            <button class="cold-account-main" type="button" data-cold-open="${account.id}">
-              <span class="cold-row-lock">${LOCK_ICON}</span>
-              <span class="chat-meta">
-                <strong>${deps.escapeHtml(account.label)}</strong>
-              </span>
-            </button>
-            <div class="spending-address-row-menu-wrap cold-menu-wrap">
-              <button type="button" class="spending-row-menu-btn" data-cold-menu-toggle="${account.id}" aria-haspopup="dialog" aria-label="Account options">${DOTS_ICON}</button>
-            </div>
-          </div>`).join("")}
+      : `<div class="cold-account-list">${accounts.map(accountCardHtml).join("")}</div>`}
     <div class="cold-bottom-actions">
       <button class="primary-button cold-capsule" type="button" data-cold-paste>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75h-6a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"/></svg>
@@ -600,29 +668,90 @@ function renderList() {
     </div>`;
 }
 
-function addressRowHtml(account, entry) {
+/// The account's balance as last read (every address; K b49a021d ColdStorageManager.lastKnownBalance),
+/// for its card to show at once while the live read runs. Null before any read.
+function lastKnownAccountBalance(account) {
+  const balances = loadPersistedAccountCache(account.id)?.balances;
+  if (!balances || typeof balances !== "object") return null;
+  return Object.values(balances).reduce((sum, sompi) => sum + (Number(sompi) || 0), 0);
+}
+
+/// Every account's balance for the list's cards (K b49a021d loadBalances): the last known at once,
+/// then each read live (one batched call per account, its quantum addresses too) and kept as the
+/// last known for next time. A failed read keeps what the card shows.
+async function loadListBalances() {
+  if (!deps) return;
+  const token = ++listBalancesToken;
+  for (const account of accounts) {
+    if (listBalances.has(account.id)) continue;
+    const known = lastKnownAccountBalance(account);
+    if (known !== null) listBalances.set(account.id, known);
+  }
+  if (!activeAccountId) render();
+  for (const account of [...accounts]) {
+    let addresses;
+    try {
+      addresses = [
+        ...deriveReceiveAddresses(account.kpub, 0, account.maxIndex + 1),
+        ...(account.quantumAddresses || []).map((q) => q.address),
+      ];
+    } catch { continue; }
+    let balances;
+    try { balances = await fetchBalancesBatch(addresses); }
+    catch { continue; }
+    if (token !== listBalancesToken) return;
+    if (!accounts.includes(account)) continue;
+    listBalances.set(account.id, [...balances.values()].reduce((sum, sompi) => sum + (Number(sompi) || 0), 0));
+    persistListBalances(account.id, balances);
+    if (!activeAccountId) render();
+  }
+}
+
+/** The live read of an account's balances, kept in its stale-while-revalidate cache. */
+function persistListBalances(accountId, balances) {
+  try {
+    const map = JSON.parse(localStorage.getItem(deps.accountScopedKey(COLD_CACHE_KEY)) || "{}") || {};
+    const previous = map[accountId] || {};
+    map[accountId] = { balances: Object.fromEntries(balances), used: previous.used || {}, ts: Date.now() };
+    localStorage.setItem(deps.accountScopedKey(COLD_CACHE_KEY), JSON.stringify(map));
+  } catch { /* cache is best-effort */ }
+}
+
+/// Used for Manage Addresses' sort and tag (K b49a021d isUsed): ever used, holding Kaspa, or
+/// holding a username.
+function entryIsUsed(entry) {
+  return entry.everUsed === true || (entry.balanceSompi || 0) > 0 || detailDomainOwning.has(entry.address);
+}
+
+/// One address on Manage Addresses' card (K b49a021d ManagedAddressCard): its name with the quantum
+/// tag beside it, the top-right button, the balance large, its worth, Used / Unused / Checking,
+/// Contains username, then Copy, Send, Receive and Rename (in place), and "Tap to View History".
+/// A regular address's top right hides it at once (eye with a slash; no Send to Chatting Address in
+/// Cold Storage); a quantum one keeps the ⋮ for Hide, Edit Address Number and Stop Watching.
+function addressCardHtml(account, entry) {
+  const i = entry.index;
+  const label = deps.escapeHtml(displayLabelFor(account, i));
   const funded = (entry.balanceSompi || 0) > 0;
-  const used = funded || entry.everUsed === true;
-  const usageBadge = entry.balanceSompi === undefined
-    ? ""
-    : (!funded && entry.everUsed === undefined)
-      ? '<span class="spending-address-usage checking" data-cold-usage-cell="' + entry.index + '">Checking</span>'
-    : used
-      ? '<span class="spending-address-usage used" data-cold-usage-cell="' + entry.index + '">Used</span>'
-      : '<span class="spending-address-usage unused" data-cold-usage-cell="' + entry.index + '">Unused</span>';
-  const balanceText = entry.balanceSompi === undefined ? `… ${KAS_UNIT}` : `${fmtKasExact(entry.balanceSompi)} ${KAS_UNIT}`;
-  // iOS ColdStorageDetailView.addressRow: label, short address, balance, then the Used / Unused /
-  // Checking badge with the Contains username tag on their own line. No chevron.
+  // Unknown is "Checking", never a possibly-wrong "Unused" (iOS unknownUsedAddresses).
+  const usage = coldUsageState({ balanceSompi: entry.balanceSompi, everUsed: entry.everUsed, ownsUsername: detailDomainOwning.has(entry.address) });
+  const corner = isColdQuantumIndex(i)
+    ? `<span class="spending-address-row-menu-wrap"><button type="button" class="spending-row-menu-btn" data-cold-addr-menu-toggle="${i}" aria-haspopup="dialog" aria-label="More for ${label}">${VDOTS_ICON}</button></span>`
+    : `<button type="button" class="cold-card-corner cold-card-hide" data-cold-addr-hide="${i}" aria-label="Hide Address" title="Hide Address">${EYE_SLASH_ICON}</button>`;
   return `
-    <div class="spending-address-row cold-address-row" data-cold-address-row="${entry.index}">
-      <button type="button" class="spending-address-row-main" data-cold-addr-open="${entry.index}">
-        <span class="spending-address-label cold-addr-label">${deps.escapeHtml(displayLabelFor(account, entry.index))}${isColdQuantumIndex(entry.index) ? coldQuantumShieldHtml(entry) : ""}</span>
-        <span class="spending-address-value">${deps.escapeHtml(shortColdAddress(entry.address))}</span>
-        <span class="spending-address-balance" data-cold-balance-cell="${entry.index}">${deps.escapeHtml(balanceText)}</span>
-        <span class="cold-address-badges" data-cold-badges="${entry.index}">${usageBadge}${detailDomainOwning.has(entry.address) ? '<span class="cold-address-domain-tag">Contains username</span>' : ""}</span>
-      </button>
-      <div class="spending-address-row-menu-wrap">
-        <button type="button" class="spending-row-menu-btn" data-cold-addr-menu-toggle="${entry.index}" aria-haspopup="dialog" aria-label="Address options">${DOTS_ICON}</button>
+    <div class="spending-address-row address-card cold-address-card" data-cold-address-row="${i}">
+      <div class="address-card-body" data-cold-addr-open="${i}" role="button" tabindex="0" aria-label="Open ${label}">
+        <span class="address-card-head"><strong class="address-card-name">${label}</strong>${coldQuantumTagHtml(entry)}${corner}</span>
+        <span class="address-card-amount" data-cold-balance-cell="${i}">${deps.escapeHtml(entry.balanceSompi === undefined ? `… ${KAS_UNIT}` : cardAmountText(entry.balanceSompi))}</span>
+        ${cardWorthHtml(entry.balanceSompi, renderDetail)}
+        <span class="address-card-usage ${usage}" data-cold-usage-cell="${i}">${usage === "used" ? "Used" : usage === "unused" ? "Unused" : "Checking"}</span>
+        ${detailDomainOwning.has(entry.address) ? '<span class="spending-address-domain-tag">Contains username</span>' : ""}
+        ${cardButtonsHtml([
+          { attr: `data-cold-card-action="copy" data-index="${i}"`, icon: "copy", title: "Copy" },
+          { attr: `data-cold-card-action="send" data-index="${i}"`, icon: "send", title: "Send", disabled: !funded },
+          { attr: `data-cold-card-action="receive" data-index="${i}"`, icon: "receive", title: "Receive" },
+          { attr: `data-cold-card-action="rename" data-index="${i}" data-rename-button`, icon: "rename", title: "Rename" },
+        ])}
+        <span class="address-card-history">Tap to View History${CHEVRON_RIGHT_ICON}</span>
       </div>
     </div>`;
 }
@@ -630,37 +759,34 @@ function addressRowHtml(account, entry) {
 /// The balance card at the top of an address's page (K 428a797b: Cold Storage's total uses iOS's
 /// shared KaspaAddressBalanceCard; K b0f0a4e6: an address's page too): the label, the amount
 /// large, and its worth in your currency on mainnet; a price that lands later redraws the page.
-function balanceCardHtml(label, sompi, redraw = renderDetail) {
+/// An address's page puts the full address on it (K b49a021d: it isn't on the account's cards).
+function balanceCardHtml(label, sompi, redraw = renderDetail, address = "") {
   const fiat = deps.kasFiatText?.(Number(sompi || 0) / 1e8, () => { if (activeAccountId && rootEl?.isConnected) redraw(); }) || "";
   return `<div class="address-balance-card">
         <p class="address-balance-card-label">${deps.escapeHtml(label)}</p>
         <p class="address-balance-card-amount">${fmtKasExact(sompi)} ${KAS_UNIT}</p>
         ${fiat ? `<p class="address-balance-card-detail">${deps.escapeHtml(fiat)}</p>` : ""}
+        ${address ? `<code class="address-balance-card-address">${deps.escapeHtml(address)}</code>` : ""}
       </div>`;
 }
 
+/// While Discover Addresses runs: how far it is, under the Total Balance (K b49a021d discoveryStatus).
+function discoverStatusInnerHtml() {
+  const progress = detailDiscoveryProgress || { checkingIndex: 0, foundCount: 0 };
+  return `<span class="sk-spinner" aria-hidden="true"></span>
+      <strong>Checking address #${progress.checkingIndex}</strong>
+      <span class="cold-discover-found">${progress.foundCount === 0 ? "No addresses with a balance or username yet" : `${progress.foundCount} found so far`}</span>`;
+}
+
 function renderDetail() {
+  if (inlineRenameActive()) return;
   const account = activeAccount();
   if (!account) { activeAccountId = null; renderList(); return; }
   const hiddenSet = new Set(account.hidden.map(Number));
   const visible = detailEntries.filter((e) => !hiddenSet.has(e.index));
   const totalSompi = visible.reduce((sum, e) => sum + (e.balanceSompi || 0), 0);
-
-  // Funded-or-username-holding addresses first (the username tag promotes a row into
-  // the active group), lowest index first within each group — same sort as the
-  // spending-chain Manage Addresses list.
-  // The quantum addresses added by scan list after the regular ones in each group, in the order
-  // added (K 961fc05a).
-  const sorted = [...visible].sort((a, b) => {
-    const aActive = (a.balanceSompi || 0) > 0 || detailDomainOwning.has(a.address);
-    const bActive = (b.balanceSompi || 0) > 0 || detailDomainOwning.has(b.address);
-    if (aActive !== bActive) return aActive ? -1 : 1;
-    const aQuantum = isColdQuantumIndex(a.index);
-    const bQuantum = isColdQuantumIndex(b.index);
-    if (aQuantum !== bQuantum) return aQuantum ? 1 : -1;
-    if (aQuantum) return a.index - b.index;
-    return b.index - a.index;
-  });
+  const sorted = sortColdEntries(visible, entryIsUsed, isColdQuantumIndex);
+  const discovering = detailBusy === "discover";
 
   rootEl.innerHTML = `
     <div class="kaposts-thread-header cold-detail-header">
@@ -668,47 +794,52 @@ function renderDetail() {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/></svg>
       </button>
       <strong>${deps.escapeHtml(account.label)}</strong>
-      <button class="kaposts-icon-button cold-trash-button" type="button" data-cold-remove aria-label="Remove account">${TRASH_ICON}</button>
-    </div>
-    <div class="cold-summary">
-      <div class="cold-summary-row">
-        <div>
-          <p class="cold-summary-label">Name</p>
-          <p class="cold-summary-name">${deps.escapeHtml(account.label)}</p>
-        </div>
-        <button class="cold-inline-icon" type="button" data-cold-rename-account aria-label="Rename account">${PENCIL_ICON}</button>
+      <!-- Top right as on Manage Addresses (K b49a021d): Address Visibility, and Discover Addresses
+           beside it (K pulls the list down for it; Desktop has no pull). The account's own actions
+           (kpub, rename, alerts, remove) are on its card on the list, not in here. -->
+      <div class="manage-address-toolbar">
+        <button type="button" class="manage-address-icon-button" data-cold-discover aria-label="Discover Addresses" title="Discover Addresses"${detailBusy ? " disabled" : ""}${discovering ? ' aria-busy="true"' : ""}>${DISCOVER_ICON}</button>
+        <button type="button" class="manage-address-icon-button" data-cold-open-visibility aria-label="Address Visibility" title="Address Visibility">${VISIBILITY_ICON}</button>
       </div>
     </div>
-    <!-- Full width, as Manage Addresses shows its total; no kpub on screen (K b0f0a4e6): it
-         reveals every address of the account, so it is only copied, from Address Actions. -->
+    <!-- Full width, as Manage Addresses shows its total; no kpub on screen (K b0f0a4e6). -->
     ${balanceCardHtml("Total Balance", totalSompi)}
+    ${discovering ? `<div class="cold-discover-status" data-cold-discover-status role="status">${discoverStatusInnerHtml()}</div>` : ""}
     <div class="cold-address-list">
       ${detailLoading && detailEntries.length === 0
         ? '<div class="cold-detail-spinner"><span class="initial-sync-spinner" aria-hidden="true"></span></div>'
         : sorted.length === 0
           ? '<p class="cold-detail-note">No addresses discovered yet.</p>'
-          : sorted.map((e) => addressRowHtml(account, e)).join("")}
+          : sorted.map((e) => addressCardHtml(account, e)).join("")}
     </div>
-    <!-- Manage Addresses' floating Address Actions button (K b0f0a4e6); it stays at the bottom
-         of the screen while the list scrolls under it. -->
-    <button type="button" class="spending-actions-fab cold-actions-fab" data-cold-actions-toggle aria-label="Address Actions"${detailBusy ? ' aria-busy="true"' : ""}>
-      ${detailBusy ? '<span class="sk-spinner" aria-hidden="true"></span>' : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h11M18 6h3M3 12h3M10 12h11M3 18h9M16 18h5"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></svg>'}
+    <!-- Manage Addresses' floating + (K b49a021d newAddressButton): a Regular or a Quantum-Protected
+         address. Off while Generate or Discover runs. -->
+    <button type="button" class="spending-actions-fab cold-actions-fab" data-cold-new-address aria-label="New Address" title="New Address"${detailBusy ? ' disabled aria-busy="true"' : ""}>
+      ${detailBusy === "generate" ? '<span class="sk-spinner" aria-hidden="true"></span>' : PLUS_ICON}
     </button>`;
+  detailRowSwipes?.refresh();
 }
 
-/// The half sheet behind "Address Actions" (iOS `addressActionsSheet`).
-///
-/// A sheet of titled rows rather than the bare dropdown this replaces, because each of these does
-/// something worth a sentence - and because Address Visibility now lives here. It used to be an
-/// unlabelled checklist glyph in the header, which said nothing about what it did; it is one of
-/// this account's address actions, so it belongs with the others where it has room to explain
-/// itself.
-///
-/// Discovery reports into the sheet rather than dismissing it, and the scan belongs to the SCREEN,
-/// not to the sheet - closing it does not stop the scan, which is what "Close and Keep Scanning"
-/// says.
-/// Which sheet is open: `{ kind: "actions" | "account" | "address", id?, index? }`, or null.
-/// Held so `render()` can redraw the open sheet without clobbering a different one.
+/// The floating +'s question (K b49a021d newAddressSheet): the next unused address of the kpub, or a
+/// quantum-protected one scanned from the unit (KasSigner never exports its quantum kpub, since it
+/// would show every key those addresses hide).
+async function openNewAddressChooser() {
+  const account = activeAccount();
+  if (!account || detailBusy) return;
+  const choice = await chooseDialog({
+    title: "New Address",
+    options: [
+      { id: "regular", title: "Regular Address", subtitle: "Reveals the next unused address in this account." },
+      { id: "quantum", title: "Quantum-Protected Address", subtitle: "Scan a KCC-3 address from KasSigner's address screen." },
+    ],
+  });
+  if (activeAccount() !== account || activeAddressIndex !== null || showingVisibility) return;
+  if (choice === "regular") runAddressAction("generate");
+  else if (choice === "quantum") openColdSheet({ kind: "quantum-add", form: { address: "", number: "", chain: QUANTUM_CHAIN_RECEIVE, error: null } });
+}
+
+/// Which sheet is open: `{ kind: "address" | "quantum-add" | ..., index? }`, or null. Held so the
+/// sheet can redraw itself without clobbering a different one.
 let coldSheet = null;
 
 function coldSheetRow({ attr, title, subtitle, icon, warn = false, disabled = false }) {
@@ -724,13 +855,11 @@ function coldSheetRow({ attr, title, subtitle, icon, warn = false, disabled = fa
 
 function renderColdSheet() {
   if (!coldSheet) return;
-  if (coldSheet.kind === "account") return renderColdAccountSheet();
   if (coldSheet.kind === "address") return renderColdAddressSheet();
   if (coldSheet.kind === "transaction") return renderColdTransactionSheet();
   if (coldSheet.kind === "portfolio-pick") return renderColdPortfolioPicker();
   if (coldSheet.kind === "portfolio-details") return renderColdPortfolioDetails();
   if (coldSheet.kind === "quantum-add" || coldSheet.kind === "quantum-number") return renderColdQuantumSheet();
-  renderColdActionsSheet();
 }
 
 /// What to do with one transaction (iOS `TransactionActionsSheet`).
@@ -937,53 +1066,25 @@ function confirmColdPortfolioAdd() {
 
 
 
-/// The account row's ⋯ (iOS `ColdStorageAccountActionsSheet`).
-function renderColdAccountSheet() {
-  const body = modalsEl?.querySelector("[data-cold-actions-body]");
-  const account = accounts.find((a) => a.id === coldSheet.id);
-  if (!body || !account) return;
-  body.innerHTML = `
-    <div class="modal-head">
-      <div><h2>${deps.escapeHtml(account.label)}</h2></div>
-      <button class="modal-close" type="button" data-cold-actions-close aria-label="Close">×</button>
-    </div>
-    <div class="cold-action-rows">
-      ${coldSheetRow({ attr: `data-cold-account-action="copy" data-id="${account.id}"`, title: "Copy kpub",
-        subtitle: "Puts the extended public key on the clipboard.", icon: COPY_ICON })}
-      ${coldSheetRow({ attr: `data-cold-account-action="qr" data-id="${account.id}"`, title: "Show kpub QR",
-        subtitle: "Scan it into another device to watch this account there.", icon: QR_ICON })}
-      ${coldSheetRow({ attr: `data-cold-account-action="rename" data-id="${account.id}"`, title: "Rename",
-        subtitle: "Changes the name shown for this account.", icon: PENCIL_ICON })}
-      ${coldSheetRow({ attr: `data-cold-account-action="notify" data-id="${account.id}"`,
-        title: account.receiveNotifications === false ? "Turn On Receive Notifications" : "Turn Off Receive Notifications",
-        subtitle: account.receiveNotifications === false ? "Notifies you when this account receives Kaspa." : "Stops notifying when this account receives Kaspa. Other accounts keep theirs.",
-        icon: BELL_ICON })}
-    </div>`;
-}
-
-/// One address row's ⋯ (iOS `addressActionsSheet` for an entry).
+/// A quantum address card's ⋮ (K b49a021d moreSheet): what isn't on the card itself - Hide, Edit
+/// Address Number and Stop Watching. A regular address's top right hides it at once instead.
 function renderColdAddressSheet() {
   const body = modalsEl?.querySelector("[data-cold-actions-body]");
   const account = activeAccount();
   const entry = detailEntries.find((e) => e.index === coldSheet.index);
   if (!body || !account || !entry) return;
   const i = entry.index;
+  const funded = (entry.balanceSompi || 0) > 0;
   body.innerHTML = `
     <div class="modal-head">
       <div><h2>${deps.escapeHtml(displayLabelFor(account, i))}</h2><p class="cold-sheet-subtitle">${deps.escapeHtml(shortColdAddress(entry.address))}</p></div>
       <button class="modal-close" type="button" data-cold-actions-close aria-label="Close">×</button>
     </div>
     <div class="cold-action-rows">
-      ${coldSheetRow({ attr: `data-cold-addr-action="rename" data-index="${i}"`, title: "Rename Address",
-        subtitle: "Gives this address a label of your own.", icon: PENCIL_ICON })}
-      ${coldSheetRow({ attr: `data-cold-addr-action="copy" data-index="${i}"`, title: "Copy Address",
-        subtitle: "Puts the full address on the clipboard.", icon: COPY_ICON })}
-      ${coldSheetRow({ attr: `data-cold-addr-action="qr" data-index="${i}"`, title: "Show QR Code",
-        subtitle: "Full screen, for scanning with another device.", icon: QR_ICON })}
-      ${(entry.balanceSompi || 0) === 0
-        ? coldSheetRow({ attr: `data-cold-addr-action="hide" data-index="${i}"`, title: "Hide Address",
-            subtitle: "Removes it from this list. Re-enable it in Address Visibility.", icon: EYE_SLASH_ICON, warn: true })
-        : ""}
+      ${/* Same effect as unchecking it in Address Visibility. Never an address holding Kaspa. */
+        coldSheetRow({ attr: `data-cold-addr-action="hide" data-index="${i}"`, title: "Hide Address",
+          subtitle: funded ? "An address holding Kaspa stays on the list." : "Removes it from this list. Re-enable it in Address Visibility.",
+          icon: EYE_SLASH_ICON, warn: true, disabled: funded })}
       ${isColdQuantumIndex(i)
         // A wrong number (or a change address given as a receive one) makes the unit refuse the
         // request: the person can put it right, or clear it to let the unit search. A quantum
@@ -1067,45 +1168,6 @@ function saveColdQuantumSheet() {
   render();
 }
 
-function renderColdActionsSheet() {
-  const body = modalsEl?.querySelector("[data-cold-actions-body]");
-  if (!body) return;
-  const discovering = detailBusy === "discover";
-  const row = (action, title, subtitle, icon, disabled = false) =>
-    coldSheetRow({ attr: `data-cold-${action}`, title, subtitle, icon, disabled });
-  // iOS addressActionsSheet: while a discover runs the sheet counts up ("Checking address #N",
-  // how many it has found so far) instead of the rows.
-  const progress = detailDiscoveryProgress || { checkingIndex: 0, foundCount: 0 };
-  body.innerHTML = `
-    <div class="modal-head">
-      <div><h2>Address Actions</h2></div>
-      <button class="modal-close" type="button" data-cold-actions-close aria-label="Close">×</button>
-    </div>
-    ${discovering
-      ? `<div class="cold-actions-busy">
-           <span class="initial-sync-spinner" aria-hidden="true"></span>
-           <strong>Checking address #${progress.checkingIndex}</strong>
-           <span class="cold-actions-busy-count">${progress.foundCount === 0 ? "No used addresses yet" : `${progress.foundCount} found so far`}</span>
-           <p>Checks the first thousand addresses whatever the gaps, then keeps going while it keeps finding.</p>
-           <button type="button" class="cold-actions-keep-scanning" data-cold-actions-close>Close and Keep Scanning</button>
-         </div>`
-      : `<div class="cold-action-rows">
-           ${row("generate", "Generate More Addresses", "Reveals the next unused address in this account.",
-                 '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>')}
-           ${/* KasSigner never exports its quantum (22') kpub - it would show every key those addresses
-                hide - so each is scanned from the unit, one at a time (K 961fc05a). */
-             row("add-quantum", "Add Quantum-Resistant Address", "Scan a KCC-3 address from KasSigner's address screen.", SHIELD_ICON)}
-           ${row("discover", "Discover Addresses", "Finds addresses holding a balance or a username.",
-                 '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>')}
-           ${row("open-visibility", "Address Visibility", "Check off every address you want on the list, in one sitting.",
-                 CHECKLIST_ICON)}
-           ${row("refresh", "Refresh Balances", "Re-reads every address on this list from the chain.",
-                 '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 6.06M20 5v6h-6"/></svg>')}
-           ${row("copy-kpub", "Copy kpub", "Puts this account's kpub on the clipboard. It reveals all its addresses.", COPY_ICON)}
-         </div>
-         ${detailDiscoverySummary ? `<p class="field-hint cold-actions-summary">${deps.escapeHtml(detailDiscoverySummary)}</p>` : ""}`}`;
-}
-
 function openColdSheet(spec) {
   const modal = modalsEl?.querySelector("[data-cold-actions-modal]");
   if (!modal) return;
@@ -1113,8 +1175,6 @@ function openColdSheet(spec) {
   renderColdSheet();
   modal.hidden = false;
 }
-
-function openColdActionsSheet() { openColdSheet({ kind: "actions" }); }
 
 /// The transaction sheet for any address screen (chatting address, spending addresses): Open in
 /// Explorer, and Add to Portfolio when the transaction moved money for `sourceAddress`. The
@@ -1131,8 +1191,6 @@ export function openTransactionActionsSheet({ txId, outgoing = false, amountSomp
 function closeColdActionsSheet() {
   const modal = modalsEl?.querySelector("[data-cold-actions-modal]");
   if (modal) modal.hidden = true;
-  // The discover summary belongs to the sheet it was shown in (iOS clears it on dismiss).
-  if (coldSheet?.kind === "actions") detailDiscoverySummary = null;
   coldSheet = null;
 }
 
@@ -1468,24 +1526,15 @@ function renderAddressScreen() {
       </a>
     </div>
     <!-- The same balance card as a Manage Addresses address's page (K b0f0a4e6): its name, its
-         balance large, and its worth in your currency. -->
-    ${balanceCardHtml(displayLabelFor(account, entry.index), balanceSompi, renderAddressScreen)}
+         balance large, its worth in your currency, and the full address (K b49a021d). -->
+    ${balanceCardHtml(displayLabelFor(account, entry.index), balanceSompi, renderAddressScreen, entry.address)}
     <!-- History / UTXOs / Usernames on the cycle button (K 518fdc8c PageCycleBar), each click fading
          to the next page. -->
     ${cycleBarHtml({ name: "cold-address", options: COLD_ADDRESS_PAGES, value: addressTab, attrs: "data-cold-tab" })}
     <div class="manage-address-list cold-address-panel${cycleChanged("page:cold-address", addressTab) ? " cycle-fade" : ""}">
       ${addressTab === "transactions" ? addressTxRowsHtml(entry) : addressTab === "utxos" ? addressUtxoRowsHtml(entry) : "<div data-cold-kachat-names></div>"}
-    </div>
-    <div class="cold-bottom-actions">
-      <button class="primary-button cold-capsule" type="button" data-cold-addr-receive>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v3M14 20h3M20 18v3"/></svg>
-        Receive
-      </button>
-      <button class="primary-button cold-capsule" type="button" data-cold-addr-send ${balanceSompi === 0 ? "disabled" : ""}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 16V8M8 12l4-4 4 4"/></svg>
-        Send
-      </button>
     </div>`;
+  // No Send / Receive bar (K b49a021d): they're on the address's card on the account screen.
   // The Usernames tab: this address's own .kachat names (K 518fdc8c: .kachat only), live where the
   // registry is launched (iOS 881ada6). A name opens read-only here - a KasSigner address signs on
   // its device.
@@ -1720,14 +1769,16 @@ function sendBackTarget(step) {
 }
 
 function sendAvailableSompi(entry) {
-  if (addrUtxos.state === "ready") {
+  // The address page's coins, only when it's this address's page (a card's Send comes from the list).
+  if (addrUtxos.state === "ready" && entry.index === activeAddressIndex) {
     try { return addrUtxos.entries.reduce((sum, u) => sum + BigInt(u.amount ?? 0), 0n); } catch { /* the listed balance */ }
   }
   try { return BigInt(entry.balanceSompi || 0); } catch { return 0n; }
 }
 
-async function openSendFlow({ compound = false } = {}) {
-  const entry = detailEntries.find((e) => e.index === activeAddressIndex);
+/// `index`: the address sending - the open address page's (Compound), or a card's Send (K b49a021d).
+async function openSendFlow({ compound = false, index = activeAddressIndex } = {}) {
+  const entry = detailEntries.find((e) => e.index === index);
   if (!entry) return;
   // A KasSigner quantum-resistant (KCC-3) address (K 961fc05a): every coin goes, the change (or a
   // compound) goes to another quantum address of the account, and the request is KSPT 0x06.
@@ -1866,11 +1917,13 @@ function closeSendFlow() {
   if (modal) modal.hidden = true;
 }
 
-/** Done on Sent: close, and open the address again so its balance, history and UTXOs refresh. */
+/** Done on Sent: close, and open the address again so its balance, history and UTXOs refresh; sent
+ *  from a card, the account's list reads its balances again. */
 function finishSendFlow() {
   const reopenIndex = activeAddressIndex;
   closeSendFlow();
   if (reopenIndex !== null) openAddressScreen(reopenIndex);
+  else if (activeAccountId && !showingVisibility) loadDetail();
 }
 
 function goSendStep(step) {
@@ -2908,6 +2961,28 @@ function buildModals() {
         <p class="qr-tap-hint dark">Tap anywhere to copy</p>
       </div>
     </div>
+    <!-- The kpub QR (K b49a021d ColdStorageKpubQRView, "Watch This Account"), laid out as every
+         receive screen: the title, the account's name, the QR on a white card, what it means. Never
+         the kpub as text; a click anywhere copies it. -->
+    <div class="chatting-address-screen cold-kpub-screen" data-cold-kpub-screen hidden role="dialog" aria-modal="true" aria-label="Watch This Account">
+      <div class="chatting-address-card">
+        <header class="chatting-address-header">
+          <button class="chatting-address-back spending-visibility-done" type="button" data-cold-kpub-close>Close</button>
+          <span class="chatting-address-balance cold-kpub-title"><span class="cold-kpub-title-icon" aria-hidden="true">${LOCK_ICON}</span><span>Watch This Account</span></span>
+          <span class="chatting-address-header-spacer" aria-hidden="true"></span>
+        </header>
+        <div class="chatting-address-body cold-kpub-body">
+          <p class="cold-kpub-name" data-cold-kpub-name></p>
+          <div class="chatting-address-qr-frame"><canvas width="512" height="512" data-cold-kpub-canvas></canvas></div>
+          <p class="receive-privacy"><span class="receive-note cold-kpub-eye"><span class="receive-note-icon">${EYE_ICON}</span><span>Watch-only. This cannot spend, but it reveals every address in this account.</span></span></p>
+          <p class="qr-tap-hint dark">Click anywhere to copy</p>
+          <div class="receive-notes">
+            <span class="receive-note" data-kind="allowed"><span class="receive-note-icon">${receiveNoteIcon("allowed")}</span><span>Scan it into another device to watch this account there.</span></span>
+            <span class="receive-note" data-kind="warning"><span class="receive-note-icon">${receiveNoteIcon("warning")}</span><span>Whoever scans it sees every address, balance and payment of this account. Show it only to devices you trust.</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="modal-backdrop" data-cold-actions-modal hidden>
       <div class="contact-modal cold-actions-modal" role="dialog" aria-modal="true" aria-label="Address Actions" data-cold-actions-body></div>
     </div>
@@ -3007,14 +3082,8 @@ function buildModals() {
     if (pfType) { coldSheet.details.type = pfType.dataset.coldPfType; renderColdSheet(); return; }
     if (event.target.closest("[data-cold-pf-back]")) { coldSheet.kind = "portfolio-pick"; renderColdSheet(); return; }
     if (event.target.closest("[data-cold-pf-confirm]")) { confirmColdPortfolioAdd(); return; }
-    const accountAction = event.target.closest("[data-cold-account-action]");
-    if (accountAction) {
-      closeColdActionsSheet();
-      handleAccountMenuAction(accountAction.dataset.coldAccountAction, accountAction.dataset.id);
-      return;
-    }
     const addrAction = event.target.closest("[data-cold-addr-action]");
-    if (addrAction) {
+    if (addrAction && !addrAction.disabled) {
       closeColdActionsSheet();
       handleAddressAction(addrAction.dataset.coldAddrAction, Number(addrAction.dataset.index));
       return;
@@ -3065,22 +3134,6 @@ function buildModals() {
       })();
       return;
     }
-    const action = event.target.closest("[data-cold-generate], [data-cold-add-quantum], [data-cold-discover], [data-cold-refresh], [data-cold-open-visibility], [data-cold-copy-kpub]");
-    if (!action || action.disabled) return;
-    if (action.matches("[data-cold-add-quantum]")) {
-      openColdSheet({ kind: "quantum-add", form: { address: "", number: "", chain: QUANTUM_CHAIN_RECEIVE, error: null } });
-      return;
-    }
-    if (action.matches("[data-cold-copy-kpub]")) {
-      // the only place an account's kpub leaves the app (K b0f0a4e6); off the clipboard in 30 s
-      const account = activeAccount();
-      closeColdActionsSheet();
-      if (account) copyKpub(account.kpub);
-    }
-    else if (action.matches("[data-cold-generate]")) { closeColdActionsSheet(); runAddressAction("generate"); }
-    else if (action.matches("[data-cold-discover]")) { runAddressAction("discover"); }
-    else if (action.matches("[data-cold-refresh]")) { closeColdActionsSheet(); runAddressAction("refresh"); }
-    else { closeColdActionsSheet(); showingVisibility = true; visibilityPage = 0; visUsageCache.clear(); render(); }
   });
 
   const qrModal = modalsEl.querySelector("[data-cold-qr-modal]");
@@ -3092,9 +3145,18 @@ function buildModals() {
     if (event.target.closest("[data-cold-qr-close]")) return;
     const payload = qrModal.dataset.payload;
     if (!payload) return;
-    if (qrModal.dataset.kpub === "1") { copyKpub(payload); return; }
     navigator.clipboard?.writeText(payload);
     deps.showToast?.(qrModal.dataset.copyToast || "Copied to clipboard.");
+  });
+
+  // The kpub QR: Close, or a click anywhere else on the card copies the kpub (30 s on the clipboard).
+  const kpubScreen = modalsEl.querySelector("[data-cold-kpub-screen]");
+  modalsEl.querySelector("[data-cold-kpub-close]").addEventListener("click", closeKpubQrScreen);
+  kpubScreen.addEventListener("mousedown", (event) => { if (event.target === kpubScreen) closeKpubQrScreen(); });
+  kpubScreen.querySelector(".chatting-address-card").addEventListener("click", (event) => {
+    if (event.target.closest("[data-cold-kpub-close]")) return;
+    const account = accounts.find((a) => a.id === kpubScreen.dataset.accountId);
+    if (account) copyKpub(account.kpub);
   });
 
   // --- KSPT send flow (delegated — the step screens re-render; the signed screen is the swipe-up's) ---
@@ -3295,6 +3357,7 @@ function buildModals() {
       return;
     }
     if (!qrModal.hidden) { closeQrModal(); return; }
+    if (!kpubScreen.hidden) { closeKpubQrScreen(); return; }
     if (!inputModal.hidden) { finishInputModal(null); return; }
     if (!confirmModal.hidden) { finishConfirmModal(false); return; }
     // The shared QR scanner handles its own Escape (in the capture phase, so this
@@ -3375,36 +3438,41 @@ function copyKpub(kpub) {
 }
 
 /// The account's extended public key as a QR, so another device can watch this account by
-/// scanning it (iOS ColdStorageKpubQRView). The warning is the one iOS prints under it: a kpub
-/// cannot spend, but handing one over hands over every address the account will ever use.
-function openKpubQrModal(account) {
-  return presentQr({
-    title: account.label,
-    payload: account.kpub,
-    copyToast: "kpub copied to clipboard.",
-    kpub: true,
-    note: "Watch-only. This cannot spend, but it reveals every address in this account.",
-    // "L" where the address QR uses "M" (iOS ColdStorageKpubQRView.generateQR): a kpub is several
-    // times longer, and "M" pushes it into a denser symbol that scans worse on screen.
-    errorCorrectionLevel: "L",
-  });
+/// scanning it (K b49a021d ColdStorageKpubQRView, "Watch This Account"), laid out as every receive
+/// screen. No kpub text: a kpub cannot spend, but handing one over hands over every address the
+/// account will ever use, which the notes under it say.
+async function openKpubQrModal(account) {
+  const screen = modalsEl.querySelector("[data-cold-kpub-screen]");
+  const canvas = modalsEl.querySelector("[data-cold-kpub-canvas]");
+  if (!screen || !canvas) return;
+  modalsEl.querySelector("[data-cold-kpub-name]").textContent = account.label;
+  screen.dataset.accountId = account.id;
+  screen.hidden = false;
+  canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+  // "L" where the address QR uses "M" (iOS ColdStorageKpubQRView.generateQR): a kpub is several
+  // times longer, and "M" pushes it into a denser symbol that scans worse on screen.
+  try { await deps.engine.drawQrFor(canvas, account.kpub, { dark: "#06110f", light: "#ffffff", errorCorrectionLevel: "L" }); }
+  catch (error) { deps.appendEngineLog?.(`Cold kpub QR failed: ${error.message}`); }
 }
 
-/// One presenter for both QRs, so the address QR and the kpub QR cannot drift apart.
-async function presentQr({ title, payload, copyToast, note, errorCorrectionLevel = "M", kpub = false }) {
+function closeKpubQrScreen() {
+  const screen = modalsEl?.querySelector("[data-cold-kpub-screen]");
+  if (!screen) return;
+  screen.hidden = true;
+  delete screen.dataset.accountId;
+}
+
+/// The address QR's presenter (iOS ColdStorageAddressQRView).
+async function presentQr({ title, payload, copyToast, note, errorCorrectionLevel = "M" }) {
   const modal = modalsEl.querySelector("[data-cold-qr-modal]");
   const canvas = modalsEl.querySelector("[data-cold-qr-canvas]");
   const noteEl = modalsEl.querySelector("[data-cold-qr-note]");
   modalsEl.querySelector("[data-cold-qr-title]").textContent = title;
-  // No kpub text under its QR (K b0f0a4e6): only the code, for scanning.
-  const payloadEl = modalsEl.querySelector("[data-cold-qr-address]");
-  payloadEl.textContent = kpub ? "" : payload;
-  payloadEl.hidden = kpub;
+  modalsEl.querySelector("[data-cold-qr-address]").textContent = payload;
   noteEl.textContent = note || "";
   noteEl.hidden = !note;
   modal.dataset.payload = payload;
   modal.dataset.copyToast = copyToast;
-  modal.dataset.kpub = kpub ? "1" : "";
   modal.hidden = false;
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -3427,7 +3495,6 @@ function closeQrModal() {
 
 async function openAccount(id) {
   activeAccountId = id;
-  detailDiscoverySummary = null;
   showingVisibility = false;
   visibilityPage = 0;
   detailEntries = [];
@@ -3529,17 +3596,16 @@ async function loadDetail({ useCache = true } = {}) {
   const pending = detailEntries.filter((e) => (e.balanceSompi || 0) === 0 && e.everUsed === undefined);
   // A failed probe (null) leaves the row's "Checking" up rather than claiming "Unused" (iOS
   // unknownUsedAddresses).
+  let usageChanged = false;
   const markUsed = (entry, used) => {
     if (used === null || used === undefined) return;
     entry.everUsed = used;
+    usageChanged = true;
     const cell = rootEl?.querySelector(`[data-cold-usage-cell="${entry.index}"]`);
-    if (cell) {
-      cell.className = `spending-address-usage ${used ? "used" : "unused"}`;
-      cell.textContent = used ? "Used" : "Unused";
-    } else {
-      rootEl?.querySelector(`[data-cold-badges="${entry.index}"]`)?.insertAdjacentHTML("afterbegin",
-        `<span class="spending-address-usage ${used ? "used" : "unused"}" data-cold-usage-cell="${entry.index}">${used ? "Used" : "Unused"}</span>`);
-    }
+    if (!cell) return;
+    const state = coldUsageState({ balanceSompi: entry.balanceSompi, everUsed: used, ownsUsername: detailDomainOwning.has(entry.address) });
+    cell.className = `address-card-usage ${state}`;
+    cell.textContent = state === "used" ? "Used" : state === "unused" ? "Unused" : "Checking";
   };
   let bulkActive = null;
   if (pending.length) {
@@ -3557,7 +3623,10 @@ async function loadDetail({ useCache = true } = {}) {
       markUsed(entry, used);
     });
   }
-  if (detailToken === token) persistAccountCache(account.id);
+  if (detailToken !== token) return;
+  persistAccountCache(account.id);
+  // Used ones go below the unused ones (Manage Addresses' order), so the answers re-sort the list.
+  if (usageChanged) render();
 }
 
 /// How deep a discover looks. The whole window is asked about in ONE request, so depth costs
@@ -3783,6 +3852,7 @@ async function beginImport(kpubRaw) {
   else accounts.push(normalizeAccount({ id: nowId(), label: label.trim(), kpub, addedAt: Date.now() }));
   saveState();
   render();
+  loadListBalances();
 }
 
 /// Paste kpub takes what's on the clipboard at once (K b0f0a4e6): a valid kpub goes straight to
@@ -3831,6 +3901,8 @@ async function startScan() {
 // Actions
 // ---------------------------------------------------------------------------
 
+/// An account card's buttons (K b49a021d ColdStorageAccountCard): Copy kpub, kpub QR, Rename (in
+/// place) and Alerts On / Off.
 async function handleAccountMenuAction(action, id) {
   const account = accounts.find((a) => a.id === id);
   if (!account) return;
@@ -3839,27 +3911,38 @@ async function handleAccountMenuAction(action, id) {
   } else if (action === "qr") {
     await openKpubQrModal(account);
   } else if (action === "notify") {
-    // Stored with the account, per wallet; older records read as on (iOS ba352a2).
+    // Stored with the account, per wallet; older records read as on (iOS ba352a2). This account's
+    // receives alone.
     account.receiveNotifications = account.receiveNotifications === false;
     saveState();
     coldWatchedCache.fingerprint = "";
     render();
+    deps.showToast?.(coldAlertsToast(account.receiveNotifications !== false));
     // the closed-app push list follows the switch (K 428a797b)
     deps.onWatchedAddressesChanged?.();
   } else if (action === "rename") {
-    await renameAccountPrompt(account);
+    renameAccountInPlace(account);
   }
 }
 
-/// iOS RenameSheet "Rename Account", with the current name under the title.
-async function renameAccountPrompt(account) {
-  const name = await promptModal({
-    title: "Rename Account",
-    message: account.label,
-    label: "Name",
-    initial: account.label,
+/// Rename on an account card, in place (K b49a021d): the name becomes a field, each keystroke saved;
+/// an empty name keeps the old one.
+function renameAccountInPlace(account) {
+  const card = rootEl?.querySelector(`[data-cold-account-card="${CSS.escape(account.id)}"]`);
+  startInlineRename(card, {
+    key: `cold-account:${account.id}`,
+    current: account.label,
+    placeholder: account.label,
+    onChange: (text) => {
+      const name = coldAccountRenameValue(text);
+      if (!name || name === account.label) return;
+      account.label = name;
+      saveState();
+      // the notifications name the account (listColdWatchedAddresses)
+      coldWatchedCache.fingerprint = "";
+    },
+    onDone: () => render(),
   });
-  if (name?.trim()) { account.label = name.trim(); saveState(); render(); }
 }
 
 async function handleAddressAction(action, index) {
@@ -3872,10 +3955,13 @@ async function handleAddressAction(action, index) {
   } else if (action === "qr") {
     openQrModal(account, entry);
   } else if (action === "hide") {
-    // The row's balance may be stale, so hiding asks the node again and fails closed: an error
-    // or a balance refuses it (iOS ColdStorageDetailView.hideAddress / setAddressHidden).
-    if ((entry.balanceSompi || 0) > 0 || !(await addressConfirmedEmpty(entry.address))) {
-      deps.showToast?.("This address can't be hidden.");
+    // An address holding Kaspa stays on the list (K b49a021d hideAddress). The card's balance may be
+    // stale, so hiding asks the node again and fails closed: an error or a balance refuses it (iOS
+    // setAddressHidden).
+    const refusal = coldHideRefusal(entry.balanceSompi);
+    if (refusal) { deps.showToast?.(refusal); return; }
+    if (!(await addressConfirmedEmpty(entry.address))) {
+      deps.showToast?.("This address can't be hidden right now.");
       return;
     }
     if (activeAccount() !== account) return;
@@ -3888,22 +3974,27 @@ async function handleAddressAction(action, index) {
     render();
     deps.showToast?.("Address hidden. Re-enable it in Address Visibility.");
   } else if (action === "rename") {
-    const custom = account.labels?.[index] ?? account.labels?.[String(index)] ?? "";
-    // iOS "Rename Address" alert: a Label field, and an empty one goes back to the default name.
-    const label = await promptModal({
-      title: "Rename Address",
-      label: "Label",
-      initial: custom,
-      required: false,
+    // In place (K b49a021d), as Manage Addresses: the card's name becomes a field starting from the
+    // address's own label, each keystroke saved; empty goes back to the default name.
+    const card = rootEl?.querySelector(`[data-cold-address-row="${index}"]`);
+    startInlineRename(card, {
+      key: `cold:${account.id}:${entry.address}`,
+      current: String(account.labels?.[index] ?? account.labels?.[String(index)] ?? ""),
+      placeholder: isColdQuantumIndex(index)
+        ? quantumDefaultLabel(account.quantumAddresses?.[index - COLD_QUANTUM_INDEX_BASE]?.chain, account.quantumAddresses?.[index - COLD_QUANTUM_INDEX_BASE]?.unitIndex)
+        : `Address #${index}`,
+      onChange: (text) => {
+        if (activeAccount() !== account) return;
+        // a quantum row files under its index now (K 961fc05a currentIndex)
+        const at = currentIndexOf(account, entry);
+        if (at === null) return;
+        const trimmed = String(text || "").trim();
+        if (trimmed) account.labels[at] = trimmed;
+        else { delete account.labels[at]; delete account.labels[String(at)]; }
+        saveState();
+      },
+      onDone: () => render(),
     });
-    if (label === null) return;
-    const at = currentIndexOf(account, entry);
-    if (at === null) return;
-    const trimmed = label.trim();
-    if (trimmed) account.labels[at] = trimmed;
-    else { delete account.labels[at]; delete account.labels[String(at)]; }
-    saveState();
-    render();
   } else if (action === "edit-number" && isColdQuantumIndex(index)) {
     // Edit Address Number (K ColdQuantumAddressNumberSheet): the stored record, not the row.
     const record = account.quantumAddresses.find((q) => q.address === String(entry.address).toLowerCase());
@@ -3981,26 +4072,21 @@ async function runAddressAction(kind) {
       await loadDetail();
       deps.showToast?.(`Address #${pick} is ready.`);
     } else if (kind === "discover") {
-      detailDiscoverySummary = null;
+      // K b49a021d (a pull on the list there; a button at the top right here): the count shows under
+      // the Total Balance while it runs, and the result as a toast.
       detailDiscoveryProgress = { checkingIndex: 0, foundCount: 0 };
-      renderColdSheet();
+      render();
       const found = await discoverAddresses(account, (progress) => {
         if (activeAccountId !== account.id) return;
         detailDiscoveryProgress = progress;
-        if (coldSheet?.kind === "actions") renderColdSheet();
+        const status = rootEl?.querySelector("[data-cold-discover-status]");
+        if (status) status.innerHTML = discoverStatusInnerHtml();
       });
       detailDiscoveryProgress = null;
       if (activeAccountId !== account.id) return;
       await loadDetail();
       // The COUNT of addresses holding a balance or a username (iOS discoverAddresses' summary).
-      const summary = found === 0
-        ? "No addresses with a balance or username found."
-        : `Found ${found} address${found === 1 ? "" : "es"} with a balance or username.`;
-      const sheetOpen = coldSheet?.kind === "actions" && !modalsEl?.querySelector("[data-cold-actions-modal]")?.hidden;
-      // In the sheet when it is still up; closed and carried on, the summary has nowhere to
-      // render, so it is a toast instead.
-      if (sheetOpen) detailDiscoverySummary = summary;
-      else deps.showToast?.(summary);
+      deps.showToast?.(coldDiscoverySummary(found));
     } else if (kind === "refresh") {
       await loadDetail({ useCache: false });
     }
@@ -4012,26 +4098,31 @@ async function runAddressAction(kind) {
   }
 }
 
-async function removeActiveAccount() {
-  const account = activeAccount();
+/// The account card's trash (K b49a021d): asks first, then removes the account from K's watch list.
+async function removeAccount(id) {
+  const account = accounts.find((a) => a.id === id);
   if (!account) return;
   const confirmed = await confirmModal({
-    title: "Remove Cold Storage Account",
+    title: "Remove Cold Storage Account?",
     message: "This only removes it from K's watch list. It has no effect on the KasSigner device or any funds it holds.",
     okLabel: "Remove",
   });
-  if (!confirmed) return;
+  if (!confirmed || !accounts.includes(account)) return;
   accounts = accounts.filter((a) => a.id !== account.id);
   saveState();
   dropPersistedAccountCache(account.id);
+  listBalances.delete(account.id);
   // its coin labels go too (KaPay 5848fb0) - unless another account here watches the same key
   if (!accounts.some((a) => a.kpub === account.kpub)) dropColdUtxoLabelsFor(account);
   // a quantum address's coin labels go with the last account watching it (K 961fc05a)
   dropColdQuantumUtxoLabels(account);
   coldWatchedCache.fingerprint = "";
   deps.onWatchedAddressesChanged?.();
-  saveColdSpot(null);
-  activeAccountId = null;
+  if (activeAccountId === account.id) {
+    saveColdSpot(null);
+    activeAccountId = null;
+    activeAddressIndex = null;
+  }
   render();
 }
 
@@ -4122,6 +4213,7 @@ export function listColdWatchedAddresses() {
 
 export function refreshColdStorage() {
   if (activeAccountId && detailEntries.length === 0) loadDetail();
+  else if (!activeAccountId) loadListBalances(); // paints the list, then the live balances
   else render();
 }
 
@@ -4139,15 +4231,19 @@ export function resetColdStorageForAccount() {
   finishInputModal(null);
   finishConfirmModal(false);
   closeQrModal();
+  closeKpubQrScreen();
   activeAccountId = null;
   activeAddressIndex = null;
   showingVisibility = false;
   detailEntries = [];
   detailBusy = null;
+  detailDiscoveryProgress = null;
   detailToken += 1;
   addrToken += 1;
+  listBalances.clear();
   loadState();
   render();
+  loadListBalances();
 }
 
 export function initColdStorage(dependencies) {
@@ -4157,31 +4253,35 @@ export function initColdStorage(dependencies) {
   buildModals();
 
   rootEl?.addEventListener("click", async (event) => {
-    // --- shared menu toggles (account rows, address rows, Address Actions) ---
-    const accountToggle = event.target.closest("[data-cold-menu-toggle]");
-    if (accountToggle) { openColdSheet({ kind: "account", id: accountToggle.dataset.coldMenuToggle }); return; }
-    const addrToggle = event.target.closest("[data-cold-addr-menu-toggle]");
-    if (addrToggle) { openColdSheet({ kind: "address", index: Number(addrToggle.dataset.coldAddrMenuToggle) }); return; }
-    if (event.target.closest("[data-cold-actions-toggle]")) { openColdActionsSheet(); return; }
-
-    // --- menu items ---
+    // --- the account cards' buttons (K b49a021d ColdStorageAccountCard) ---
+    const removeButton = event.target.closest("[data-cold-remove-account]");
+    if (removeButton) { removeAccount(removeButton.dataset.coldRemoveAccount); return; }
     const accountAction = event.target.closest("[data-cold-account-action]");
     if (accountAction) {
       closeAllColdMenus();
       handleAccountMenuAction(accountAction.dataset.coldAccountAction, accountAction.dataset.id);
       return;
     }
-    const addrAction = event.target.closest("[data-cold-addr-action]");
-    if (addrAction) {
-      closeAllColdMenus();
-      handleAddressAction(addrAction.dataset.coldAddrAction, Number(addrAction.dataset.index));
+    // --- the address cards' buttons (K b49a021d ManagedAddressCard) ---
+    const addrToggle = event.target.closest("[data-cold-addr-menu-toggle]");
+    if (addrToggle) { openColdSheet({ kind: "address", index: Number(addrToggle.dataset.coldAddrMenuToggle) }); return; }
+    const hideButton = event.target.closest("[data-cold-addr-hide]");
+    if (hideButton) { handleAddressAction("hide", Number(hideButton.dataset.coldAddrHide)); return; }
+    const cardAction = event.target.closest("[data-cold-card-action]");
+    if (cardAction) {
+      if (cardAction.disabled) return;
+      const index = Number(cardAction.dataset.index);
+      const kind = cardAction.dataset.coldCardAction;
+      if (kind === "send") openSendFlow({ compound: false, index });
+      else if (kind === "receive") {
+        const account = activeAccount();
+        const entry = detailEntries.find((e) => e.index === index);
+        if (account && entry) openQrModal(account, entry);
+      } else handleAddressAction(kind, index);
       return;
     }
-    if (event.target.closest("[data-cold-generate]")) { closeColdActionsSheet(); runAddressAction("generate"); return; }
-    // Discover leaves the sheet UP: it reports its progress there, and closing on an unmoving
-    // spinner would say nothing about whether it was working.
+    if (event.target.closest("[data-cold-new-address]")) { openNewAddressChooser(); return; }
     if (event.target.closest("[data-cold-discover]")) { runAddressAction("discover"); return; }
-    if (event.target.closest("[data-cold-refresh]")) { closeColdActionsSheet(); runAddressAction("refresh"); return; }
 
     // --- navigation + simple buttons ---
     const open = event.target.closest("[data-cold-open]");
@@ -4194,12 +4294,14 @@ export function initColdStorage(dependencies) {
       showingVisibility = false;
       detailEntries = [];
       detailBusy = null;
+      detailDiscoveryProgress = null;
       saveColdSpot(null);
       render();
+      // the cards' balances: the last known at once, then live
+      loadListBalances();
       return;
     }
     if (event.target.closest("[data-cold-open-visibility]")) {
-      closeColdActionsSheet();
       showingVisibility = true;
       visibilityPage = 0;
       // Every open starts from live data: any action since the last visit (generate,
@@ -4237,12 +4339,6 @@ export function initColdStorage(dependencies) {
     }
     if (event.target.closest("[data-cold-paste]")) { pasteImport(); return; }
     if (event.target.closest("[data-cold-scan]")) { startScan(); return; }
-    if (event.target.closest("[data-cold-remove]")) { removeActiveAccount(); return; }
-    if (event.target.closest("[data-cold-rename-account]")) {
-      const account = activeAccount();
-      if (account) await renameAccountPrompt(account);
-      return;
-    }
     const addrOpen = event.target.closest("[data-cold-addr-open]");
     if (addrOpen) { openAddressScreen(Number(addrOpen.dataset.coldAddrOpen)); return; }
 
@@ -4256,13 +4352,6 @@ export function initColdStorage(dependencies) {
     }
     const tab = event.target.closest("[data-cold-tab]");
     if (tab) { addressTab = COLD_ADDRESS_PAGES.some(([id]) => id === tab.dataset.cycleNext) ? tab.dataset.cycleNext : "transactions"; render(); return; }
-    if (event.target.closest("[data-cold-addr-receive]")) {
-      const account = activeAccount();
-      const entry = detailEntries.find((e) => e.index === activeAddressIndex);
-      if (account && entry) openQrModal(account, entry);
-      return;
-    }
-    if (event.target.closest("[data-cold-addr-send]:not([disabled])")) { openSendFlow({ compound: false }); return; }
     if (event.target.closest("[data-cold-compound]")) { openSendFlow({ compound: true }); return; }
     const txRow = event.target.closest("[data-cold-tx]");
     if (txRow) {
@@ -4298,6 +4387,27 @@ export function initColdStorage(dependencies) {
     }
   });
 
+  // A card's body is a button for the keyboard too: Enter or Space opens it (its own buttons and
+  // the rename field keep their keys).
+  rootEl?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    if (!event.target.matches?.(".address-card-body[data-cold-open], .address-card-body[data-cold-addr-open]")) return;
+    event.preventDefault();
+    event.target.click();
+  });
+
+  // Swipe left to hide an address (K b49a021d, as Manage Addresses): touch only; an address
+  // holding Kaspa refuses with a toast.
+  if (rootEl) {
+    detailRowSwipes = attachRowSwipes(rootEl, {
+      rowAttr: "data-cold-address-row",
+      enabled: () => Boolean(activeAccountId) && activeAddressIndex === null && !showingVisibility && !inlineRenameActive(),
+      actionsFor: () => ({ left: [{ id: "hide", title: "Hide", icon: "eyeSlash", tint: "orange" }], right: [], fullLeft: true }),
+      iconFor: (key) => ACTION_TILE_ICONS[key] || "",
+      onAction(id) { handleAddressAction("hide", Number(id)); },
+    });
+  }
+
   // Click anywhere outside an open menu closes it.
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".spending-address-row-menu-wrap") && !event.target.closest(".cold-actions-wrap")) {
@@ -4309,4 +4419,5 @@ export function initColdStorage(dependencies) {
   // After a refresh, reopen the account/address screen that was on-screen before it —
   // openAccount/openAddressScreen refetch everything, so the restored spot is fresh.
   restoreColdSpot();
+  loadListBalances();
 }
