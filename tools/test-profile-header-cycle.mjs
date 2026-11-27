@@ -12,9 +12,9 @@ function test(name, fn) {
   try { fn(); passed += 1; console.log(`ok - ${name}`); } catch (error) { console.error(`not ok - ${name}`); throw error; }
 }
 
-test("the header is two rows: Share / refresh / bell, then the title and the chip", () => {
-  assert.match(css, /grid-template-areas: "share \. \. refresh bell" "title chip \. \. \.";/);
-  assert.match(css, /\.kaposts-title-share \{\n\s*grid-area: share;[^}]*border: 0;[^}]*background: transparent;/);
+test("the header is two rows: the switcher / refresh / bell, then the title and Share Profile (K 824a30bb)", () => {
+  assert.match(css, /grid-template-areas: "chip \. \. refresh bell" "title share \. \. \.";/);
+  assert.match(css, /\.kaposts-title-share \{\n\s*grid-area: share;[^}]*border-radius: 999px;/);
   assert.match(css, /\[data-kaposts-panel-title\] \{\n\s*grid-area: title;[^}]*font-size: 34px; font-weight: 700;/);
   assert.match(css, /> \.profile-account-chip \{\n\s*grid-area: chip;/);
 });

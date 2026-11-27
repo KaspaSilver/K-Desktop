@@ -11793,10 +11793,11 @@ spendingListEl?.addEventListener("click", async (event) => {
     return;
   }
 
-  // The chatting address's row opens its own screen (iOS 6333dd3 ChattingAddressManageView).
+  // The chatting address's card opens its own screen (iOS 6333dd3 ChattingAddressManageView), with
+  // no Send / Receive: they're on the card (K 824a30bb).
   if (event.target.closest("[data-spending-open-chatting]")) {
     closeAllSpendingMenus();
-    openManageAddressScreen();
+    openManageAddressScreen({ showsSendReceive: false });
     return;
   }
 
@@ -13478,7 +13479,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 359;
+const APP_BUILD = 360;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -15517,9 +15518,14 @@ async function loadManageAddressUtxos() {
   }
 }
 
-async function openManageAddressScreen() {
+/** `showsSendReceive`: Send and Receive at the bottom, only where Manage Addresses' card isn't
+ *  behind the page (a tapped address-activity notification, Posts' Wallet; K 824a30bb). */
+let manageAddressShowsSendReceive = true;
+async function openManageAddressScreen({ showsSendReceive = true } = {}) {
   if (!manageAddressScreen || !engine.address) return;
+  manageAddressShowsSendReceive = showsSendReceive;
   manageAddressScreen.hidden = false;
+  setManageAddressTab(document.querySelector("[data-manage-address-cycle]")?.dataset.cycleValue || "transactions");
   showManageView("list");
   if (manageAddressBalanceEl) manageAddressBalanceEl.textContent = `${currentBalanceKas} ${KAS_UNIT}`;
   manageAddressShownBalance = currentBalanceKas === "--" ? null : currentBalanceKas;
@@ -15738,7 +15744,7 @@ function setManageAddressTab(target) {
   if (changed) restartFade(document.querySelector(`[data-manage-address-panel="${target}"]`));
   // Receive and Send only on History (iOS 0b9fd28).
   const actions = document.querySelector("[data-manage-address-actions]");
-  if (actions) actions.hidden = target !== "transactions";
+  if (actions) actions.hidden = target !== "transactions" || !manageAddressShowsSendReceive;
   if (target === "kachat") paintKachatAddressDomains("[data-manage-address-panel=\"kachat\"]", engine.address);
 }
 document.querySelector("[data-manage-address-cycle]")?.addEventListener("click", (event) => setManageAddressTab(event.currentTarget.dataset.cycleNext || "transactions"));
@@ -28999,18 +29005,21 @@ const SETUP_ICONS = {
   chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 6.5A2.5 2.5 0 0 1 5 4h8.5A2.5 2.5 0 0 1 16 6.5v3A2.5 2.5 0 0 1 13.5 12H7.5L4 15v-3.2A2.5 2.5 0 0 1 2.5 9.5Z"/><path fill="var(--accent, #70c7ba)" stroke="none" d="M10.5 11.5A2.5 2.5 0 0 1 13 9h6.5A2.5 2.5 0 0 1 22 11.5v3A2.5 2.5 0 0 1 19.5 17h-3L13 20v-3h0a2.5 2.5 0 0 1-2.5-2.5Z"/></svg>',
   paperplane: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 3 3 10.5l6.8 2.7L12.5 20Z"/><path d="M21 3 9.8 13.2"/></svg>',
   eye: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></svg>',
+  at: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.6"/><path d="M15.6 12v1.4a2.6 2.6 0 0 0 5.2 0V12a8.8 8.8 0 1 0-3.4 6.9"/></svg>',
+  share: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12"/></svg>',
 };
 
 const SETUP_STEPS = [
   { icon: SETUP_ICONS.wave, title: "Welcome to K", body: "Let's walk through the basics so you're ready to send your first message." },
   { icon: SETUP_ICONS.globe, title: "Choose Your Language", body: "Select the language you'd like to use in K.", extra: "language" },
   { icon: SETUP_ICONS.currency, title: "Choose Your Currency", body: "Select the currency you'd like prices displayed in.", extra: "currency" },
-  { icon: SETUP_ICONS.network, title: "How K Uses Kaspa", body: "K lets you send and receive messages on the Kaspa network itself. Kaspa is required to pay fees when sending your messages. The fee you pay goes to miners which secure the network." },
-  // The qrcode glyph, as iOS fundingStep's scaffold icon; the code itself is behind Show QR Code.
-  { icon: SETUP_ICONS.qrcode, title: "Fund Your Chatting Address", body: "5 Kaspa is enough for about 2500 messages.", extra: "funding" },
-  { icon: SETUP_ICONS.server, title: "Connect to a Node", body: "K needs to connect to a node. How would you like to connect?", extra: "node" },
-  // The guide's final step (iOS d1844582): Starting a Conversation after it is gone.
+  // No Fund Your Chatting Address step (K 824a30bb, owner 2026-11-26): its line is here, and an
+  // import's Change Chatting Address moved here with it. No Connect to a Node step either: K starts
+  // on the default node, and the choice is in Settings > Connection.
+  { icon: SETUP_ICONS.network, title: "How K Uses Kaspa", body: "K lets you send and receive messages on the Kaspa network itself. Kaspa is required to pay fees when sending your messages. The fee you pay goes to miners which secure the network. 5 Kaspa lets you send around 2,500 messages.", extra: "change-address" },
   { icon: null, title: "Your Chatting Address", body: "Think of it like your phone number on K.", extra: "addresses" },
+  // The guide's final step (K 824a30bb): share the chatting address so people can reach you.
+  { icon: SETUP_ICONS.share, title: "Share Your Chatting Address", body: "Send it to someone so they can find and message you on K.", extra: "share" },
 ];
 let setupStepIndex = 0;
 
@@ -29059,100 +29068,52 @@ function renderSetupExtra(kind) {
     setupExtraEl.appendChild(buildSetupChoiceList(Object.entries(LANGUAGES), (k) => k === selectedLanguage, wizardSetLanguage));
   } else if (kind === "currency") {
     setupExtraEl.appendChild(buildSetupChoiceList(Object.entries(CURRENCIES).map(([k, v]) => [k, v.name]), (k) => k === selectedCurrency, wizardSetCurrency));
-  } else if (kind === "funding") {
-    const addr = engine.address || "No wallet loaded";
-    const wrap = document.createElement("div");
-    wrap.className = "setup-funding";
-    const addrBtn = document.createElement("button");
-    addrBtn.type = "button";
-    addrBtn.className = "setup-funding-address";
-    addrBtn.textContent = addr;
-    addrBtn.addEventListener("click", async () => { if (engine.address) { await copyTextToClipboard(engine.address); showCopyToast(addressCopiedToastText(engine.address)); } });
-    // iOS: links with their SF Symbol (qrcode, person.text.rectangle), not buttons.
-    const qrBtn = document.createElement("button");
-    qrBtn.type = "button";
-    qrBtn.className = "linklike-button setup-funding-link";
-    qrBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v3M14 20h3M20 20h1"/></svg><span>Show QR Code</span>`;
-    // Don't close the guide — the address screen (z-index 1500) layers above it,
-    // so backing out of the QR returns here on the funding step.
-    qrBtn.addEventListener("click", () => { openChattingAddressScreen(); });
-    // No gift row: desktop deliberately has no free-gift program (mobile-only).
-    wrap.append(addrBtn, qrBtn);
-    // INITIAL IMPORT ONBOARDING RUNS ONLY, never Help replays: an imported
-    // seed may hold its real identity — .kachat names, a funded chatting
-    // balance — at a nonzero derivation index. Opens the batched scanner;
-    // after a switch this step re-renders with the new address.
+  } else if (kind === "change-address") {
+    // INITIAL IMPORT ONBOARDING RUNS ONLY, never Help replays: an imported seed may hold its real
+    // identity (a username, a funded chatting balance) at a nonzero derivation index. Opens the
+    // batched scanner. It lived on the Fund step until that step left (K 824a30bb).
     if (setupGuideIsOnboardingRun && setupGuideIsImportRun && activeAccountMnemonic()) {
+      setupExtraEl.hidden = false;
       const pickerBtn = document.createElement("button");
       pickerBtn.type = "button";
       pickerBtn.className = "linklike-button setup-funding-link";
       pickerBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="10.5" r="2"/><path d="M5.5 16c.6-1.6 1.6-2.4 3-2.4s2.4.8 3 2.4M14 9.5h4M14 13h4"/></svg><span>Change Chatting Address</span>`;
       pickerBtn.addEventListener("click", () => openChattingAddressPicker());
-      wrap.append(pickerBtn);
+      setupExtraEl.appendChild(pickerBtn);
+    } else {
+      setupExtraEl.hidden = true;
     }
+  } else if (kind === "share") {
+    // The chatting address to share (K 824a30bb shareAddressStep): its QR, the address, Share and
+    // Copy Share Link, as Profile's Share Profile has them (the same kachat.app link).
+    const address = engine.address || "";
+    const wrap = document.createElement("div");
+    wrap.className = "setup-share";
+    wrap.innerHTML = `<span class="setup-share-qr"><canvas width="360" height="360" data-setup-share-qr></canvas></span>
+      <span class="setup-share-address"></span>
+      <span class="setup-share-buttons">
+        <button type="button" class="primary-button" data-setup-share>Share</button>
+        <button type="button" class="secondary-button" data-setup-share-copy>Copy Share Link</button>
+      </span>`;
+    wrap.querySelector(".setup-share-address").textContent = address;
+    const canvas = wrap.querySelector("[data-setup-share-qr]");
+    // drawn at 360 and shown at 180, as the funding card's code
+    if (address) engine.drawQrFor(canvas, address, { dark: "#06110f", light: "#ffffff" })
+      .then(() => { canvas.style.width = "180px"; canvas.style.height = "180px"; }).catch(() => {});
+    wrap.querySelector("[data-setup-share]").addEventListener("click", () => shareOwnProfile());
+    wrap.querySelector("[data-setup-share-copy]").addEventListener("click", async () => {
+      if (!address) return;
+      try { await copyTextToClipboard(profileUniversalLink(address)); showCopyToast("Share link copied."); } catch { /* clipboard refused */ }
+    });
     setupExtraEl.appendChild(wrap);
-  } else if (kind === "node") {
-    // The same two the Node Connection dialog offers, worded for someone who has not met either
-    // yet. Recommended is ours because it needs nothing; Best is their own because nobody else
-    // sees what they ask it.
-    const opts = [
-      { key: "scan", title: "Automatic Node Scan", badge: "Recommended", sub: "The Kaspa public node resolver picks a healthy public node for you, the way kaspa-ng does. Nothing to set up." },
-      { key: "own", title: "Connect Your Own Node", badge: "Best", sub: "Your own Kaspa wRPC endpoint. Nobody else sees what you ask it, and nothing depends on anyone else's node staying up.", input: true },
-    ];
-    let current = accountShellPrefs.nodeChoice;
-    // "auto" from older builds means the hosted mode, which is the scan now; so does "official",
-    // Kasia's node, retired on 2026-10-13
-    if (current !== "own") current = "scan";
-    const list = document.createElement("div");
-    list.className = "setup-choice-list";
-    for (const o of opts) {
-      const row = document.createElement("button");
-      row.type = "button";
-      row.className = "setup-node-row" + (current === o.key ? " selected" : "");
-      row.innerHTML = `<span class="setup-node-dot"></span><span class="setup-node-copy"><strong></strong><small></small></span>${o.badge ? `<span class="setup-node-badge"></span>` : ""}`;
-      row.querySelector("strong").textContent = o.title;
-      row.querySelector("small").textContent = o.sub;
-      if (o.badge) row.querySelector(".setup-node-badge").textContent = o.badge;
-      row.addEventListener("click", () => {
-        accountShellPrefs.nodeChoice = o.key;
-        persistAccountShellPreferences();
-        applySetupNodeChoice();
-        renderSetupStep();
-      });
-      list.appendChild(row);
-      if (o.input && current === o.key) {
-        const input = document.createElement("input");
-        input.type = "text";
-        input.className = "field-input setup-node-input";
-        // wRPC, not gRPC: this placeholder used to show the phones' grpcs://host:port form, which
-        // this client cannot speak at all.
-        input.placeholder = "wss://your-node.example.com";
-        input.value = accountShellPrefs.nodeAddress || "";
-        input.autocomplete = "off";
-        input.spellcheck = false;
-        input.addEventListener("input", () => {
-          accountShellPrefs.nodeAddress = input.value.trim();
-          persistAccountShellPreferences();
-          applySetupNodeChoice();
-          const error = setupExtraEl.querySelector("[data-setup-node-error]");
-          if (error) error.hidden = true;
-        });
-        list.appendChild(input);
-      }
-    }
-    setupExtraEl.appendChild(list);
-    // iOS nodeValidationError: an own node that is not an address says so in place, on Next.
-    const nodeError = document.createElement("p");
-    nodeError.className = "field-error";
-    nodeError.dataset.setupNodeError = "";
-    nodeError.hidden = true;
-    setupExtraEl.appendChild(nodeError);
   } else if (kind === "addresses") {
     // iOS d1844582 addressExplainerStep: no picture, three rows.
     const rows = [
       { icon: SETUP_ICONS.chat, title: "How People Reach You", value: engine.address || "--", caption: "Share this address and people can message you. Only you can read what they send." },
       { icon: SETUP_ICONS.paperplane, title: "Paying for Messages", value: "", caption: "Each message you send takes a tiny amount of Kaspa from this address. 1 Kaspa covers about 500 messages." },
       { icon: SETUP_ICONS.eye, title: "What Others Can See", value: "", caption: "Anyone can see this address and its balance on the Kaspa network, but they can't read your messages. Use it only for chatting and .kachat domains." },
+      // a username makes the address easy to find (K 824a30bb)
+      { icon: SETUP_ICONS.at, title: "Get a Username", value: "", caption: "Claim a username, like @alice, so people can find and message you without your long address. Get one in Usernames." },
     ];
     for (const r of rows) {
       const box = document.createElement("div");
@@ -29164,35 +29125,6 @@ function renderSetupExtra(kind) {
       setupExtraEl.appendChild(box);
     }
   }
-}
-
-/// Makes the wizard's node choice actually take effect.
-///
-/// It used to store nodeChoice and nodeAddress in preferences that nothing ever read, so choosing
-/// "Connect Your Own Node" during setup and typing an address did nothing at all - the app went on
-/// using the default, and the only place that really decided was the Node Connection dialog.
-///
-/// A half-typed URL is ignored rather than committed: the connection to a custom node is strict,
-/// so writing "wss://" the moment it is typed would leave someone on a node that cannot answer,
-/// mid-sentence.
-function applySetupNodeChoice() {
-  const choice = accountShellPrefs.nodeChoice;
-  setEndpoint("nodeScan", "");
-  // "official" was Kasia's node, retired: it reads as the scan now
-  if (choice !== "own") {
-    if (getEndpointOverride("trustedNode").trim()) setEndpoint("trustedNode", "");
-    return;
-  }
-  const url = setupOwnNodeUrl();
-  setEndpoint("trustedNode", url || "");
-}
-/// The own-node field as a wRPC URL, or null when it is not one yet: a wss:// / ws:// URL, or
-/// host:port (taken as wss://, like Connection Settings).
-function setupOwnNodeUrl() {
-  const raw = String(accountShellPrefs.nodeAddress || "").trim();
-  if (/^wss?:\/\/[^\s/]+/i.test(raw)) return raw;
-  if (/^[^\s/:]+:\d{1,5}$/.test(raw)) return `wss://${raw}`;
-  return null;
 }
 
 function renderSetupStep() {
@@ -29284,17 +29216,19 @@ function closeInitialSync() {
 initialSyncSkipBtn?.addEventListener("click", closeInitialSync);
 document.querySelector("[data-initial-sync-done]")?.addEventListener("click", closeInitialSync);
 
-async function runPostOnboardingSync() {
-  if (!initialSyncBackdrop) return;
-  setInitialSyncState("running");
-  setInitialSyncPhase("Starting");
-  if (initialSyncSkipBtn) initialSyncSkipBtn.hidden = true;
-  initialSyncBackdrop.hidden = false;
-  // A modal with no way out would be worse than an incomplete chat list, so the escape appears
-  // once this has been running a while. Same 20 seconds iOS waits.
-  initialSyncSkipTimer = setTimeout(() => {
-    if (initialSyncSkipBtn) initialSyncSkipBtn.hidden = false;
-  }, 20_000);
+async function runPostOnboardingSync({ quiet = false } = {}) {
+  if (!quiet) {
+    if (!initialSyncBackdrop) return;
+    setInitialSyncState("running");
+    setInitialSyncPhase("Starting");
+    if (initialSyncSkipBtn) initialSyncSkipBtn.hidden = true;
+    initialSyncBackdrop.hidden = false;
+    // A modal with no way out would be worse than an incomplete chat list, so the escape appears
+    // once this has been running a while. Same 20 seconds iOS waits.
+    initialSyncSkipTimer = setTimeout(() => {
+      if (initialSyncSkipBtn) initialSyncSkipBtn.hidden = false;
+    }, 20_000);
+  }
 
   try {
     setInitialSyncPhase("Connecting for live updates");
@@ -29313,6 +29247,7 @@ async function runPostOnboardingSync() {
   }
   // (audit 2026-11-25) Started whether or not the steps above threw.
   startAutomaticRefresh();
+  if (quiet) return;
   setInitialSyncState("finished");
   if (initialSyncSkipTimer) { clearTimeout(initialSyncSkipTimer); initialSyncSkipTimer = null; }
 }
@@ -29332,16 +29267,12 @@ function closeSetupGuide({ completed = false } = {}) {
   }
   if (setupGuideModal) setupGuideModal.hidden = true;
   closeChattingAddressPicker();
-  // Only a finished ONBOARDING run waits for the catch-up. A Help replay is someone re-reading
-  // the guide on an account that has been syncing all along.
-  if (completed && wasOnboardingRun) void runPostOnboardingSync();
+  // A finished ONBOARDING run's first sync runs on its own, with no progress screen after the guide
+  // (K 824a30bb: the first sync runs during the guide). A Help replay is someone re-reading the
+  // guide on an account that has been syncing all along.
+  if (completed && wasOnboardingRun) void runPostOnboardingSync({ quiet: true });
 }
 setupNextBtn?.addEventListener("click", async () => {
-  if (SETUP_STEPS[setupStepIndex]?.extra === "node" && accountShellPrefs.nodeChoice === "own" && !setupOwnNodeUrl()) {
-    const error = setupExtraEl?.querySelector("[data-setup-node-error]");
-    if (error) { error.textContent = "Enter a node as host:port or a wss:// URL."; error.hidden = false; }
-    return;
-  }
   if (setupStepIndex >= SETUP_STEPS.length - 1) { closeSetupGuide({ completed: true }); return; }
   setupStepIndex += 1;
   renderSetupStep();

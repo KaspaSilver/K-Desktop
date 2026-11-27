@@ -607,19 +607,16 @@ function selectEditorResolution({ address, name, tld }) {
 }
 
 /** The name Use Their Username puts in the field (KaChat 413f6d6d AddressBookEntryEditor): the
- *  typed username that resolved, else the opened address's .kachat name, always
- *  with its ending. Null when there is none, or it's already the name. */
+ *  typed username that resolved, else the opened address's .kachat name. Bare, "alice", never
+ *  "alice.kachat" (K 824a30bb, owner 2026-11-26: the ending is never shown, so it isn't saved into a
+ *  contact's name either). Null when there is none, or it's already the name. */
 function editorDomainSuggestion() {
   const s = editorState;
   if (!s) return null;
   let suggestion = null;
-  if (s.resolvedAddress && s.resolvedName) {
-    const name = String(s.resolvedName).trim();
-    const tld = String(s.selectedTld || "").trim();
-    suggestion = !tld || name.toLowerCase().endsWith(`.${tld.toLowerCase()}`) ? name : `${name}.${tld}`;
-  } else if (s.address) {
-    suggestion = deps?.kachatNameFor?.(s.address) || null;
-  }
+  if (s.resolvedAddress && s.resolvedName) suggestion = String(s.resolvedName).trim();
+  else if (s.address) suggestion = deps?.kachatNameFor?.(s.address) || null;
+  suggestion = String(suggestion || "").trim().replace(/\.kachat$/i, "");
   if (!suggestion) return null;
   return suggestion === String(s.name || "").trim() ? null : suggestion;
 }

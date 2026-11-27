@@ -28,10 +28,11 @@ await test("the contact editor opens with only a name you gave them, and needs a
   assert.doesNotMatch(app, /suggestedName/);
   assert.match(app, /presetName: contact\.nameIsCustom \? contact\.name : null/);
 });
-await test("a clear button and Use Their Username (K 518fdc8c), the .kachat name with its ending", () => {
+await test("a clear button and Use Their Username (K 518fdc8c), the bare name (K 824a30bb)", () => {
   assert.match(book, /data-ab-editor-name-clear aria-label="Clear"/);
   assert.match(book, /Use Their Username <span class="ab-use-domain-name">\(\$\{esc\(suggestion\)\}\)<\/span>/);
-  assert.match(book, /s\.resolvedAddress && s\.resolvedName\) \{/);
+  assert.match(book, /if \(s\.resolvedAddress && s\.resolvedName\) suggestion = String\(s\.resolvedName\)\.trim\(\);/);
+  assert.match(book, /suggestion = String\(suggestion \|\| ""\)\.trim\(\)\.replace\(\/\\\.kachat\$\/i, ""\);/, "never alice.kachat");
   assert.match(app, /kachatNameFor: \(address\) => \(kachatNamesUiEnabled\(\) \? kachatCachedLabel\(address\) : null\),/);
 });
 await test("User Info's name field takes the name the editor saved", () => {
@@ -64,8 +65,12 @@ await test("Show Request As QR: the kachat.app link, always", async () => {
 await test("a sheet over another closes alone on Escape", () => {
   assert.match(app, /if \(\[\.\.\.document\.querySelectorAll\("\[data-payment-request-sheet\]"\)\]\.pop\(\) !== backdrop\) return;/);
 });
-await test("the funding step's text", () => {
-  assert.match(app, /title: "Fund Your Chatting Address", body: "5 Kaspa is enough for about 2500 messages\."/);
+await test("no funding or node step (K 824a30bb): the fees step says what 5 Kaspa buys; the guide ends on Share", () => {
+  assert.doesNotMatch(app, /title: "Fund Your Chatting Address"|title: "Connect to a Node"/);
+  assert.match(app, /The fee you pay goes to miners which secure the network\. 5 Kaspa lets you send around 2,500 messages\.", extra: "change-address" \}/);
+  assert.match(app, /\{ icon: SETUP_ICONS\.share, title: "Share Your Chatting Address", body: "Send it to someone so they can find and message you on K\.", extra: "share" \},\n\];/);
+  assert.match(app, /title: "Get a Username", value: "", caption: "Claim a username, like @alice/);
+  assert.match(app, /if \(completed && wasOnboardingRun\) void runPostOnboardingSync\(\{ quiet: true \}\);/, "no progress screen after the guide");
 });
 
 if (failures) { console.log(`${failures} failed`); process.exit(1); }

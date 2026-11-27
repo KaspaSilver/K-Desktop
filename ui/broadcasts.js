@@ -3400,7 +3400,8 @@ function renderRoomInfoPanel() {
       ${row("Kind", curated ? "Popular" : "Added by you")}
       ${joinedAt ? row("Joined", fmtDay(joinedAt)) : ""}
       <p class="broadcast-info-footer">${curated
-        ? "A curated room, always in your list. Anyone on K can post to it."
+        // nothing is in the list unasked since K 824a30bb: a default room is one you added too
+        ? "A room the indexer keeps. You added it, and anyone on K can post to it."
         : "A room you added. Anyone who knows the name can post to it."}</p>
     </section>
     <section class="broadcast-info-section">

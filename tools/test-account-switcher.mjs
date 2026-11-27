@@ -95,12 +95,14 @@ await test("a picture is copied small; one that can't be copied keeps its https 
   assert.deepEqual(coverRect(200, 100, 96), { x: -48, y: 0, width: 192, height: 96 });
 });
 
-await test("the chip sits beside Profile's title, Share is the top-left button", () => {
-  assert.match(html, /<button class="kaposts-edit-kns kaposts-title-share" type="button" data-kaposts-share-profile aria-label="Share Profile"[^>]*>\s*<svg[\s\S]*?<\/svg>Share\s*<\/button>/);
+await test("the switcher is the top-left button (your picture and a switch symbol), Share Profile beside the title (K 824a30bb)", () => {
+  assert.match(html, /<button class="kaposts-edit-kns kaposts-title-share" type="button" data-kaposts-share-profile aria-label="Share Profile"[^>]*>\s*<svg[\s\S]*?<\/svg>Share Profile\s*<\/button>/);
   assert.match(html, /<button class="profile-account-chip" type="button" data-profile-account-chip aria-haspopup="dialog"[^>]*title="Switch Account"/);
   assert.match(html, /data-profile-account-chip-avatar/);
-  assert.match(html, /data-profile-account-chip-label/);
-  assert.match(drawerCss, /\[data-kaposts-panel\]\[data-kaposts-panel-root\] > \.kaposts-thread-header > \.kaposts-title-share \{ order: -1; \}/);
+  assert.match(html, /<span class="profile-account-chip-label visually-hidden" data-profile-account-chip-label><\/span>/, "the name is for screen readers only");
+  assert.match(html, /class="profile-account-chip-switch"/);
+  assert.doesNotMatch(html, /profile-account-chip-chevron/);
+  assert.match(drawerCss, /grid-template-areas: "chip \. \. refresh bell" "title share \. \. \.";/);
   assert.match(drawerCss, /\[data-kaposts-panel\]:not\(\[data-kaposts-panel-root\]\) \.profile-account-chip \{ display: none; \}/);
   assert.match(app, /profileAccountChip\?\.addEventListener\("click", \(\) => \{ openAccountSwitcher\(\); \}\);/);
 });

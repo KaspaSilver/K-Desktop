@@ -16,7 +16,7 @@
        fetched again once and the page reloads; see public/asset-repair.js. -->
   <script src="/asset-repair.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=455" />
+  <link rel="stylesheet" href="./ui/styles.css?v=457" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (K's globe, dark only since K b0f0a4e6) is the tab icon too. -->
@@ -740,19 +740,19 @@
                 <span class="kaposts-panel-done">Done</span>
               </button>
               <strong data-kaposts-panel-title>Panel</strong>
-              <!-- Share Profile, the Profile tab only (CSS hides it on every other page): the top-left
-                   button since K 8cb4c88e (owner, 2026-11-24, swapped with the account chip; it was
-                   beside the title from K 804cbcb7). Icon and "Share", as iOS's toolbar button. -->
+              <!-- Share Profile beside Profile's title, in glass (K 824a30bb ProfileShareChip, owner
+                   2026-11-26: swapped back with the account switcher). The Profile tab only (CSS hides
+                   it on every other page). -->
               <button class="kaposts-edit-kns kaposts-title-share" type="button" data-kaposts-share-profile aria-label="Share Profile" title="Share Profile">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12"/></svg>Share
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12"/></svg>Share Profile
               </button>
-              <!-- You, in glass, beside Profile's title (K 8cb4c88e ProfileAccountChip): your picture
-                   and username, or your short address; opens the Accounts sheet (ui/app.js
-                   openAccountSwitcher). The Profile tab only, as Share. -->
+              <!-- The account switcher at Profile's top left (K 824a30bb ProfileAccountChip): your
+                   picture with a switch symbol, in glass; opens the Accounts sheet (ui/app.js
+                   openAccountSwitcher). Screen readers hear your username or short address. -->
               <button class="profile-account-chip" type="button" data-profile-account-chip aria-haspopup="dialog" aria-description="Switch Account" title="Switch Account" hidden>
                 <span class="profile-account-chip-avatar-host" data-profile-account-chip-avatar aria-hidden="true"></span>
-                <span class="profile-account-chip-label" data-profile-account-chip-label></span>
-                <svg class="profile-account-chip-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9.5 5.5 5.5 5.5-5.5"/></svg>
+                <span class="profile-account-chip-label visually-hidden" data-profile-account-chip-label></span>
+                <svg class="profile-account-chip-switch" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 10a7.5 7.5 0 0 1 13-4.2L20 8.5"/><path d="M20 4v4.5h-4.5"/><path d="M19.5 14a7.5 7.5 0 0 1-13 4.2L4 15.5"/><path d="M4 20v-4.5h4.5"/></svg>
               </button>
             </div>
             <div class="kaposts-panel-body" data-kaposts-panel-body></div>
