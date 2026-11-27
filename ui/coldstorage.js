@@ -42,7 +42,8 @@ import { quantumSpentFromHistory } from "../engine/quantum.js";
 // The card rules (K b49a021d): the sort, Used / Unused, the quantum tag, the toasts.
 import {
   sortColdEntries, coldUsageState, coldQuantumTone, coldDiscoverySummary, coldAccountRenameValue,
-  coldAlertsToast, coldHideRefusal,
+  coldAlertsToast, coldHideRefusal, mergeColdAccountsById, coldFundedHiddenIndexes, coldShownEntries,
+  coldTotalSompi, coldScreenName, coldClipboardStillHolds,
 } from "./cold-cards.js";
 import { closeActiveScanner, scanKaspaAddress, scanQrCode } from "./qr-scan.js";
 import { transactionBelongsInHistory } from "../engine/sync.js";
@@ -134,11 +135,22 @@ function normalizeAccount(raw) {
   };
 }
 
-function loadState() {
+/// The stored accounts, normalized, without touching the live list. A record stored without an id
+/// keeps the id the live list already gave it (same kpub), so it isn't renamed on every read.
+function readStoredAccounts() {
   try {
     const parsed = JSON.parse(localStorage.getItem(deps.accountScopedKey(COLD_ACCOUNTS_KEY)) || "[]") || [];
-    accounts = parsed.filter((a) => a?.kpub).map(normalizeAccount);
-  } catch { accounts = []; }
+    return parsed.filter((a) => a?.kpub).map((raw) => normalizeAccount(
+      raw.id ? raw : { ...raw, id: accounts.find((a) => a.kpub === raw.kpub)?.id },
+    ));
+  } catch { return []; }
+}
+
+/// Re-reads the stored accounts INTO the live ones, matched by id (audit 2026-11-27): an action
+/// holding an account across an await keeps writing into the list that gets saved, instead of a
+/// detached copy a background re-read left behind.
+function loadState() {
+  accounts = mergeColdAccountsById(accounts, readStoredAccounts());
 }
 
 function saveState() {
@@ -147,6 +159,18 @@ function saveState() {
 
 function activeAccount() {
   return accounts.find((a) => a.id === activeAccountId) || null;
+}
+
+/// The live record for `id`, looked up again right before a write (audit 2026-11-27): an action
+/// that awaited (a node read, a confirm, a rename being typed) writes into the account as it is
+/// now, or not at all when it was removed meanwhile.
+function liveAccount(id) {
+  return (id && accounts.find((a) => a.id === id)) || null;
+}
+
+/// The open account's live record, but only while `id` is still the open one.
+function liveActiveAccount(id) {
+  return id && activeAccountId === id ? liveAccount(id) : null;
 }
 
 // Per-UTXO labels, keyed "txid:index" and scoped per address — mirrors iOS's
@@ -449,6 +473,27 @@ function currentIndexOf(account, entry) {
   return isColdQuantumIndex(entry.index) ? quantumIndexOf(account.quantumAddresses, entry.address) : entry.index;
 }
 
+/// A hidden address whose live balance came back above zero is un-hidden for good (audit
+/// 2026-11-27): hiding is a display preference, never a way to lose sight of real funds, and
+/// Kaspa may land on an address after it was hidden. `entries` are `{ index, address,
+/// balanceSompi }` as read; each files under its CURRENT index. True when anything changed.
+function unhideFundedAddresses(accountId, entries) {
+  const account = liveAccount(accountId);
+  if (!account || !account.hidden.length) return false;
+  const current = [];
+  for (const e of entries) {
+    const index = currentIndexOf(account, e);
+    if (index !== null && index !== undefined) current.push({ index, balanceSompi: e.balanceSompi });
+  }
+  const funded = new Set(coldFundedHiddenIndexes(account.hidden, current));
+  if (!funded.size) return false;
+  account.hidden = account.hidden.filter((i) => !funded.has(Number(i)));
+  saveState();
+  coldWatchedCache.fingerprint = "";
+  deps.onWatchedAddressesChanged?.();
+  return true;
+}
+
 // The quantum tag beside a card's name (ui/app.js quantumTagHtml, K QuantumProtectionTag; K b49a021d
 // quantumState(for:)): green "Quantum Protected" while a quantum address's key has never been on
 // chain; orange "Not Quantum Protected" once a spend revealed it and Kaspa sits on it again; gray
@@ -594,10 +639,22 @@ function render() {
   // timer wipes the field meanwhile.
   if (inlineRenameActive()) return;
   closeAllColdMenus();
-  if (activeAccountId && activeAddressIndex !== null) renderAddressScreen();
-  else if (activeAccountId && showingVisibility) renderVisibility();
-  else if (activeAccountId) renderDetail();
+  const screen = currentColdScreen();
+  if (screen === "address") renderAddressScreen();
+  else if (screen === "visibility") renderVisibility();
+  else if (screen === "detail") renderDetail();
   else renderList();
+}
+
+function currentColdScreen() {
+  return coldScreenName({ activeAccountId, activeAddressIndex, showingVisibility });
+}
+
+/// A price that lands later repaints only if the screen it was drawn for is still up (audit
+/// 2026-11-27): an account's card must not paint the account over an address's page or Address
+/// Visibility opened meanwhile.
+function repaintIfShowing(screen) {
+  if (rootEl?.isConnected && currentColdScreen() === screen) render();
 }
 
 /** A card's amount: exact, with the unit, or "--" while it isn't known yet. */
@@ -606,9 +663,9 @@ function cardAmountText(sompi) {
 }
 
 /** A card's worth in your currency (mainnet only), as Manage Addresses' cards show it. */
-function cardWorthHtml(sompi, redraw) {
+function cardWorthHtml(sompi, screen) {
   if (sompi === undefined || sompi === null) return "";
-  const fiat = deps.kasFiatText?.(Number(sompi) / 1e8, () => { if (rootEl?.isConnected) redraw(); }) || "";
+  const fiat = deps.kasFiatText?.(Number(sompi) / 1e8, () => repaintIfShowing(screen)) || "";
   return fiat ? `<span class="address-card-worth">${deps.escapeHtml(String(fiat).replace(/^≈\s*/, ""))}</span>` : "";
 }
 
@@ -632,7 +689,7 @@ function accountCardHtml(account) {
           <button type="button" class="cold-card-corner cold-card-trash" data-cold-remove-account="${account.id}" aria-label="Remove Account" title="Remove Account">${TRASH_ICON}</button>
         </span>
         <span class="address-card-amount" data-cold-account-amount="${account.id}">${deps.escapeHtml(cardAmountText(sompi))}</span>
-        ${cardWorthHtml(sompi, () => { if (!activeAccountId) render(); })}
+        ${cardWorthHtml(sompi, "list")}
         ${cardButtonsHtml([
           { attr: `data-cold-account-action="copy" data-id="${account.id}"`, icon: "copy", title: "Copy kpub" },
           { attr: `data-cold-account-action="qr" data-id="${account.id}"`, icon: "qr", title: "kpub QR" },
@@ -690,9 +747,10 @@ async function loadListBalances() {
   if (!activeAccountId) render();
   for (const account of [...accounts]) {
     let addresses;
+    const derivedCount = account.maxIndex + 1;
     try {
       addresses = [
-        ...deriveReceiveAddresses(account.kpub, 0, account.maxIndex + 1),
+        ...deriveReceiveAddresses(account.kpub, 0, derivedCount),
         ...(account.quantumAddresses || []).map((q) => q.address),
       ];
     } catch { continue; }
@@ -700,9 +758,15 @@ async function loadListBalances() {
     try { balances = await fetchBalancesBatch(addresses); }
     catch { continue; }
     if (token !== listBalancesToken) return;
-    if (!accounts.includes(account)) continue;
+    if (!liveAccount(account.id)) continue;
     listBalances.set(account.id, [...balances.values()].reduce((sum, sompi) => sum + (Number(sompi) || 0), 0));
     persistListBalances(account.id, balances);
+    // a hidden address that has since received Kaspa comes back into view (audit 2026-11-27)
+    unhideFundedAddresses(account.id, addresses.map((address, i) => ({
+      index: i < derivedCount ? i : COLD_QUANTUM_INDEX_BASE + (i - derivedCount),
+      address,
+      balanceSompi: balances.get(address),
+    })));
     if (!activeAccountId) render();
   }
 }
@@ -742,7 +806,7 @@ function addressCardHtml(account, entry) {
       <div class="address-card-body" data-cold-addr-open="${i}" role="button" tabindex="0" aria-label="Open ${label}">
         <span class="address-card-head"><strong class="address-card-name">${label}</strong>${coldQuantumTagHtml(entry)}${corner}</span>
         <span class="address-card-amount" data-cold-balance-cell="${i}">${deps.escapeHtml(entry.balanceSompi === undefined ? `… ${KAS_UNIT}` : cardAmountText(entry.balanceSompi))}</span>
-        ${cardWorthHtml(entry.balanceSompi, renderDetail)}
+        ${cardWorthHtml(entry.balanceSompi, "detail")}
         <span class="address-card-usage ${usage}" data-cold-usage-cell="${i}">${usage === "used" ? "Used" : usage === "unused" ? "Unused" : "Checking"}</span>
         ${detailDomainOwning.has(entry.address) ? '<span class="spending-address-domain-tag">Contains username</span>' : ""}
         ${cardButtonsHtml([
@@ -760,8 +824,8 @@ function addressCardHtml(account, entry) {
 /// shared KaspaAddressBalanceCard; K b0f0a4e6: an address's page too): the label, the amount
 /// large, and its worth in your currency on mainnet; a price that lands later redraws the page.
 /// An address's page puts the full address on it (K b49a021d: it isn't on the account's cards).
-function balanceCardHtml(label, sompi, redraw = renderDetail, address = "") {
-  const fiat = deps.kasFiatText?.(Number(sompi || 0) / 1e8, () => { if (activeAccountId && rootEl?.isConnected) redraw(); }) || "";
+function balanceCardHtml(label, sompi, screen = "detail", address = "") {
+  const fiat = deps.kasFiatText?.(Number(sompi || 0) / 1e8, () => repaintIfShowing(screen)) || "";
   return `<div class="address-balance-card">
         <p class="address-balance-card-label">${deps.escapeHtml(label)}</p>
         <p class="address-balance-card-amount">${fmtKasExact(sompi)} ${KAS_UNIT}</p>
@@ -782,9 +846,10 @@ function renderDetail() {
   if (inlineRenameActive()) return;
   const account = activeAccount();
   if (!account) { activeAccountId = null; renderList(); return; }
-  const hiddenSet = new Set(account.hidden.map(Number));
-  const visible = detailEntries.filter((e) => !hiddenSet.has(e.index));
-  const totalSompi = visible.reduce((sum, e) => sum + (e.balanceSompi || 0), 0);
+  // A hidden address holding Kaspa is shown and counted (audit 2026-11-27): hiding is never a way
+  // to lose sight of real funds. loadDetail un-hides it for good once its live balance is in.
+  const visible = coldShownEntries(detailEntries, account.hidden);
+  const totalSompi = coldTotalSompi(detailEntries);
   const sorted = sortColdEntries(visible, entryIsUsed, isColdQuantumIndex);
   const discovering = detailBusy === "discover";
 
@@ -833,7 +898,7 @@ async function openNewAddressChooser() {
       { id: "quantum", title: "Quantum-Protected Address", subtitle: "Scan a KCC-3 address from KasSigner's address screen." },
     ],
   });
-  if (activeAccount() !== account || activeAddressIndex !== null || showingVisibility) return;
+  if (!liveActiveAccount(account.id) || activeAddressIndex !== null || showingVisibility) return;
   if (choice === "regular") runAddressAction("generate");
   else if (choice === "quantum") openColdSheet({ kind: "quantum-add", form: { address: "", number: "", chain: QUANTUM_CHAIN_RECEIVE, error: null } });
 }
@@ -1351,7 +1416,7 @@ function renderVisibility() {
 /// one may have stopped being watched since the page was drawn). Funded rows don't toggle; hiding
 /// needs a live zero-balance answer, as every other row's.
 async function toggleQuantumVisibility(address) {
-  const account = activeAccount();
+  let account = activeAccount();
   if (!account) return;
   const index = quantumIndexOf(account.quantumAddresses, address);
   if (index === null) return;
@@ -1359,7 +1424,9 @@ async function toggleQuantumVisibility(address) {
   const hiddenSet = new Set(account.hidden.map(Number));
   if (!hiddenSet.has(index)) {
     if (!(await addressConfirmedEmpty(address))) return;
-    if (activeAccount() !== account || !showingVisibility) return;
+    // the account as it is now (a background re-read may have refreshed it meanwhile)
+    account = liveActiveAccount(account.id);
+    if (!account || !showingVisibility) return;
     const now = quantumIndexOf(account.quantumAddresses, address);
     if (now === null) return;
     const latest = new Set(account.hidden.map(Number));
@@ -1376,7 +1443,7 @@ async function toggleQuantumVisibility(address) {
 }
 
 async function toggleVisibilityRow(index, address) {
-  const account = activeAccount();
+  let account = activeAccount();
   if (!account) return;
   // Funded rows don't toggle (iOS ColdStorageAddressVisibilityView.toggle) - the row says so by
   // its dimmed check, so a click on one simply does nothing.
@@ -1389,7 +1456,8 @@ async function toggleVisibilityRow(index, address) {
     // Hiding is a display preference, never a way to lose sight of real funds: it needs a live
     // zero-balance answer (iOS ColdStorageManager.setAddressHidden), and fails closed.
     if (!(await addressConfirmedEmpty(address))) return;
-    if (activeAccount() !== account || !showingVisibility) return;
+    account = liveActiveAccount(account.id);
+    if (!account || !showingVisibility) return;
     // Re-read: another row may have been toggled while the balance was being asked.
     const latest = new Set(account.hidden.map(Number));
     latest.add(index);
@@ -1527,7 +1595,7 @@ function renderAddressScreen() {
     </div>
     <!-- The same balance card as a Manage Addresses address's page (K b0f0a4e6): its name, its
          balance large, its worth in your currency, and the full address (K b49a021d). -->
-    ${balanceCardHtml(displayLabelFor(account, entry.index), balanceSompi, renderAddressScreen, entry.address)}
+    ${balanceCardHtml(displayLabelFor(account, entry.index), balanceSompi, "address", entry.address)}
     <!-- History / UTXOs / Usernames on the cycle button (K 518fdc8c PageCycleBar), each click fading
          to the next page. -->
     ${cycleBarHtml({ name: "cold-address", options: COLD_ADDRESS_PAGES, value: addressTab, attrs: "data-cold-tab" })}
@@ -3428,13 +3496,21 @@ function openQrModal(account, entry) {
 
 /// A kpub stays on the clipboard for 30 seconds (K 428a797b ColdStorageClipboard): it can't
 /// spend, but it hands over every address the account will ever use, so it isn't left there for
-/// whatever is pasted next. Cleared the way a copied private key is (ui/app.js).
+/// whatever is pasted next. Cleared the way a copied private key is (ui/app.js) - but only while
+/// the clipboard still holds this kpub (audit 2026-11-27): whatever was copied since stays, and a
+/// clipboard that can't be read is left alone rather than wiped.
 let kpubClipboardTimer = null;
 function copyKpub(kpub) {
   navigator.clipboard?.writeText(kpub).catch(() => {});
   deps.showToast?.("kpub copied. Clipboard will clear in 30s.");
   if (kpubClipboardTimer) window.clearTimeout(kpubClipboardTimer);
-  kpubClipboardTimer = window.setTimeout(() => { navigator.clipboard?.writeText(" ").catch(() => {}); }, 30_000);
+  kpubClipboardTimer = window.setTimeout(async () => {
+    kpubClipboardTimer = null;
+    let current = null;
+    try { current = await navigator.clipboard?.readText?.(); } catch { current = null; }
+    if (!coldClipboardStillHolds(current, kpub)) return;
+    navigator.clipboard?.writeText(" ").catch(() => {});
+  }, 30_000);
 }
 
 /// The account's extended public key as a QR, so another device can watch this account by
@@ -3575,6 +3651,8 @@ async function loadDetail({ useCache = true } = {}) {
   }
   if (detailToken !== token) return;
   detailLoading = false;
+  // a hidden address that has since received Kaspa comes back into view (audit 2026-11-27)
+  unhideFundedAddresses(account.id, detailEntries);
   render(); // applies the funded-first sort + summary total now that balances are in
   persistAccountCache(account.id);
 
@@ -3811,17 +3889,22 @@ async function discoverAddresses(account, onProgress = null) {
   // now holds a balance would otherwise be found and dropped straight back out of the list.
   //
   // Strict `>` against the STORED bound, and a half-open range - the shape iOS uses.
-  const previousMax = account.maxIndex;
-  const hiddenSet = new Set(account.hidden.map(Number));
+  // Written into the account as it is NOW (audit 2026-11-27): the scan awaited the node for a
+  // while, and a background re-read or a removal may have happened meanwhile.
+  const live = liveAccount(account.id);
+  if (!live) return 0;
+  const previousMax = live.maxIndex;
+  const hiddenSet = new Set(live.hidden.map(Number));
   if (lastMatchIndex > previousMax) {
     for (let i = previousMax + 1; i < lastMatchIndex; i++) {
       if (!matchedIndices.has(i)) hiddenSet.add(i);
     }
-    account.maxIndex = lastMatchIndex + 1;
+    live.maxIndex = lastMatchIndex + 1;
   }
   for (const index of matchedIndices) hiddenSet.delete(index);
-  account.hidden = [...hiddenSet];
+  live.hidden = [...hiddenSet];
   saveState();
+  coldWatchedCache.fingerprint = "";
   // The COUNT of addresses worth showing - not the bound.
   return matchedIndices.size;
 }
@@ -3934,9 +4017,11 @@ function renameAccountInPlace(account) {
     current: account.label,
     placeholder: account.label,
     onChange: (text) => {
+      // the account as it is now: the name is typed over time, across background re-reads
+      const live = liveAccount(account.id);
       const name = coldAccountRenameValue(text);
-      if (!name || name === account.label) return;
-      account.label = name;
+      if (!live || !name || name === live.label) return;
+      live.label = name;
       saveState();
       // the notifications name the account (listColdWatchedAddresses)
       coldWatchedCache.fingerprint = "";
@@ -3964,12 +4049,14 @@ async function handleAddressAction(action, index) {
       deps.showToast?.("This address can't be hidden right now.");
       return;
     }
-    if (activeAccount() !== account) return;
+    const live = liveActiveAccount(account.id);
+    if (!live) return;
     // a quantum row files under its index now (K 961fc05a currentIndex)
-    const at = currentIndexOf(account, entry);
+    const at = currentIndexOf(live, entry);
     if (at === null) return;
-    if (!account.hidden.map(Number).includes(at)) account.hidden.push(at);
+    if (!live.hidden.map(Number).includes(at)) live.hidden.push(at);
     saveState();
+    coldWatchedCache.fingerprint = "";
     // Updated in place - the row just leaves the list; nothing else needs fetching again.
     render();
     deps.showToast?.("Address hidden. Re-enable it in Address Visibility.");
@@ -3984,13 +4071,15 @@ async function handleAddressAction(action, index) {
         ? quantumDefaultLabel(account.quantumAddresses?.[index - COLD_QUANTUM_INDEX_BASE]?.chain, account.quantumAddresses?.[index - COLD_QUANTUM_INDEX_BASE]?.unitIndex)
         : `Address #${index}`,
       onChange: (text) => {
-        if (activeAccount() !== account) return;
+        // the account as it is now: the name is typed over time, across background re-reads
+        const live = liveActiveAccount(account.id);
+        if (!live) return;
         // a quantum row files under its index now (K 961fc05a currentIndex)
-        const at = currentIndexOf(account, entry);
+        const at = currentIndexOf(live, entry);
         if (at === null) return;
         const trimmed = String(text || "").trim();
-        if (trimmed) account.labels[at] = trimmed;
-        else { delete account.labels[at]; delete account.labels[String(at)]; }
+        if (trimmed) live.labels[at] = trimmed;
+        else { delete live.labels[at]; delete live.labels[String(at)]; }
         saveState();
       },
       onDone: () => render(),
@@ -4011,9 +4100,11 @@ async function handleAddressAction(action, index) {
         message: `Its ${fmtKasExact(entry.balanceSompi)} ${KAS_UNIT} stay on chain at this address, on your KasSigner; K only stops showing them. Scan the address again from KasSigner to watch it again.`,
         okLabel: "Stop Watching",
       });
-      if (!confirmed || activeAccount() !== account) return;
+      if (!confirmed) return;
     }
-    removeQuantumAddress(account, entry.address);
+    const live = liveActiveAccount(account.id);
+    if (!live) return;
+    removeQuantumAddress(live, entry.address);
     if (activeAddressIndex !== null) activeAddressIndex = null;
     detailEntries = detailEntries.filter((e) => e.address !== entry.address);
     render();
@@ -4062,13 +4153,19 @@ async function runAddressAction(kind) {
         pick = index;
         break;
       }
+      // Written into the account as it is NOW (audit 2026-11-27): the probes awaited the node, and a
+      // background re-read may have refreshed it, another row been hidden, or it been removed.
+      const live = liveActiveAccount(account.id);
+      if (!live) return;
       if (pick === null) {
-        account.maxIndex += 1;
-        pick = account.maxIndex;
+        live.maxIndex += 1;
+        pick = live.maxIndex;
       }
-      hiddenSet.delete(pick);
-      account.hidden = [...hiddenSet];
+      const latestHidden = new Set(live.hidden.map(Number));
+      latestHidden.delete(pick);
+      live.hidden = [...latestHidden];
       saveState();
+      coldWatchedCache.fingerprint = "";
       await loadDetail();
       deps.showToast?.(`Address #${pick} is ready.`);
     } else if (kind === "discover") {
@@ -4107,18 +4204,21 @@ async function removeAccount(id) {
     message: "This only removes it from K's watch list. It has no effect on the KasSigner device or any funds it holds.",
     okLabel: "Remove",
   });
-  if (!confirmed || !accounts.includes(account)) return;
-  accounts = accounts.filter((a) => a.id !== account.id);
+  if (!confirmed) return;
+  // the account as it is now (a background re-read may have refreshed it while the confirm was up)
+  const live = liveAccount(id);
+  if (!live) return;
+  accounts = accounts.filter((a) => a.id !== live.id);
   saveState();
-  dropPersistedAccountCache(account.id);
-  listBalances.delete(account.id);
+  dropPersistedAccountCache(live.id);
+  listBalances.delete(live.id);
   // its coin labels go too (KaPay 5848fb0) - unless another account here watches the same key
-  if (!accounts.some((a) => a.kpub === account.kpub)) dropColdUtxoLabelsFor(account);
+  if (!accounts.some((a) => a.kpub === live.kpub)) dropColdUtxoLabelsFor(live);
   // a quantum address's coin labels go with the last account watching it (K 961fc05a)
-  dropColdQuantumUtxoLabels(account);
+  dropColdQuantumUtxoLabels(live);
   coldWatchedCache.fingerprint = "";
   deps.onWatchedAddressesChanged?.();
-  if (activeAccountId === account.id) {
+  if (activeAccountId === live.id) {
     saveColdSpot(null);
     activeAccountId = null;
     activeAddressIndex = null;
@@ -4187,11 +4287,14 @@ export async function openColdAddressHistory(address) {
 
 export function listColdWatchedAddresses() {
   if (!deps) return [];
-  loadState();
-  const fingerprint = `${deps.engine?.address || ""}|${accounts.map((a) => `${a.id}:${a.maxIndex}:${a.hidden.join(".")}:${(a.quantumAddresses || []).map((q) => q.address).join("+")}`).join(",")}`;
+  // Read into a local (audit 2026-11-27): app.js asks every 30-60 s, and replacing the live
+  // accounts here left any action holding one (Discover, Generate, a rename, a confirm) saving
+  // into a detached copy or quietly giving up.
+  const stored = readStoredAccounts();
+  const fingerprint = `${deps.engine?.address || ""}|${stored.map((a) => `${a.id}:${a.maxIndex}:${a.hidden.join(".")}:${(a.quantumAddresses || []).map((q) => q.address).join("+")}`).join(",")}`;
   if (coldWatchedCache.fingerprint === fingerprint) return coldWatchedCache.list;
   const list = [];
-  for (const account of accounts) {
+  for (const account of stored) {
     // `hidden`: still ours (the self-send check), but only the addresses on screen notify
     // (K 428a797b AddressActivityNotifier watches the visible ones).
     const hidden = new Set(account.hidden.map(Number));

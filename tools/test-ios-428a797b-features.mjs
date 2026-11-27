@@ -39,7 +39,8 @@ test("a copied kpub leaves the clipboard after 30 seconds, from every copy", () 
   assert.equal((cold.match(/copyKpub\(account\.kpub\);/g) || []).length, 2);
   // the kpub QR screen copies it with a click anywhere (K b49a021d), the card's Copy kpub too
   assert.match(cold, /const account = accounts\.find\(\(a\) => a\.id === kpubScreen\.dataset\.accountId\);\n\s*if \(account\) copyKpub\(account\.kpub\);/);
-  assert.match(cold, /kpubClipboardTimer = window\.setTimeout\(\(\) => \{ navigator\.clipboard\?\.writeText\(" "\)/);
+  // only while the clipboard still holds the kpub (audit 2026-11-27, tools/test-audit-2026-11-27-cold.mjs)
+  assert.match(cold, /kpubClipboardTimer = window\.setTimeout\(async \(\) => \{[\s\S]*?if \(!coldClipboardStillHolds\(current, kpub\)\) return;\s*navigator\.clipboard\?\.writeText\(" "\)/);
 });
 
 test("hidden cold addresses stay quiet, and the push list follows the switches", () => {
@@ -48,8 +49,8 @@ test("hidden cold addresses stay quiet, and the push list follows the switches",
   assert.match(app, /if \(entry\.notify === false \|\| entry\.hidden\) continue;/);
   assert.match(app, /if \(entry\.notify === false \|\| entry\.hidden\) muted\.add\(entry\.address\);/);
   // 3, plus (K 961fc05a) a quantum address added, one no longer watched, one hidden or shown, and
-  // an account removed
-  assert.equal((cold.match(/deps\.onWatchedAddressesChanged\?\.\(\);/g) || []).length, 7);
+  // an account removed, and (audit 2026-11-27) a funded hidden address un-hidden
+  assert.equal((cold.match(/deps\.onWatchedAddressesChanged\?\.\(\);/g) || []).length, 8);
   assert.match(app, /onWatchedAddressesChanged: \(\) => \{ try \{ scheduleWebPushSync\(\); \}/);
 });
 

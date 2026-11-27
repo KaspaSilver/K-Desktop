@@ -50,7 +50,7 @@ await test("a KasSigner send never waits in an orphan pool, and shows the amount
 });
 await test("removing a cold account removes its coin labels, unless another watches the same key", () => {
   const cs = read("ui/coldstorage.js");
-  assert.match(cs, /if \(!accounts\.some\(\(a\) => a\.kpub === account\.kpub\)\) dropColdUtxoLabelsFor\(account\);/);
+  assert.match(cs, /if \(!accounts\.some\(\(a\) => a\.kpub === live\.kpub\)\) dropColdUtxoLabelsFor\(live\);/);
   assert.match(cs, /function dropColdUtxoLabelsFor\(account\)/);
 });
 await test("the push watch list goes newest first, and only covered addresses count on push", () => {

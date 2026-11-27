@@ -94,7 +94,7 @@ test("the list: each account on a card with its trash, balance, worth and four b
 
 test("the trash asks first; Alerts toggles this account's receive notifications with a toast", () => {
   assert.match(fn("removeAccount"), /title: "Remove Cold Storage Account\?",\n\s+message: "This only removes it from K's watch list\. It has no effect on the KasSigner device or any funds it holds\.",/);
-  assert.match(fn("removeAccount"), /if \(!confirmed \|\| !accounts\.includes\(account\)\) return;/);
+  assert.match(fn("removeAccount"), /if \(!confirmed\) return;\s*\/\/[^\n]*\n\s*const live = liveAccount\(id\);\s*if \(!live\) return;/);
   const actions = fn("handleAccountMenuAction");
   assert.match(actions, /account\.receiveNotifications = account\.receiveNotifications === false;/);
   assert.match(actions, /deps\.showToast\?\.\(coldAlertsToast\(account\.receiveNotifications !== false\)\);/);
@@ -113,10 +113,10 @@ test("rename in place on both cards; a repaint waits while a name is typed", () 
   assert.match(cold, /import \{ startInlineRename, inlineRenameActive \} from "\.\/inline-rename\.js";/);
   const account = fn("renameAccountInPlace");
   assert.match(account, /key: `cold-account:\$\{account\.id\}`,/);
-  assert.match(account, /const name = coldAccountRenameValue\(text\);\n\s+if \(!name \|\| name === account\.label\) return;/);
+  assert.match(account, /const name = coldAccountRenameValue\(text\);\n\s+if \(!live \|\| !name \|\| name === live\.label\) return;/);
   const address = fn("handleAddressAction");
   assert.match(address, /startInlineRename\(card, \{\n\s+key: `cold:\$\{account\.id\}:\$\{entry\.address\}`,/);
-  assert.match(address, /if \(trimmed\) account\.labels\[at\] = trimmed;\n\s+else \{ delete account\.labels\[at\]; delete account\.labels\[String\(at\)\]; \}/);
+  assert.match(address, /if \(trimmed\) live\.labels\[at\] = trimmed;\n\s+else \{ delete live\.labels\[at\]; delete live\.labels\[String\(at\)\]; \}/);
   assert.doesNotMatch(cold, /title: "Rename Account"|title: "Rename Address"/, "no pop-up");
   assert.match(fn("render"), /if \(!rootEl\) return;\n[^\n]*\n[^\n]*\n\s+if \(inlineRenameActive\(\)\) return;/);
   assert.match(fn("renderDetail"), /^function renderDetail\(\) \{\n\s+if \(inlineRenameActive\(\)\) return;/);
@@ -171,7 +171,7 @@ test("an address card: Copy, Send, Receive, Rename, the tags, and the top right"
 
 test("an address's page: the full address on its card, no Send / Receive bar", () => {
   const page = fn("renderAddressScreen");
-  assert.match(page, /balanceCardHtml\(displayLabelFor\(account, entry\.index\), balanceSompi, renderAddressScreen, entry\.address\)/);
+  assert.match(page, /balanceCardHtml\(displayLabelFor\(account, entry\.index\), balanceSompi, "address", entry\.address\)/);
   assert.doesNotMatch(page, /data-cold-addr-send|data-cold-addr-receive|cold-bottom-actions/);
   assert.match(fn("balanceCardHtml"), /<code class="address-balance-card-address">\$\{deps\.escapeHtml\(address\)\}<\/code>/);
 });

@@ -249,7 +249,7 @@ await test("Cold Storage: no kpub on screen, Copy kpub on the account card, the 
   assert.doesNotMatch(cold, /textContent = account\.kpub|\$\{[^}]*\.kpub\)?\}/);
   assert.match(cold, /drawQrFor\(canvas, account\.kpub, /);
   assert.match(cold, /if \(clip && validateKpub\(clip\)\) \{ beginImport\(clip\); return; \}\n\s*deps\.showToast\?\.\("Not a valid kpub"\);/);
-  assert.match(cold, /\$\{balanceCardHtml\(displayLabelFor\(account, entry\.index\), balanceSompi, renderAddressScreen, entry\.address\)\}/);
+  assert.match(cold, /\$\{balanceCardHtml\(displayLabelFor\(account, entry\.index\), balanceSompi, "address", entry\.address\)\}/);
   assert.doesNotMatch(cold, /spending-detail-balance-label">Balance/);
 });
 

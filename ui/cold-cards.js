@@ -64,3 +64,57 @@ export function coldAlertsToast(on) {
 export function coldHideRefusal(balanceSompi) {
   return (Number(balanceSompi) || 0) > 0 ? "An address holding Kaspa stays on the list." : null;
 }
+
+/// Re-reading the stored accounts (audit 2026-11-27): the records already on screen are KEPT and
+/// refreshed in place, matched by id, so an action holding one across an await (Discover, Generate,
+/// a rename being typed, a confirm) still writes into the list that gets saved. New records come
+/// in as given; records no longer stored drop out. Returns the stored order.
+export function mergeColdAccountsById(live, stored) {
+  const byId = new Map((live || []).filter((a) => a?.id).map((a) => [a.id, a]));
+  return (stored || []).map((fresh) => {
+    const kept = byId.get(fresh?.id);
+    if (!kept || kept === fresh) return fresh;
+    for (const key of Object.keys(kept)) if (!(key in fresh)) delete kept[key];
+    return Object.assign(kept, fresh);
+  });
+}
+
+/// An address holding Kaspa is never out of sight (audit 2026-11-27): hiding is a display
+/// preference, never a way to lose sight of real funds. The hidden indexes whose known balance is
+/// above zero, to un-hide. `entries` are `{ index, balanceSompi }`; an unknown balance never counts.
+export function coldFundedHiddenIndexes(hidden, entries) {
+  const hiddenSet = new Set((hidden || []).map(Number));
+  const funded = new Set();
+  for (const e of entries || []) {
+    if (e && e.index !== null && e.index !== undefined && hiddenSet.has(Number(e.index)) && (Number(e.balanceSompi) || 0) > 0) funded.add(Number(e.index));
+  }
+  return [...funded].sort((a, b) => a - b);
+}
+
+/// The account screen's cards: the visible addresses, and any hidden one holding Kaspa.
+export function coldShownEntries(entries, hidden) {
+  const hiddenSet = new Set((hidden || []).map(Number));
+  return (entries || []).filter((e) => !hiddenSet.has(Number(e.index)) || (Number(e.balanceSompi) || 0) > 0);
+}
+
+/// The Total Balance: every funded address of the account, hidden or not.
+export function coldTotalSompi(entries) {
+  return (entries || []).reduce((sum, e) => sum + (Number(e?.balanceSompi) || 0), 0);
+}
+
+/// Which Cold Storage screen is up: "address", "visibility", "detail" (the open account) or
+/// "list". A late price repaints only the screen it was drawn for (audit 2026-11-27).
+export function coldScreenName({ activeAccountId, activeAddressIndex, showingVisibility }) {
+  if (activeAccountId && activeAddressIndex !== null && activeAddressIndex !== undefined) return "address";
+  if (activeAccountId && showingVisibility) return "visibility";
+  if (activeAccountId) return "detail";
+  return "list";
+}
+
+/// The kpub's 30-second clear (audit 2026-11-27): only while the clipboard still holds that kpub.
+/// Anything copied since stays; a clipboard that can't be read (`current` null / undefined) is
+/// left alone rather than wiped.
+export function coldClipboardStillHolds(current, copied) {
+  if (typeof current !== "string" || typeof copied !== "string" || !copied) return false;
+  return current.trim() === copied.trim();
+}

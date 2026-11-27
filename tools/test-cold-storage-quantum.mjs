@@ -567,7 +567,7 @@ function screens() {
   r.check(/Edit Address Number/.test(addressSheet) && /Stop Watching/.test(addressSheet) && /isColdQuantumIndex\(i\)/.test(addressSheet), "screens: a quantum card's ⋮ has Edit Address Number and Stop Watching");
   const actions = fn("handleAddressAction");
   r.check(/stop-watching[\s\S]*balanceSompi \|\| 0\) > 0[\s\S]*confirmModal\(\{[\s\S]*Stop Watching This Address\?/.test(actions), "screens: Stop Watching asks first when the address holds coins");
-  r.check(/currentIndexOf\(account, entry\)/.test(actions), "screens: rename and hide file under the row's current index");
+  r.check(/currentIndexOf\(live, entry\)/.test(actions), "screens: rename and hide file under the row's current index");
   const quantumSheet = fn("renderColdQuantumSheet");
   r.check(/Receive Address/.test(quantumSheet) && /Change Address/.test(quantumSheet) && /placeholder="Optional"/.test(quantumSheet), "screens: the number (optional) and the Receive / Change chain");
   r.check(/parseUnitNumber\(form\.number\)/.test(fn("saveColdQuantumSheet")), "screens: the number is checked before saving");
