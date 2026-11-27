@@ -30,7 +30,7 @@ function run({ wide = false, group = null, room = false, chat = null } = {}) {
 
 test("the dock click remembers Chats was already up and goes back after the switch", () => {
   assert.ok(start > 0, "backToChatsListFromDock exists");
-  assert.match(app, /const wasOnChats = tab === "chats" && currentAppTab === "chats";\n\s*setActiveAppTab\(tab\);\n\s*applyDockLayout\(\);\n[^\n]*\n\s*if \(wasOnChats\) backToChatsListFromDock\(\);/);
+  assert.match(app, /const wasOnChats = tab === "chats" && currentAppTab === "chats";\n\s*setActiveAppTab\(tab\);\n\s*if \(page\) setChatListPage\(page\);\n\s*applyDockLayout\(\);\n[^\n]*\n\s*if \(wasOnChats\) backToChatsListFromDock\(\);/);
 });
 
 test("a 1:1 chat closes as its back arrow closes it", () => {

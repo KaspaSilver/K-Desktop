@@ -13869,3 +13869,9 @@ button.kusdt-activity-row:hover { background: var(--surface-1, rgba(255,255,255,
 .kasshi-open { display: inline-block; min-width: 180px; text-decoration: none; text-align: center; }
 .kasshi-card-hint { margin: 0; max-width: 420px; font-size: 13px; line-height: 1.45; color: var(--muted); }
 .kasshi-card-hint a { color: var(--kaspa-ink); }
+
+/* A computer's dock has Public Chats under Chats (owner, 2026-11-26): the pill beside the title is a
+   phone's (and a narrow window's) way between the two pages. Same breakpoint as the dock. */
+@media (min-width: 860px) {
+  .chats-page-cycle-wrap { display: none; }
+}

@@ -12561,6 +12561,7 @@ function setActiveAppTab(tab) {
   });
 
   currentAppTab = tab;
+  syncChatsDockItems();
   toolbarBalanceScreen = screenTab;
   try { refreshDockProfileAvatar(); } catch { /* not started */ }
   renderToolbarBalance();
@@ -12645,7 +12646,11 @@ function syncSettingsTab(on) {
 
 sidebarTabButtons.forEach((button) => {
   button.addEventListener("click", async () => {
-    const tab = button.dataset.appTab;
+    // Public Chats on a computer's dock opens Chats on its Public Chats page, and Chats there opens
+    // its Private Chats page (owner, 2026-11-26); on a phone the pill beside the title does both.
+    const item = button.dataset.appTab;
+    const tab = item === "public-chats" ? "chats" : item;
+    const page = item === "public-chats" ? "publicChats" : (item === "chats" && WIDE_DOCK_QUERY.matches ? "chats" : null);
     // Chess Online holds the dock while a seat waits (iOS full-screen waiting room) or the
     // player's game is on (leaving means resigning, and it asks first).
     if (tab !== "chess" && !(await chessTournamentsMayLeave().catch(() => true))) return;
@@ -12656,6 +12661,7 @@ sidebarTabButtons.forEach((button) => {
     const wasOnExplorer = tab === "explorer" && currentAppTab === "explorer";
     const wasOnChats = tab === "chats" && currentAppTab === "chats";
     setActiveAppTab(tab);
+    if (page) setChatListPage(page);
     applyDockLayout();
     // KaChat on the dock, tapped again from inside a chat, goes back to the chats list.
     if (wasOnChats) backToChatsListFromDock();
@@ -12740,6 +12746,8 @@ WIDE_DOCK_QUERY.addEventListener?.("change", () => {
   // "More" (no such item on a computer) and back, which reset an open Settings page (audit 2026-11-13).
   setActiveAppTab(screen || "chats");
   applyDockLayout();
+  // the title, the pill (a phone's) and the Public Chats item (a computer's) follow the window
+  try { syncChatListPageControls(); } catch { /* not started */ }
 });
 
 function reloadDockPrefsForAccount() {
@@ -12797,6 +12805,7 @@ function applyDockLayout() {
 
   renderHubGrid();
   publishDockHeight();
+  syncChatsDockItems();
 
   // A tab that just left the dock must not stay on screen with nothing selected, and a Hub
   // section that just moved INTO the dock must not render inside the Hub as well.
@@ -13390,7 +13399,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 355;
+const APP_BUILD = 356;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -17414,6 +17423,24 @@ function syncChatListPageControls() {
       badge.setAttribute("aria-label", countedText(count, "1 unread public chat message", "{n} unread public chat messages"));
     } else if (badge) badge.remove();
   }
+  // A computer's dock has Public Chats under Chats (owner, 2026-11-26) and no pill (ui/styles.css):
+  // the title names the page, and the rooms' count is on the dock item.
+  const wide = window.matchMedia("(min-width: 860px)").matches;
+  const title = document.querySelector(".chats-list-title");
+  const titleText = wide && chatListPage === "publicChats" ? "Public Chats" : "Chats";
+  if (title && title.textContent !== titleText) title.textContent = titleText;
+  const dockItem = document.querySelector('.sidebar-tab[data-app-tab="public-chats"]');
+  if (dockItem) {
+    const count = publicRoomUnreadCount();
+    let dockBadge = dockItem.querySelector(".sidebar-tab-badge");
+    if (count > 0) {
+      if (!dockBadge) { dockBadge = document.createElement("span"); dockBadge.className = "sidebar-tab-badge"; dockItem.appendChild(dockBadge); }
+      const label = count > 99 ? "99+" : String(count);
+      if (dockBadge.textContent !== label) dockBadge.textContent = label;
+      dockBadge.setAttribute("aria-label", `${count} unread`);
+    } else if (dockBadge) dockBadge.remove();
+  }
+  syncChatsDockItems();
   const input = document.querySelector(".chats-pinned-search .search-input");
   const prompt = chatListPage === "publicChats" ? "Search public chats" : "Search chats";
   if (input && input.placeholder !== prompt) input.placeholder = prompt;
@@ -17426,6 +17453,22 @@ function syncChatListPageControls() {
   const stripLabel = chatListPage === "publicChats" ? "Pinned public chats" : "Bots and pinned chats";
   if (strip && strip.getAttribute("aria-label") !== stripLabel) strip.setAttribute("aria-label", stripLabel);
   syncChatsPublicSettingsGear();
+}
+/** Which of a computer's Chats and Public Chats dock items is lit: the one for the page on show
+ *  (owner, 2026-11-26). With no Public Chats item (a phone), Chats stays lit on both pages. */
+function syncChatsDockItems() {
+  try {
+    const publicItem = document.querySelector('.sidebar-tab[data-app-tab="public-chats"]');
+    const chatsItem = document.querySelector('.sidebar-tab[data-app-tab="chats"]');
+    if (!publicItem || !chatsItem) return;
+    const onChats = currentAppTab === "chats";
+    const onPublic = onChats && !publicItem.hidden && chatListPage === "publicChats";
+    for (const [item, lit] of [[chatsItem, onChats && !onPublic], [publicItem, onPublic]]) {
+      item.classList.toggle("active", lit);
+      if (lit) item.setAttribute("aria-current", "page");
+      else item.removeAttribute("aria-current");
+    }
+  } catch { /* boot: not declared yet */ }
 }
 /** Shows `page` ("chats" or "publicChats"). Select ends on a page change (K 961fc05a: the page's
  *  own selection), the list fades in, and an open chat, group or room stays in the pane. */

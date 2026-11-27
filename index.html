@@ -16,7 +16,7 @@
        fetched again once and the page reloads; see public/asset-repair.js. -->
   <script src="/asset-repair.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=450" />
+  <link rel="stylesheet" href="./ui/styles.css?v=451" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (K's globe, dark only since K b0f0a4e6) is the tab icon too. -->
@@ -982,6 +982,12 @@
         <span class="sidebar-tab-icon" aria-hidden="true"><svg class="tab-glyph-outline" viewBox="0 0 24 24"><path d="M4.3 4.5h9.1a3.8 3.8 0 0 1 3.8 3.8v2.7a3.8 3.8 0 0 1-3.8 3.8H8.7l-4.45 3.05.02-3.44A3.78 3.78 0 0 1 .5 10.65V8.3a3.8 3.8 0 0 1 3.8-3.8Z"/><path d="M9.65 8.15h6.1a3.75 3.75 0 0 1 3.75 3.75v1.95a3.75 3.75 0 0 1-3.75 3.75h-2.7L9.5 20.1v-2.5"/></svg><svg class="tab-glyph-filled" viewBox="0 0 24 24"><defs><mask id="kc-dock-cut-chats" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff"/><path d="M5.6 8.4h6.6a4.6 4.6 0 0 1 4.6 4.6v1.4a4.6 4.6 0 0 1-4.6 4.6H8.1l-3.9 2.9.7-3A4.6 4.6 0 0 1 1 14.4V13a4.6 4.6 0 0 1 4.6-4.6Z" fill="#000" stroke="#000" stroke-width="2.6" stroke-linejoin="round"/></mask></defs><path mask="url(#kc-dock-cut-chats)" d="M13 3.2h5.6A4.4 4.4 0 0 1 23 7.6v1.6a4.4 4.4 0 0 1-3.1 4.2l.5 2.6-3.2-2.4H13a4.4 4.4 0 0 1-4.4-4.4V7.6A4.4 4.4 0 0 1 13 3.2Z"/><path d="M5.6 8.4h6.6a4.6 4.6 0 0 1 4.6 4.6v1.4a4.6 4.6 0 0 1-4.6 4.6H8.1l-3.9 2.9.7-3A4.6 4.6 0 0 1 1 14.4V13a4.6 4.6 0 0 1 4.6-4.6Z"/></svg></span>
         <!-- "Chats", "Posts", "Arcade" (owner 2026-11-26, K 47631a48), were KaChat, KaPost, KaPlay. -->
         <span>Chats</span>
+      </button>
+      <button class="sidebar-tab" type="button" data-app-tab="public-chats" hidden>
+        <!-- Public Chats under Chats on a computer (owner, 2026-11-26): opens Chats on its Public
+             Chats page; the pill beside the title does it on a phone. bubble.left.and.text.bubble.right. -->
+        <span class="sidebar-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3.8 3.8h9.4a2.8 2.8 0 0 1 2.8 2.8v4.1a2.8 2.8 0 0 1-2.8 2.8H8.4l-3.6 2.6v-2.6h-1a2.8 2.8 0 0 1-2.8-2.8V6.6a2.8 2.8 0 0 1 2.8-2.8Z"/><path d="M5.4 7.4h6.4M5.4 10.2h4.2"/><path d="M18.6 9.2h1.6a2.8 2.8 0 0 1 2.8 2.8v3.9a2.8 2.8 0 0 1-2.8 2.8h-.8v2.5l-3.5-2.5h-3.4a2.8 2.8 0 0 1-2.8-2.8v-.6"/></svg></span>
+        <span>Public Chats</span>
       </button>
       <button class="sidebar-tab" type="button" data-app-tab="kaposts" hidden>
         <span class="sidebar-tab-icon" aria-hidden="true"><svg class="tab-glyph-outline" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M16.862 4.487l1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897l12.682-12.68Z"/><path d="M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/></svg><svg class="tab-glyph-filled tab-glyph-stroked" viewBox="0 0 24 24"><path d="M11 4.6H6.9A2.9 2.9 0 0 0 4 7.5v10.6A2.9 2.9 0 0 0 6.9 21h10.6a2.9 2.9 0 0 0 2.9-2.9V14"/><path d="M18.5 3a2 2 0 0 1 2.8 2.8l-8.6 8.6-3.8 1 1-3.8Z"/></svg></span>
