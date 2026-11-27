@@ -41,8 +41,8 @@ await test("one delivered copy settles one leftover row", async () => {
   assert.equal(rows.length, 2, "one leftover went with the copy");
   assert.equal(rows.filter((r) => r.status === "unconfirmed" || r.status === "pending").length, 1, "the other is Not confirmed");
 });
-await test("a push opens only a joined room, and rings only for one with its bell on", () => {
-  assert.match(rooms, /if \(!joinedChannels\.includes\(clean\)\) return;\n\s+openRoom\(clean\);/);
+await test("a push never joins a room unasked (K 824a30bb asks first), and rings only for one with its bell on", () => {
+  assert.match(rooms, /if \(!joinedChannels\.includes\(clean\)\) \{\n[\s\S]*?confirmDialog\(roomLinkJoinPrompt\(clean, "This room isn't in your Public Chats\. Add it\?"\)\)[\s\S]*?return;\n  \}\n  openRoom\(clean\);/);
   // (a push that @'s you by username passes the bell, K bdf29425: tools/test-k-mentions.mjs)
   assert.match(read("public/sw-push.js"), /if \(Array\.isArray\(m\.rooms\) && !m\.rooms\.includes\(channel\) && !mentionsYou\) out\.suppress = true;/);
   assert.match(read("ui/app.js"), /try \{ rooms = broadcastPushWatch\(\)\.channels; \} catch \{ rooms = null; \}/);

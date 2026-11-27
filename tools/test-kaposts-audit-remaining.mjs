@@ -456,7 +456,8 @@ test("8: the prompt is iOS's, with the warning only when it applies", () => {
 
 test("8: wiring: only a room not on the list asks, with no Terms before it (none on the website)", () => {
   const open = fnText(broadcasts, "openBroadcastRoomFromLink");
-  assert.match(open, /isCuratedBroadcastChannel\(name\) \|\| joinedChannels\.includes\(name\)/);
+  // default rooms ask too since K 824a30bb: no room is in the list unasked
+  assert.match(open, /const listed = joinedChannels\.includes\(name\);/);
   assert.doesNotMatch(open, /kaPostTermsAccepted|askKaPostTerms/);
   assert.match(open, /confirmDialog\(roomLinkJoinPrompt\(name\)\)\.then\(\(join\) => \{ if \(join\) joinChannel\(channel\); \}\)/);
 });

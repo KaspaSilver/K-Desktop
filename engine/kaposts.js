@@ -1337,8 +1337,9 @@ export function hasMixedScripts(name) {
 }
 
 /** What a room link asks before it adds a room (iOS ee5ec98 confirmJoin). */
-export function roomLinkJoinPrompt(name) {
-  const message = "A link wants to add this room to your Public Chats.";
+export function roomLinkJoinPrompt(name, askMessage = null) {
+  // a room handed over from the bell or a push asks in its own words (K 824a30bb askToJoinRoom)
+  const message = askMessage || "A link wants to add this room to your Public Chats.";
   return {
     title: `Join #${name}?`,
     message: hasMixedScripts(name) ? `${message}\n\nThis name mixes letters from different alphabets, so it may be imitating another room.` : message,

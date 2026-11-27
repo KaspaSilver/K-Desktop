@@ -68,16 +68,10 @@ test("Chat Info's Notifications takes effect as it's picked", () => {
   assert.match(listener, /refreshChatBellButton\(\);/);
 });
 
-test("Edit Default Public Chats is the gear at the top left of Chats", () => {
+test("no gear for Public Chats any more (K 824a30bb): rooms come from Add Room", () => {
   const cluster = between(html, '<div class="toolbar-health-cluster">', '<div class="toolbar-balance"');
-  assert.match(cluster, /class="chats-public-settings-gear" data-chats-public-settings aria-label="Edit Default Public Chats"[^>]* hidden>/);
-  assert.match(app, /document\.querySelector\("\[data-chats-public-settings\]"\)\?\.addEventListener\("click", \(\) => \{\n  try \{ openPublicChatsSettings\(\); \}/);
-  const sync = between(app, "function syncChatsPublicSettingsGear() {", "\n}\n");
-  assert.match(sync, /!document\.body\.classList\.contains\("chats-tab"\)/);
-  assert.match(sync, /classList\.contains\("selecting-chats"\)/);
-  assert.doesNotMatch(sync, /isChildModeEnabled/); // Simple Mode is gone (audit 2026-11-25)
-  assert.match(app, /setChatToolRowsForGroupsTab[\s\S]*?syncChatsPublicSettingsGear\(\);\n\}/);
-  assert.match(app, /document\.body\.classList\.toggle\("chats-tab", isChats\);\n  syncChatsPublicSettingsGear\(\);/);
+  assert.doesNotMatch(cluster, /data-chats-public-settings/);
+  assert.doesNotMatch(app, /syncChatsPublicSettingsGear|openPublicChatsSettings/);
 });
 
 test("the New sheet no longer lists it", () => {

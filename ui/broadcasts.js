@@ -207,14 +207,15 @@ export function broadcastNotifyingUnreadTotal() {
   return total;
 }
 // --- Select mode (iOS e08c4cc): rooms picked in bulk for Mark as Read / Unread / Delete --------
-/** "Delete" from the room list: a room you added is left for good with its messages; a default
- *  room is only switched off, exactly like its toggle in Public Chats settings (iOS removeFromList). */
+/** "Delete" from the room list: the room is left, default rooms too (K 824a30bb, owner 2026-11-26).
+ *  One the indexer keeps can be added again from Add Room. */
 function removeFromList(name) {
-  if (isCuratedBroadcastChannel(name)) setCuratedChannel(name, false);
-  else leaveChannel(name);
+  leaveChannel(name);
 }
+/** The rooms in the list: only the ones the person added (K 824a30bb: Public Chats starts empty;
+ *  the featured rooms are no longer listed unjoined). A room an older build switched off is left out. */
 function listedChannels() {
-  return [...new Set([...FEATURED_BROADCAST_CHANNELS, ...joinedChannels])].filter((name) => curatedShown(name) && !isServiceBroadcastChannel(name));
+  return [...new Set(joinedChannels)].filter((name) => curatedShown(name) && !isServiceBroadcastChannel(name));
 }
 /** A room's place in the list (iOS 865c9ab PublicChatService.listedChannels sortKey): its newest
  *  message; a language room nobody has written in yet keeps its place in LANGUAGE_BROADCAST_CHANNELS,
@@ -246,7 +247,7 @@ export function chatListRooms() {
     lastMessageAt: Number(lastVisibleMessage(name)?.blockTime || 0),
     preview: roomPreviewLine(name),
     notify: Boolean(notifyByChannel[name]),
-    indexed: isCuratedBroadcastChannel(name), // a default room: switched off, not deleted
+    indexed: isCuratedBroadcastChannel(name), // a default room (Add Room lists it)
     // the indexer keeps it, so the bell covers it with the room closed (iOS 21c480d)
     tracked: isIndexerTrackedBroadcastChannel(name),
     joined: joinedChannels.includes(name),
@@ -274,8 +275,7 @@ export function markBroadcastRooms(names, read) {
   if (!read) saveRead();
   renderChannelList();
 }
-/** Delete: a room you added is left with its messages; a default room is switched off, exactly
- *  like its toggle in Public Chats settings (iOS removeFromList). */
+/** Delete: every room is left with its messages on this device (K 824a30bb). */
 export function removeBroadcastRooms(names) {
   if (!deps) return 0;
   const list = [...names];
@@ -298,13 +298,10 @@ export function setBroadcastRoomNotify(name, on) {
 export function setBroadcastRoomsNotify(names, on) {
   if (!deps) return;
   const list = [...names];
-  let joined = false;
   for (const name of list) {
-    if (isCuratedBroadcastChannel(name) && !joinedChannels.includes(name)) { joinedChannels.push(name); joined = true; }
     if (on) notifyByChannel[name] = true;
     else delete notifyByChannel[name];
   }
-  if (joined) saveChannels();
   if (on && list.length) deps.ensureNotificationPermission?.();
   saveNotify();
   syncScanWanted();
@@ -334,121 +331,34 @@ function loadHiddenCurated() {
   catch { hiddenCurated = new Set(); }
 }
 function curatedShown(name) { return !hiddenCurated.has(name); }
-/** What a default room's switch in Public Chats settings reads (iOS d128773 isCuratedChannelOn):
- *  on only when the room is in the list and the Chats circles row - joined and not switched off.
- *  Every default room is joined (loadState, iOS 865c9ab), so in practice this is "not switched
- *  off". */
-function curatedChannelOn(name) {
-  return curatedShown(name) && (FEATURED_BROADCAST_CHANNELS.includes(name) || joinedChannels.includes(name));
+// Edit Default Public Chats is gone (K 824a30bb, owner 2026-11-26): nothing is added by default, so
+// there's nothing to switch off. Rooms come from Add Room (addRoomChoices, joinBroadcastRoom).
+
+/** Add Room's lists (K 824a30bb PublicRoomBrowserView): the featured rooms, then every room the
+ *  indexer reports, then the language rooms (Other Languages), each with whether it's joined. */
+export function addRoomChoices() {
+  const joined = new Set(deps ? joinedChannels : []);
+  const rooms = [...FEATURED_BROADCAST_CHANNELS];
+  for (const name of indexerDefaultBroadcastChannels()) if (!rooms.includes(name)) rooms.push(name);
+  return {
+    rooms: rooms.map((name) => ({ name, joined: joined.has(name) })),
+    languages: LANGUAGE_BROADCAST_CHANNELS.map((name) => ({ name, label: broadcastLanguageDisplayName(name), joined: joined.has(name) })),
+  };
 }
-/** Off: the room leaves the list and its bell goes off. On: it is joined if it wasn't, so it is
- *  in the list and the circles row at once (iOS d128773), and comes back silenced, as every room
- *  starts since K 8cb4c88e (#kaspa and #report-bugs no longer get their bell back). */
-function setCuratedChannel(name, shown) {
-  if (!isCuratedBroadcastChannel(name)) return;
-  if (shown) hiddenCurated.delete(name); else hiddenCurated.add(name);
-  if (shown && !joinedChannels.includes(name)) addJoinedChannel(name);
-  try { localStorage.setItem(deps.accountScopedKey(HIDDEN_CURATED_KEY), JSON.stringify([...hiddenCurated])); } catch { /* fine */ }
-  if (!shown) {
-    delete notifyByChannel[name];
-    if (activeChannel === name) closeRoom();
-    // switched off: its pin in the Chats row goes too (K 518fdc8c dropRoomPin)
-    try { deps.onRoomRemoved?.(name); } catch { /* the app's pins */ }
-  }
-  saveNotify();
-  syncScanWanted();
+/** Add Room's Join: the room joins the list (bell on) without opening; false if it can't. */
+export function joinBroadcastRoom(rawName) {
+  if (!deps) return false;
+  const name = replacementBroadcastChannel(rawName);
+  if (broadcastJoinProblem(name)) return false;
+  addJoinedChannel(name);
   renderChannelList();
+  return true;
 }
-
-/** The Languages switch in Public Chats settings (iOS d37f64d anyLanguageChannelOn): on while at
- *  least one language room is. */
-export function anyLanguageRoomOn() {
-  return LANGUAGE_BROADCAST_CHANNELS.some((name) => curatedChannelOn(name));
-}
-/** Every language room off at once (out of the list, bells off), or all back on - each then
- *  switched off one by one if only some are wanted (iOS d37f64d setAllLanguageChannels). */
-export function setAllLanguageRooms(shown) {
-  if (!deps) return;
-  for (const name of LANGUAGE_BROADCAST_CHANNELS) {
-    if (curatedChannelOn(name) !== Boolean(shown)) setCuratedChannel(name, Boolean(shown));
-  }
-}
-
-/** Edit Default Public Chats, from the gear at the top left of Chats (K 8cb4c88e; it was a row in
- *  the Chats New sheet since KaChat 148a5331, and before that the gear on the Public Chats screen). */
-export function openPublicChatsSettings() {
-  // iOS PublicChatsSettingsView (d37f64d): a Form titled "Public Chats" with Done, a Popular
-  // section with its footer, then the Languages switch - every language room off at once, and
-  // while it is on, each language with its own switch. Each room a toggle with its language under
-  // it. (It replaced the "Other Languages" section, and the list's Other Languages folder went in
-  // 865c9ab: every default room is listed.)
-  const row = (name) => {
-    const language = broadcastLanguageDisplayName(name);
-    return `<label class="settings-toggle-row public-settings-row"><span class="settings-row-copy"><strong>#${deps.escapeHtml(name)}</strong>${language ? `<small>${deps.escapeHtml(language)}</small>` : ""}</span><span class="switch-control"><input type="checkbox" data-curated-room="${deps.escapeHtml(name)}" ${curatedChannelOn(name) ? "checked" : ""}><span></span></span></label>`;
-  };
-  const languagesCardHtml = () => {
-    const on = anyLanguageRoomOn();
-    return `<label class="settings-toggle-row public-settings-row"><span class="settings-row-copy"><strong>Languages</strong></span><span class="switch-control"><input type="checkbox" data-public-languages ${on ? "checked" : ""}><span></span></span></label>`
-      + (on ? LANGUAGE_BROADCAST_CHANNELS.map(row).join("") : "");
-  };
-  // Rooms added on the indexer (K 961fc05a `indexerDefaultChannels`): they come and go with it, so
-  // the section is drawn again when the indexer's list changes while the sheet is up.
-  const moreRoomsHtml = () => {
-    const more = indexerDefaultBroadcastChannels();
-    if (!more.length) return "";
-    return `<p class="settings-group-label">More Rooms</p>
-          <div class="settings-list-card">${more.map(row).join("")}</div>
-          <p class="settings-group-footer">Rooms added on the indexer K reads public chats from.</p>`;
-  };
-  const host = document.createElement("div");
-  host.className = "modal-backdrop broadcast-settings-backdrop";
-  host.innerHTML = `
-    <section class="contact-modal broadcast-settings-sheet public-settings-form" role="dialog" aria-modal="true" aria-label="Public Chats">
-      <header class="public-settings-nav">
-        <span aria-hidden="true"></span>
-        <h2>Public Chats</h2>
-        <button class="public-settings-done" type="button" data-public-settings-close>Done</button>
-      </header>
-      <div class="broadcast-settings-body">
-        <section class="settings-group">
-          <p class="settings-group-label">Popular</p>
-          <div class="settings-list-card">${FEATURED_BROADCAST_CHANNELS.map(row).join("")}</div>
-          <p class="settings-group-footer">A room that is switched off no longer appears in Public Chats and never sends a notification. Switch it back on at any time.</p>
-        </section>
-        <section class="settings-group">
-          <div class="settings-list-card" data-public-languages-card>${languagesCardHtml()}</div>
-          <p class="settings-group-footer">Off takes every language room out of Public Chats. On, switch off the ones you don't want.</p>
-        </section>
-        <section class="settings-group" data-public-more-rooms>${moreRoomsHtml()}</section>
-      </div>
-    </section>`;
-  document.body.appendChild(host);
-  const moreRoomsEl = host.querySelector("[data-public-more-rooms]");
-  const redrawMoreRooms = () => { if (moreRoomsEl) moreRoomsEl.innerHTML = moreRoomsHtml(); };
-  const stopWatching = onIndexerTrackedRoomsChange(redrawMoreRooms);
-  // a room just added on the indexer shows here within a minute (K 961fc05a: maxAge 60)
+/** Add Room asks the indexer for its rooms within a minute (K: maxAge 60) and redraws when the list
+ *  changes; returns the stop function. */
+export function watchAddRoomChoices(redraw) {
   refreshIndexerTrackedRooms({ maxAgeMs: 60_000 }).catch(() => {});
-  const close = () => { stopWatching(); host.remove(); };
-  host.addEventListener("click", (event) => {
-    if (event.target === host || event.target.closest("[data-public-settings-close]")) close();
-  });
-  const languagesCard = host.querySelector("[data-public-languages-card]");
-  host.addEventListener("change", (event) => {
-    if (event.target.closest("[data-public-languages]")) {
-      setAllLanguageRooms(event.target.checked);
-      languagesCard.innerHTML = languagesCardHtml();
-      return;
-    }
-    const input = event.target.closest("[data-curated-room]");
-    if (!input) return;
-    setCuratedChannel(input.dataset.curatedRoom, input.checked);
-    // The last language switched off turns Languages off and folds the list away, as iOS's
-    // `if anyLanguageChannelOn` does.
-    if (LANGUAGE_BROADCAST_CHANNELS.includes(input.dataset.curatedRoom) && !anyLanguageRoomOn()) {
-      languagesCard.innerHTML = languagesCardHtml();
-    }
-  });
-  host.addEventListener("keydown", (event) => { if (event.key === "Escape") close(); });
+  return onIndexerTrackedRoomsChange(redraw);
 }
 
 let cachesLoaded = false;
@@ -535,29 +445,21 @@ function loadState({ caches = true } = {}) {
   moveRetiredChannels();
   joinDefaultRooms();
   silenceRoomsOnce();
+  clearAutoAddedRoomsOnce();
   migrateCachedReactionRows();
   migrateCachedDeleteRows();
   pruneCache();
 }
 
-/** Joins every default room that isn't switched off (K 961fc05a ensureDefaultChannelsJoined): the
- *  featured rooms always, the language rooms and the rooms added on the indexer unless switched
- *  off, all with their bell off; then any room the indexer dropped is left once its time is up
- *  (forgetDroppedDefaultRooms). */
+/** No room is joined for the person any more (K 824a30bb, owner 2026-11-26): Public Chats starts
+ *  empty and fills only with rooms they add. What's left here: stamping a joined room's "Joined"
+ *  time, and leaving any room the indexer dropped once its time is up (forgetDroppedDefaultRooms). */
 function joinDefaultRooms() {
   let stamped = false;
-  let joinedAdded = false;
-  for (const name of curatedBroadcastChannels()) {
-    if (!FEATURED_BROADCAST_CHANNELS.includes(name) && !curatedShown(name)) continue;
-    if (!joinedChannels.includes(name)) {
-      joinedChannels.push(name);
-      if (!CURATED_BUILT_IN.has(name)) joinedAdded = true;
-    }
+  for (const name of joinedChannels) {
     if (!joinedAtByChannel[name]) { joinedAtByChannel[name] = Date.now(); stamped = true; }
   }
-  const owned = Boolean(deps?.engine?.address);
-  if (stamped) { try { saveJoinedAt(); } catch {} }
-  if (joinedAdded && owned) saveChannels();
+  if (stamped && deps?.engine?.address) { try { saveJoinedAt(); } catch {} }
   forgetDroppedDefaultRooms();
 }
 
@@ -662,6 +564,40 @@ function silenceRoomsOnce() {
   if (!ringing.length) return;
   deps.appendEngineLog?.(`Silenced ${ringing.length} public chat(s) once for this update`);
   // the push service stops sending these rooms (its registration lists the bell-on rooms)
+  deps.onPushPreferencesChanged?.();
+  syncScanWanted();
+}
+
+// Public Chats starts empty (K 824a30bb, owner 2026-11-26: nothing may feel added without the
+// person's say). Once per account, the first load of this build leaves every room older builds joined
+// for everyone (the featured and language rooms, the rooms the indexer lists now, rooms switched
+// off) unless they showed they want it: a bell they turned on, or a pin. A room joined by name stays,
+// unless the indexer lists that name now (K joined it for them anyway; the two can't be told apart).
+// Runs after silenceRoomsOnce, so a bell an old build turned on by itself doesn't count.
+const ROOMS_OPT_IN_KEY = "kachat-rooms-opt-in-v1"; // account-scoped: "1"
+function clearAutoAddedRoomsOnce() {
+  if (!deps?.engine?.address) return;
+  const key = deps.accountScopedKey(ROOMS_OPT_IN_KEY);
+  try { if (localStorage.getItem(key)) return; } catch { return; }
+  let pins = [];
+  try { pins = parseRoomPins(localStorage.getItem(deps.accountScopedKey(ROOM_PINS_KEY)) || "[]"); } catch { pins = []; }
+  const switchedOff = new Set(hiddenCurated);
+  const autoAdded = new Set([...curatedBroadcastChannels(), ...switchedOff]);
+  const left = [];
+  for (const name of [...joinedChannels]) {
+    if (!autoAdded.has(name) || isServiceBroadcastChannel(name)) continue;
+    const wanted = !switchedOff.has(name) && (Boolean(notifyByChannel[name]) || pins.includes(name));
+    if (wanted) continue;
+    if (activeChannel === name) activeChannel = null;
+    forgetRoom(name);
+    try { deps.onRoomRemoved?.(name); } catch { /* the app's pins */ }
+    left.push(name);
+  }
+  hiddenCurated.clear();
+  saveHiddenCurated();
+  try { localStorage.setItem(key, "1"); } catch { /* asked again next load */ }
+  if (!left.length) return;
+  deps.appendEngineLog?.(`Public Chats starts empty: left ${left.length} room(s) K had added`);
   deps.onPushPreferencesChanged?.();
   syncScanWanted();
 }
@@ -3177,13 +3113,21 @@ export function joinBroadcastChannelFromSheet(rawName) {
   return true;
 }
 
-/// Joins a room without opening it (the list, the circles row and syncing pick it up).
+/// Joins a room without opening it (the list, the circles row and syncing pick it up). A room the
+/// person adds starts with its bell ON (K 824a30bb, owner 2026-11-26: they chose it); one already
+/// joined keeps its bell, and machinery rooms (chess, the bots, the arcade) stay silent.
 function addJoinedChannel(name) {
   if (joinedChannels.includes(name)) return;
   joinedChannels.push(name);
   saveChannels();
   joinedAtByChannel[name] = Date.now();
   saveJoinedAt();
+  if (!isServiceBroadcastChannel(name)) {
+    notifyByChannel[name] = true;
+    saveNotify();
+    deps.ensureNotificationPermission?.();
+    syncScanWanted();
+  }
 }
 
 function joinChannel(rawName) {
@@ -3200,10 +3144,7 @@ function joinChannel(rawName) {
 }
 
 function leaveChannel(name) {
-  // Curated rooms (featured + language) can't be left - both are permanent fixtures of the
-  // list screen, so no UI offers it; this guards stray paths. A room added on the indexer is
-  // tracked but stays one you can leave (iOS 21c480d).
-  if (isCuratedBroadcastChannel(name)) return;
+  // Any room can be left, default rooms too (K 824a30bb: every room is one the person added).
   forgetRoom(name);
   if (activeChannel === name) closeRoom();
   // left: its pin in the Chats row goes too (K 518fdc8c dropRoomPin)
@@ -3736,7 +3677,8 @@ export function openBroadcastRoomFromLink(channel) {
   loadState({ caches: false });
   // a link to a retired room opens the room that replaced it (K 961fc05a)
   const name = replacementBroadcastChannel(channel);
-  const listed = isCuratedBroadcastChannel(name) || joinedChannels.includes(name);
+  // default rooms ask too (K 824a30bb): no room is in the list unasked
+  const listed = joinedChannels.includes(name);
   // A name that can't be a room goes straight to joinChannel, which says so.
   // (joinChannel maps a retired name itself)
   if (listed || !isValidBroadcastChannel(name)) { joinChannel(channel); return; }
@@ -3749,9 +3691,13 @@ export function openBroadcastChannelFromNotification(channel) {
   const clean = replacementBroadcastChannel(channel);
   if (!clean) return;
   loadState({ caches: false });
-  // A push opens only a room you're in, and never joins one (KaPost b78fdb0): a room left since
-  // the push was sent stays left.
-  if (!joinedChannels.includes(clean)) return;
+  // A room not in the list (a mention in Profile's bell for a room since left, a stale push) is
+  // asked about first (K 824a30bb askToJoinRoom: no room is added unasked).
+  if (!joinedChannels.includes(clean)) {
+    if (!isValidBroadcastChannel(clean)) return;
+    confirmDialog(roomLinkJoinPrompt(clean, "This room isn't in your Public Chats. Add it?")).then((join) => { if (join) joinChannel(clean); });
+    return;
+  }
   openRoom(clean);
 }
 

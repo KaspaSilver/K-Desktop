@@ -38,7 +38,7 @@ import { allowsPreviewPage, allowsPreviewImage, socialPreviewBrand, isSameSiteHo
 import { SOCIAL_LOGOS } from "./social-logos.js";
 import { kapostsFiatFieldText, kapostsKasFieldText, kapostsTipFieldAmount, kapostsSwitchTipText, kapostsDefaultTipSompi, KAPOSTS_TIP_MIN_SOMPI } from "./kaposts-format.js";
 import { requesterPubkeyFor, KAPOSTS_PROTOCOL, KACHAT_MARKER as KAPOSTS_MARKER, utf8ToBase64 as kapostsUtf8ToBase64, buildKaPostTipPayload } from "../engine/kaposts.js";
-import { initBroadcasts, refreshBroadcasts, repaintBroadcastIdentities, resetBroadcastsForAccount, stopBroadcastPolling, openBroadcastChannelFromNotification, openBroadcastMessageFromNotification, openBroadcastRoomFromLink, openPublicChatsSettings, broadcastNotifyingUnreadTotal, broadcastJoinError, joinBroadcastChannelFromSheet, chatListRooms, openBroadcastRoom, closeBroadcastRoom, markBroadcastRooms, removeBroadcastRooms, setBroadcastRoomNotify, copyBroadcastRoomLink, fetchRoomBeforePushBanner, checkListedRoomsAgainstIndexer } from "./broadcasts.js";
+import { initBroadcasts, refreshBroadcasts, repaintBroadcastIdentities, resetBroadcastsForAccount, stopBroadcastPolling, openBroadcastChannelFromNotification, openBroadcastMessageFromNotification, openBroadcastRoomFromLink, addRoomChoices, joinBroadcastRoom, watchAddRoomChoices, broadcastNotifyingUnreadTotal, broadcastJoinError, joinBroadcastChannelFromSheet, chatListRooms, openBroadcastRoom, closeBroadcastRoom, markBroadcastRooms, removeBroadcastRooms, setBroadcastRoomNotify, copyBroadcastRoomLink, fetchRoomBeforePushBanner, checkListedRoomsAgainstIndexer } from "./broadcasts.js";
 import { initChessTournaments, showChessTournaments, hideChessTournaments, resetChessTournamentsForAccount, chessTournamentsMayLeave, openChessBotChallenge, openArcadeChallenge } from "./chess-tournaments.js";
 import { parseBotChallengeLink, botChallengeFromLaunchSearch } from "../engine/chess-bot-links.js";
 import { parseArcadeChallengeLink, arcadeChallengeFromLaunchSearch } from "../engine/arcade-services.js";
@@ -12575,7 +12575,6 @@ function setActiveAppTab(tab) {
   // On Chats the topbar narrows to the chats list and the conversation takes the full height
   // beside it; everywhere else there is no list, so it spans as before. CSS reads this class.
   document.body.classList.toggle("chats-tab", isChats);
-  syncChatsPublicSettingsGear();
   // The wide layout lines the toolbar up with the open screen's column (ui/styles.css).
   document.body.dataset.appTab = screenTab;
   publishDockHeight();
@@ -12663,8 +12662,13 @@ sidebarTabButtons.forEach((button) => {
     setActiveAppTab(tab);
     if (page) setChatListPage(page);
     applyDockLayout();
-    // KaChat on the dock, tapped again from inside a chat, goes back to the chats list.
-    if (wasOnChats) backToChatsListFromDock();
+    // Chats on the dock, tapped again: from inside a chat, back to the chats list; on the list, it
+    // switches Private Chats / Public Chats as the pill does (K 824a30bb .chatsTabReselected). A
+    // computer's dock has its own Public Chats item, so this is a phone's (narrow window's).
+    if (wasOnChats && !backToChatsListFromDock() && !WIDE_DOCK_QUERY.matches) {
+      if (chatSelectionModeActive) setChatSelectionMode(false);
+      setChatListPage(chatListPage === "chats" ? "publicChats" : "chats");
+    }
     // Explorer on the dock, clicked again from a transaction, block, address or chart, goes home.
     if (wasOnExplorer) { try { explorerToHome(); } catch { /* not started */ } }
     // KaPost on the dock takes the feed back to its top (KaPosts-iPhone 45de945).
@@ -13399,7 +13403,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 356;
+const APP_BUILD = 357;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -17452,7 +17456,6 @@ function syncChatListPageControls() {
   const strip = document.querySelector("[data-chat-circles]");
   const stripLabel = chatListPage === "publicChats" ? "Pinned public chats" : "Bots and pinned chats";
   if (strip && strip.getAttribute("aria-label") !== stripLabel) strip.setAttribute("aria-label", stripLabel);
-  syncChatsPublicSettingsGear();
 }
 /** Which of a computer's Chats and Public Chats dock items is lit: the one for the page on show
  *  (owner, 2026-11-26). With no Public Chats item (a phone), Chats stays lit on both pages. */
@@ -22243,8 +22246,12 @@ async function runRoomRowChoice(name, choice) {
   else if (choice === "pin") toggleChatRoomPin(name);
   else if (choice === "silence") setBroadcastRoomNotify(name, !room.notify);
   else if (choice === "copy") copyBroadcastRoomLink(name);
-  else if (choice === "delete" && room.indexed) removeBroadcastRooms([name]);
-  else if (choice === "delete" && room.joined) {
+  // One the indexer keeps leaves at once (Add Room brings it back, history and all); a room you
+  // made asks first: its messages on this device go (K 824a30bb).
+  else if (choice === "delete" && room.tracked) {
+    removeBroadcastRooms([name]);
+    showCopyToast(`#${name} removed. Add it again anytime from Add Room.`);
+  } else if (choice === "delete" && room.joined) {
     const ok = await confirmDialog({
       title: "Delete Room?",
       message: "Every message cached for this room on this device is deleted. This cannot be undone - rejoining later starts with no history.",
@@ -22271,8 +22278,8 @@ async function openRoomRowSheet(name) {
       : { id: "silence", title: "Turn On Notifications", subtitle: room.tracked ? "Notifies you of new messages, even when the app is closed." : "Notifies you of new messages while the app is open.", icon: ACTION_TILE_ICONS.bell },
     { id: "copy", title: "Copy Room Link", subtitle: "A kachat.app link that opens this room.", icon: ACTION_TILE_ICONS.link },
   ];
-  if (room.indexed) {
-    options.push({ id: "delete", title: "Delete", subtitle: "Switches this default room off. Turn it back on in Edit Default Public Chats.", destructive: true, icon: ACTION_TILE_ICONS.trash });
+  if (room.tracked) {
+    options.push({ id: "delete", title: "Delete", subtitle: "Removes this room. Add it again anytime from Add Room.", destructive: true, icon: ACTION_TILE_ICONS.trash });
   } else if (room.joined) {
     options.push({ id: "delete", title: "Delete", subtitle: "Removes this room and its messages from this device.", destructive: true, icon: ACTION_TILE_ICONS.trash });
   }
@@ -22295,7 +22302,7 @@ async function openPinnedRoomSheet(name) {
       ? { id: "silence", title: "Mute", subtitle: "No notifications from this public chat.", icon: ACTION_TILE_ICONS.bellSlash }
       : { id: "silence", title: "Unmute", subtitle: "Notifications from this public chat resume.", icon: ACTION_TILE_ICONS.bell },
   ];
-  if (room.indexed || room.joined) options.push({ id: "delete", title: "Delete", subtitle: "Removes this public chat from your public chats.", destructive: true, icon: ACTION_TILE_ICONS.trash });
+  if (room.joined) options.push({ id: "delete", title: "Delete", subtitle: "Removes this public chat from your public chats.", destructive: true, icon: ACTION_TILE_ICONS.trash });
   const choice = await chooseDialog({ title: `#${name}`, layout: "tiles", options });
   if (choice) await runRoomRowChoice(name, choice);
 }
@@ -22463,7 +22470,7 @@ document.querySelector("[data-chat-delete-selected]")?.addEventListener("click",
   const parts = [];
   if (chats) parts.push("This permanently deletes every message in each selected chat from this device. This cannot be undone.");
   if (groups) parts.push(`This removes each selected group and its messages from this device. This cannot be undone. ${groupDeleteMembersLine([...selectedGroupIds])}`);
-  if (rooms) parts.push("Default public chats are switched off (turn them back on in Edit Default Public Chats). Rooms you added are deleted with their messages on this device.");
+  if (rooms) parts.push("Rooms the indexer keeps can be added again from Add Room. Rooms you made are deleted with their messages on this device.");
   if (!await confirmDialog({ title, message: parts.join("\n\n"), confirmLabel: "Delete", destructive: true })) return;
   const chatIds = [...selectedChatConversationIds];
   const groupIds = [...selectedGroupIds];
@@ -33179,22 +33186,9 @@ function setChatToolRowsForGroupsTab(isGroups) {
   // by incoming messages while another tab is open, so it must not simply unhide the control.
   // The body class is setActiveAppTab's own record of that (and is safe during boot).
   if (selectRow) selectRow.hidden = !document.body.classList.contains("chats-tab");
-  syncChatsPublicSettingsGear();
 }
-
-/** The gear at the top left of KaChat (K 8cb4c88e): Edit Default Public Chats, moved out of the +
- *  sheet. Only on the Public Chats page (K 961fc05a), not while selecting (iOS hides it in edit
- *  mode). DOM-only, like the Select row above: safe during the boot render. */
-function syncChatsPublicSettingsGear() {
-  const gear = document.querySelector("[data-chats-public-settings]");
-  if (!gear) return;
-  gear.hidden = !document.body.classList.contains("chats-tab")
-    || chatListPage !== "publicChats"
-    || Boolean(document.querySelector("[data-app-sidebar]")?.classList.contains("selecting-chats"));
-}
-document.querySelector("[data-chats-public-settings]")?.addEventListener("click", () => {
-  try { openPublicChatsSettings(); } catch { /* rooms not started */ }
-});
+// No gear for Public Chats any more (K 824a30bb, owner 2026-11-26): nothing is added by default, so
+// there's nothing to switch off. Rooms come from Add Room (the + on that page).
 // Chats / Public Chats beside the title (K 961fc05a): each click fades to the other page; the arrow
 // keys step too (ui/cycle-button.js swaps in data-cycle-prev for them).
 document.querySelector("[data-chats-page-cycle]")?.addEventListener("click", (event) => {
@@ -35500,8 +35494,7 @@ groupMembersList?.addEventListener("click", (event) => {
 // bfe9f022); Desktop keeps New Group Chat and New Public Chat here, having no Groups tab.
 // - New Chat / New Group Chat swap the sheet for the existing create modals; their Cancel (or a
 //   backdrop click / Escape) comes back to this menu, and a chat or group made lands on its tab.
-// - New Public Chat swaps the sheet's content for the room-name field. Errors show in place;
-//   joining opens the room in Chats. (Edit Default Public Chats is the Chats gear, K 8cb4c88e.)
+// - Rooms aren't here: the Public Chats page's + is Add Room (K 824a30bb, openAddRoomSheet).
 // - Chatting Address closes the sheet and brings up Profile's QR page.
 // No state lives outside the DOM: the sheet is built per open (like the payment detail sheet), and
 // "came from the sheet" is a data attribute on the create modal, so nothing here is read at load.
@@ -35557,29 +35550,12 @@ function actionRowsSheetHtml(title, rows) {
     </div>`;
 }
 
-function newChatSheetJoinHtml({ back = true } = {}) {
-  return `
-    ${back ? `<button class="new-chat-sheet-back" type="button" data-new-chat-sheet-back aria-label="Back">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg>
-    </button>` : ""}
-    <button class="modal-close" type="button" data-new-chat-sheet-close aria-label="Close">×</button>
-    <h2 class="new-chat-sheet-title">New Public Chat</h2>
-    <p class="new-chat-sheet-caption">Anyone who joins the same channel name can see and post messages there - there is no owner and no invite.</p>
-    <label class="new-chat-sheet-field">
-      <span aria-hidden="true">#</span>
-      <input type="text" data-new-chat-room-input placeholder="channel-name" autocapitalize="none" autocomplete="off" spellcheck="false" aria-label="Channel name" />
-    </label>
-    <p class="new-chat-sheet-error" data-new-chat-room-error role="alert" hidden></p>
-    <button class="primary-button new-chat-sheet-join" type="button" data-new-chat-room-join disabled>Join</button>`;
-}
-
 function closeNewChatSheet() {
   document.querySelector("[data-new-chat-sheet]")?.closeSheet?.();
 }
 
-/** `publicRoom`: the Public Chats page's +, which is New Public Chat itself (K 961fc05a), with no
- *  menu to go back to. */
-function openNewChatSheet({ publicRoom = false } = {}) {
+/** The Chats page's +: New Chat or New Group Chat (the Public Chats page's + is Add Room). */
+function openNewChatSheet() {
   closeNewChatSheet();
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop new-chat-sheet-backdrop";
@@ -35591,28 +35567,6 @@ function openNewChatSheet({ publicRoom = false } = {}) {
     sheet.setAttribute("aria-label", "New");
     sheet.innerHTML = newChatSheetMenuHtml();
     sheet.querySelector("[data-new-chat-choice]")?.focus();
-  };
-  const showJoin = () => {
-    sheet.classList.add("is-join");
-    sheet.setAttribute("aria-label", "New Public Chat");
-    sheet.innerHTML = newChatSheetJoinHtml({ back: !publicRoom });
-    sheet.querySelector("[data-new-chat-room-input]")?.focus();
-  };
-  const setJoinError = (text) => {
-    const errorEl = sheet.querySelector("[data-new-chat-room-error]");
-    if (!errorEl) return;
-    errorEl.textContent = text || "";
-    errorEl.hidden = !text;
-  };
-  const join = () => {
-    const raw = String(sheet.querySelector("[data-new-chat-room-input]")?.value || "").trim();
-    if (!raw) return;
-    const problem = broadcastJoinError(raw);
-    if (problem) { setJoinError(problem); return; }
-    // A join that does not take says so in place and the sheet stays (iOS joinRoomFromCreateSheet).
-    openPublicChatsTab();
-    if (!joinBroadcastChannelFromSheet(raw)) { setJoinError("Something went wrong joining that channel."); return; }
-    close();
   };
   const onKey = (event) => {
     if (event.key !== "Escape") return;
@@ -35629,10 +35583,8 @@ function openNewChatSheet({ publicRoom = false } = {}) {
   sheet.addEventListener("click", (event) => {
     if (event.target.closest("[data-new-chat-sheet-close]")) { close(); return; }
     if (event.target.closest("[data-new-chat-sheet-back]")) { showMenu(); return; }
-    if (event.target.closest("[data-new-chat-room-join]")) { join(); return; }
     const choice = event.target.closest("[data-new-chat-choice]")?.dataset.newChatChoice;
     if (!choice) return;
-    if (choice === "public") { showJoin(); return; }
     close();
     if (choice === "chat") {
       showContactModal();
@@ -35643,18 +35595,9 @@ function openNewChatSheet({ publicRoom = false } = {}) {
       openChattingAddressScreen();
     }
   });
-  sheet.addEventListener("input", (event) => {
-    if (!event.target.matches("[data-new-chat-room-input]")) return;
-    setJoinError("");
-    const button = sheet.querySelector("[data-new-chat-room-join]");
-    if (button) button.disabled = !String(event.target.value || "").trim();
-  });
-  sheet.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && event.target.matches("[data-new-chat-room-input]")) { event.preventDefault(); join(); }
-  });
   document.addEventListener("keydown", onKey, true);
   document.body.append(backdrop);
-  if (publicRoom) showJoin(); else showMenu();
+  showMenu();
 }
 
 // A create modal opened from the sheet has closed: Cancel goes back to the menu (iOS AddContactView
@@ -35666,11 +35609,147 @@ function settleNewChatSheetCreate(kind, cancelled) {
   renderChats();
 }
 
-// On the Public Chats page the + is New Public Chat; on the Chats page it opens the New sheet, which
-// keeps New Public Chat among its rows (K 961fc05a).
+// On the Public Chats page the + is Add Room (K 824a30bb); on the Chats page it opens the New sheet
+// (New Chat, New Group Chat).
 document.querySelectorAll("[data-new-chat-fab]").forEach((button) => {
-  button.addEventListener("click", () => openNewChatSheet({ publicRoom: onPublicChatsPage() }));
+  button.addEventListener("click", () => { if (onPublicChatsPage()) openAddRoomSheet(); else openNewChatSheet(); });
 });
+document.querySelector("[data-empty-rooms-add]")?.addEventListener("click", () => openAddRoomSheet());
+
+// Add Room (K 824a30bb PublicRoomBrowserView, owner 2026-11-26): Public Chats starts empty, so this is
+// how a room gets there. Every room the indexer keeps (the featured rooms, then whatever the indexer
+// reports, so the list grows with it), each with Join, or Open once joined; the language rooms behind
+// Other Languages; and Create at the top right, which first says how a room nobody indexes works,
+// then takes its name. One sheet whose content steps, like the New sheet.
+function addRoomRowHtml(room, subtitle = "") {
+  return `<div class="add-room-row">
+      <span class="add-room-row-text"><strong>#${escapeHtml(room.name)}</strong>${subtitle ? `<small>${escapeHtml(subtitle)}</small>` : ""}</span>
+      <button type="button" class="add-room-join${room.joined ? " is-open" : ""}" data-add-room-${room.joined ? "open" : "join"}="${escapeHtml(room.name)}">${room.joined ? "Open" : "Join"}</button>
+    </div>`;
+}
+function addRoomNavHtml(title, { back = false, create = false } = {}) {
+  return `<header class="add-room-nav">
+      ${back ? `<button class="new-chat-sheet-back add-room-back" type="button" data-add-room-back aria-label="Back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg></button>` : `<button class="add-room-text-button" type="button" data-add-room-close>Done</button>`}
+      <h2 class="new-chat-sheet-title">${escapeHtml(title)}</h2>
+      ${create ? `<button class="add-room-text-button add-room-create" type="button" data-add-room-create>Create</button>` : `<span aria-hidden="true"></span>`}
+    </header>`;
+}
+function addRoomPageHtml(page) {
+  const choices = addRoomChoices();
+  if (page === "languages") {
+    return `${addRoomNavHtml("Other Languages", { back: true })}
+      <div class="add-room-list">${choices.languages.map((room) => addRoomRowHtml(room, room.label)).join("")}</div>`;
+  }
+  if (page === "createInfo") {
+    const point = (icon, text) => `<li><span class="add-room-point-icon" aria-hidden="true">${icon}</span><span>${escapeHtml(text)}</span></li>`;
+    return `${addRoomNavHtml("Create", { back: true })}
+      <div class="add-room-info">
+        <h3>How a Room You Create Works</h3>
+        <ul>
+          ${point("#", "Anyone who types the same name joins the same room. It has no owner and no invite.")}
+          ${point(newChatSheetIcon("request"), "No indexer keeps its history. K reads it from the Kaspa network while the room is open, and keeps up to 3 days on this device.")}
+          ${point(ACTION_TILE_ICONS.bellSlash, "No notifications while K is closed. With its bell on, K notifies you only while it's open.")}
+          ${point(SETUP_ICONS.eye, "Everything said there is public: anyone can read it on the Kaspa network.")}
+        </ul>
+      </div>
+      <button class="primary-button add-room-continue" type="button" data-add-room-continue>Continue</button>`;
+  }
+  if (page === "createName") {
+    return `${addRoomNavHtml("Name Your Room", { back: true })}
+      <label class="new-chat-sheet-field">
+        <span aria-hidden="true">#</span>
+        <input type="text" data-new-chat-room-input placeholder="channel-name" autocapitalize="none" autocomplete="off" spellcheck="false" aria-label="Room name" />
+      </label>
+      <p class="new-chat-sheet-error" data-new-chat-room-error role="alert" hidden></p>
+      <button class="primary-button new-chat-sheet-join" type="button" data-new-chat-room-join disabled>Create Room</button>`;
+  }
+  return `${addRoomNavHtml("Add Room", { create: true })}
+    <div class="add-room-list">${choices.rooms.map((room) => addRoomRowHtml(room)).join("")}</div>
+    <p class="add-room-footer">Rooms the indexer keeps: their history is saved and they can notify you even when K is closed.</p>
+    <div class="add-room-list">
+      <button type="button" class="add-room-row add-room-link" data-add-room-languages><span class="add-room-row-text"><strong>Other Languages</strong></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
+    </div>`;
+}
+function openAddRoomSheet() {
+  closeNewChatSheet();
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop new-chat-sheet-backdrop";
+  backdrop.setAttribute("data-new-chat-sheet", "");
+  backdrop.innerHTML = `<section class="contact-modal new-chat-sheet add-room-sheet" role="dialog" aria-modal="true" aria-label="Add Room"></section>`;
+  const sheet = backdrop.querySelector(".add-room-sheet");
+  const trail = [];
+  let page = "main";
+  const show = (next) => {
+    page = next;
+    sheet.dataset.page = next;
+    sheet.innerHTML = addRoomPageHtml(next);
+    sheet.querySelector("[data-new-chat-room-input]")?.focus();
+  };
+  const go = (next) => { trail.push(page); show(next); };
+  const redraw = () => { if (page === "main" || page === "languages") show(page); };
+  const stopWatching = watchAddRoomChoices(redraw);
+  const setError = (text) => {
+    const errorEl = sheet.querySelector("[data-new-chat-room-error]");
+    if (!errorEl) return;
+    errorEl.textContent = text || "";
+    errorEl.hidden = !text;
+  };
+  const openRoomNamed = (name) => {
+    close();
+    openPublicChatsTab();
+    try { openBroadcastRoom(name); } catch { /* rooms not started */ }
+  };
+  const create = () => {
+    const raw = String(sheet.querySelector("[data-new-chat-room-input]")?.value || "").trim();
+    if (!raw) return;
+    const problem = broadcastJoinError(raw);
+    if (problem) { setError(problem); return; }
+    close();
+    openPublicChatsTab();
+    if (!joinBroadcastChannelFromSheet(raw)) showCopyToast("Something went wrong joining that channel.");
+  };
+  const onKey = (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    close();
+  };
+  function close() {
+    stopWatching();
+    backdrop.remove();
+    document.removeEventListener("keydown", onKey, true);
+  }
+  backdrop.closeSheet = close;
+  backdrop.addEventListener("mousedown", (event) => { if (event.target === backdrop) close(); });
+  sheet.addEventListener("click", (event) => {
+    const target = event.target;
+    if (target.closest("[data-add-room-close]")) { close(); return; }
+    if (target.closest("[data-add-room-back]")) { show(trail.pop() || "main"); return; }
+    if (target.closest("[data-add-room-languages]")) { go("languages"); return; }
+    if (target.closest("[data-add-room-create]")) { go("createInfo"); return; }
+    if (target.closest("[data-add-room-continue]")) { go("createName"); return; }
+    if (target.closest("[data-new-chat-room-join]")) { create(); return; }
+    const open = target.closest("[data-add-room-open]")?.dataset.addRoomOpen;
+    if (open) { openRoomNamed(open); return; }
+    const join = target.closest("[data-add-room-join]")?.dataset.addRoomJoin;
+    if (join) {
+      if (joinBroadcastRoom(join)) { show(page); renderChats(); }
+      else showCopyToast("Something went wrong joining that channel.");
+    }
+  });
+  sheet.addEventListener("input", (event) => {
+    if (!event.target.matches("[data-new-chat-room-input]")) return;
+    setError("");
+    const button = sheet.querySelector("[data-new-chat-room-join]");
+    if (button) button.disabled = !String(event.target.value || "").trim();
+  });
+  sheet.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && event.target.matches("[data-new-chat-room-input]")) { event.preventDefault(); create(); }
+  });
+  document.addEventListener("keydown", onKey, true);
+  document.body.append(backdrop);
+  show("main");
+}
 
 groupMemberPicker?.addEventListener("click", (event) => {
   const btn = event.target.closest("[data-group-member-toggle]");

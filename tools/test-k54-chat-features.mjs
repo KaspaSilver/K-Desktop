@@ -276,11 +276,9 @@ await test("room pins: newest first, each once, kept per account; a pin whose ro
   assert.match(fnSource(app, "chatRoomPins"), /accountScopedKey\(ROOM_PINS_KEY\)/);
 });
 
-await test("switching a default room off, or leaving your own, drops its pin", () => {
+await test("leaving a room (default rooms too since K 824a30bb) drops its pin", () => {
   assert.deepEqual(dropRoomPin(["dev", "kaspa"], "kaspa"), { pins: ["dev"], changed: true });
   assert.deepEqual(dropRoomPin(["dev"], "kaspa"), { pins: ["dev"], changed: false });
-  const curated = fnSource(rooms, "setCuratedChannel");
-  assert.match(curated, /if \(!shown\) \{[\s\S]*deps\.onRoomRemoved\?\.\(name\)/);
   assert.match(fnSource(rooms, "leaveChannel"), /deps\.onRoomRemoved\?\.\(name\)/);
   assert.match(app, /onRoomRemoved: \(name\) => dropChatRoomPin\(name\),/);
 });

@@ -1,8 +1,8 @@
-// Public Chats' default rooms (iOS 865c9ab / d37f64d): every default room joined from the start,
-// every room silenced (bell off) until you turn its bell on (K 8cb4c88e: #kaspa and #report-bugs
-// no longer get theirs switched on once per wallet; bells an account already has stay on), the
-// language rooms ordered as iOS lists them, and the Languages switch's helpers. Drives ui/broadcasts.js with the DOM stubbed out (no list
-// is mounted: the app draws the rooms as circles from chatListRooms). Run from the repo root:
+// Public Chats starts empty (K 824a30bb, owner 2026-11-26: nothing may feel added without the
+// person's say): no room is joined for anyone, Add Room offers the featured rooms, the indexer's
+// rooms and the language rooms, a room you join starts with its bell ON, Delete leaves any room, and
+// an account from an older build is cleared once, keeping only the rooms it showed it wants (a bell it
+// turned on, or a pin). Drives ui/broadcasts.js with the DOM stubbed out. Run from the repo root:
 //
 //   node tools/test-public-chat-defaults.mjs
 
@@ -38,6 +38,13 @@ const engine = { address: "kaspa:qwalletone", onConnectionState: noop, onBroadca
 const scoped = (key) => (engine.address ? `acct:${engine.address}:${key}` : key);
 let pushSyncs = 0;
 let blockedAccounts = [];
+// An older build's account: every default room joined (#kaspa's bell turned on by the person after
+// the silence-once ran, #kaspa-german pinned), plus a room joined by name, and #kaspa-korean switched off.
+localStorage.setItem(scoped("kachat-broadcast-channels-v1"), JSON.stringify(["kaspa", "report-bugs", ...LANGUAGE_BROADCAST_CHANNELS, "my-room"]));
+localStorage.setItem(scoped("kachat-broadcast-notify-v1"), JSON.stringify({ kaspa: true }));
+localStorage.setItem(scoped("kachat-rooms-silenced-once-v1"), "1");
+localStorage.setItem(scoped("kachat-room-pins-v1"), JSON.stringify(["kaspa-german"]));
+localStorage.setItem(scoped("kachat-broadcast-hidden-curated-v1"), JSON.stringify(["kaspa-korean"]));
 rooms.initBroadcasts({
   blockedAccounts: () => blockedAccounts,
   engine,
@@ -50,32 +57,41 @@ rooms.initBroadcasts({
 const byName = () => new Map(rooms.chatListRooms().map((room) => [room.name, room]));
 const notifyStore = () => JSON.parse(localStorage.getItem(scoped("kachat-broadcast-notify-v1")) || "{}");
 
-// --- every default room is in the list, joined -----------------------------------------------------
+// --- an older account is cleared once: only the rooms it showed it wants stay ---------------------
 {
   const listed = byName();
-  for (const name of [...FEATURED_BROADCAST_CHANNELS, ...LANGUAGE_BROADCAST_CHANNELS]) {
-    r.check(listed.get(name)?.joined === true, `${name} is joined and listed`);
-  }
-  r.eq(rooms.anyLanguageRoomOn(), true, "Languages reads on with every language room in");
+  r.eq(listed.get("kaspa")?.joined, true, "#kaspa stays: its bell was on");
+  r.eq(listed.get("kaspa-german")?.joined, true, "#kaspa-german stays: it was pinned");
+  r.eq(listed.get("my-room")?.joined, true, "a room joined by name stays");
+  r.eq(listed.has("report-bugs"), false, "#report-bugs goes: K had added it");
+  r.eq(listed.has("kaspa-french") || listed.has("kaspa-francais"), false, "the other language rooms go");
+  r.eq(listed.has("kaspa-korean"), false, "a switched-off room stays out");
+  r.eq(JSON.stringify(JSON.parse(localStorage.getItem(scoped("kachat-broadcast-hidden-curated-v1")) || "[]")), "[]", "the switched-off list is emptied");
+  r.eq(localStorage.getItem(scoped("kachat-rooms-opt-in-v1")), "1", "done once for this account");
+  rooms.removeBroadcastRooms(["kaspa-german"]);
+  rooms.refreshBroadcasts();
+  r.eq(byName().has("kaspa-german"), false, "Delete leaves a default room (no switch any more)");
+  r.eq(byName().has("report-bugs"), false, "nothing comes back on the next load");
 }
 
-// --- every room starts silenced, #kaspa and #report-bugs too (K 8cb4c88e) -------------------------
+// --- Add Room: the featured rooms, then the language rooms; Join adds with the bell on ------------
 {
-  const listed = byName();
-  for (const name of FEATURED_BROADCAST_CHANNELS) r.eq(listed.get(name).notify, false, `${name} bell off`);
-  for (const name of LANGUAGE_BROADCAST_CHANNELS) r.eq(listed.get(name).notify, false, `${name} bell off`);
-  r.eq(localStorage.getItem(scoped("kaposts_broadcast_default_bells")), null, "no once-per-wallet flag any more");
-  r.eq(rooms.broadcastPushWatch().channels.length, 0, "push watches no room");
-}
-
-// --- an account that already had the two bells on (the old default) keeps them -------------------
-{
-  for (const name of FEATURED_BROADCAST_CHANNELS) rooms.setBroadcastRoomNotify(name, true);
-  rooms.refreshBroadcasts(); // reloads state from storage, as showing Chats does
-  for (const name of FEATURED_BROADCAST_CHANNELS) r.eq(byName().get(name).notify, true, `${name} bell kept on`);
-  r.eq(notifyStore().kaspa, true, "the bell is saved");
-  r.check(pushSyncs > 0, "the push registration hears about it");
-  r.eq(rooms.broadcastPushWatch().channels.join(","), [...FEATURED_BROADCAST_CHANNELS].sort().join(","), "push watches only the two bells");
+  const choices = rooms.addRoomChoices();
+  r.eq(choices.rooms.slice(0, FEATURED_BROADCAST_CHANNELS.length).map((room) => room.name).join(","), FEATURED_BROADCAST_CHANNELS.join(","), "featured first");
+  r.eq(choices.rooms.find((room) => room.name === "kaspa")?.joined, true, "#kaspa reads Open");
+  r.eq(choices.rooms.find((room) => room.name === "report-bugs")?.joined, false, "#report-bugs reads Join");
+  r.eq(choices.languages.map((room) => room.name).join(","), LANGUAGE_BROADCAST_CHANNELS.join(","), "Other Languages in K's order");
+  r.check(choices.languages.every((room) => room.label), "each language with its name");
+  const before = pushSyncs;
+  r.eq(rooms.joinBroadcastRoom("report-bugs"), true, "Join takes");
+  r.eq(byName().get("report-bugs")?.notify, true, "a room you join starts with its bell on");
+  r.eq(notifyStore()["report-bugs"], true, "saved");
+  r.check(rooms.broadcastPushWatch().channels.includes("report-bugs"), "the push service watches it");
+  void before;
+  r.eq(rooms.joinBroadcastRoom("bad name"), false, "a name that can't be a room doesn't join");
+  rooms.setBroadcastRoomNotify("report-bugs", false);
+  r.eq(rooms.joinBroadcastRoom("report-bugs"), true, "joining again is fine");
+  r.eq(byName().get("report-bugs").notify, false, "a room already joined keeps its bell");
 }
 
 // --- a blocked account is hidden in every room the push service watches (KaPosts-iPhone 9e22075) ---
@@ -85,70 +101,28 @@ const notifyStore = () => JSON.parse(localStorage.getItem(scoped("kachat-broadca
   rooms.broadcastBlockedAccountsChanged();
   r.check(pushSyncs > before, "a block tells the push registration");
   const { channels, hidden } = rooms.broadcastPushWatch();
+  r.check(channels.length > 0, "some room is watched");
   for (const name of channels) r.check(hidden[name]?.includes("kaspa:qblocked"), `#${name} leaves out the blocked account`);
   blockedAccounts = [];
   rooms.broadcastBlockedAccountsChanged();
   r.eq(Object.keys(rooms.broadcastPushWatch().hidden).length, 0, "undoing the block puts them back");
 }
 
-// --- a bell switched off stays off -----------------------------------------------------------------
-{
-  rooms.setBroadcastRoomNotify("kaspa", false);
-  rooms.refreshBroadcasts(); // reloads state from storage, as showing Chats does
-  r.eq(byName().get("kaspa").notify, false, "#kaspa stays off after the user turned it off");
-  r.eq(byName().get("report-bugs").notify, true, "#report-bugs still on");
-}
-
-// --- the language rooms keep iOS's order while nobody has written in them -------------------------
-{
-  const circles = rooms.chatListRooms().filter((room) => LANGUAGE_BROADCAST_CHANNELS.includes(room.name));
-  const order = [...circles].sort((a, b) => b.lastAt - a.lastAt).map((room) => room.name);
-  r.eq(order.join(","), LANGUAGE_BROADCAST_CHANNELS.join(","), "languageChannels order");
-  r.check(circles.every((room) => room.lastAt < 0), "after every room with activity (they sort last)");
-}
-
-// --- Languages switch off: every language room out at once, bells off ----------------------------
-{
-  rooms.setBroadcastRoomNotify("kaspa-german", true);
-  rooms.setAllLanguageRooms(false);
-  const listed = byName();
-  r.eq(rooms.anyLanguageRoomOn(), false, "Languages reads off");
-  r.check(LANGUAGE_BROADCAST_CHANNELS.every((name) => !listed.has(name)), "no language room listed");
-  r.check(FEATURED_BROADCAST_CHANNELS.every((name) => listed.has(name)), "the featured rooms stay");
-  r.eq(notifyStore()["kaspa-german"], undefined, "a language room's bell goes off with it");
-  rooms.refreshBroadcasts();
-  r.check(LANGUAGE_BROADCAST_CHANNELS.every((name) => !byName().has(name)), "switched-off rooms are not re-joined on load");
-}
-
-// --- Languages switch on: all back, then one switched off on its own ------------------------------
-{
-  rooms.setAllLanguageRooms(true);
-  r.eq(rooms.anyLanguageRoomOn(), true, "Languages reads on again");
-  r.check(LANGUAGE_BROADCAST_CHANNELS.every((name) => byName().get(name)?.joined), "every language room back");
-  r.check(LANGUAGE_BROADCAST_CHANNELS.every((name) => !byName().get(name).notify), "back with the bell a new room gets (off)");
-  rooms.removeBroadcastRooms(["kaspa-korean"]); // Delete on a default room switches it off
-  r.eq(byName().has("kaspa-korean"), false, "one language off");
-  r.eq(rooms.anyLanguageRoomOn(), true, "Languages stays on while any language is on");
-}
-
-// --- a second wallet starts silenced too ------------------------------------------------------------
+// --- a new wallet starts with no rooms at all --------------------------------------------------------
 {
   engine.address = "kaspa:qwallettwo";
   rooms.resetBroadcastsForAccount();
-  const listed = byName();
-  r.eq(listed.get("kaspa").notify, false, "wallet two: #kaspa off");
-  r.eq(listed.get("report-bugs").notify, false, "wallet two: #report-bugs off");
-  r.check(LANGUAGE_BROADCAST_CHANNELS.every((name) => listed.get(name)?.joined), "wallet two: every language room in (wallet one's switches are its own)");
+  r.eq(rooms.chatListRooms().length, 0, "wallet two: Public Chats is empty");
   engine.address = "kaspa:qwalletone";
   rooms.resetBroadcastsForAccount();
-  r.eq(byName().get("kaspa").notify, false, "back on wallet one: its choice kept");
+  r.eq(byName().get("kaspa")?.joined, true, "back on wallet one: its rooms kept");
 }
 
 // --- no wallet yet: nothing is applied under an unscoped key ------------------------------------
 {
   engine.address = "";
   rooms.resetBroadcastsForAccount();
-  r.eq(localStorage.getItem("kaposts_broadcast_default_bells"), null, "no unscoped flag");
+  r.eq(localStorage.getItem("kachat-rooms-opt-in-v1"), null, "no unscoped flag");
 }
 
 if (r.fail) {

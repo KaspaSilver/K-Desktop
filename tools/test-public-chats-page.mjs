@@ -127,8 +127,10 @@ await test("every account's rooms are silenced once, then keep the person's choi
   // another account is silenced on its own first load
   engine.address = "kaspa:qwallettwo";
   rooms.resetBroadcastsForAccount();
-  assert.equal(byName().get("kaspa").notify, false);
+  // its bell (an old build's) went first, so #kaspa had no say left: cleared once (K 824a30bb)
+  assert.equal(byName().has("kaspa"), false);
   assert.equal(localStorage.getItem("acct:kaspa:qwallettwo:kachat-rooms-silenced-once-v1"), "1");
+  assert.equal(localStorage.getItem("acct:kaspa:qwallettwo:kachat-rooms-opt-in-v1"), "1");
   engine.address = "kaspa:qwalletone";
   rooms.resetBroadcastsForAccount();
 });
@@ -149,43 +151,33 @@ await test("every room /broadcast-channels lists is a default room, minus machin
   assert.deepEqual(indexerDefaultBroadcastChannels(), [], "nothing reported yet");
 });
 
-await test("a room the indexer adds joins with its bell off, as a default room", () => {
+await test("a room the indexer adds is offered in Add Room, never joined for anyone (K 824a30bb)", () => {
   setReportedBroadcastChannels(["kaspa", "dev-room", "quiet-room", "chess-arena"]);
   const listed = byName();
-  assert.equal(listed.get("dev-room")?.joined, true, "joined at once");
-  assert.equal(listed.get("dev-room").notify, false, "bell off");
-  assert.equal(listed.get("dev-room").indexed, true, "a default room: Delete switches it off");
-  assert.equal(listed.has("chess-arena"), false, "machinery stays out");
+  assert.equal(listed.has("dev-room"), false, "not joined");
+  const offered = rooms.addRoomChoices().rooms.map((room) => room.name);
+  assert.ok(offered.includes("dev-room") && offered.includes("quiet-room"), "offered in Add Room");
+  assert.ok(!offered.includes("chess-arena"), "machinery stays out");
+  assert.equal(rooms.joinBroadcastRoom("dev-room"), true);
+  assert.equal(byName().get("dev-room")?.joined, true, "joined from Add Room");
+  assert.equal(byName().get("dev-room").notify, true, "with its bell on: you chose it");
+  assert.equal(byName().get("dev-room").indexed, true, "a default room");
   assert.ok(stored("kachat-broadcast-channels-v1").includes("dev-room"), "saved as joined");
   assert.ok(stored("kachat-rooms-indexer-listed-v1").includes("dev-room"), "remembered as listed by the indexer (K 35b112ce)");
 });
 
-await test("dropped by the indexer: one K joined is left after 2 hours; switched off is left after 7 days", () => {
-  rooms.removeBroadcastRooms(["quiet-room"]); // Delete on a default room switches it off
-  assert.equal(byName().has("quiet-room"), false);
+await test("dropped by the indexer: a joined room it listed is left after 2 hours", () => {
   const realNow = Date.now;
   try {
     setReportedBroadcastChannels(["kaspa"]);
     const listed = byName();
-    assert.equal(listed.get("dev-room")?.joined, true, "on: kept for now");
+    assert.equal(listed.get("dev-room")?.joined, true, "kept for now");
     assert.equal(listed.get("dev-room").indexed, false, "no longer a default room");
-    assert.equal(listed.has("quiet-room"), false, "switched off: still not listed");
-    assert.ok(stored("kachat-broadcast-hidden-curated-v1").includes("quiet-room"), "its switched-off mark is kept for now");
-    assert.ok(stored("kachat-broadcast-hidden-missing-v1")?.["quiet-room"] > 0, "its clock started");
-    // back on the list within the week: nothing lost, the clock stops
-    setReportedBroadcastChannels(["kaspa", "quiet-room"]);
-    assert.equal(byName().has("quiet-room"), false, "still switched off");
-    assert.equal(stored("kachat-broadcast-hidden-missing-v1")?.["quiet-room"], undefined, "its clock stopped");
-    assert.ok(stored("kachat-broadcast-hidden-missing-v1")?.["dev-room"] > 0, "dev-room's (K joined it) still runs");
-    // gone for good: a week later it's left
-    setReportedBroadcastChannels(["kaspa"]);
+    assert.equal(rooms.addRoomChoices().rooms.some((room) => room.name === "quiet-room"), false, "no longer offered");
     const start = Date.now();
-    Date.now = () => start + DROPPED_ROOM_GRACE_MS + 1000;
+    Date.now = () => start + DROPPED_AUTO_ROOM_GRACE_MS + 1000;
     rooms.refreshBroadcasts();
-    assert.ok(!(stored("kachat-broadcast-hidden-curated-v1") || []).includes("quiet-room"), "switched-off mark dropped");
-    assert.ok(!stored("kachat-broadcast-channels-v1").includes("quiet-room"), "left");
-    assert.ok(removed.includes("quiet-room"), "its pin goes too");
-    assert.equal(byName().has("dev-room"), false, "the room K joined is left too (K 65f8a765)");
+    assert.equal(byName().has("dev-room"), false, "left");
     assert.ok(removed.includes("dev-room"), "its pin goes too");
     assert.ok(!stored("kachat-rooms-indexer-listed-v1").includes("dev-room"));
   } finally {
@@ -203,6 +195,7 @@ await test("any room the indexer listed goes 2 hours after it's dropped, even on
     rooms.joinBroadcastChannelFromSheet("never-listed"); // the indexer never had it: yours for good
     rooms.closeBroadcastRoom();
     setReportedBroadcastChannels(["kaspa", "brief-room", "kept-room"]);
+    rooms.joinBroadcastRoom("brief-room"); // Add Room's Join
     assert.equal(localStorage.getItem(scoped("kachat-rooms-auto-joined-v1")), null, "the old list is gone");
     assert.ok(stored("kachat-rooms-indexer-listed-v1").includes("old-room"), "moved over");
     assert.ok(stored("kachat-rooms-indexer-listed-v1").includes("kept-room"));
@@ -231,12 +224,13 @@ await test("any room the indexer listed goes 2 hours after it's dropped, even on
   assert.doesNotMatch(roomsSource, /keepRoomAsOwn|recordAutoJoined/);
 });
 
-await test("Edit Default Public Chats lists them under More Rooms and asks the indexer within a minute", () => {
-  const settings = fnSource(roomsSource, "openPublicChatsSettings");
-  assert.match(settings, /<p class="settings-group-label">More Rooms<\/p>/);
-  assert.match(settings, /Rooms added on the indexer K reads public chats from\./);
-  assert.match(settings, /refreshIndexerTrackedRooms\(\{ maxAgeMs: 60_000 \}\)/);
-  assert.match(settings, /onIndexerTrackedRoomsChange\(redrawMoreRooms\)/);
+await test("Add Room asks the indexer within a minute and redraws when its list changes (K 824a30bb)", () => {
+  const watch = fnSource(roomsSource, "watchAddRoomChoices");
+  assert.match(watch, /refreshIndexerTrackedRooms\(\{ maxAgeMs: 60_000 \}\)/);
+  assert.match(watch, /return onIndexerTrackedRoomsChange\(redraw\);/);
+  const sheet = fnSource(app, "openAddRoomSheet");
+  assert.match(sheet, /const stopWatching = watchAddRoomChoices\(redraw\);/);
+  assert.match(fnSource(app, "addRoomPageHtml"), /Rooms the indexer keeps: their history is saved and they can notify you even when K is closed\./);
   assert.equal(shouldAskTrackedRooms({ base: "https://x", at: 0 }, "https://x", 60_000, 60_000), true, "a minute later: asked");
   assert.equal(shouldAskTrackedRooms({ base: "https://x", at: 0 }, "https://x", 60_000), false, "hourly otherwise");
   assert.equal(shouldAskTrackedRooms({ base: "https://x", at: 0 }, "https://x", TRACKED_ASK_INTERVAL_MS), true);
@@ -309,7 +303,7 @@ await test("Chats lists chats, groups and Message Requests; Public Chats lists t
   assert.match(render, /emptyRoomsState\.hidden = !\(showsEmpty && roomsPage\);/);
   // Your Address stays pinned first on the Chats page (owner, 2026-11-12)
   assert.match(render, /pinned: isSelfConversation\(conversationEntry\)/);
-  assert.match(html, /data-empty-rooms-state hidden>[\s\S]*?<h1>No Public Chats<\/h1>\s*<p>Tap \+ to join or create a public room\.<\/p>/);
+  assert.match(html, /data-empty-rooms-state hidden>[\s\S]*?<h1>No public chats yet<\/h1>\s*<p>Add rooms the indexer keeps, like #kaspa, or create your own\. Nothing is added unless you choose it\.<\/p>\s*<button class="primary-button empty-rooms-add" type="button" data-empty-rooms-add>\+ Add Room<\/button>/);
   const onPage = fnSource(app, "onPublicChatsPage");
   assert.match(onPage, /return chatListPage === "publicChats";/);
 });
@@ -329,9 +323,14 @@ await test("badges: the page button counts bell-on rooms, the dock chats and gro
   assert.match(fnSource(app, "renderChatCircles"), /scheduleAppBadgeUpdate\(\);\n  syncChatListPageControls\(\);/);
 });
 
-await test("the rooms page: + is New Public Chat, the gear only there, room links and pushes switch to it", () => {
-  assert.match(app, /button\.addEventListener\("click", \(\) => openNewChatSheet\(\{ publicRoom: onPublicChatsPage\(\) \}\)\);/);
-  assert.match(fnSource(app, "openNewChatSheet"), /if \(publicRoom\) showJoin\(\); else showMenu\(\);/);
+await test("the rooms page: + is Add Room (K 824a30bb), no gear, room links and pushes switch to it", () => {
+  assert.match(app, /button\.addEventListener\("click", \(\) => \{ if \(onPublicChatsPage\(\)\) openAddRoomSheet\(\); else openNewChatSheet\(\); \}\);/);
+  assert.match(app, /document\.querySelector\("\[data-empty-rooms-add\]"\)\?\.addEventListener\("click", \(\) => openAddRoomSheet\(\)\);/);
+  const pages = fnSource(app, "addRoomPageHtml");
+  assert.match(pages, /addRoomNavHtml\("Add Room", \{ create: true \}\)/);
+  assert.match(pages, /How a Room You Create Works/);
+  assert.match(pages, /addRoomNavHtml\("Other Languages", \{ back: true \}\)/);
+  assert.match(pages, />Create Room<\/button>/);
   // the Chats page's New sheet has only New Chat and New Group Chat (K ef760cfa)
   assert.doesNotMatch(fnSource(app, "newChatSheetMenuHtml"), /title: "New Public Chat"/);
   assert.match(fnSource(app, "newChatSheetMenuHtml"), /title: "New Chat"[^\n]*\n[^\n]*title: "New Group Chat"/);
@@ -341,7 +340,7 @@ await test("the rooms page: + is New Public Chat, the gear only there, room link
   assert.match(fnSource(app, "silencedPillHtml"), /chat-row-silenced-pill">Silenced</);
   assert.match(css, /\.chat-meta strong \.chat-row-silenced-pill \{[^}]*border-radius: 999px[^}]*color: var\(--accent\)/);
   assert.doesNotMatch(app, /chat-row-silenced"|group-row-silenced"/);
-  assert.match(fnSource(app, "syncChatsPublicSettingsGear"), /\|\| chatListPage !== "publicChats"/);
+  assert.doesNotMatch(app, /syncChatsPublicSettingsGear/);
   assert.match(fnSource(app, "openPublicChatsTab"), /setActiveAppTab\("chats"\);\n  setChatListPage\("publicChats"\);/);
   assert.match(app, /if \(activeConversationId\) setActiveConversationId\(null\);\n[^\n]*\n[^\n]*\n\s*setChatListPage\("publicChats"\);\n\s*\}\n\s*syncPublicChatsPane\(\);/, "any room opening shows its page");
   // the dock's KaChat still goes back to the list on a phone (Build 336)
@@ -354,7 +353,7 @@ await test("Select on the rooms page: Mark as Read / Unread, Mute, Pin, Delete w
   const bar = fnSource(app, "updateChatSelectionBar");
   assert.match(bar, /mute\.hidden = !roomsPage;/);
   assert.match(bar, /pin\.hidden = !roomsPage;/);
-  assert.match(app, /Default public chats are switched off \(turn them back on in Edit Default Public Chats\)\. Rooms you added are deleted with their messages on this device\./);
+  assert.match(app, /Rooms the indexer keeps can be added again from Add Room\. Rooms you made are deleted with their messages on this device\./);
 });
 
 await test("a row's preview shows its last message's newest edit (1:1, groups and rooms)", () => {

@@ -16,7 +16,7 @@
        fetched again once and the page reloads; see public/asset-repair.js. -->
   <script src="/asset-repair.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=451" />
+  <link rel="stylesheet" href="./ui/styles.css?v=452" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (K's globe, dark only since K b0f0a4e6) is the tab icon too. -->
@@ -81,16 +81,6 @@
       <!-- No connection dot here (K 518fdc8c): it is only at the top of Settings and on the dock's
            Settings icon. The cluster stays as the bar's leading spacer. -->
       <div class="toolbar-health-cluster">
-        <!-- Public Chats' settings (K 8cb4c88e: a gear at the top left of KaChat, no longer in the
-             + sheet): the default rooms and the language rooms on or off. Only on the Public Chats
-             page (K 961fc05a), not while selecting (app.js
-             syncChatsPublicSettingsGear). -->
-        <button type="button" class="chats-public-settings-gear" data-chats-public-settings aria-label="Edit Default Public Chats" title="Edit Default Public Chats" hidden>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 0 1 0 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 0 1 0-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.369-.491l1.217.456c.355.133.75.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281Z"/>
-            <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
-          </svg>
-        </button>
       </div>
       <div class="toolbar-balance" data-toolbar-balance title="Current wallet balance">
         <img class="toolbar-balance-logo" src="./ui/assets/kaspa-logo.png" alt="" aria-hidden="true" width="15" height="15" />
@@ -151,13 +141,15 @@
             <h1>No Conversations Yet</h1>
             <p>Start a new chat by adding a contact</p>
           </div>
-          <!-- The Public Chats page with every room switched off or left (K 961fc05a emptyRoomsView). -->
-          <div class="empty-state-card" data-empty-rooms-state hidden>
+          <!-- The Public Chats page with no rooms: how it starts since K 824a30bb (owner 2026-11-26),
+               laid out as Contacts' empty page: what goes here, and Add Room. -->
+          <div class="empty-state-card empty-rooms-card" data-empty-rooms-state hidden>
             <div class="empty-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M9.5 4 7.5 20M16.5 4l-2 16M4.5 9h15.5M4 15h15.5"/></svg>
             </div>
-            <h1>No Public Chats</h1>
-            <p>Tap + to join or create a public room.</p>
+            <h1>No public chats yet</h1>
+            <p>Add rooms the indexer keeps, like #kaspa, or create your own. Nothing is added unless you choose it.</p>
+            <button class="primary-button empty-rooms-add" type="button" data-empty-rooms-add>+ Add Room</button>
           </div>
           <!-- Group chats and public rooms have no list of their own: they are rows in the one list
                above. New ones come from the New sheet (+). -->

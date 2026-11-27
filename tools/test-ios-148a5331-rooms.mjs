@@ -76,10 +76,10 @@ test("bell-on rooms count on the page button and the app icon, not the dock", ()
 
 // K 8cb4c88e moved it again, out of the New sheet to a gear at the top left of Chats
 // (tools/test-chat-bells-translate.mjs).
-test("Edit Default Public Chats is the Chats gear, not a New sheet row", () => {
+test("Edit Default Public Chats is gone (K 824a30bb): no gear, no New sheet row", () => {
   assert.doesNotMatch(app, /id: "public-settings"/);
-  assert.match(html, /data-chats-public-settings aria-label="Edit Default Public Chats"/);
-  assert.match(rooms, /export function openPublicChatsSettings\(\)/);
+  assert.doesNotMatch(html, /data-chats-public-settings/);
+  assert.doesNotMatch(rooms, /export function openPublicChatsSettings\(\)/);
 });
 
 console.log(`ios 148a5331 rooms: ${passed} passed`);
