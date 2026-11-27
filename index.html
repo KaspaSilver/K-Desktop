@@ -16,7 +16,7 @@
        fetched again once and the page reloads; see public/asset-repair.js. -->
   <script src="/asset-repair.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=457" />
+  <link rel="stylesheet" href="./ui/styles.css?v=458" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (K's globe, dark only since K b0f0a4e6) is the tab icon too. -->
@@ -1340,6 +1340,8 @@
           <section class="settings-group" data-settings-subscreen="explorer">
             <p class="settings-group-label">Explorer</p>
             <div class="settings-list-card">
+                  <!-- K Explorer first, the default (K bfb902b7): View in Explorer opens the app's own Explorer. -->
+                  <button class="settings-dropdown-row settings-select-row" type="button" data-explorer-option="k">K Explorer</button>
                   <button class="settings-dropdown-row settings-select-row" type="button" data-explorer-option="kaspaStream">kaspa.stream</button>
                   <button class="settings-dropdown-row settings-select-row" type="button" data-explorer-option="kaspaOrg">explorer.kaspa.org</button>
             </div>

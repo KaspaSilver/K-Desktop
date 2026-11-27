@@ -1785,6 +1785,15 @@ export function hideExplorer() {
   stopLive();
 }
 
+/** Opens a transaction or an address on the Explorer (K bfb902b7 ExplorerDeepLink: a View in Explorer
+ *  link while K Explorer is the explorer picked), on top of whatever page was up. */
+export function openExplorerRoute(route) {
+  if (!deps || !build()) return;
+  if (!route || !["tx", "address"].includes(route.type) || !route.id) return;
+  showExplorer();
+  openRoute({ type: route.type, id: String(route.id) });
+}
+
 /** The dock's Explorer clicked while it already shows: back to the home. */
 export function explorerToHome() {
   backToHome();

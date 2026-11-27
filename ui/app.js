@@ -48,7 +48,7 @@ import { createProfileRescans } from "./profile-rescan.js";
 import { kachatHeroProfile, kachatCachedOwnedNameCount, onKachatSocialChange, kachatCachedIdentity, kachatCachedLabel, kachatCachedDisplayLabel, kachatNameDisplay, kachatCachedAvatarUrl, kachatCachedProfilePieces, onKachatIdentityChange, kachatRetryImage, kachatOwnersOfNames, kachatRescanProfile, kachatOwnedNameCount, onKachatRegistryChange, kachatClearProfileCache, kachatExpiredNames, startKachatUnnamedIdentitySweep, setKachatSocialLookupGate, kachatProfileOpened } from "./kachat-names-live.js";
 import { startKachatNamesNotifier, openKachatNameFromNotification as openKachatNameFromBell, removeKachatNameReminders, kachatNamesNotificationSettingsChanged } from "./kachat-names-notifier.js";
 import { initKachatMarket, showKachatMarket, hideKachatMarket, openKachatProfileEditor, openKachatSetupGuide, KACHAT_AT_SVG, kachatAddressDomainsHtml, renderKachatLiveDomainsTab, openKachatMarketSheet } from "./kachat-market.js";
-import { initExplorer, showExplorer, hideExplorer, explorerToHome } from "./explorer.js";
+import { initExplorer, showExplorer, hideExplorer, explorerToHome, openExplorerRoute } from "./explorer.js";
 // Closed-app notifications (Web Push) and the app icon's badge.
 import { initWebPush, scheduleWebPushSync, webPushStatus, webPushStatusText, webPushSignOut, webPushForgetAccount, setAppIconBadge, forgetAppliedAppIconBadge, takePendingNotificationClick, needsHomeScreenInstall, pushArrivedRecently } from "./web-push.js";
 import { authorKeyFromAddress, compressedPubkeyHex, PUSH_LIMITS } from "./web-push-core.js";
@@ -700,6 +700,15 @@ if (!accountShellPrefs.explorerDefaultMigrated) {
     persistAccountShellPreferences();
   } catch { /* storage unavailable: the default applies */ }
 }
+// One-time: everyone moves to K Explorer, the new default (K bfb902b7 kExplorerDefaultMigration,
+// owner 2026-11-26); another pick after this sticks.
+if (!accountShellPrefs.kExplorerDefaultMigrated) {
+  try {
+    accountShellPrefs.explorer = "k";
+    accountShellPrefs.kExplorerDefaultMigrated = true;
+    persistAccountShellPreferences();
+  } catch { /* storage unavailable: the default applies */ }
+}
 const loggedOutScreen = document.querySelector("[data-logged-out-screen]");
 const mainAppShell = document.querySelector("#app");
 const savedAccountList = document.querySelector("[data-saved-account-list]");
@@ -1193,21 +1202,73 @@ document.querySelector("[data-change-password]")?.addEventListener("click", asyn
 // schemes in iOS's KaspaExplorer enum and Android's KaspaExplorer.kt. The user
 // picks one in Settings > Kaspa Explorer; the choice persists in shell prefs.
 const KASPA_EXPLORERS = {
+  // K Explorer (K bfb902b7): the app's own Explorer screen. Its links are this page's address with
+  // #explorer/tx/<id> or #explorer/address/<address>, which openInternalExplorerUrl opens in place.
+  k: { displayName: "K Explorer", internal: true },
   kaspaStream: { displayName: "kaspa.stream", tx: "https://kaspa.stream/transactions/", address: "https://kaspa.stream/addresses/" },
   kaspaOrg: { displayName: "explorer.kaspa.org", tx: "https://explorer.kaspa.org/txs/", address: "https://explorer.kaspa.org/addresses/" },
 };
 // kaspa.stream is the default for a fresh install (iOS e69fe13). iOS keeps an existing user's
 // saved choice, and the old default was saved with it, so here an existing user who never picked
 // one stays on explorer.kaspa.org (pinned once, below).
-const DEFAULT_KASPA_EXPLORER = "kaspaStream";
+const DEFAULT_KASPA_EXPLORER = "k";
 
 function currentExplorer() {
   return KASPA_EXPLORERS[accountShellPrefs.explorer] || KASPA_EXPLORERS[DEFAULT_KASPA_EXPLORER];
 }
 // On testnet every link goes to kaspa.stream's testnet-10 explorer, whichever explorer is picked:
 // explorer.kaspa.org has no live testnet-10 site (iOS 421a832).
-function explorerTxUrl(txid) { return (IS_TESTNET ? "https://tn10.kaspa.stream/transactions/" : currentExplorer().tx) + txid; }
-function explorerAddressUrl(address) { return (IS_TESTNET ? "https://tn10.kaspa.stream/addresses/" : currentExplorer().address) + address; }
+// K Explorer covers testnet too (K bfb902b7: on mainnet and testnet).
+function explorerTxUrl(txid) {
+  if (currentExplorer().internal) return internalExplorerUrl("tx", txid);
+  return (IS_TESTNET ? "https://tn10.kaspa.stream/transactions/" : currentExplorer().tx) + txid;
+}
+function explorerAddressUrl(address) {
+  if (currentExplorer().internal) return internalExplorerUrl("address", address);
+  return (IS_TESTNET ? "https://tn10.kaspa.stream/addresses/" : currentExplorer().address) + address;
+}
+/** K Explorer's link for a transaction or an address: this page with a #explorer/... fragment. */
+function internalExplorerUrl(type, id) {
+  const here = new URL(window.location.href);
+  here.hash = `explorer/${type}/${encodeURIComponent(String(id || ""))}`;
+  return here.href;
+}
+/** The route a K Explorer link names ({ type, id }), or null for any other link. */
+function internalExplorerRoute(url) {
+  try {
+    const parsed = new URL(String(url || ""), window.location.href);
+    if (parsed.origin !== window.location.origin) return null;
+    const match = /^#explorer\/(tx|address)\/([^/]+)$/.exec(parsed.hash);
+    if (!match) return null;
+    const id = decodeURIComponent(match[2]);
+    if (match[1] === "tx" && !/^[0-9a-f]{64}$/i.test(id)) return null;
+    if (match[1] === "address" && !/^kaspa(test)?:[a-z0-9]{40,90}$/i.test(id)) return null;
+    return { type: match[1], id };
+  } catch { return null; }
+}
+/** Opens a K Explorer link in the app's Explorer, over whatever was showing. True when it was one. */
+function openInternalExplorerUrl(url) {
+  const route = internalExplorerRoute(url);
+  if (!route) return false;
+  try { closeOpenSheets(); } catch { /* none open */ }
+  setActiveAppTab("explorer");
+  try { openExplorerRoute(route); } catch { /* not started */ }
+  return true;
+}
+// Every "View in Explorer" goes through explorerTxUrl / explorerAddressUrl, as a link (target
+// _blank) or window.open. K Explorer's are this page's own address: caught here and opened in the
+// app, never in a new tab.
+document.addEventListener("click", (event) => {
+  const link = event.target.closest?.("a[href]");
+  if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
+  if (!internalExplorerRoute(link.href)) return;
+  event.preventDefault();
+  openInternalExplorerUrl(link.href);
+}, true);
+{
+  const nativeOpen = window.open.bind(window);
+  window.open = (url, ...rest) => (openInternalExplorerUrl(url) ? null : nativeOpen(url, ...rest));
+}
 
 function activeAccountMetadata() {
   const address = String(engine.address || "");
@@ -12773,6 +12834,8 @@ function syncSettingsTab(on) {
 
 sidebarTabButtons.forEach((button) => {
   button.addEventListener("click", async () => {
+    // More (a phone's Kaspa Hub) is a glass menu, not a screen (K bfb902b7 KaspaHubMenu).
+    if (button.dataset.appTab === "hub") { hubButtonTapped(); return; }
     // Public Chats on a computer's dock opens Chats on its Public Chats page, and Chats there opens
     // its Private Chats page (owner, 2026-11-26); on a phone the pill beside the title does both.
     const item = button.dataset.appTab;
@@ -12874,6 +12937,7 @@ WIDE_DOCK_QUERY.addEventListener?.("change", () => {
   const screen = currentAppTab === "hub" ? hubSection : currentAppTab;
   dockPrefs = dockLayoutFor(WIDE_DOCK_QUERY.matches);
   hubSection = null;
+  closeHubMenu();
   // Straight to the same screen, before the dock is redrawn: drawing it first switched away from
   // "More" (no such item on a computer) and back, which reset an open Settings page (audit 2026-11-13).
   setActiveAppTab(screen || "chats");
@@ -13043,9 +13107,67 @@ function renderHubGrid() {
 hubGrid?.addEventListener("click", (event) => {
   const tile = event.target.closest("[data-hub-tile]");
   if (!tile) return;
-  hubSection = tile.dataset.hubTile;
-  setActiveAppTab("hub");
+  openHubSectionFromMenu(tile.dataset.hubTile);
 });
+
+// --- More as a menu (K bfb902b7, owner 2026-11-26/27: Kaspa Hub is a menu) ----------------------
+// On a phone or a narrow window, More never shows a screen of its own: a glass panel rises from the
+// dock's left side (about three dock icons wide, up to half the window tall), every section in a
+// scrollable list with its badge; a click outside closes it. A section picked opens with More lit,
+// and is what More shows from then on: from another tab, More goes straight back to it as you left
+// it; More while in it brings up the menu to pick another; with nothing picked yet (or the menu up)
+// More opens (or closes) the menu. A computer's dock holds every screen and has no More.
+let lastHubSection = null;
+let hubMenuEl = null;
+function hubMenuOpen() { return Boolean(hubMenuEl && !hubMenuEl.hidden); }
+function closeHubMenu() { if (hubMenuEl) hubMenuEl.hidden = true; }
+function hubButtonTapped() {
+  if (hubMenuOpen()) { closeHubMenu(); return; }
+  if (currentAppTab === "hub" && hubSection) { openHubMenu(); return; }
+  if (lastHubSection && hubVisibleTabs().includes(lastHubSection)) { openHubSectionFromMenu(lastHubSection); return; }
+  openHubMenu();
+}
+async function openHubSectionFromMenu(tab) {
+  closeHubMenu();
+  if (tab !== "chess" && !(await chessTournamentsMayLeave().catch(() => true))) return;
+  lastHubSection = tab;
+  hubSection = tab;
+  setActiveAppTab("hub");
+  applyDockLayout();
+}
+function openHubMenu() {
+  if (!hubMenuEl) {
+    hubMenuEl = document.createElement("div");
+    hubMenuEl.className = "hub-menu-backdrop";
+    hubMenuEl.innerHTML = '<nav class="hub-menu" role="menu" aria-label="More" data-hub-menu></nav>';
+    hubMenuEl.addEventListener("click", (event) => {
+      const row = event.target.closest("[data-hub-menu-tab]");
+      if (row) { openHubSectionFromMenu(row.dataset.hubMenuTab); return; }
+      if (!event.target.closest("[data-hub-menu]")) closeHubMenu();
+    });
+    hubMenuEl.addEventListener("contextmenu", (event) => {
+      const row = event.target.closest("[data-hub-menu-tab]");
+      if (!row || !hubSlugForAppTab(row.dataset.hubMenuTab)) return;
+      event.preventDefault();
+      closeHubMenu();
+      openDockItemLinkMenu(row.dataset.hubMenuTab);
+    });
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape" && hubMenuOpen()) closeHubMenu(); });
+    document.body.appendChild(hubMenuEl);
+  }
+  const current = currentAppTab === "hub" ? hubSection : null;
+  hubMenuEl.querySelector("[data-hub-menu]").innerHTML = hubVisibleTabs().map((tab) => {
+    const count = tabUnreadCount(tab);
+    return `<button type="button" class="hub-menu-row${tab === current ? " current" : ""}" role="menuitem" data-hub-menu-tab="${escapeHtml(tab)}">
+        <span class="hub-menu-icon" aria-hidden="true">${tabIconMarkup(tab)}</span>
+        <span class="hub-menu-label">${escapeHtml(tabFullName(tab))}</span>
+        ${count > 0 ? `<span class="hub-menu-badge">${tabBadgeLabel(count)}</span>` : ""}
+      </button>`;
+  }).join("");
+  const dock = document.querySelector(".sidebar-tabbar")?.getBoundingClientRect();
+  hubMenuEl.style.setProperty("--hub-menu-bottom", `${dock ? Math.max(8, window.innerHeight - dock.top + 8) : 88}px`);
+  hubMenuEl.hidden = false;
+}
 // More's tiles are the Hub's cards on a narrow window: a right-click (Android's hold) offers the
 // card's link, as K's hold does (K 961fc05a).
 hubGrid?.addEventListener("contextmenu", (event) => {
@@ -13531,7 +13653,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 361;
+const APP_BUILD = 362;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -32202,6 +32324,13 @@ queueMicrotask(async () => {
       drawQr: (canvas, text) => engine.drawQrFor(canvas, text, { dark: "#06110f", light: "#ffffff" }),
       indexerBase: () => getEndpoint("kasiaIndexer"),
     });
+    // A K Explorer link opened on its own (a new tab, a pasted link): the Explorer on that page,
+    // and the fragment off the address bar.
+    if (internalExplorerRoute(window.location.href)) {
+      const link = window.location.href;
+      try { history.replaceState(history.state, "", window.location.pathname + window.location.search); } catch { /* kept */ }
+      window.setTimeout(() => openInternalExplorerUrl(link), 0);
+    }
   } catch (error) { appendEngineLog(`Explorer did not start: ${error?.message || error}`); }
   try {
     // Address Book (iOS 00767a4 / cda0d99 / 98f3728 / 1be4f6e): Kaspa Hub > Address Book, the

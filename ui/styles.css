@@ -13953,3 +13953,24 @@ button.kusdt-activity-row:hover { background: var(--surface-1, rgba(255,255,255,
 
 /* Read by screen readers, never drawn (the Profile switcher's name, K 824a30bb). */
 .visually-hidden { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* More as a glass menu (K bfb902b7 KaspaHubMenu): a panel rising from the dock's left side, about
+   three dock icons wide and up to half the window tall, every section in a scrollable list. */
+.hub-menu-backdrop { position: fixed; inset: 0; z-index: 1400; background: transparent; }
+.hub-menu-backdrop[hidden] { display: none; }
+.hub-menu {
+  position: absolute; left: 12px; bottom: var(--hub-menu-bottom, 88px);
+  width: min(240px, calc(100vw - 24px)); max-height: 50vh; overflow-y: auto; padding: 6px;
+  border-radius: 22px; border: .8px solid var(--glass-stroke, rgba(255,255,255,.14));
+  background: var(--material, rgba(30,30,32,.82)); -webkit-backdrop-filter: var(--material-blur, blur(24px)); backdrop-filter: var(--material-blur, blur(24px));
+  box-shadow: 0 12px 40px rgba(0,0,0,.35); animation: hub-menu-rise .18s ease-out;
+}
+@keyframes hub-menu-rise { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+.hub-menu-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border: 0; border-radius: 14px; background: transparent; color: var(--text); font: inherit; font-size: 15px; font-weight: 500; text-align: left; cursor: pointer; }
+.hub-menu-row:hover, .hub-menu-row.current { background: var(--fill-tertiary, rgba(255,255,255,.08)); }
+.hub-menu-icon { width: 24px; height: 24px; flex: 0 0 auto; display: grid; place-items: center; color: var(--kaspa-ink); }
+.hub-menu-icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.hub-menu-icon svg.tab-glyph-filled, .hub-menu-icon svg.tab-glyph-solid { display: none; }
+.hub-menu-icon svg.tab-glyph-solid:only-child { display: block; fill: currentColor; stroke: none; }
+.hub-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-menu-badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--ios-red, #ff3b30); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
