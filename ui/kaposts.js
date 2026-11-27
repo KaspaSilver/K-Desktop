@@ -232,10 +232,24 @@ function rememberFeedScroll() {
   }
 }
 
+// Back to Top (K 5d731967 backToTopButton): once the feed's top has scrolled away, a round up arrow
+// shows above the compose button, as a chat's jump to the newest message; at the top it hides.
+const TO_TOP_AFTER_PX = 160;
+function syncFeedToTopButton() {
+  const holder = document.querySelector("[data-kaposts-to-top-holder]");
+  if (!holder) return;
+  const scroller = kapostsScrollEl();
+  const show = Boolean(scroller && feedEl && !feedEl.hidden && feedEl.getClientRects().length > 0)
+    && threadStack.length === 0 && !activePanel
+    && scroller.clientHeight > 0 && scroller.scrollTop > TO_TOP_AFTER_PX;
+  if (holder.hidden === show) holder.hidden = !show;
+}
+
 function restoreFeedScroll() {
   requestAnimationFrame(() => {
     const el = kapostsScrollEl();
     if (el && threadStack.length === 0 && !activePanel) el.scrollTop = savedFeedScroll;
+    syncFeedToTopButton();
   });
 }
 
@@ -2342,6 +2356,7 @@ function renderFeed({ resetScroll = false } = {}) {
     mountPagerSentinel("feed", feedEl, feedPager, loadMoreFeed);
   }
   if (scroller) scroller.scrollTop = resetScroll ? 0 : previousTop;
+  syncFeedToTopButton();
   // Thread-root probes for commented posts (throttled, once per post per session) so the
   // "View thread" link can appear on other people's threads too.
   probeThreadRoots(posts);
@@ -2441,6 +2456,7 @@ function syncSurfaces(threadPost) {
   if (panelEl) panelEl.hidden = !showPanel;
   if (feedEl) feedEl.hidden = !showFeed;
   if (feedHeadEl) feedHeadEl.hidden = !showFeed;
+  syncFeedToTopButton();
 }
 
 function currentThreadPost() {
@@ -7223,6 +7239,7 @@ export function initKaPosts(dependencies) {
     contentScroller.dataset.scrollTracked = "1";
     contentScroller.addEventListener("scroll", () => {
       if (contentScroller.clientHeight > 0) contentScrollTop = contentScroller.scrollTop;
+      syncFeedToTopButton();
     }, { passive: true });
   }
   statusEl = document.querySelector("[data-kaposts-status]");
@@ -7810,6 +7827,11 @@ export function initKaPosts(dependencies) {
 
     if (event.target.closest("[data-kaposts-show-new]")) {
       showPendingNewPosts();
+      return;
+    }
+
+    if (event.target.closest("[data-kaposts-to-top]")) {
+      kapostsScrollEl()?.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
 

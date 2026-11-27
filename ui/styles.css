@@ -8677,6 +8677,23 @@ html.standalone .ios-install-hint { display: none; }
    .top)): a zero-height sticky holder, so the pill never pushes the posts down. */
 .kaposts-new-pill-holder { position: sticky; top: 8px; z-index: 6; height: 0; margin-bottom: -10px; display: flex; justify-content: center; overflow: visible; pointer-events: none; }
 .kaposts-new-pill-holder .kaposts-new-pill { margin: 0; pointer-events: auto; }
+/* Back to Top (K 5d731967): a 40px round glass button. On a computer it floats at the feed's bottom
+   right (a zero-height sticky holder at the end of the scroller); on a narrow window it sits centred
+   just above the 56px compose button. */
+.kaposts-to-top-holder { position: sticky; bottom: 20px; z-index: 6; height: 0; margin-top: auto; flex-shrink: 0; overflow: visible; pointer-events: none; }
+.kaposts-to-top-holder[hidden] { display: none; }
+.kaposts-to-top {
+  position: absolute; right: 8px; bottom: 0; width: 40px; height: 40px; padding: 0;
+  display: grid; place-items: center; border-radius: 50%; cursor: pointer; pointer-events: auto;
+  background: var(--material); -webkit-backdrop-filter: var(--material-blur); backdrop-filter: var(--material-blur);
+  border: 0.8px solid rgba(255,255,255,.18); box-shadow: 0 5px 20px rgba(0,0,0,.24); color: var(--text);
+}
+.kaposts-to-top svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.kaposts-to-top:hover { filter: brightness(1.12); }
+@media (max-width: 859px) {
+  .kaposts-to-top-holder { position: fixed; z-index: 350; right: 28px; bottom: calc(var(--dock-inset, 80px) + 16px + 56px + 12px); width: 40px; height: 40px; margin: 0; }
+  .kaposts-to-top { right: 0; }
+}
 /* The empty feed's own spinner while page one loads (iOS ProgressView under the empty state). */
 .kaposts-empty-loading { display: flex; justify-content: center; padding: 12px 0; }
 .kaposts-translate-note.with-spinner { display: inline-flex; align-items: center; gap: 6px; }

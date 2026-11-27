@@ -16,7 +16,7 @@
        fetched again once and the page reloads; see public/asset-repair.js. -->
   <script src="/asset-repair.js"></script>
   <title>K</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=458" />
+  <link rel="stylesheet" href="./ui/styles.css?v=460" />
   <meta name="theme-color" content="#000000" />
   <link rel="manifest" href="manifest.json" />
   <!-- The app icon (K's globe, dark only since K b0f0a4e6) is the tab icon too. -->
@@ -759,6 +759,13 @@
           </div>
           <div class="kaposts-popover" data-kaposts-popover hidden></div>
           <div class="kaposts-toasts" data-kaposts-toasts></div>
+          <!-- Back to Top (K 5d731967 backToTopButton): scrolled down, the feed shows a round up arrow
+               above the compose button, as a chat's jump to the newest message. ui/kaposts.js shows it. -->
+          <div class="kaposts-to-top-holder" data-kaposts-to-top-holder hidden>
+            <button class="kaposts-to-top" type="button" data-kaposts-to-top aria-label="Back to Top" title="Back to Top">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4.5 15.75 7.5-7.5 7.5 7.5"/></svg>
+            </button>
+          </div>
           </div>
         </div>
 
