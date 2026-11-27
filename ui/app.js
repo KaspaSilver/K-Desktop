@@ -170,6 +170,7 @@ import { openEmojiReactionPicker, openComposerEmojiPopover, closeComposerEmojiPo
 import { NETWORK_ID } from "../engine/network.js";
 import { forgetAccount as forgetKusdtStorage, activityId as kusdtActivityId } from "../engine/kusdt-store.js";
 import { createKusdtWallet, holdingIdFor as kusdtHoldingIdFor, manageAddressesHideRefusal, reshowListedHidden, hideAllKeepingListed, KUSDT_LISTED_HIDE_MESSAGE, KUSDT_LISTED_ALERT_TITLE, kasAmountText as kusdtKasAmountText } from "./kusdt-wallet.js";
+import { startInlineRename, inlineRenameActive } from "./inline-rename.js";
 import { initKusdtScreens, openManageKusdt, openWalletSend, openKusdtGuide, receiveNotesHtml, closeKusdtForAccountSwitch, openKusdtSend, openTipAssetChooser, kusdtTotalText, kusdtLooking } from "./kusdt-screens.js";
 import { kusdtCoinIconHtml } from "./kusdt-icons.js";
 import { verifiedCoins as verifiedKusdtCoins } from "../engine/kusdt-balances.js";
@@ -9643,6 +9644,14 @@ function spendingCustomLabel(state, index) {
   return custom != null ? String(custom).trim() : "";
 }
 
+/** Saves a spending address's own name; an empty one goes back to "Address #n". */
+function saveSpendingLabel(index, text) {
+  const labels = { ...getSpendingState().labels };
+  const trimmed = String(text ?? "").trim();
+  if (trimmed) labels[index] = trimmed; else { delete labels[index]; delete labels[String(index)]; }
+  saveSpendingState({ labels });
+}
+
 function spendingLabelFor(state, index) {
   const custom = state.labels?.[index] ?? state.labels?.[String(index)];
   const trimmed = custom != null ? String(custom).trim() : "";
@@ -11269,7 +11278,7 @@ function spendingRowHtml(index, address, state, balanceText, used, hasDomain = f
           { attr: `data-spending-card-action="copy" data-index="${index}"`, icon: "copy", title: "Copy" },
           { attr: `data-spending-card-action="send" data-index="${index}"`, icon: "send", title: "Send", disabled: !funded },
           { attr: `data-spending-card-action="receive" data-index="${index}"`, icon: "receive", title: "Receive" },
-          { attr: `data-spending-card-action="rename" data-index="${index}"`, icon: "rename", title: "Rename" },
+          { attr: `data-spending-card-action="rename" data-index="${index}" data-rename-button`, icon: "rename", title: "Rename" },
         ])}
         <span class="address-card-history">Tap to View History<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
       </div>
@@ -11334,6 +11343,8 @@ function updateSpendingTotalBalance(entries) {
 
 async function renderSpendingList() {
   if (!spendingListEl) return;
+  // a card's name is being typed: the rename's end repaints (ui/inline-rename.js)
+  if (inlineRenameActive()) return;
   // what's cached already; the full list below asks again
   const chattingRow = engine.address ? chattingAddressRowHtml(Boolean(kachatCachedOwnedNameCount(engine.address))) : "";
   if (!activeAccountMnemonic()) {
@@ -11856,15 +11867,17 @@ spendingListEl?.addEventListener("click", async (event) => {
       // Send Kaspa from this address (K 824a30bb: the card's Send)
       openSendKaspaModal({ spendingIndex: index, lockSource: true });
     } else if (action === "rename") {
-      // Starts from the address's own label, empty when it has none (iOS renameText = entry.label ?? "").
-      const current = spendingCustomLabel(state, index);
-      const next = await promptDialog({ title: "Rename Address", label: "Label", message: "Give this address a label to help you recognize it.", initial: current, confirmLabel: "Save" });
-      if (next == null) return;
-      const labels = { ...state.labels };
-      const trimmed = String(next).trim();
-      if (trimmed) labels[index] = trimmed; else { delete labels[index]; delete labels[String(index)]; }
-      saveSpendingState({ labels });
-      renderSpendingList();
+      // In place, no pop-up (K b49a021d InlineRename): the card's name becomes a field starting from
+      // the address's own label (empty when it has none), each keystroke saved; empty goes back to
+      // "Address #n".
+      const card = spendingListEl.querySelector(`[data-spending-row="${index}"]`);
+      startInlineRename(card, {
+        key: `spending:${index}`,
+        current: spendingCustomLabel(state, index),
+        placeholder: spendingIndexTitle(index),
+        onChange: (text) => saveSpendingLabel(index, text),
+        onDone: () => renderSpendingList(),
+      });
     } else if (action === "hide") {
       // An address on the kUSDT list stays (KaPay 3d126db): hide it from Manage kUSDT first.
       const refusal = manageAddressesHideRefusal(index, kusdtListedSpendingIndices());
@@ -12180,10 +12193,7 @@ function initKusdt() {
     revealSpendingSlot: kusdtRevealSpendingSlot,
     customLabel: (index) => spendingCustomLabel(getSpendingState(), index),
     renameSpending: (index, label) => {
-      const state = getSpendingState();
-      const labels = { ...state.labels };
-      if (label) labels[index] = label; else { delete labels[index]; delete labels[String(index)]; }
-      saveSpendingState({ labels });
+      saveSpendingLabel(index, label);
       try { if (spendingManageScreen && !spendingManageScreen.hidden) renderSpendingList(); } catch { /* repaints on the next open */ }
     },
     // Manage Addresses' Used: ever used or holding KAS, as last known.
@@ -13671,7 +13681,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 364;
+const APP_BUILD = 365;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of

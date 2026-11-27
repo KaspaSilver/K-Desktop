@@ -38,8 +38,9 @@ import {
   createStepFlow, keypadHtml, wireKeypad, applyKeypadKey, keypadAmountTextHtml, paintKeypadAmount, stepChipHtml,
   reviewRowHtml,
 } from "./send-steps.js";
-import { chooseDialog, confirmDialog, promptDialog, infoSheet, userFacingError } from "./dialogs.js";
+import { chooseDialog, confirmDialog, infoSheet, userFacingError } from "./dialogs.js";
 import { scanKaspaAddress } from "./qr-scan.js";
+import { startInlineRename, inlineRenameActive } from "./inline-rename.js";
 import { kusdtCoinIconHtml, kaspaCoinIconHtml, KUSDT_ICONS, receiveNoteIcon } from "./kusdt-icons.js";
 import {
   receiveNotesFor, kasAmountText, kusdtFeeText, isHoldingUsed, shortKusdtAddress, visibilityShortAddress,
@@ -1096,7 +1097,7 @@ function holdingRowHtml(h) {
         <span class="address-card-amount">${esc(formatKusdt(h.units))}</span>
         <span class="address-card-worth">${esc(`${kusdtDollars(h.units)} · ${kas(BigInt(h.coinCount) * KAS_PER_COIN)} held with it`)}</span>
         <span class="address-card-usage ${used ? "used" : "unused"}">${used ? "Used" : "Unused"}</span>
-        <span class="address-card-actions">${buttons.map((b) => `<button type="button" class="address-card-action" data-kusdt-card-action="${b.id}" data-id="${id}"${b.disabled ? " disabled" : ""}><span class="address-card-action-circle">${CARD_ICONS[b.id]}</span><span>${esc(b.title)}</span></button>`).join("")}</span>
+        <span class="address-card-actions">${buttons.map((b) => `<button type="button" class="address-card-action" data-kusdt-card-action="${b.id}" data-id="${id}"${b.id === "rename" ? " data-rename-button" : ""}${b.disabled ? " disabled" : ""}><span class="address-card-action-circle">${CARD_ICONS[b.id]}</span><span>${esc(b.title)}</span></button>`).join("")}</span>
         <span class="address-card-history">Tap to View History<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
       </div>
     </div>`;
@@ -1111,15 +1112,24 @@ async function runCardAction(what, id) {
   } else if (what === "receive") {
     openKusdtReceive({ fixedHolding: h });
   } else if (what === "rename" && h.spendingIndex != null) {
-    const next = await promptDialog({ title: "Rename Address", label: "Label", message: "Give this address a label to help you recognize it.", initial: deps.customLabel?.(h.spendingIndex) || "", confirmLabel: "Save" });
-    if (next == null) return;
-    deps.renameSpending?.(h.spendingIndex, String(next).trim());
-    renderManage();
+    // In place (K b49a021d): each keystroke saved under the address's Kaspa name, which Manage
+    // Addresses shows too; empty goes back to "Address #n".
+    const index = h.spendingIndex;
+    const card = [...(manageEl?.querySelectorAll("[data-kusdt-row]") || [])].find((el) => el.dataset.kusdtRow === id)?.closest(".address-card");
+    startInlineRename(card, {
+      key: `kusdt:${id}`,
+      current: deps.customLabel?.(index) || "",
+      placeholder: `Address #${addressNumber(index)}`,
+      onChange: (text) => deps.renameSpending?.(index, String(text).trim()),
+      onDone: () => renderManage(),
+    });
   }
 }
 
 function renderManage() {
   if (!manageEl || manageEl.hidden) return;
+  // a card's name is being typed: the rename's end repaints (ui/inline-rename.js)
+  if (inlineRenameActive()) return;
   manageEl.querySelector("[data-kusdt-manage-summary]").innerHTML = summaryHtml();
   const rows = wallet.listed();
   const hidden = wallet.hiddenCount();
@@ -1154,12 +1164,7 @@ async function openRowMenu(id) {
     chatting ? null : { id: "hide", title: "Hide Address", subtitle: `Removes it from this list. Re-enable it in ${SYMBOL} Address Visibility.`, destructive: true },
   ];
   const choice = await chooseDialog({ title: holdingLabel(h), message: shortKusdtAddress(h.address), options });
-  if (choice === "rename") {
-    const next = await promptDialog({ title: "Rename Address", label: "Label", message: "Give this address a label to help you recognize it.", initial: deps.customLabel?.(h.spendingIndex) || "", confirmLabel: "Save" });
-    if (next == null) return;
-    deps.renameSpending?.(h.spendingIndex, String(next).trim());
-    renderManage();
-  } else if (choice === "copy") {
+  if (choice === "copy") {
     try { await deps.copyText(h.address); deps.showToast?.(deps.addressCopiedToastText?.(h.address) || "Address copied"); } catch { /* clipboard blocked */ }
   } else if (choice === "qr") {
     openKusdtReceive({ fixedHolding: h });
