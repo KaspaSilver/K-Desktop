@@ -1211,7 +1211,7 @@ function ownTileHtml(n) {
   return `
     <button class="kmkt-card kl-tile" type="button" data-kl-open-name="${esc(n.name)}" aria-label="${esc(n.display)}">
       ${kachatNameTileHtml(esc(n.name), `
-        ${badge ? `<span class="kl-tile-soon">${esc(badge)}</span>` : ""}
+        ${domainBadgeHtml(badge, "kl-tile-soon")}
         ${line ? `<span class="kl-tile-expiry">${esc(line)}</span>` : ""}`)}
     </button>`;
 }
@@ -3749,9 +3749,18 @@ export function kachatCachedOwnedNameCount(walletAddress) {
 function domainBadge(n) {
   switch (n.status(graceMs())) {
     case Status.active: return n.isListed ? "Listed" : "";
-    case Status.grace: return "Expired";
+    // red, so it isn't missed (K b49a021d, owner 2026-11-27): it says what to do, not only what happened
+    case Status.grace: return EXPIRED_BADGE;
     default: return "Available";
   }
+}
+const EXPIRED_BADGE = "Expired: Renew Before Grace Ends";
+const WARNING_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 20h20L12 3z"/><path class="kns-warning-mark" d="M12 9.5v4.5M12 16.8v.2"/></svg>';
+/** A card badge, red with a warning sign while the name is in grace (K b49a021d badgeIsWarning). */
+function domainBadgeHtml(badge, className) {
+  if (!badge) return "";
+  const warning = badge === EXPIRED_BADGE;
+  return `<span class="${className}${warning ? " kns-badge-warning" : ""}">${warning ? WARNING_ICON : ""}${esc(badge)}</span>`;
 }
 
 /** The card's bottom-right corner in Your Usernames (iOS 72b7dc7 KachatLiveDomainsTab.expiryLine):
@@ -3770,7 +3779,7 @@ function domainCardsHtml(names, { footnote = false } = {}) {
     rememberName(n);
     const b = domainBadge(n);
     const foot = footnote ? domainExpiryLine(n) : "";
-    return `<button type="button" class="kns-domain-card" data-kl-domain-open="${esc(n.name)}">${esc(n.display)}${b ? `<span class="kns-domain-primary">${esc(b)}</span>` : ""}${foot ? `<span class="kns-domain-footnote">${esc(foot)}</span>` : ""}</button>`;
+    return `<button type="button" class="kns-domain-card" data-kl-domain-open="${esc(n.name)}">${esc(n.display)}${domainBadgeHtml(b, "kns-domain-primary")}${foot ? `<span class="kns-domain-footnote">${esc(foot)}</span>` : ""}</button>`;
   }).join("");
 }
 

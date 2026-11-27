@@ -135,14 +135,14 @@ function armReminderTimer(wallet, armed) {
 /** One check's reminders for the names on this wallet's spending addresses (`names`): rearmed
  *  from their expiry, the due ones shown. Without notification permission nothing is kept (iOS
  *  removes its pending ones). */
-function updateReminders(wallet, names, params) {
+function updateReminders(wallet, names, params, { pushCovered } = {}) {
   clearLegacyReminders();
   if (!canNotify()) {
     stopReminderTimer();
     writeReminders(wallet, {});
     return;
   }
-  const wanted = wantedReminders(names, params, { dayString, wallet, network: NETWORK_ID });
+  const wanted = wantedReminders(names, params, { dayString, wallet, network: NETWORK_ID, pushCovered });
   const { armed, due } = stepReminders(readReminders(wallet), wanted, Date.now());
   fireReminders(wallet, armed, due);
 }
@@ -210,10 +210,12 @@ export async function checkKachatNamesNews() {
     }
     // a different wallet signed in meanwhile: this answer isn't its
     if (actions.myAddress !== wallet) return;
-    // The indexer pushes name reminders only to the chatting address: for a name on another
-    // address of this wallet the app reminds by itself (XP-024), after the guard above, into this
-    // wallet's set on this network (iOS 6128f1e).
-    try { updateReminders(wallet, owned.filter((n) => !bytesEqual(n.owner, me)), params); }
+    // The indexer pushes name reminders only to the chatting address, and none before grace ends:
+    // the app reminds by itself for every name (K b49a021d), all of them for a name on another
+    // address or with push off, only the grace-ending ones for the chatting address's while push is
+    // on (XP-024), after the guard above, into this wallet's set on this network (iOS 6128f1e).
+    const pushOn = (() => { try { return Boolean(deps?.pushCoversChatting?.()); } catch { return false; } })();
+    try { updateReminders(wallet, owned, params, { pushCovered: (n) => pushOn && bytesEqual(n.owner, me) }); }
     catch (error) { try { deps?.log?.(`.kachat reminders failed: ${error?.message || error}`); } catch { /* fine */ } }
 
     const old = readSnapshot(wallet);

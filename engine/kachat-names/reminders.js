@@ -1,7 +1,8 @@
-// Local reminders for .kachat names held by one of this wallet's spending addresses (Buy From),
-// iOS d1026de `KachatNameReminders` (XP-024): the indexer's renewal and expiry pushes reach only
-// the chatting address, so the app reminds by itself - renewal opens, the name expired, and a day
-// before grace ends - from each name's expiry. Nothing leaves the device.
+// Local reminders for this wallet's .kachat names, iOS d1026de `KachatNameReminders` (XP-024) and
+// K b49a021d: renewal opens, the name expired, a week before grace ends (where grace is long) and a
+// day before. The indexer's renewal and expiry pushes reach only the chatting address and stop at
+// expiry, so the app reminds by itself: all of them for a name on another address or with push off,
+// the grace-ending ones for every name. Nothing leaves the device.
 //
 // iOS hands each reminder to the OS (UNTimeIntervalNotificationTrigger), rescheduled on every
 // notifier check. The desktop has no OS-scheduled notifications (a web page can't leave one with
@@ -57,15 +58,22 @@ export function remindersStorageKeysForWallet(walletAddress) {
 }
 
 const lastCallBeforeMs = 86_400_000n;
+const weekMs = 7n * 86_400_000n;
 
 /**
- * Every reminder `names` (NameInfo[], the ones on a spending address) want, past ones included:
+ * Every reminder `names` (NameInfo[], all of this wallet's) want, past ones included:
  * `[{ id, at: unix ms Number, name, title, body }]` - per name `renew` (expiresAt - renewWindowMs),
- * `grace` (expiresAt) and `lastcall` (a day before grace ends, at most half the grace in). The
- * texts are the iOS ones (the Profile bell's). Ids carry `wallet` (the chatting address the set
- * belongs to) and `network` (`reminderIdPrefix`).
+ * `grace` (expiresAt), `graceweek` (a week before grace ends, where grace is over two weeks long)
+ * and `lastcall` (a day before grace ends, at most half the grace in). The texts are the iOS ones
+ * (the Profile bell's). Ids carry `wallet` (the chatting address the set belongs to) and `network`
+ * (`reminderIdPrefix`).
+ *
+ * K b49a021d (owner, 2026-11-27: "make sure no one misses it"): the indexer pushes renewal-open and
+ * expired only to the chatting address, and nothing before grace ends, so every name gets the two
+ * grace-ending reminders, and renewal-open and expired too unless `pushCovered(name)` (a name on the
+ * chatting address while push is on).
  */
-export function wantedReminders(names, params, { dayString = defaultDayString, wallet = "", network = "" } = {}) {
+export function wantedReminders(names, params, { dayString = defaultDayString, wallet = "", network = "", pushCovered = () => false } = {}) {
   if (!params || !Array.isArray(names)) return [];
   const prefix = reminderIdPrefix(wallet, network);
   const grace = BigInt(params.graceMs);
@@ -78,19 +86,21 @@ export function wantedReminders(names, params, { dayString = defaultDayString, w
     const expiresAt = BigInt(n.expiresAt);
     const display = `${n.name}.kachat`;
     const base = `${prefix}${n.name}-${expiresAt}-`;
-    const graceEnds = dayString(Number(expiresAt + grace));
-    out.push({
-      id: `${base}renew`, at: Number(expiresAt - window), name: n.name,
-      title: `Renew ${display}`, body: `Renewal is open: renew it before ${dayString(Number(expiresAt))} to keep it.`,
-    });
-    out.push({
-      id: `${base}grace`, at: Number(expiresAt), name: n.name,
-      title: `${display} has expired`, body: `Renew it before ${graceEnds} or anyone can claim it.`,
-    });
-    out.push({
-      id: `${base}lastcall`, at: Number(expiresAt + grace - lastCallBefore), name: n.name,
-      title: `${display} has expired`, body: `Renew it before ${graceEnds} or anyone can claim it.`,
-    });
+    const graceEndsAt = expiresAt + grace;
+    const renewBy = `Renew it before ${dayString(Number(graceEndsAt))} or anyone can claim it.`;
+    let covered = false;
+    try { covered = Boolean(pushCovered(n)); } catch { covered = false; }
+    if (!covered) {
+      out.push({
+        id: `${base}renew`, at: Number(expiresAt - window), name: n.name,
+        title: `Renew ${display}`, body: `Renewal is open: renew it before ${dayString(Number(expiresAt))} to keep it.`,
+      });
+      out.push({ id: `${base}grace`, at: Number(expiresAt), name: n.name, title: `${display} has expired`, body: renewBy });
+    }
+    if (grace > 2n * weekMs) {
+      out.push({ id: `${base}graceweek`, at: Number(graceEndsAt - weekMs), name: n.name, title: `${display} has expired`, body: renewBy });
+    }
+    out.push({ id: `${base}lastcall`, at: Number(graceEndsAt - lastCallBefore), name: n.name, title: `${display} has expired`, body: renewBy });
   }
   return out;
 }

@@ -39,7 +39,12 @@
   font-size: 11px; font-weight: 700; line-height: 14px;
 }
 .kl-status-active { color: var(--ios-green); background: color-mix(in srgb, var(--ios-green) 15%, transparent); }
-.kl-status-grace { color: var(--ios-orange); background: color-mix(in srgb, var(--ios-orange) 15%, transparent); }
+/* in grace: red, so it isn't missed (K b49a021d; was orange) */
+.kl-status-grace { color: var(--ios-red); background: color-mix(in srgb, var(--ios-red) 15%, transparent); }
+/* A card's "Expired: Renew Before Grace Ends": white on red with a warning sign (K b49a021d). */
+.kns-badge-warning { display: inline-flex; align-items: center; gap: 4px; background: var(--ios-red) !important; color: #fff !important; white-space: nowrap; max-width: calc(100% - 20px); }
+.kns-badge-warning svg { width: 12px; height: 12px; flex: 0 0 auto; fill: currentColor; stroke: none; }
+.kns-badge-warning svg .kns-warning-mark { fill: none; stroke: var(--ios-red); stroke-width: 2.4; stroke-linecap: round; }
 /* past grace a name is free to claim: "Available" (iOS eea52b2) */
 .kl-status-lapsed { color: var(--ios-green); background: color-mix(in srgb, var(--ios-green) 15%, transparent); }
 

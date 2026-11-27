@@ -13049,6 +13049,8 @@ function tabUnreadCount(tab) {
     // bell inside KaPosts (owner, 2026-10-23). It stays in refreshTabBadges' list so an old badge
     // is taken off.
     if (tab === "chats") return chatsTabUnreadTotal();
+    // a name of yours expired and is in grace: a red dot until it's renewed (K b49a021d)
+    if (tab === "wallet") return kachatExpiredAll().length;
   } catch {}
   return 0;
 }
@@ -13078,7 +13080,7 @@ function scheduleChatsTabBadge() {
 function tabBadgeLabel(count) { return count > 99 ? "99+" : String(count); }
 // Dock tabs carry the same badge as the hub tiles (iOS AppTabBadge on both).
 function refreshTabBadges() {
-  for (const tab of ["profile", "kaposts", "chats"]) {
+  for (const tab of ["profile", "kaposts", "chats", "wallet"]) {
     const count = tabUnreadCount(tab);
     const button = document.querySelector(`.sidebar-tab[data-app-tab="${tab}"]`);
     if (button) {
@@ -13087,10 +13089,11 @@ function refreshTabBadges() {
         if (!badge) { badge = document.createElement("span"); badge.className = "sidebar-tab-badge"; button.appendChild(badge); }
         // Profile's dock badge is a red dot while the bell holds anything unread, the way the bell
         // itself is a dot (iOS 28d9d68 AppTabBadge.dockLabel); the other tabs keep their counts.
-        const dot = tab === "profile";
+        // Wallet's is a dot too: an expired username needs renewing (K b49a021d).
+        const dot = tab === "profile" || tab === "wallet";
         badge.classList.toggle("dot", dot);
         badge.textContent = dot ? "" : tabBadgeLabel(count);
-        if (dot) badge.setAttribute("aria-label", "Unread notifications");
+        if (dot) badge.setAttribute("aria-label", tab === "wallet" ? "A username of yours expired" : "Unread notifications");
         else badge.setAttribute("aria-label", `${count} unread`);
       } else if (badge) badge.remove();
     }
@@ -13527,7 +13530,12 @@ function kachatExpiredDismissed(address) {
 }
 async function refreshKachatExpiredBanner() {
   const address = engine.address;
-  if (!address || !kachatNamesLaunched()) { renderKachatExpiredBanner.state = null; renderKachatExpiredBanner(); return; }
+  if (!address || !kachatNamesLaunched()) {
+    renderKachatExpiredBanner.state = null;
+    renderKachatExpiredBanner();
+    try { refreshTabBadges(); } catch { /* not started */ }
+    return;
+  }
   let expired;
   try { expired = await kachatExpiredNames(address); } catch { return; /* unreadable: keep what is shown */ }
   if (engine.address !== address) return;
@@ -13537,6 +13545,15 @@ async function refreshKachatExpiredBanner() {
   if (prev && prev.address === address && sig(prev.expired) === sig(expired)) return;
   renderKachatExpiredBanner.state = { address, expired };
   renderKachatExpiredBanner();
+  // and the marks that can't be closed: Wallet's dot and Your Usernames' "1 Expired"
+  try { refreshTabBadges(); renderProfileDomains(); } catch { /* drawn on the next pass */ }
+}
+/** Every name of yours in grace, dismissed or not (K b49a021d KachatExpiredNamesModel.expired): the
+ *  dock's dot on Wallet and Your Usernames' "1 Expired" stay until it's renewed or lapses; only the
+ *  banner can be closed. */
+function kachatExpiredAll() {
+  const st = renderKachatExpiredBanner.state;
+  return st && st.address === engine.address ? st.expired || [] : [];
 }
 function kachatExpiredVisible() {
   const st = renderKachatExpiredBanner.state;
@@ -13593,7 +13610,14 @@ function renderProfileDomains() {
   const countEl = document.querySelector("[data-profile-domains-count]");
   // Blank until the .kachat count has answered, then a number - "0" included (iOS 10e4a1a).
   const address = engine.address || "";
-  if (countEl) countEl.textContent = address && kachatOwnedCountFor === address ? String(kachatOwnedCount) : "";
+  // a name in grace: "1 Expired" in red beside the count, until it's renewed (K b49a021d)
+  const expired = kachatExpiredAll().length;
+  const expiredEl = document.querySelector("[data-profile-domains-expired]");
+  if (expiredEl) {
+    expiredEl.hidden = expired === 0;
+    expiredEl.innerHTML = expired ? `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 20h20L12 3z"/><path class="warn-mark" d="M12 9.5v4.5M12 16.8v.2"/></svg>${expired} Expired` : "";
+  }
+  if (countEl) countEl.textContent = address && kachatOwnedCountFor === address ? String(Math.max(kachatOwnedCount, expired)) : "";
   syncDomainsGetButton();
   const listEl = document.querySelector("[data-profile-domains-list]");
   if (!listEl || !domainsScreenEl || domainsScreenEl.hidden) return;
@@ -13681,7 +13705,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 365;
+const APP_BUILD = 366;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -32267,6 +32291,8 @@ queueMicrotask(async () => {
         // Push Notifications off in K counts as much as the browser's permission: nothing is kept
         // waiting, so turning it back on never rings reminders that came due meanwhile (K 8cb4c88e).
         canNotify: () => pushNotificationsEnabled() && typeof Notification !== "undefined" && Notification.permission === "granted",
+        // the indexer's pushes reach the chatting address while Web Push is on (K b49a021d)
+        pushCoversChatting: () => webPushStatus().state === "on",
         notify: ({ id, title, body, name }) => {
           showAppNotification({
             title, body, tag: id, key: id, silent: (accountShellPrefs.notificationSound ?? true) === false,
@@ -32277,6 +32303,15 @@ queueMicrotask(async () => {
       });
     }
     catch (error) { appendEngineLog(`.kachat news did not start: ${error?.message || error}`); }
+    // Your names in grace, from any tab (K b49a021d DockBadgeSync): Wallet's red dot doesn't wait for
+    // the Wallet tab. The count follows every registry change from here, and the app coming back.
+    try { refreshKachatOwnedCount(); } catch { /* registry not ready: the Wallet tab loads it */ }
+    if (!refreshKachatOwnedCount.watchesVisibility) {
+      refreshKachatOwnedCount.watchesVisibility = true;
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible" && engine.address) { try { refreshKachatExpiredBanner(); } catch { /* next time */ } }
+      });
+    }
     initKachatMarket({
       escapeHtml, showToast: showCopyToast, confirmDialog, chooseDialog, alertDialog, promptDialog, infoSheet,
       openChat: (address) => openChatWithAddress({ address }),

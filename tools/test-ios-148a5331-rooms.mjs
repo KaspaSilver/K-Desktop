@@ -71,7 +71,7 @@ test("bell-on rooms count on the page button and the app icon, not the dock", ()
   assert.match(rooms, /export function broadcastNotifyingUnreadTotal\(\) \{[\s\S]*?if \(notifyByChannel\[name\]\) total \+= unreadFor\(name\);/);
   assert.match(app, /Math\.max\(0, Number\(broadcastNotifyingUnreadTotal\(\)\) \|\| 0\)/);
   assert.match(app, /return chatsTabUnreadCount\(\{ chats, groups: totalGroupUnread\(\) \}\);/);
-  assert.match(app, /for \(const tab of \["profile", "kaposts", "chats"\]\)/);
+  assert.match(app, /for \(const tab of \["profile", "kaposts", "chats", "wallet"\]\)/); // Wallet: an expired username's dot (K b49a021d)
 });
 
 // K 8cb4c88e moved it again, out of the New sheet to a gear at the top left of Chats
