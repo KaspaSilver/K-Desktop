@@ -30,7 +30,8 @@ test("the chatting address shows Contains domain, and is asked about first", () 
 test("Cold Storage's total is a balance card with its worth on mainnet", () => {
   assert.match(cold, /\$\{balanceCardHtml\("Total Balance", totalSompi\)\}/);
   assert.doesNotMatch(cold, /cold-summary-balance/);
-  assert.match(app, /kasFiatText: \(kas, onPrice\) => \(IS_TESTNET \? null : kasFiatTextNow\(kas, onPrice\)\),/);
+  // to the cent, as Manage Addresses' cards (K 01f71184)
+  assert.match(app, /kasFiatText: \(kas, onPrice\) => \(IS_TESTNET \? null : kasFiatTextNow\(kas, onPrice, \{ decimals: 2 \}\)\),/);
   assert.match(css, /\.address-balance-card \{/);
 });
 

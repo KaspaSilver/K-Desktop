@@ -86,6 +86,8 @@ import { decodeAddress, AddressVersion } from "../engine/kachat-names/registry-s
 import { kasTextFromSompi } from "../engine/amounts.js";
 import { renderKaPostsMarkdown, applyKaPostsMarkdownAction } from "./kaposts-markdown.js";
 import { accountGuard } from "./account-guard.js";
+import { createRepostOrigins, isPlainRepost, quoteCardShown, composerQuoteShown } from "./kaposts-repost-origins.js";
+import { stashFeedSource, restoredFeedIsFresh } from "./kaposts-feed-sources.js";
 import { isRecentForBanner, bellTimestamp, KAPOST_BANNER_MAX_AGE_MS } from "./notification-recency.js";
 import {
   kapostsOwnedAction, dropKaPostsHeldActions, kapostsCanReplyTo, KAPOSTS_REPLY_NOT_ON_NETWORK,
@@ -122,7 +124,7 @@ import "./kapost-terms.css";
 import "./kaposts-conversation.css";
 import {
   nextSelfThreadSegment, pageHasPosterReply, createReplyOrderMemo, focusedTimestamp, replyingToAddress,
-  kaPostsNotifPollDue, kaPostsNotifPollSoonDue,
+  kaPostsNotifPollDue, kaPostsNotifPollSoonDue, selfThreadChainRoot,
 } from "./kaposts-x-rules.js";
 // Kaspa Hub card links in a post and the composer (K 961fc05a KaspaHubLinkCard).
 import { hubLinkIn, hubLinkUrl } from "./hub-links.js";
@@ -181,6 +183,10 @@ let feedError = null;
 /// Which endpoint remotePosts was filled from ("global" | "following"). Feed and Popular share the
 /// global feed, so switching between them keeps every page already loaded (iOS loadedFeedSource).
 let loadedFeedSource = null;
+/// The source not on screen, as it was left (K 01f71184 stashedFeeds): "global" | "following" ->
+/// { posts, pager, pendingNewPosts, pendingNewPostsHaveGap, loadedAt, scrollTop }. See
+/// ui/kaposts-feed-sources.js and switchFeedSource.
+const stashedFeeds = new Map();
 /// When Popular last swept its ranking window; at most once per FEED_STALE_AFTER_MS unless a
 /// page-one refresh threw that window away (iOS FeedLoadGates.popularSweptAt).
 let popularSweptAt = 0;
@@ -1128,6 +1134,8 @@ function mutatePost(id, transform) {
   walk(allPostLists());
   // The open thread's "Thread" section renders from threadChains copies, so sweep them too.
   for (const chain of threadChains.values()) walk(chain);
+  // and the feed set aside, so a like or bookmark made here shows when it comes back (K 01f71184)
+  for (const stashed of stashedFeeds.values()) walk(stashed.posts);
 }
 
 function findPostByRemoteId(remoteId) {
@@ -1618,7 +1626,7 @@ function renderStatus() {
   // The indexer is what lists posts: while it's away the feed says why it isn't complete.
   const down = !kapostsUnavailableHere() && kaPostIndexerIsDown();
   statusEl.hidden = !down;
-  statusEl.textContent = down ? "The Posts server isn't answering. Showing saved posts and new ones from the network." : "";
+  statusEl.textContent = down ? "Posts' server isn't answering. Showing saved posts and new ones from the network." : "";
 }
 
 /// New posts off the block stream while the indexer is down, into whichever feed is showing.
@@ -1644,17 +1652,28 @@ function applyLiveAmendments(posts) {
 }
 function mergeLivePosts(live) {
   if (!deps || !loadedFeedSource) return;
+  // The feed set aside gets them too (K 01f71184), so it doesn't come back without them, or with a
+  // post deleted meanwhile.
+  for (const [source, stashed] of stashedFeeds) {
+    stashed.posts = livePostsMerged(live, applyLiveAmendments(stashed.posts), source);
+  }
   const amended = applyLiveAmendments(remotePosts);
   if (amended !== remotePosts) { remotePosts = amended; renderFeed(); }
-  const known = new Set(remotePosts.map((post) => post.remoteId).filter(Boolean));
+  const merged = livePostsMerged(live, remotePosts, loadedFeedSource);
+  if (merged === remotePosts) return;
+  remotePosts = merged;
+  renderFeed();
+}
+/** `list` with the new live posts for `source` on top, or `list` itself when none are new to it. */
+function livePostsMerged(live, list, source) {
+  const known = new Set(list.map((post) => post.remoteId).filter(Boolean));
   const following = new Set(prefs.following);
   const fresh = live
     .filter((post) => !post.parentPostId && !known.has(post.id))
     .map(mapRemotePost)
-    .filter((post) => post && !isHiddenAuthor(post.posterAddress) && (loadedFeedSource !== "following" || following.has(post.posterAddress)));
-  if (!fresh.length) return;
-  remotePosts = [...fresh.sort((a, b) => b.timestamp - a.timestamp), ...remotePosts];
-  renderFeed();
+    .filter((post) => post && !isHiddenAuthor(post.posterAddress) && (source !== "following" || following.has(post.posterAddress)));
+  if (!fresh.length) return list;
+  return [...fresh.sort((a, b) => b.timestamp - a.timestamp), ...list];
 }
 
 /// The indexer went away or came back. Back, it has the final word: everything loaded during the
@@ -1665,6 +1684,7 @@ function handleKaPostIndexerAvailability(change) {
   renderStatus();
   if (change.down) return;
   lastFeedLoadAt = 0;
+  stashedFeeds.clear(); // loaded during the outage: each source asks again
   ownContentLoadedAt = 0;
   popularSweptAt = 0;
   keptProfilePanel = null;
@@ -1918,6 +1938,56 @@ function quoteCardHeadHtml(quoted, { withTime = false } = {}) {
   </span>`;
 }
 
+// A repost of a repost (K 01f71184 KaPostQuotedEmbed): a plain repost is a quote with no words, so
+// the card shows the post that one reposted, found once (ui/kaposts-repost-origins.js), and a click
+// opens that original. While it's looked up the card shows a spinner in place of no words.
+const repostOrigins = createRepostOrigins({ quoteOf: repostQuoteOf });
+/** The post `id` quotes, as a quote ref, or null: the indexer's get-post, else the chain. */
+async function repostQuoteOf(id) {
+  if (!deps) return null;
+  let raw = null;
+  try { raw = await fetchPost({ engine: deps.engine, id: String(id) }); } catch { /* the chain below */ }
+  if (raw) {
+    const quote = raw.quote;
+    if (!quote?.referencedSenderPubkey) return null;
+    const text = quote.referencedMessage ? decodePostContent({ postContent: quote.referencedMessage }) : "";
+    const address = kaspaAddressFromPubkey(deps.engine, quote.referencedSenderPubkey);
+    const remoteId = txIdOrNull(quote.referencedContentId);
+    if (text === null || !address || !remoteId) return null;
+    return { remoteId, text: stripKaChatMarker(text), posterAddress: address, timestamp: Number(quote.timestamp) || null, posterPubkey: quote.referencedSenderPubkey };
+  }
+  // The indexer is down or hasn't caught up: the chain has every post.
+  const record = await fetchChainPost(id);
+  if (!record || record.action !== "quote" || !record.referencedId) return null;
+  const quoted = await fetchChainPost(record.referencedId);
+  const address = quoted ? kaspaAddressFromPubkey(deps.engine, quoted.authorPubkey) : null;
+  if (!quoted || !address) return null;
+  return { remoteId: quoted.txId, text: quoted.message, posterAddress: address, timestamp: quoted.blockTimeMillis || null, posterPubkey: quoted.authorPubkey };
+}
+/** Starts the lookup behind a plain repost's card once; the screen repaints when it lands. */
+function lookUpRepostOrigin(quoted) {
+  if (!repostOrigins.wants(quoted)) return;
+  const owner = accountGuard(() => deps?.engine?.address);
+  // found or not, the card's spinner goes
+  repostOrigins.original(quoted).then(() => { if (owner.still()) schedulePosterRepaint(); }).catch(() => {});
+}
+/** The feed's quote card under a post (K KaPostQuotedEmbed). */
+function quoteEmbedHtml(quoted) {
+  const { shown } = quoteCardShown(quoted, repostOrigins.cached(quoted));
+  // a quoted post by someone muted or blocked isn't shown (KaPost 369794e)
+  if (isHiddenAuthorLower(shown.posterAddress)) {
+    return `<div class="kaposts-quote-embed hidden-author"><span class="kaposts-muted">You muted or blocked this account</span></div>`;
+  }
+  lookUpRepostOrigin(quoted);
+  const looking = isPlainRepost(shown) && repostOrigins.looking(quoted);
+  return `<div class="kaposts-quote-embed" ${shown.remoteId ? `data-kaposts-open-remote="${deps.escapeHtml(shown.remoteId)}"` : ""}>
+         ${quoteCardHeadHtml(shown)}
+         ${looking
+           ? `<span class="kaposts-quote-looking"><span class="kaposts-pager-spinner" aria-label="Loading"></span></span>`
+           : `<span>${markdownPreviewHtml(shown.text || "")}</span>`}
+       </div>`;
+}
+
 // The poll under the question (iOS 3b1aecf): options as buttons until you vote or the poll
 // closes, then bars with percentages, your choice marked, the vote count and the time left.
 // When the post was made (iOS b31ff59): the full date and time, in its own row under the
@@ -2137,16 +2207,8 @@ function postCellHtml(post, { inThread = false, isRoot = false, replyInline = tr
         ? `<div class="kaposts-delivery sent" data-kaposts-sent-check="${(Number(post.timestamp) || 0) + 60_000}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg></div>`
         : "";
 
-  // a quoted post by someone muted or blocked isn't shown (KaPost 369794e)
-  const quotedHidden = post.quoted && isHiddenAuthorLower(post.quoted.posterAddress);
-  const quotedHtml = quotedHidden
-    ? `<div class="kaposts-quote-embed hidden-author"><span class="kaposts-muted">You muted or blocked this account</span></div>`
-    : post.quoted
-    ? `<div class="kaposts-quote-embed" ${post.quoted.remoteId ? `data-kaposts-open-remote="${deps.escapeHtml(post.quoted.remoteId)}"` : ""}>
-         ${quoteCardHeadHtml(post.quoted)}
-         <span>${markdownPreviewHtml(post.quoted.text || "")}</span>
-       </div>`
-    : "";
+  // A repost of a repost shows the post reposted; a muted or blocked author's isn't shown (quoteEmbedHtml).
+  const quotedHtml = post.quoted ? quoteEmbedHtml(post.quoted) : "";
 
   const avatarHtml = `<span data-kaposts-profile="${pid}" class="kaposts-avatar-tap">${posterAvatarHtml(post.posterAddress)}</span>`;
   const headHtml = `
@@ -2982,6 +3044,26 @@ async function loadSelfThreadChain(post) {
   threadRootNoUntil.set(post.remoteId, Date.now() + threadRootNoLifetime(post));
 }
 
+/**
+ * Your reply to your own post, once sent, joins the post's thread as an indexed self-reply does (K
+ * 01f71184 extendSelfThreadChain, release audit T4): the chain was walked only when the post
+ * opened, so the reply showed as a comment with no thread line until the post was opened again. It
+ * continues the chain when it answers the root with no chain yet, or the chain's last post.
+ */
+function extendSelfThreadChain(parentId, replyId) {
+  const reply = findPost(replyId);
+  if (!reply?.remoteId) return;
+  const rootId = selfThreadChainRoot(threadChains, parentId);
+  const root = rootId != null ? findPost(rootId) : null;
+  if (!root?.remoteId || root.posterAddress !== reply.posterAddress) return;
+  const chain = threadChains.get(rootId) || [];
+  if (chain.some((segment) => segment.id === reply.id)) return;
+  threadChains.set(rootId, [...chain, reply]);
+  // a root now, as when walking the chain finds one
+  threadRootProbe.set(root.remoteId, true);
+  threadRootNoUntil.delete(root.remoteId);
+}
+
 // --- X-style thread posting --------------------------------------------------
 // Unposted work per in-flight/failed thread, keyed by the root's LOCAL id: rootText until the
 // root posts, the remaining segments, and the last landed txid. Kept until every segment lands
@@ -3292,6 +3374,10 @@ async function openThread(post, { scrollToRemoteId = null, ensureComment = null 
   // A thread always takes over the viewport: any panel it was opened from waits underneath.
   panelOverThread = false;
   threadStack.push(post.id);
+  // A new level opens at its top, not at the offset the level before (or the feed) was scrolled
+  // to (K 01f71184, smoothness audit P5); renderThread keeps what it finds.
+  const levelScroller = kapostsScrollEl();
+  if (levelScroller) levelScroller.scrollTop = 0;
   // The first page owns the footer while it loads ("Loading more..."), and a failure stays there
   // with "Tap to retry" (iOS loadThreadReplies(reset: true) through the thread's page state).
   const pager = post.remoteId ? makePager({ pageSize: PAGER_THREAD_PAGE_SIZE }) : null;
@@ -3424,6 +3510,7 @@ async function submitReply(parent, text) {
       });
       sessionReplyIds.add(txid);
       mutatePost(comment.id, (p) => { p.remoteId = txid; p.delivery = "sent"; });
+      if (deps.engine?.address && parent.posterAddress === deps.engine.address) extendSelfThreadChain(parent.id, comment.id);
     } catch (error) {
       mutatePost(comment.id, (p) => { p.delivery = kapostsFailureDelivery(error); });
       deps.appendEngineLog?.(`KaPost reply failed: ${error.message}`);
@@ -3691,12 +3778,15 @@ function openComposer(quoteTarget = null, { replyTarget = null, editTarget = nul
 
 /// The post this composer is about, five lines of it, with who wrote it and when (iOS
 /// quotedPostCard).
+// Quoting a plain repost (no words of its own) shows the post it reposted, as the feed's quote card
+// does (K 01f71184 quotedPostCard); the quote still names the repost you picked.
 function renderComposerQuoteCard(target) {
   composerQuote.hidden = !target;
-  composerQuote.innerHTML = target
+  const shown = composerQuoteShown(target, target?.quoted ? repostOrigins.cached(target.quoted) : null);
+  composerQuote.innerHTML = shown
     ? `
-      ${quoteCardHeadHtml(target, { withTime: true })}
-      <span>${markdownPreviewHtml(target.text)}</span>`
+      ${quoteCardHeadHtml(shown, { withTime: true })}
+      <span>${markdownPreviewHtml(shown.text)}</span>`
     : "";
 }
 
@@ -4063,6 +4153,10 @@ function removePostEverywhere(post) {
   localPosts = prune(localPosts);
   remotePosts = prune(remotePosts);
   pendingNewPosts = prune(pendingNewPosts);
+  for (const stashed of stashedFeeds.values()) {
+    stashed.posts = prune(stashed.posts);
+    stashed.pendingNewPosts = prune(stashed.pendingNewPosts);
+  }
   myContentPosts = prune(myContentPosts);
   if (activePanel?.posts) activePanel.posts = prune(activePanel.posts);
   if (activePanel?.replies) activePanel.replies = prune(activePanel.replies);
@@ -4436,7 +4530,7 @@ function renderPanel() {
                  Desktop's Manage Address screen. */ ""}${deps.openChattingWallet && deps.engine.address ? `<button class="kaposts-edit-kns kaposts-wallet-button" type="button" data-kaposts-wallet>${WALLET_SVG}Wallet</button>` : ""}${/* And Request (KaPost 9653c04): a payment request link to copy or share. */ ""}${deps.openRequestPayment && deps.engine.address ? `<button class="kaposts-edit-kns kaposts-wallet-button" type="button" data-kaposts-request aria-label="Request Payment">${REQUEST_SVG}Request</button>` : ""}</span>` : ""}
           </div>
           ${isRootProfilePanel(panel) ? `<span class="kaposts-profile-actions">
-            <button class="kaposts-edit-kns kaposts-see-all" type="button" data-kaposts-see-all title="Opens KaPost, where everyone's posts are.">${NEWSPAPER_SVG}See All Posts</button>
+            <button class="kaposts-edit-kns kaposts-see-all" type="button" data-kaposts-see-all title="Opens Posts, where everyone's posts are.">${NEWSPAPER_SVG}See All Posts</button>
           </span>` : ""}
         </div>
       </div>`;
@@ -6859,10 +6953,30 @@ function postDisplayText(post) {
   return state.text;
 }
 
+// The outage's block stream reads blocks only while Posts is on screen and the connection isn't
+// metered (K 01f71184, release audit B1): it used to stream on every tab, on cellular too. The
+// browser says "metered" through navigator.connection (Save Data, or a cellular link) where it can.
+let postsTabShown = false;
+function setPostsTabOnScreen(shown) {
+  postsTabShown = Boolean(shown);
+  kapostLiveFeed.setOnScreen(postsTabShown && !document.hidden);
+}
+export function kapostsPathIsExpensive(connection = globalThis.navigator?.connection) {
+  return Boolean(connection && (connection.saveData === true || connection.type === "cellular"));
+}
+function wireLiveFeedGates() {
+  kapostLiveFeed.setExpensivePath(kapostsPathIsExpensive());
+  document.addEventListener("visibilitychange", () => kapostLiveFeed.setOnScreen(postsTabShown && !document.hidden));
+  try {
+    navigator.connection?.addEventListener?.("change", () => kapostLiveFeed.setExpensivePath(kapostsPathIsExpensive()));
+  } catch { /* no Network Information API */ }
+}
+
 /// Stops the new-posts check when the tab is left, mirroring how iOS tears its check down with the
 /// view. Exported so the tab switch can call it the way it already calls stopBroadcastPolling.
 export function stopKaPostsPolling() {
   stopNewPostsCheck();
+  setPostsTabOnScreen(false);
   // Leaving KaPosts (a notification tap, a link, another tab) takes the drawer with it, so it
   // never stays over the next screen.
   closeFeedDrawer();
@@ -6890,6 +7004,7 @@ export function refreshKaPostsFeed() {
   // Opening the tab is what arms the check, and it only runs while the tab is the one on screen -
   // nothing polls a feed nobody is looking at.
   startNewPostsCheck();
+  setPostsTabOnScreen(true);
   // .kachat answers that landed while the tab was away (the feed itself repaints below).
   if (posterRepaintPending && (activePanel || currentThreadPost())) repaintPosterIdentities();
   posterRepaintPending = false;
@@ -6924,6 +7039,8 @@ export function resetKaPostsForAccount() {
   editingDraftId = null;
   localPosts = [];
   remotePosts = [];
+  stashedFeeds.clear();
+  repostOrigins.clear();
   pendingNewPosts = [];
   pendingNewPostsHaveGap = false;
   // Another account's translations are not this one's, and the state is keyed by post id.
@@ -7029,18 +7146,68 @@ function selectFeedTab(tab) {
   restartFade(feedEl);
   // Feed <-> Popular share the global feed: keep every page already scrolled in (Popular is a
   // re-sort of the same set) and only deepen Popular's window. Only a real source change - to
-  // or from Following - starts a new paginated feed.
-  if (feedSourceFor(tab) === loadedFeedSource && remotePosts.length > 0) {
+  // or from Following - swaps the source, back to what it had when left (K 01f71184).
+  const source = feedSourceFor(tab);
+  if (source === loadedFeedSource && remotePosts.length > 0) {
     renderFeed({ resetScroll: true });
     if (tab === "popular" || tab === "feed") deepenPopularRanking();
     return;
   }
-  // Retire the outgoing tab's cursor before anything can repaint: its sentinel must not
-  // fire a "load more" that would page the tab the user just left.
-  feedPager = null;
+  const deepen = () => { if (activeFeedTab === "popular" || activeFeedTab === "feed") deepenPopularRanking(); };
+  const restored = switchFeedSource(source);
+  if (restored) {
+    // Back to a source left a moment ago: its posts and place as they were, and only the newer
+    // posts are looked for. First visit or gone stale: page one.
+    const keepTop = restored.scrollTop;
+    renderFeed();
+    const scroller = kapostsScrollEl();
+    if (scroller) scroller.scrollTop = keepTop;
+    syncFeedToTopButton();
+    if (restoredFeedIsFresh(restored, Date.now(), FEED_STALE_AFTER_MS)) {
+      checkForNewPosts();
+      deepen();
+      return;
+    }
+  } else {
+    renderFeed();
+  }
+  loadFeed().then(deepen);
+}
+
+/**
+ * Puts the source on screen aside and makes `source` the loaded one (K switchFeedSource). Returns
+ * what it held when it was left, or null on its first visit (its pager starts over; the outgoing
+ * posts stay on screen until page one lands, as before).
+ */
+function switchFeedSource(source) {
+  // Any page still out for the outgoing source is dropped by this generation, and its sentinel
+  // must not fire a "load more" that would page the source just left.
+  feedGeneration += 1;
   clearPagerSentinel("feed");
-  renderFeed();
-  loadFeed().then(() => { if (activeFeedTab === "popular" || activeFeedTab === "feed") deepenPopularRanking(); });
+  const outgoing = loadedFeedSource;
+  // Only a source whose page one landed: left before that, it loads again on the way back (its
+  // list may still be the other source's posts).
+  if (outgoing && outgoing !== source && lastFeedLoadAt) {
+    stashedFeeds.set(outgoing, stashFeedSource({
+      posts: remotePosts, pager: feedPager, pendingNewPosts, pendingNewPostsHaveGap,
+      loadedAt: lastFeedLoadAt, scrollTop: kapostsScrollEl()?.scrollTop || 0,
+    }));
+  }
+  const saved = stashedFeeds.get(source) || null;
+  stashedFeeds.delete(source);
+  pendingNewPosts = saved?.pendingNewPosts || [];
+  pendingNewPostsHaveGap = Boolean(saved?.pendingNewPostsHaveGap);
+  lastFeedLoadAt = saved?.loadedAt || 0;
+  feedLoading = false;
+  feedError = null;
+  if (!saved) {
+    feedPager = null;
+    return null;
+  }
+  remotePosts = saved.posts;
+  feedPager = saved.pager || makePager();
+  loadedFeedSource = source;
+  return saved;
 }
 
 /** One of KaPosts' sections, from the rail, the phone header or the hamburger's card. */
@@ -7315,6 +7482,7 @@ export function initKaPosts(dependencies) {
     initKaPosts.outageWired = true;
     onIndexerAvailabilityChange(handleKaPostIndexerAvailability);
     kapostLiveFeed.subscribe(mergeLivePosts);
+    wireLiveFeedGates();
     // Chats share this indexer, so it can be confirmed down before KaPost starts.
     if (!kapostsUnavailableHere() && isIndexerDown(getEndpoint("kapostIndexer"))) kapostLiveFeed.setActive(deps.engine, true);
   }
@@ -7470,6 +7638,9 @@ export function initKaPosts(dependencies) {
       threadPagers.clear();
       clearPagerSentinel("thread");
     }
+    // Back to an outer level: it starts at its top too, as on K (P5: Back doesn't restore the
+    // earlier offset). Back to the feed restores the feed's place below.
+    if (threadStack.length > 0) { const levelScroller = kapostsScrollEl(); if (levelScroller) levelScroller.scrollTop = 0; }
     renderThread();
     // Back to an outer thread: a page one the inner one made stale loads again (audit 2026-11-27).
     if (threadStack.length > 0) resumeRevealedThread();

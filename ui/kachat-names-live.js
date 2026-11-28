@@ -39,6 +39,7 @@ import { KachatSocialImageResolver, socialFreshForMs } from "../engine/kachat-na
 import { ProfileIdentityStore } from "../engine/kachat-names/profile-cache.js";
 import { KachatOwnedNamesCache } from "../engine/kachat-names/owned-names-cache.js";
 import { unnamedSweepDue, nextUnnamedAnswers, unnamedSweepPass, identityBatchFlush, IDENTITY_BATCH_DELAY_MS } from "./kachat-unnamed-sweep.js";
+import { onForegroundBeat } from "./foreground-beat.js";
 import { isProxyAvailable, proxiedUrl } from "../engine/endpoints.js";
 import { normalize, p2pkScript, bytesEqual, hex, utf8, unhex32, yearMs, tier } from "../engine/kachat-names/codec.js";
 import { isRegistryUpgrading, registryUpgradingMessage } from "../engine/kachat-names/service.js";
@@ -4660,10 +4661,18 @@ export function startKachatUnnamedIdentitySweep({ candidates } = {}) {
       unnamedSweepRunning = false;
     }
   };
-  // the first pass once the app has settled after launch
-  setTimeout(function tick() {
-    pass().finally(() => setTimeout(tick, UNNAMED_SWEEP_EVERY_MS));
+  // the first pass once the app has settled after launch, then about once a minute on the shared
+  // foreground beat, so it doesn't wake the network by itself (K 01f71184 B5): every other beat on
+  // Wi-Fi, every beat on an expensive connection
+  let lastPassAt = 0;
+  const run = () => { lastPassAt = Date.now(); return pass(); };
+  setTimeout(() => {
+    run().finally(() => onForegroundBeat(() => (unnamedSweepPassDue(lastPassAt, Date.now()) ? run() : null), { offsetMs: 1600 }));
   }, UNNAMED_SWEEP_FIRST_MS);
+}
+/** A beat is the sweep's when a minute (less the beat's slack) has passed since its last pass. */
+export function unnamedSweepPassDue(lastPassAt, nowMs) {
+  return nowMs - lastPassAt >= UNNAMED_SWEEP_EVERY_MS - 5_000;
 }
 
 /** The address's `.kachat` name ("alice.kachat"), or null. The full name, for anything that is

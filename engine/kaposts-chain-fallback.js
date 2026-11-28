@@ -302,12 +302,31 @@ export function verifiedChainPostsInBlock(event) {
 }
 
 /** New posts off the node's block stream, only while the indexer is down: streaming every block
- *  costs data the indexer otherwise saves. `engine.addBlockScanClient(fn)` hands over each block
- *  and returns its removal; an engine without it just has no live posts. */
+ *  costs data the indexer otherwise saves. And only while Posts is on screen on a connection that
+ *  isn't metered (K 01f71184, release audit B1: about 10 blocks a second on every tab and on
+ *  cellular): `setOnScreen` and `setExpensivePath` say so. What it found stays for the outage.
+ *  `engine.addBlockScanClient(fn)` hands over each block and returns its removal; an engine without
+ *  it just has no live posts. */
 export function createKaPostLiveFeed() {
   let posts = []; // newest first
   let stopHandler = null;
+  /** The outage: posts and amendments are kept while this is on. */
   let active = false;
+  let streaming = false;
+  let onScreen = false;
+  let expensivePath = false;
+  let engineRef = null;
+  const updateStreaming = () => {
+    const wanted = active && onScreen && !expensivePath;
+    if (wanted === streaming) return;
+    streaming = wanted;
+    if (wanted) {
+      stopHandler = engineRef?.addBlockScanClient?.((block) => feed.ingest(block)) ?? null;
+      return;
+    }
+    try { stopHandler?.(); } catch { /* the node's already gone */ }
+    stopHandler = null;
+  };
   const seenPayloads = new Set();
   // Edits and deletes seen during the outage, by post id and the key that signed them: one counts
   // only on a post by that key (KaPost 369794e). Newest edit per post; a delete wins.
@@ -327,26 +346,38 @@ export function createKaPostLiveFeed() {
     /** The edits and deletes seen so far: `Map("postId|x-only signer" -> amendment)`. */
     amendments: () => amendments,
     isActive: () => active,
+    /** Whether blocks are being read now: the outage, with Posts on screen on an unmetered path. */
+    isStreaming: () => streaming,
     /** `listener(posts)`; returns the unsubscribe. */
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     setActive(engine, wanted) {
+      if (engine) engineRef = engine;
       if (Boolean(wanted) === active) return;
       active = Boolean(wanted);
-      if (active) {
-        stopHandler = engine?.addBlockScanClient?.((block) => feed.ingest(block)) ?? null;
+      if (!active) {
+        // The indexer has these now.
+        const hadPosts = posts.length > 0;
+        posts = [];
+        seenPayloads.clear();
+        amendments.clear();
+        updateStreaming();
+        if (hadPosts) announce();
         return;
       }
-      try { stopHandler?.(); } catch { /* the node's already gone */ }
-      stopHandler = null;
-      // The indexer has these now.
-      const hadPosts = posts.length > 0;
-      posts = [];
-      seenPayloads.clear();
-      amendments.clear();
-      if (hadPosts) announce();
+      updateStreaming();
+    },
+    /** Posts is the screen showing (and the page is visible). */
+    setOnScreen(value) {
+      onScreen = Boolean(value);
+      updateStreaming();
+    },
+    /** The connection is metered or the person asked to save data (navigator.connection). */
+    setExpensivePath(value) {
+      expensivePath = Boolean(value);
+      updateStreaming();
     },
     ingest(event) {
-      if (!active) return;
+      if (!active || !streaming) return;
       let amended = false;
       for (const { signer, amendment } of signedAmendmentsInBlock(event)) {
         const key = `${amendment.postId}|${signer}`;

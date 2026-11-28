@@ -16,6 +16,7 @@
 // Pure helpers only - no DOM, no network - so tools/test-payment-notice.mjs can run them.
 
 import { parseTokenPaymentNoticeText, TOKEN_PAYMENT_NOTICE_TYPE } from "./token-payment-notice.js";
+import { checkedSompiSum } from "./amounts.js";
 
 /** The longest note a notice carries or shows (iOS PaymentNoticeContent.maxMemoLength). */
 export const PAYMENT_NOTICE_MAX_MEMO_LENGTH = 500;
@@ -147,17 +148,18 @@ export function chatPaymentNotificationBody({ amountSompi = null, amountKas = nu
   return `Sent you ${whole}${fraction ? `.${fraction}` : ""} ${unit}`;
 }
 
-/** What a REST transaction (`/transactions/{txid}`) paid `address`, in BigInt sompi. */
+/** What a REST transaction (`/transactions/{txid}`) paid `address`, in BigInt sompi. An amount or a
+ *  sum past u64 (or negative) pays nothing, so it can't match a claim (K 01f71184 audit R6). */
 export function sompiPaidToAddress(tx, address) {
   const target = String(address || "").trim().toLowerCase();
   if (!target) return 0n;
-  let total = 0n;
+  const amounts = [];
   for (const output of Array.isArray(tx?.outputs) ? tx.outputs : []) {
     const outputAddress = String(output?.script_public_key_address || output?.scriptPublicKeyAddress || "").toLowerCase();
     if (outputAddress !== target) continue;
-    try { total += BigInt(output?.amount ?? 0); } catch { /* an unreadable amount pays nothing */ }
+    amounts.push(output?.amount ?? 0);
   }
-  return total;
+  return checkedSompiSum(amounts) ?? 0n;
 }
 
 /**

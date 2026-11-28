@@ -352,6 +352,7 @@ test("down: new posts come off the stream, a bad signature dropped, replies kept
   await confirmOutage();
   let feed = null;
   const engine = { ...A.engine, addBlockScanClient: (handler) => { feed = handler; return () => { feed = null; }; } };
+  kapostLiveFeed.setOnScreen(true); // Posts on screen (K 01f71184 B1)
   kapostLiveFeed.setActive(engine, true);
   assert.equal(typeof feed, "function", "the stream is asked for");
   const heard = [];
@@ -379,6 +380,7 @@ test("the real engine's block stream reaches the feed while it's down, and stops
   const engine = new KaspaEngine({ log: () => {} });
   engine.kaspa = kaspa;
   engine.startBroadcastBlockScan = async () => null; // no node here: the blocks are handed in below
+  kapostLiveFeed.setOnScreen(true);
   kapostLiveFeed.setActive(engine, true);
   assert.equal(engine.blockScanWanted(), true, "the stream is kept on for it");
   engine.handleBlockAddedEvent(blockWith(
@@ -399,6 +401,7 @@ test("the stream is only listened to while it's down, and an engine without the 
   const engine = { addBlockScanClient: () => { added += 1; return () => { removed += 1; }; } };
   live.ingest(blockWith(blockTx(71, postPayload(AUTHOR, "before"))));
   assert.deepEqual(live.posts(), [], "not active: nothing taken");
+  live.setOnScreen(true);
   live.setActive(engine, true);
   live.setActive(engine, true);
   assert.equal(added, 1);

@@ -151,6 +151,13 @@ export function excludeJustSpentUtxos(entries, now = Date.now()) {
 }
 /** Test hook: forgets every held-back coin. */
 export function clearJustSpentOutpoints() { justSpent.clear(); }
+/** The "txid:index" keys (lower case) still held back now (K 01f71184 heldOutpointKeys): what this
+ *  page's own sends and trades reserved. Empty after a reload. */
+export function heldOutpointKeys(now = Date.now()) {
+  const keys = new Set();
+  for (const [key, until] of justSpent) if (until > now) keys.add(String(key).toLowerCase());
+  return keys;
+}
 
 // A failed submit is not always a failed send (iOS IOS-014): a node can accept the transaction
 // while its answer is lost, and the retry on the standby (or the transient-UTXO retry below) then

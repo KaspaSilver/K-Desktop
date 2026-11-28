@@ -118,3 +118,44 @@ export function coldClipboardStillHolds(current, copied) {
   if (typeof current !== "string" || typeof copied !== "string" || !copied) return false;
   return current.trim() === copied.trim();
 }
+
+/// Which zero-balance addresses get their Used answer again after an account's balances are read
+/// (K 01f71184, release audit C1 / smoothness L1). The earlier answers carry over, so a used-but-empty
+/// address never drops into Unused while the list reloads; but an address whose balance moved since
+/// (a send's change landed and left again) or whose last check failed is asked again, so it doesn't
+/// stay Unused until a refresh. One that held Kaspa before was used (`heldBefore`, no request).
+/// `entries` are `{ address, balanceSompi, everUsed }` with the fresh balances; `balanceBefore` maps
+/// address -> the balance shown before the read (undefined when none was).
+export function coldUsedRecheck(entries, balanceBefore) {
+  const heldBefore = [];
+  const toProbe = [];
+  for (const entry of entries || []) {
+    if (!entry || entry.everUsed === true || (Number(entry.balanceSompi) || 0) > 0) continue;
+    const before = balanceBefore?.get?.(entry.address);
+    if ((Number(before) || 0) > 0) { heldBefore.push(entry); continue; }
+    if (entry.everUsed === undefined || entry.everUsed === null || before !== entry.balanceSompi) toProbe.push(entry);
+  }
+  return { heldBefore, toProbe };
+}
+
+/// Coin activity reloads an open account once, a second after the last notice, and never cancels a
+/// load in progress: activity during one queues a single reload after it (K 01f71184 C4 / L4, as
+/// ColdStorageDetailView.reloadAfterActivity). `load()` returns a Promise; `timers` is
+/// `{ setTimeout, clearTimeout }`. Returns `request()`.
+export function coldActivityReloader(load, { delayMs = 1000, timers = globalThis } = {}) {
+  let timer = null;
+  let running = false;
+  let queued = false;
+  function request() {
+    if (running) { queued = true; return; }
+    if (timer !== null) timers.clearTimeout(timer);
+    timer = timers.setTimeout(async () => {
+      timer = null;
+      running = true;
+      try { await load(); } catch { /* the next notice tries again */ }
+      running = false;
+      if (queued) { queued = false; request(); }
+    }, delayMs);
+  }
+  return request;
+}

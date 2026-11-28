@@ -413,10 +413,41 @@ function render() {
   const overlay = step.kind === "form" && !agreements[kind] ? renderAgreement(kind) : "";
   const fade = cycleChanged("page:swap", `${flowStart}:${flowPath.length}:${step.kind}`) ? " cycle-fade" : "";
   rootEl.innerHTML = `<div class="swap-root">${header}<div class="swap-page${fade}">${renderStep(step)}</div>${overlay}</div>`;
-  rootEl.querySelectorAll("[data-swap-qr]").forEach((qr) => {
-    if (qr.dataset.swapQr) deps.engine.drawQrFor(qr, qr.dataset.swapQr, { dark: "#06110f", light: "#ffffff" }).catch(() => {});
-  });
+  paintSwapQrs(rootEl);
   syncDepositPolling(step);
+}
+/// Deposit QRs already drawn, by their text (K 01f71184 swapQRCache, smoothness audit L6): the
+/// deposit page is drawn again with every 10 s status poll, and each draw made the QR afresh, so it
+/// blinked blank until the new one was ready. Made once, then copied in.
+const swapQrCache = new Map();
+function paintSwapQrs(root) {
+  root.querySelectorAll("[data-swap-qr]").forEach((qr) => {
+    const text = qr.dataset.swapQr;
+    if (!text) return;
+    const cached = swapQrCache.get(text);
+    if (cached) {
+      try {
+        qr.width = cached.width;
+        qr.height = cached.height;
+        if (cached.style.width) qr.style.width = cached.style.width;
+        if (cached.style.height) qr.style.height = cached.style.height;
+        qr.getContext("2d")?.drawImage(cached, 0, 0);
+        return;
+      } catch { /* drawn afresh below */ }
+    }
+    deps.engine.drawQrFor(qr, text, { dark: "#06110f", light: "#ffffff" }).then(() => {
+      try {
+        const copy = document.createElement("canvas");
+        copy.width = qr.width;
+        copy.height = qr.height;
+        copy.style.width = qr.style.width;
+        copy.style.height = qr.style.height;
+        copy.getContext("2d")?.drawImage(qr, 0, 0);
+        if (swapQrCache.size >= 20) swapQrCache.delete(swapQrCache.keys().next().value);
+        swapQrCache.set(text, copy);
+      } catch { /* drawn again next time */ }
+    }).catch(() => {});
+  });
 }
 function renderStep(step) {
   switch (step.kind) {
@@ -1328,9 +1359,7 @@ function openSheet(name, html, extraClass = "") {
   body.className = `contact-modal swap-sheet${extraClass ? ` ${extraClass}` : ""}`;
   body.innerHTML = html;
   el.hidden = false;
-  el.querySelectorAll("[data-swap-qr]").forEach((qr) => {
-    if (qr.dataset.swapQr) deps.engine.drawQrFor(qr, qr.dataset.swapQr, { dark: "#06110f", light: "#ffffff" }).catch(() => {});
-  });
+  paintSwapQrs(el);
   return el;
 }
 function isSheetOpen(name) {

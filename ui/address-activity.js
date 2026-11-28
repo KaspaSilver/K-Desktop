@@ -9,6 +9,8 @@
 // announced when any of its inputs spends from one of our addresses: our own change, including
 // what another app on the same seed sends (KaPay 42470af).
 
+import { checkedSompiSum } from "../engine/amounts.js";
+
 /** A transaction with no payload: plain KAS, not a KaChat chat payment, message or handshake
  *  (iOS isPlainTransfer). The REST API sends the payload as hex, "" or null when there is none. */
 export function isPlainTransferTx(tx) {
@@ -53,6 +55,39 @@ export function catchUpCandidates(txs, floor, { chatting = false, belongsInHisto
     .filter((tx) => !chatting || isPlainTransferTx(tx))
     .sort((a, b) => rank(b) - rank(a));
   return { nextFloor, candidates };
+}
+
+/** How many of an address's newest transactions a catch-up reads (K 01f71184 audit B6: 3, not 10:
+ *  it runs on every check, and the chatting address's newest are mostly your own messages). */
+export const CATCH_UP_TX_COUNT = 3;
+
+/**
+ * One catch-up look with the bell rule (K 01f71184, owner 2026-11-27): every receive to an own
+ * address goes in Profile's bell, with notifications or Address Activity off too and whatever the
+ * address's own switch; `rings` (Address Activity on and the address's switch on) decides only the
+ * ping. Every address has a floor (audit R2): an address looked at for the first time (`storedFloor`
+ * 0) only sets it, silently, when it is the chatting address or quiet - so turning quiet addresses'
+ * receives into bell rows never files months-old ones. A ringing address's first look counts as it
+ * always did (bounded by the balance increase). An empty answer on a first look sets the floor to
+ * `now`. Gives `{ floorToSave (0 = keep), candidates, firstLookOnly }`.
+ */
+export function catchUpLook(txs, storedFloor, { chatting = false, rings = false, belongsInHistory = () => true, now = Date.now() } = {}) {
+  const firstLook = !(Number(storedFloor) > 0);
+  const { nextFloor, candidates } = catchUpCandidates(txs, storedFloor, { chatting, belongsInHistory, now });
+  const floorToSave = nextFloor || (firstLook ? now : 0);
+  const firstLookOnly = firstLook && (chatting || !rings);
+  return { floorToSave, candidates: firstLookOnly ? [] : candidates, firstLookOnly };
+}
+
+/** What a REST transaction's outputs pay `address`, BigInt sompi: `readAddress(output)` and
+ *  `readAmount(output)` read each output. Null when an amount or the sum is past u64 or negative
+ *  (K 01f71184 audit R6): the transaction is skipped, never filed with a sum that can't be real. */
+export function outputsSompiTo(tx, address, { readAddress, readAmount }) {
+  const amounts = [];
+  for (const output of Array.isArray(tx?.outputs) ? tx.outputs : []) {
+    if (readAddress(output) === address) amounts.push(readAmount(output));
+  }
+  return checkedSompiSum(amounts);
 }
 
 function inputAddress(input) {

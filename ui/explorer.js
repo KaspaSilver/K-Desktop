@@ -25,9 +25,9 @@ import { NETWORK_ID, KAS_UNIT, isValidKaspaAddress } from "../engine/network.js"
 import { isProxyAvailable, proxiedUrl } from "../engine/endpoints.js";
 import { fetchKasPriceHistory } from "../engine/prices.js";
 import { parseChainPayload } from "../engine/kaposts.js";
-import { formatKusdt, kusdtDollars } from "../engine/kusdt.js";
+import { kusdtDollars } from "../engine/kusdt.js";
 import {
-  explorerApiBase, TX_KINDS, isKKind, classifyTransaction, readFully, transactionFromIndexed, blockFromNode,
+  explorerApiBase, explorerKusdt, TX_KINDS, isKKind, classifyTransaction, readFully, transactionFromIndexed, blockFromNode,
   flexNumber, sompiFromKas, isNotAccepted, isInMempool, movedAmount, netFor, addressHistory, addressSummary,
   FIRST_ADDRESS_PAGE, LATER_ADDRESS_PAGE, nextPageCursor, queryKind, grouped, twoLines, shortId, ago,
   hashrateText, difficultyText, rewardText, compactUsd, compactKas, kasAmount, usdText, daysUntil, percentText,
@@ -775,7 +775,7 @@ function txRowHtml(tx, { showsAge = true, perspective = null } = {}) {
   const notAccepted = isNotAccepted(tx);
   const amount = perspective && tx.tokenUnits == null
     ? perspectiveAmount(tx, perspective, KAS_UNIT)
-    : amountLine(tx, { short: true, unit: KAS_UNIT, formatKusdt });
+    : amountLine(tx, { short: true, unit: KAS_UNIT, formatKusdt: explorerKusdt });
   const incoming = perspective ? netFor(tx, perspective).isIncoming : false;
   return `
     <button type="button" class="kx-row${notAccepted ? " kx-not-accepted" : ""}" data-kx-open="tx:${esc(tx.id)}">
@@ -1171,7 +1171,7 @@ function transactionPageHtml(entry) {
     <div class="kx-hero">
       ${kindBadgeHtml(tx.kind, 58)}
       <strong class="kx-hero-kind">${esc(kindOf(tx.kind).title)}</strong>
-      <span class="kx-hero-amount kx-num">${esc(amountLine(tx, { unit: KAS_UNIT, formatKusdt }))}</span>
+      <span class="kx-hero-amount kx-num">${esc(amountLine(tx, { unit: KAS_UNIT, formatKusdt: explorerKusdt }))}</span>
       ${tx.tokenUnits == null && moved != null ? `<span class="kx-muted">${esc(usdOf(moved))}</span>` : ""}
       ${statusPillHtml(tx)}
     </div>
@@ -1245,7 +1245,7 @@ function addressPageHtml(entry) {
         <div class="kx-row kx-row-static">${kaspaCoinIconHtml(36)}<span class="kx-row-body"><strong>Kaspa</strong><span class="kx-muted kx-small">Kaspa's own coin</span></span>
           <span class="kx-row-end"><span class="kx-row-strong kx-num">${esc(kasAmount(info.balance, KAS_UNIT))}</span><span class="kx-muted kx-small kx-num">${esc(usdOf(info.balance))}</span></span></div>
         <div class="kx-row kx-row-static">${kusdtCoinIconHtml(36)}<span class="kx-row-body"><strong>kUSDT</strong><span class="kx-muted kx-small">A dollar token on Kaspa</span></span>
-          <span class="kx-row-end"><span class="kx-row-strong kx-num">${esc(formatKusdt(units))}</span><span class="kx-muted kx-small kx-num">${esc(kusdtDollars(units))}</span></span></div>
+          <span class="kx-row-end"><span class="kx-row-strong kx-num">${esc(explorerKusdt(units))}</span><span class="kx-muted kx-small kx-num">${esc(kusdtDollars(units))}</span></span></div>
       </div>`;
   }
   return `
@@ -1262,7 +1262,7 @@ function addressPageHtml(entry) {
       <span class="kx-caps kx-muted">Balance</span>
       <strong class="kx-balance-amount kx-num">${esc(kasAmount(info.balance, KAS_UNIT))}</strong>
       <span class="kx-muted">${esc(usdOf(info.balance))}</span>
-      ${info.kusdtUnits != null ? `<div class="kx-divider"></div><span class="kx-balance-token">${kusdtCoinIconHtml(20)}<strong class="kx-num">${esc(formatKusdt(info.kusdtUnits))}</strong></span>` : ""}
+      ${info.kusdtUnits != null ? `<div class="kx-divider"></div><span class="kx-balance-token">${kusdtCoinIconHtml(20)}<strong class="kx-num">${esc(explorerKusdt(info.kusdtUnits))}</strong></span>` : ""}
     </div>
     <div class="kx-tiles">
       ${tileHtml({ icon: "down", title: "Received", value: compactKas(info.received30d, KAS_UNIT), detail: summaryDetail })}

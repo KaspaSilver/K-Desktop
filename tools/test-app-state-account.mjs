@@ -144,7 +144,9 @@ function activityHarness({ switchDuring = null } = {}) {
     saveAddrActivityHandled: (list) => writes.push(["handled", engine.address, [...list]]),
     makeOutputAddressLookup: () => async () => null,
     fetchRecentFullTransactionsFor: async () => { if (switchDuring === "fetch") engine.address = "kaspa:new"; return [tx]; },
-    catchUpCandidates: (txs) => ({ nextFloor: 1000, candidates: txs }),
+    catchUpLook: (txs) => ({ floorToSave: 1000, candidates: txs, firstLookOnly: false }),
+    CATCH_UP_TX_COUNT: 3,
+    outputsSompiTo: (tx, address, { readAddress, readAmount }) => tx.outputs.filter((o) => readAddress(o) === address).reduce((sum, o) => sum + BigInt(readAmount(o)), 0n),
     transactionBelongsInHistory: () => true,
     // K 961fc05a: only a receive from the last few minutes rings; this one has no block time (now)
     txBlockTimeMs: () => 0,

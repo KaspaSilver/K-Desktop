@@ -276,10 +276,18 @@ export function hideAllKeepingListed(revealed = [], listedIndices = new Set()) {
   return revealed.filter((i) => !listedIndices.has(Number(i)));
 }
 
-/** Whether the 90 s poll checks now (iOS startPolling): the page is showing, an account is open,
- *  Address Activity notifications are on, and the account uses kUSDT. */
-export function shouldPoll({ visible, account, notificationsEnabled, usesTokens }) {
-  return Boolean(visible && account && notificationsEnabled && usesTokens);
+/** Whether the poll checks now (iOS startPolling): the page is showing, an account is open, and
+ *  the account uses kUSDT. With Address Activity off too since K 01f71184 (owner 2026-11-27): the
+ *  bell still gets Received kUSDT, only less often (pollMaxAgeMs). */
+export function shouldPoll({ visible, account, usesTokens }) {
+  return Boolean(visible && account && usesTokens);
+}
+
+/** With Address Activity notifications off the balances are looked up every 5 minutes instead of
+ *  every beat (K 01f71184 TokenWallet.startPolling: refreshIfStale(maxAge: 290)). */
+export const KUSDT_QUIET_POLL_MAX_AGE_MS = 290_000;
+export function pollMaxAgeMs(notificationsEnabled) {
+  return notificationsEnabled ? KUSDT_POLL_MAX_AGE_MS : KUSDT_QUIET_POLL_MAX_AGE_MS;
 }
 
 /** One holding (iOS TokenHolding): `units` BigInt, `coinCount` coins. */
@@ -304,7 +312,8 @@ export function makeHolding(spendingIndex, address, units, coinCount) {
  *   spendingLabel(index)        "Address #3" or the label given to it
  *   ownAddresses()              every address of the account (findReceived)
  *   fetchTransactionInputs(txid) -> [{ hash, index, address }] | { inputs, blockTimeMs } | null
- *   notificationsEnabled()      Settings > Notifications > Address Activity
+ *   notificationsEnabled()      Settings > Notifications > Address Activity: the ping and the poll's
+ *                               pace only; the bell gets every Received kUSDT (K 01f71184)
  *   notify({ title, body, ring, happenedAtMs })  the desktop notification (only when `ring`: a coin
  *                               from the last six minutes, K 961fc05a) and the bell (dated
  *                               `happenedAtMs`, when the newest came)
@@ -455,10 +464,9 @@ export function createKusdtWallet(deps) {
           const key = `${String(coin.transactionId).toLowerCase()}:${coin.index}`;
           let filed = false;
           try { filed = Boolean(deps.isNoticeFiled?.(String(coin.transactionId || "").toLowerCase())); } catch { filed = false; }
-          // with notifications off there is no second ping to spare, so no wait for the history row
-          let ringing = true;
-          try { ringing = deps.notificationsEnabled?.() !== false; } catch { ringing = true; }
-          if (filed || !ringing || holdingId !== CHATTING_HOLDING_ID) { awaitingNotice.delete(key); return false; }
+          // with notifications off too: the bell gets it either way, and the chat's notice is the
+          // one row a contact's Send Dollars should have (K 01f71184)
+          if (filed || holdingId !== CHATTING_HOLDING_ID) { awaitingNotice.delete(key); return false; }
           const firstSeen = awaitingNotice.get(key) ?? now();
           awaitingNotice.set(key, firstSeen);
           if (now() - firstSeen < KUSDT_NOTICE_WAIT_MS) return true;
@@ -469,7 +477,9 @@ export function createKusdtWallet(deps) {
     } catch (error) { log(`[kUSDT] received check failed: ${error?.message || error}`); return; }
     if (account() !== owner || !found.received.length) return;
     emit(); // the new history rows
-    if (!deps.notificationsEnabled?.()) return;
+    // The bell always gets it; only the ping follows Address Activity (K 01f71184, owner 2026-11-27).
+    let ringing = false;
+    try { ringing = deps.notificationsEnabled?.() !== false; } catch { ringing = false; }
     // a contact's Send Dollars the chat already showed and announced: no second banner (KaChat iOS
     // 5b7c772c isNoticeBubble); its history row stays
     const announced = found.received.filter((r) => {
@@ -480,7 +490,7 @@ export function createKusdtWallet(deps) {
     const labels = (holdings || []).filter((h) => ids.includes(h.id)).map(labelOf);
     const note = receivedNotification(announced, labels.length ? labels : ids.map(() => "address"), (u) => formatKusdt(u));
     const { ring, happenedAtMs } = receivedRing(announced, { windowMs: deps.ringWindowMs ?? KUSDT_RING_WINDOW_MS, now: now() });
-    try { deps.notify?.({ ...note, ring, happenedAtMs }); } catch { /* the notification's own problem */ }
+    try { deps.notify?.({ ...note, ring: ring && ringing, happenedAtMs }); } catch { /* the notification's own problem */ }
   }
 
   function scheduleFollowUp(ms, owner) {
@@ -802,8 +812,10 @@ export function createKusdtWallet(deps) {
     // on the shared beat, a second and a half after the room sweep (K 961fc05a ForegroundBeat)
     pollTimer = onForegroundBeat(() => {
       const owner = account();
-      if (!shouldPoll({ visible: deps.isVisible?.() ?? true, account: owner, notificationsEnabled: deps.notificationsEnabled?.(), usesTokens: usesTokens() })) return;
-      refreshIfStale(KUSDT_POLL_MAX_AGE_MS).catch(() => {});
+      if (!shouldPoll({ visible: deps.isVisible?.() ?? true, account: owner, usesTokens: usesTokens() })) return;
+      let ringing = false;
+      try { ringing = deps.notificationsEnabled?.() !== false; } catch { ringing = false; }
+      refreshIfStale(pollMaxAgeMs(ringing)).catch(() => {});
     }, { offsetMs: 1_500, isVisible: () => true });
   }
   function stopPolling() { if (pollTimer) pollTimer(); pollTimer = null; }

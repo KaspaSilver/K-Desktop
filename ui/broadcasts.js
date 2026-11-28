@@ -12,6 +12,8 @@ import { isKaChatSiteLink } from "./kaposts-format.js";
 import { allowsPreview } from "../engine/link-preview-policy.js";
 import { stripBidiControls } from "./kaposts-markdown.js";
 import { onForegroundBeat, BEAT_MS } from "./foreground-beat.js";
+import { pushPollGate } from "./push-poll-gate.js";
+import { jumpToLatest } from "./jump-to-latest.js";
 import { sompiFromUserText, kasTextFromSompi } from "../engine/amounts.js";
 import {
   BROADCAST_RETENTION_MS,
@@ -3684,6 +3686,14 @@ export function resetBroadcastsForAccount() {
 const SWEEP_MS = BEAT_MS;
 let sweepTimer = null;
 let sweepRunning = false;
+/** Rooms swept at least once this session (for this account). */
+const sweptRooms = new Set();
+let sweptRoomsGeneration = -1;
+/** The push registration watches this room (broadcastPushWatch: bell on, indexer-tracked, shown)
+ *  and it's read from the app-wide indexer the push service follows (K pushCoversRoom). */
+function roomPushCovers(name) {
+  return Boolean(notifyByChannel[name]) && isIndexerTrackedBroadcastChannel(name) && curatedShown(name) && !indexerOverrideFor(name);
+}
 function startClosedRoomSweep() {
   if (sweepTimer) return;
   sweepTimer = onForegroundBeat(() => sweepClosedRooms(), { offsetMs: 0 });
@@ -3693,13 +3703,19 @@ async function sweepClosedRooms() {
   if (sweepRunning || document.hidden || !deps || !deps.engine?.address || !hasBroadcastIndexer()) return;
   sweepRunning = true;
   const generation = roomAccountGeneration;
+  // With Web Push proven (ui/push-poll-gate.js, K 01f71184 B4), a room the push covers is swept
+  // every 5 minutes as a safety net, its push fetching it at once; each still gets one sweep first.
+  const coveredDue = pushPollGate.takeCoveredRoomsTurn();
+  if (sweptRoomsGeneration !== generation) { sweptRooms.clear(); sweptRoomsGeneration = generation; }
   try {
     for (const name of listedChannels()) {
       if (generation !== roomAccountGeneration) return;
       if (name === activeChannel || !notifyByChannel[name] || !isIndexerTrackedBroadcastChannel(name)) continue;
+      if (!coveredDue && roomPushCovers(name) && sweptRooms.has(name)) continue;
       try {
         const result = await fetchBroadcastHistory({ channel: name, limit: 50, baseUrl: indexerOverrideFor(name) || null });
         if (generation !== roomAccountGeneration) return;
+        sweptRooms.add(name);
         // a message a moderator removed goes from closed rooms too, not only when one opens (K e4062188)
         const changed = mergeMessages(name, result.messages) + dropRowsTheIndexerNoLongerHas(name, result.messages);
         if (changed > 0) renderChannelList();
@@ -3906,7 +3922,8 @@ export function initBroadcasts(dependencies) {
     btn.setAttribute("aria-label", "Scroll to latest");
     btn.hidden = true;
     btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
-    btn.addEventListener("click", () => roomBodyEl.scrollTo({ top: roomBodyEl.scrollHeight, behavior: "smooth" }));
+    // far up: lands a screen short first, then glides (K 01f71184 C6)
+    btn.addEventListener("click", () => jumpToLatest(roomBodyEl));
     roomBodyEl.parentElement.appendChild(btn);
     roomBodyEl.addEventListener("scroll", () => {
       btn.hidden = roomBodyEl.scrollHeight - roomBodyEl.scrollTop - roomBodyEl.clientHeight < 120;

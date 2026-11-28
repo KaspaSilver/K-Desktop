@@ -11290,6 +11290,8 @@ body.chats-tab .app-detail { background: var(--bg-plain); }
 .sk-source-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .sk-source-name { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sk-source-address { font-family: ui-monospace, monospace; font-size: 11.5px; color: var(--muted); }
+/* A quantum row's tag under its name (K 01f71184 OwnAddressList): its own width, not the row's. */
+.sk-source-copy > .quantum-tag { align-self: flex-start; padding: 2px 7px; font-size: 11px; }
 .sk-source-balance { font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sk-source-balance.empty { color: var(--muted); }
 .sk-source-check { flex: 0 0 18px; width: 18px; height: 18px; color: var(--kaspa-ink); }

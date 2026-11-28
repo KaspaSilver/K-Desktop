@@ -22,7 +22,7 @@ import { schnorrOwner, kusdtUnitsFromText, formatKusdt } from "./kusdt.js";
 import { hex, unhex32, bytesEqual } from "./kachat-names/codec.js";
 import { sompiFromUserText, sanitizeAmountInput, kasTextFromSompi, groupedAmountText } from "./amounts.js";
 import { KusdtCoreError } from "./kusdt-core.js";
-import { coinsInUseReason, enqueueSend } from "./transactions.js";
+import { coinsInUseReason, enqueueSend, heldOutpointKeys } from "./transactions.js";
 
 /** A maybe-sent trade holds its address this long (iOS `holdSeconds`). */
 export const TRADE_HOLD_MS = 600_000;
@@ -167,12 +167,15 @@ export function swapRecord(done) {
  *                                          (default engine/transactions.js coinsInUseReason; null: no check)
  * @param {function} [deps.queue]           (address, task) => Promise: the per-address send queue
  *                                          (default engine/transactions.js enqueueSend; null: none)
+ * @param {function} [deps.heldOutpoints]   () => Set of "txid:index" this page still holds back
+ *                                          (default engine/transactions.js heldOutpointKeys)
  */
 export function createTrestlyTrade(deps) {
   const now = deps.now || (() => Date.now());
   const inFlight = new Set();
   const coinsInUse = deps.coinsInUse === undefined ? coinsInUseReason : deps.coinsInUse;
   const queue = deps.queue === undefined ? enqueueSend : deps.queue;
+  const heldOutpoints = deps.heldOutpoints || heldOutpointKeys;
 
   // MARK: Holds (iOS `MaybeSentHold`)
   function readHolds() {
@@ -201,13 +204,19 @@ export function createTrestlyTrade(deps) {
     writeHolds(all);
   }
   /** Minutes left on this address's hold, or null when it may trade: no hold, the hold ran out, or a
-   *  coin it had before is gone from the node (the earlier trade landed). */
+   *  coin it had before is gone from the node (the earlier trade landed). A gone coin counts only
+   *  while this page still holds the hold's coins back: then no send of K's could have spent it.
+   *  After a reload that hold is gone, a send may have taken one, and the hold lasts its ten
+   *  minutes (K 01f71184 TrestlyTrade.heldMinutes, release audit Low). */
   async function heldMinutes(address) {
     const held = readHolds()[address];
     if (!held) return null;
     const left = Number(held.until) - now();
     if (!(left > 0)) { release(address); return null; }
-    if (held.outpoints?.length && deps.outpointsOf) {
+    let reserved = null;
+    try { reserved = heldOutpoints(); } catch { reserved = null; }
+    const stillReserved = Boolean(reserved) && (held.outpoints || []).every((o) => reserved.has(String(o).toLowerCase()));
+    if (held.outpoints?.length && stillReserved && deps.outpointsOf) {
       let present = null;
       try { present = new Set((await deps.outpointsOf(address)).map(String)); } catch { present = null; }
       if (present && held.outpoints.some((o) => !present.has(String(o)))) { release(address); return null; }

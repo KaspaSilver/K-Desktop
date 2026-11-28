@@ -16,7 +16,7 @@ import {
 import { getEndpoint, ENDPOINT_DEFAULTS } from "./endpoints.js";
 import { fromIndexerOrChain, shouldSkipIndexer } from "./indexer-health.js";
 import { chainHistory } from "./chain-history.js";
-import { kasTextFromSompi } from "./amounts.js";
+import { kasTextFromSompi, checkedSompiSum } from "./amounts.js";
 import { decodeAddress, AddressVersion } from "./kachat-names/registry-state.js";
 import { verifyRestTransactionSignaturesWithSender, scriptPublicKeyFromAddress, parseU32 } from "./payment-signatures.js";
 import { quantumAddressForRedeem } from "./quantum.js";
@@ -1255,14 +1255,15 @@ export function restOutputPaysAddress(output, address) {
   if (scriptHex && ours) return scriptHex === bytesToHex(ours);
   return Boolean(address) && restOutputAddress(output) === address;
 }
-/// What a REST transaction pays `address`, in sompi (BigInt), by script (IOS-098).
+/// What a REST transaction pays `address`, in sompi (BigInt), by script (IOS-098). An amount or a
+/// sum past u64 (or negative) pays nothing: the transaction is skipped (K 01f71184 audit R6).
 export function restPaymentSompiTo(tx, address) {
-  let total = 0n;
+  const amounts = [];
   for (const output of Array.isArray(tx?.outputs) ? tx.outputs : []) {
     if (!restOutputPaysAddress(output, address)) continue;
-    try { total += BigInt(output?.amount ?? output?.value ?? output?.sompi ?? 0); } catch { /* not an amount */ }
+    amounts.push(output?.amount ?? output?.value ?? output?.sompi ?? 0);
   }
-  return total;
+  return checkedSompiSum(amounts) ?? 0n;
 }
 /// The first REST input address that isn't `walletAddress` - the unchecked REST answer's sender
 /// (iOS senderAddress); "" when there is none.

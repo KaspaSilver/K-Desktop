@@ -124,7 +124,8 @@ const notice = { token: "kusdt", txId: TX, index: 0, amount: AMOUNT, address: ME
 const nodeCoin = (overrides = {}) => ({ outpoint: { transactionId: TX, index: 0 }, amount: 150_000_000n, scriptVersion: 0, scriptPublicKey: C.hex(coinScript), covenantId: dep.covenantId, ...overrides });
 const verdict = (tx, extra = {}) => T.checkTokenNoticeOnChain({
   tx, notice, paidAddress: ME, payer: PAYER, ownAddresses: [ME, MY_SPENDING], otherContactAddresses: [PAYER, OTHER], network: net, template: tmpl,
-  readNodeUtxos: async () => { throw new Error("the node isn't asked when the explorer names the covenant"); }, ...extra,
+  // the coin, unspent on the node (K 01f71184 C7: the node decides even when the explorer names the id)
+  readNodeUtxos: async () => [nodeCoin()], ...extra,
 });
 
 await check("valid: output 0 is my coin of that amount, with kUSDT's covenant id from the explorer, paid by the contact", async () => {
@@ -193,6 +194,18 @@ await check("no covenant id from the explorer: the node's, while the coin is uns
   assert.equal((await verdict(noCovenant, { readNodeUtxos: node([]) })).status, "unknown", "spent since: can't tell");
   assert.equal((await verdict(noCovenant, { readNodeUtxos: async () => { throw new Error("down"); } })).status, "unknown");
   assert.equal((await verdict(noCovenant, { readNodeUtxos: null })).status, "unknown");
+});
+
+await check("the explorer's covenant id is only a hint: the node decides while the coin is unspent (K 01f71184 C7)", async () => {
+  const node = (list) => async () => list;
+  assert.equal((await verdict(txWith(), { readNodeUtxos: node([nodeCoin({ covenantId: "11".repeat(32) })]) })).status, "invalid", "a REST server naming kUSDT's id on a look-alike");
+  assert.equal((await verdict(txWith(), { readNodeUtxos: node([nodeCoin({ scriptPublicKey: "00" })]) })).status, "invalid");
+  assert.deepEqual(await verdict(txWith(), { readNodeUtxos: node([]) }), { status: "valid" }, "spent since: the explorer's matching id is all there is");
+  assert.equal((await verdict(txWith(), { readNodeUtxos: async () => { throw new Error("down"); } })).status, "unknown", "no node answer: asked again later");
+  let asked = false;
+  const wrong = txWith({ outputs: [{ index: 0, script_public_key_address: coinAt, covenant_id: "11".repeat(32) }] });
+  assert.equal((await verdict(wrong, { readNodeUtxos: async () => { asked = true; return [nodeCoin()]; } })).status, "invalid");
+  assert.equal(asked, false, "an explorer id that isn't kUSDT's is refused without asking the node");
 });
 
 await check("a chatting address that can't hold tokens, or an unknown token, is invalid", async () => {

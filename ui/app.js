@@ -7,7 +7,8 @@ import { installGroupedAmountInputs } from "./grouped-amount.js";
 import { contractPurgePlan, contractSuppressionRecovery } from "./contract-purge.js";
 import { RAIL_ORDER, dockLayoutFor, currentTabId } from "./dock-arrangement.js";
 import { initAddressDomainsTab, renderAddressDomainsTab } from "./address-domains-tab.js";
-import { catchUpCandidates, spendsOwnFunds, markOwnTransaction, isMarkedOwnTransaction, txBlockTimeMs } from "./address-activity.js";
+import { catchUpLook, CATCH_UP_TX_COUNT, outputsSompiTo, spendsOwnFunds, markOwnTransaction, isMarkedOwnTransaction, txBlockTimeMs } from "./address-activity.js";
+import { createOwedSpendingNotices } from "./owed-spending-notices.js";
 import { isRecentForBanner, bellTimestamp, KUSDT_RING_WINDOW_MS } from "./notification-recency.js";
 import { ownHistoryAmount } from "../engine/history-amounts.js";
 import { isHiddenPlaceholder, isHiddenPlaceholderMessage, newestVisibleMessage, upgradesPlaceholder, isCallSignal } from "./message-placeholders.js";
@@ -51,6 +52,9 @@ import { initKachatMarket, showKachatMarket, hideKachatMarket, openKachatProfile
 import { initExplorer, showExplorer, hideExplorer, explorerToHome, openExplorerRoute } from "./explorer.js";
 // Closed-app notifications (Web Push) and the app icon's badge.
 import { initWebPush, scheduleWebPushSync, webPushStatus, webPushStatusText, webPushSignOut, webPushForgetAccount, setAppIconBadge, forgetAppliedAppIconBadge, takePendingNotificationClick, needsHomeScreenInstall, pushArrivedRecently } from "./web-push.js";
+import { pushPollGate } from "./push-poll-gate.js";
+import { jumpToLatest } from "./jump-to-latest.js";
+import { onDayChange } from "./day-change.js";
 import { authorKeyFromAddress, compressedPubkeyHex, PUSH_LIMITS } from "./web-push-core.js";
 import { deriveBlindedGroupId as pushBlindedGroupId, bytesToHex as pushBytesToHex, hexToBytes as pushHexToBytes } from "../engine/group.js";
 import { broadcastPushWatch, activeBroadcastChannelName } from "./broadcasts.js";
@@ -140,7 +144,7 @@ import { accountChipLabel, switcherAccounts, hasKeysOnThisDevice, runAccountSwit
 import { getEndpoint, getEndpoints, getEndpointOverride, setEndpoint, ENDPOINT_DEFAULTS, DEFAULT_TRUSTED_NODE, DEFAULT_MAINNET_INDEXER, setVerboseApiLogging, isProxyAvailable, proxiedUrl } from "../engine/endpoints.js";
 import { isBip39Word, bip39Matches } from "./bip39-english.js";
 import { createAccountBackupStatus, nextDefaultAccountName, accountHasFunds } from "./account-backup-status.js";
-import { walletTotalSompi, spendingTotalAfterRead, sumBalancesSompi, walletAmountText } from "./wallet-balance.js";
+import { walletTotalSompi, spendingTotalAfterRead, sumBalancesSompi, walletAmountText, fiatFixedText, addressCardKasText } from "./wallet-balance.js";
 import { configureAccountBackup, openAccountBackup, openBackupHygiene, closeAccountBackup } from "./account-backup.js";
 import { ownedNamesStorageKey } from "../engine/kachat-names/owned-names-cache.js";
 import { marketAddressesStorageKey } from "../engine/kachat-names/actions.js";
@@ -4628,6 +4632,8 @@ function maybeNotifyIncoming(conversationEntry, contact, message) {
   if (!recent) return;
   // Don't notify for the conversation you're already looking at in a focused window (iOS: the
   // active conversation while the app is active - a visible window behind another app still rings).
+  // its push should have come: proof that Web Push works, or a miss (ui/push-poll-gate.js)
+  pushPollGate.observeIncoming(notificationKeyForMessage(message));
   if (chatOnScreen(conversationEntry.id) && appIsInFront()) return;
   // Who sent it - the name you gave them, else their .kachat name, else the short address - and a
   // chat payment says what: "Sent you 1.5 KAS" (iOS dcb329a). A notice still reads "Received
@@ -8701,7 +8707,8 @@ async function refreshAllConversations({ quiet = true } = {}) {
     // Chats a past payment is the only proof of: once per wallet, alongside (see the function).
     restoreChatsFromPaymentHistory().catch(() => {});
     // People writing to us for the first time, without a handshake (Message Requests).
-    if (hasIndexer) try { added += await syncInbox({ catchUp }); }
+    // Every second beat while Web Push is proven, every sweep otherwise (ui/push-poll-gate.js, K 01f71184 B5).
+    if (hasIndexer && pushPollGate.takeInboxTurn({ catchUp })) try { added += await syncInbox({ catchUp }); }
     catch (error) { appendEngineLog(`Inbox sync failed: ${error.message}`); }
     try { added += await syncStrangerPaymentsIntoSelfChat({ catchUp }); }
     catch (error) { appendEngineLog(`Stranger payment sweep failed: ${error.message}`); }
@@ -8730,7 +8737,9 @@ async function refreshAllConversations({ quiet = true } = {}) {
         catch (error) { sweepFailures += 1; appendEngineLog(`Automatic message sync failed for ${conversationEntry.id}: ${error.message}`); }
       }
     }));
-    try { added += await syncGroupsNow({ catchUp }); }
+    // Every sweep, or every 3 minutes while Web Push is proven and covers every group with none
+    // open; a group push reads it at once (ui/push-poll-gate.js, K 01f71184 B4).
+    if (pushPollGate.takeGroupTurn({ catchUp, groupOpen: Boolean(activeGroupId) && !document.hidden })) try { added += await syncGroupsNow({ catchUp }); }
     catch (error) { appendEngineLog(`Group sync failed: ${error.message}`); }
     // After the catch-up sweep: old chats whose first messages could later be removed stay
     // ordinary chats (iOS 60c9fd0).
@@ -9852,8 +9861,9 @@ function spendingLabelFor(state, index) {
 // in the tracked set via ownWatchedActivityAddresses), on startup, and on a
 // slow safety interval. Deduped per txId (persisted, capped).
 //
-// Gated by Settings > Notifications > Wallet > "Address Activity" (default
-// ON).
+// Settings > Notifications > Wallet > "Address Activity" (default ON) and each
+// address's own switch decide only the ping: every receive goes in Profile's
+// bell whatever they say (K 01f71184, owner 2026-11-27).
 // ---------------------------------------------------------------------------
 
 const ADDR_ACTIVITY_BASELINES_KEY = "kachat-addr-activity-baselines-v1"; // account-scoped { address: sompi string }
@@ -9979,6 +9989,11 @@ function addressActivityMutedList() {
   }
   muted.delete(engine.address || "");
   return [...muted];
+}
+// A switched-off address's wording kind, for its bell row (K 01f71184: its receives are listed too).
+function addressActivityQuietKind(address) {
+  const cold = listColdWatchedAddresses().find((entry) => entry.address === address);
+  return cold ? `cold:${cold.label}` : "spending";
 }
 
 // Addresses that count as "ours" when they appear among a tx's INPUTS —
@@ -10119,14 +10134,12 @@ async function runAddressActivityCheck() {
       if (previous !== balanceText) { changed = true; balanceMoved = true; }
       let previousSompi = 0n;
       try { previousSompi = BigInt(previous); } catch {}
-      if (!isFirstRun && balance > previousSompi && addressActivityFeatureEnabled() && watched.has(address)) {
-        increases.push({ address, delta: balance - previousSompi, kind: watched.get(address) });
-      } else if (!isFirstRun && balance > previousSompi) {
-        // A receive while its switch is off (Address Activity, the spending switch, a Cold Storage
-        // account's): its floor moves to now with the baseline, so switching back on never
-        // announces what came meanwhile (K 8cb4c88e: baselines, handled marks and the chatting
-        // floor follow every own address whatever the switches say).
-        saveActivityFloor(address, Date.now());
+      if (!isFirstRun && balance > previousSompi) {
+        // Every receive goes in the bell, with Address Activity or this address's switch off too;
+        // the switches decide only the ping (K 01f71184, owner 2026-11-27). A quiet address's
+        // floor moves with what its look reads, as a ringing one's does (catchUpLook).
+        const rings = addressActivityFeatureEnabled() && watched.has(address);
+        increases.push({ address, delta: balance - previousSompi, kind: watched.get(address) || addressActivityQuietKind(address), rings });
       }
       baselines[address] = balanceText;
     }
@@ -10183,16 +10196,18 @@ async function attributeAndNotifyAddressActivity(increases, wallet = engine.addr
   // in that account's bell and replace its handled list with this one's. The floor each address
   // saves before its receives are announced keeps them from being announced again.
   const switched = () => engine.address !== wallet;
-  for (const { address, delta, kind } of increases) {
+  for (const { address, delta, kind, rings = true } of increases) {
     let attributed = false;
     let recentTxs = [];
-    try { recentTxs = await fetchRecentFullTransactionsFor(address, 10); } catch {}
+    try { recentTxs = await fetchRecentFullTransactionsFor(address, CATCH_UP_TX_COUNT); } catch {}
     if (switched()) return;
     const isChatting = kind === "chatting";
     // Only receives newer than what an earlier catch-up already looked at (or than when the address
-    // started being tracked); the chatting address counts plain transfers only (iOS 56b75c8).
-    const { nextFloor, candidates } = catchUpCandidates(recentTxs, loadActivityFloor(address), { chatting: isChatting, belongsInHistory: transactionBelongsInHistory });
-    if (nextFloor) saveActivityFloor(address, nextFloor);
+    // started being tracked); the chatting address counts plain transfers only (iOS 56b75c8). A
+    // first look at the chatting address or a quiet one only sets its floor (K 01f71184 R2).
+    const { floorToSave, candidates, firstLookOnly } = catchUpLook(recentTxs, loadActivityFloor(address), { chatting: isChatting, rings, belongsInHistory: transactionBelongsInHistory });
+    if (floorToSave) saveActivityFloor(address, floorToSave);
+    if (firstLookOnly) continue;
     // The neutral fallback: not for the chatting address, whose balance moves with every chat
     // payment too (iOS 56b75c8), nor while the push announces receives (KaPay 34f4b45).
     const mayFallBack = !isChatting && !pushShowsReceive(address);
@@ -10203,11 +10218,9 @@ async function attributeAndNotifyAddressActivity(increases, wallet = engine.addr
       if (remaining <= 0n) break;
       const txid = String(tx?.transaction_id || tx?.transactionId || "").trim();
       if (!txid) continue;
-      let toAddress = 0n;
-      for (const output of (Array.isArray(tx?.outputs) ? tx.outputs : [])) {
-        if (kaspaOutputAddress(output) === address) toAddress += kaspaOutputAmount(output);
-      }
-      if (toAddress <= 0n) continue;
+      // a sum past u64 (a user-set REST server's) skips the transaction (K 01f71184 R6)
+      const toAddress = outputsSompiTo(tx, address, { readAddress: kaspaOutputAddress, readAmount: (output) => output?.amount ?? output?.value ?? output?.sompi ?? 0 });
+      if (toAddress == null || toAddress <= 0n) continue;
       attributed = true;
       if (handledSet.has(txid)) { remaining -= toAddress < remaining ? toAddress : remaining; continue; }
       // Any input from our addresses: our own (change, a consolidation, another app on this seed).
@@ -10228,9 +10241,10 @@ async function attributeAndNotifyAddressActivity(increases, wallet = engine.addr
       // Only a receive from the last few minutes rings (K 961fc05a): the catch-up also finds what
       // came while K was closed or this account was signed out (switching accounts announced a
       // week of receives as if they had just come). Those go to the bell, quietly, dated when they
-      // happened. An unknown block time counts as now.
+      // happened. An unknown block time counts as now. A quiet address (Address Activity or its own
+      // switch off) never rings: the bell only (K 01f71184).
       const happenedAt = txBlockTimeMs(tx);
-      if (isRecentForBanner(happenedAt)) postDesktopNotification({
+      if (rings && isRecentForBanner(happenedAt)) postDesktopNotification({
         title: `Received ${formatSompiForNotification(toAddress)} ${KAS_UNIT}`,
         body: describeActivityAddress(kind, address),
         tag: `kachat-addr-activity-${txid}`,
@@ -10243,7 +10257,7 @@ async function attributeAndNotifyAddressActivity(increases, wallet = engine.addr
         route: addressActivityRoute(kind, address),
         onClick: () => openAddressActivityTarget(kind, address),
       });
-      // Also record it in the global notifications bell (Profile), alongside KaPosts/mentions.
+      // Always in Profile's bell, rung or not (K 01f71184, owner 2026-11-27).
       recordGlobalNotification({
         id: `wallet-${txid}`,
         source: "wallet",
@@ -10391,6 +10405,22 @@ function sendSpendingPaymentNotice(conversationEntry, contact, { txId, amountSom
   });
 }
 
+/// A spending-address payment whose send got no answer owes its notice until it settles (K 01f71184
+/// audit C5, ui/owed-spending-notices.js). In memory: an account switch reloads the page here.
+function owedSpendingNoticeBook() {
+  if (!owedSpendingNoticeBook.book) owedSpendingNoticeBook.book = createOwedSpendingNotices();
+  return owedSpendingNoticeBook.book;
+}
+function oweSpendingNoticeIfUnknown(error, contact, { amountSompi, memo = "" }, owner) {
+  if (error?.code !== SEND_OUTCOME_UNKNOWN || !error.txid) return;
+  owedSpendingNoticeBook().owe({ txId: error.txid, contactAddress: contact?.address, amountSompi, memo, owner });
+}
+/// settleUnconfirmedSends found `txid` sent: the notice it owes goes now, from its own account only.
+function sendOwedSpendingNoticeIfAny(conversationEntry, contact, txid) {
+  const owed = owedSpendingNoticeBook().take({ txId: txid, contactAddress: contact?.address, account: engine.address });
+  if (owed) sendSpendingPaymentNotice(conversationEntry, contact, { txId: owed.txId, amountSompi: owed.amountSompi, memo: owed.memo });
+}
+
 /// The notice itself: an encrypted contextual message from the chatting address.
 // `walletAddress` is the account that paid. A switch while the payment was going out must not have
 // the next account write the notice; it is kept for the payer instead (audit 2026-11-13).
@@ -10454,7 +10484,9 @@ function scheduleUnsentNoticeRetry() {
 
 /// Sends the notices that failed for want of KAS on the chatting address - called when its balance
 /// turns positive (`observeChattingBalanceForNotices`). One at a time; any that still fails stays
-/// for next time. A notice whose contact is gone is dropped, as on iOS. In-flight state lives on
+/// for next time, and so does one whose contact or chat isn't loaded (K 01f71184 audit R4: it was
+/// dropped). Only the sent ones leave the list, re-read at the end. The account is fixed for the
+/// run; a switch reloads the page on Desktop, so a notice is never sent from another account. In-flight state lives on
 /// the function (this can run from updateWalletUi during boot, before later lets initialise).
 async function sendUnsentPaymentNotices() {
   const walletAddress = engine.address;
@@ -10469,7 +10501,8 @@ async function sendUnsentPaymentNotices() {
       const address = String(notice.contactAddress).toLowerCase();
       const contact = state.contacts.find((entry) => String(entry.address || "").toLowerCase() === address);
       const conversationEntry = contact ? state.conversations.find((entry) => entry.contactId === contact.id) : null;
-      if (!contact || !conversationEntry) { done.add(notice.txId); continue; }
+      // not loaded (yet): kept for a later try (K 01f71184 R4)
+      if (!contact || !conversationEntry) continue;
       try {
         await sendPaymentNoticeEnvelope(conversationEntry, contact, notice.payload, walletAddress);
         done.add(notice.txId);
@@ -10935,7 +10968,7 @@ function tokenNoticeOwnAddresses() {
 
 /// The chain check of a token notice we received (iOS checkTokenNoticeOnChain), then the filing.
 /// The REST read gets a few tries a few seconds apart (its index may lag the notice, as for
-/// payment_notice); the node is asked for the covenant id only when the explorer gives none. Every
+/// payment_notice); the node confirms the covenant id while the coin is unspent (K 01f71184 C7). Every
 /// step is tied to the account it started on: an answer after a switch is dropped.
 async function checkReceivedTokenNotice(conversationId, contact, message, valid, walletAddress, { recheck = false } = {}) {
   const { txId } = valid;
@@ -11124,7 +11157,8 @@ function renderProfileAccountTotal() {
   // screen is up: reading the line starts a price fetch when the last one is old.
   if (screen.hidden) return;
   const fiat = screen.querySelector("[data-wallet-fiat]");
-  const fiatText = total == null || IS_TESTNET ? null : kasFiatTextNow(Number(total) / 1e8, renderProfileAccountTotal);
+  // To the cent, as the address cards (K 01f71184: "$0.1399" here, "$0.14" on Manage Addresses).
+  const fiatText = total == null || IS_TESTNET ? null : kasFiatTextNow(Number(total) / 1e8, renderProfileAccountTotal, { decimals: 2 });
   fiat.hidden = !fiatText;
   fiat.textContent = fiatText ? fiatText.replace(/^≈ /, "") : "";
 }
@@ -11417,7 +11451,7 @@ function quantumTagHtml(index, spent, funded) {
 function addressCardWorthHtml(kasText) {
   const kas = Number(String(kasText || "").replace(/[^0-9.]/g, ""));
   if (!Number.isFinite(kas) || String(kasText || "").startsWith("--") || kasText === "…") return "";
-  const fiat = kasFiatTextNow(kas, () => { if (spendingManageScreen && !spendingManageScreen.hidden) renderSpendingList(); });
+  const fiat = kasFiatTextNow(kas, () => { if (spendingManageScreen && !spendingManageScreen.hidden) renderSpendingList(); }, { decimals: 2 });
   return fiat ? `<span class="address-card-worth">${escapeHtml(fiat.replace(/^≈\s*/, ""))}</span>` : "";
 }
 const ADDRESS_CARD_ICONS = {
@@ -11478,7 +11512,7 @@ function spendingRowHtml(index, address, state, balanceText, used, hasDomain = f
 // Send and Receive (it keeps its name), and its history opens its own screen.
 function chattingAddressRowHtml(hasDomain = false) {
   const domainTag = hasDomain ? '<span class="spending-address-domain-tag">Contains username</span>' : "";
-  const balanceText = currentBalanceKas != null && currentBalanceKas !== "" ? `${formatKasExact(currentBalanceKas)} ${KAS_UNIT}` : `-- ${KAS_UNIT}`;
+  const balanceText = currentBalanceKas != null && currentBalanceKas !== "" ? addressCardKasText(currentBalanceKas, KAS_UNIT) : `-- ${KAS_UNIT}`;
   const funded = Number(currentBalanceKas) > 0;
   return `
     <div class="spending-address-row address-card chatting-address-row">
@@ -11558,7 +11592,7 @@ async function renderSpendingList() {
   // instantly with real numbers instead of a wall of "…" — the live refresh replaces it below.
   const balCache = loadSpendingBalCache();
   spendingListEl.innerHTML = chattingRow + (items.length
-    ? items.map((it) => spendingRowHtml(it.index, it.address, state, balCache[it.address]?.kas != null ? `${formatKasExact(balCache[it.address].kas)} ${KAS_UNIT}` : "…", balCache[it.address]?.used ?? null, false, { funded: Number(balCache[it.address]?.kas) > 0 })).join("")
+    ? items.map((it) => spendingRowHtml(it.index, it.address, state, balCache[it.address]?.kas != null ? addressCardKasText(balCache[it.address].kas, KAS_UNIT) : "…", balCache[it.address]?.used ?? null, false, { funded: Number(balCache[it.address]?.kas) > 0 })).join("")
     : emptyHtml);
   spendingRowSwipes?.refresh();
   updateSpendingTotalBalance(all.map((it) => ({ kas: balCache[it.address]?.kas != null ? Number(balCache[it.address].kas) : null })));
@@ -11616,7 +11650,7 @@ async function renderSpendingList() {
   });
   const shownState = getSpendingState(); // the spent marks may have grown meanwhile
   spendingListEl.innerHTML = (engine.address ? chattingAddressRowHtml(domainOwning.has(engine.address)) : "") + (enriched.length
-    ? enriched.map((e) => spendingRowHtml(e.index, e.address, shownState, e.totalKas != null ? `${formatKasExact(e.totalKas)} ${KAS_UNIT}` : `-- ${KAS_UNIT}`, e.used, domainOwning.has(e.address), { funded: e.kas > 0 })).join("")
+    ? enriched.map((e) => spendingRowHtml(e.index, e.address, shownState, e.totalKas != null ? addressCardKasText(e.totalKas, KAS_UNIT) : `-- ${KAS_UNIT}`, e.used, domainOwning.has(e.address), { funded: e.kas > 0 })).join("")
     : emptyHtml);
   spendingRowSwipes?.refresh();
   // Quantum shields: the local spend marks are in already; the chain's word per row follows, for
@@ -11664,7 +11698,7 @@ function showKusdtListedSpendingAddresses() {
 function refreshChattingRowBalance() {
   if (!spendingManageScreen || spendingManageScreen.hidden) return;
   const cell = spendingListEl?.querySelector("[data-chatting-row-balance]");
-  if (cell) cell.textContent = `${formatKasExact(currentBalanceKas)} ${KAS_UNIT}`;
+  if (cell) cell.textContent = addressCardKasText(currentBalanceKas, KAS_UNIT);
   const kasEntries = [];
   const cache = loadSpendingBalCache();
   for (const i of spendingRevealedIndices()) {
@@ -13904,7 +13938,7 @@ document.querySelector("[data-help-kusdt]")?.addEventListener("click", () => { o
 // --- Settings > About: Version (iOS d1844582 AccountAboutPage).
 const APP_VERSION = "5.4";
 // Bumped by one on every push, so About says exactly which build is running.
-const APP_BUILD = 374;
+const APP_BUILD = 375;
 // "5.2.2 (194)", as iOS AppVersion.display writes it.
 const APP_VERSION_LABEL = `${APP_VERSION} (${APP_BUILD})`;
 // Stay on the newest build without a manual reload (ui/app-update.js): never while a message of
@@ -14056,8 +14090,10 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
     setRecipientStatus({ input: raw, resolvedAddress: resolution.ownerAddress, resolvedName: shownName });
     if (els.resolvedHint) {
       // Show the name AND the full resolved address below it, matching iOS's WithdrawKaspaView.
-      els.resolvedHint.innerHTML = `Resolved: ${escapeHtml(shownName)}<br><span class="send-resolved-address">${escapeHtml(resolution.ownerAddress || "")}</span>`;
-      els.resolvedHint.hidden = false;
+      // The card below shows the name and its address (showResolutionCard): no "Resolved: …" line
+      // saying the name a second time (K 01f71184 SendRecipientCard).
+      els.resolvedHint.textContent = "";
+      els.resolvedHint.hidden = true;
     }
     if (els.checkEl) els.checkEl.hidden = false; // resolved -> green check
     if (els.submit) els.submit.disabled = !amountValid;
@@ -14066,7 +14102,9 @@ function makeSendController(els, { onOpen, onClose, getSelection, resolveAmountK
   // The shared recipient card's status line (send-kaspa-components recipientStatusHtml), when
   // the screen has one: "Looking up username…", "Resolved: …", "Valid address", "Invalid…".
   function setRecipientStatus(status) {
-    if (els.statusEl) els.statusEl.innerHTML = recipientStatusHtml(status || {});
+    // The address card above it shows the name and address, so a resolved name adds nothing here (K
+    // 01f71184: "Resolved: …" under the card said it twice).
+    if (els.statusEl) els.statusEl.innerHTML = recipientStatusHtml({ ...(status || {}), cardShown: true });
     // The card's Address Book button and the saved name for what it resolved to (iOS 00767a4).
     if (els.addressBook) {
       try { refreshRecipientAddressBook(els.addressBook.root, els.addressBook.prefix, status?.resolvedAddress || status?.input || ""); } catch { /* cosmetic */ }
@@ -15603,6 +15641,8 @@ function mountOwnAddressListFor(list, { selectedAddress, onPick, excludeQuantum 
     loadEntries: async () => { await ensureRuntimes({ quiet: true }); return loadOwnAddressEntries(); },
     cachedUsed: ownAddressCachedUsed,
     probeUsed: ownAddressProbeUsed,
+    // a quantum row's tag (K 01f71184): its key is on chain once this device saw it spend
+    quantumSpent: (address) => isQuantumAddressSpentLocally(address),
     kasUnit: KAS_UNIT,
     onPick,
   });
@@ -16645,19 +16685,22 @@ async function fetchKasPrice(currency) {
 // price, or with one over a minute old, one fetch starts and `onPrice` runs when it lands; a
 // failed fetch waits a minute before the next.
 const kasPriceAttemptAt = new Map();
-function kasFiatTextNow(kasAmount, onPrice = null) {
+function kasFiatTextNow(kasAmount, onPrice = null, { decimals = null } = {}) {
   const currency = selectedCurrency;
   const cached = kasPriceCache.get(currency);
   if ((!cached || Date.now() - cached.at >= 60000) && Date.now() - (kasPriceAttemptAt.get(currency) || 0) >= 60000) {
     kasPriceAttemptAt.set(currency, Date.now());
     fetchKasPrice(currency).then((price) => { if (price && currency === selectedCurrency) onPrice?.(); }).catch(() => {});
   }
-  return cached ? `≈ ${formatFiatValue(kasAmount, cached.price)}` : null;
+  return cached ? `≈ ${formatFiatValue(kasAmount, cached.price, decimals)}` : null;
 }
 
-function formatFiatValue(kasAmount, price) {
+// `decimals`: a fixed number of places (the Wallet card and address cards: 2, K 01f71184); bitcoin
+// keeps its 8.
+function formatFiatValue(kasAmount, price, decimals = null) {
   const value = Number(kasAmount) * price;
   if (!isFinite(value)) return "";
+  if (decimals != null) return fiatFixedText(value, currencyMeta().symbol, { decimals: selectedCurrency === "btc" ? 8 : decimals });
   const digits = selectedCurrency === "btc" ? 8 : value >= 1 ? 2 : 4;
   return `${currencyMeta().symbol}${value.toLocaleString(undefined, { maximumFractionDigits: digits })}`;
 }
@@ -20497,6 +20540,7 @@ async function sendInstantTip(address, name, amountKasNumber, tip = null, fiatTe
     }
     // Not confirmed (txid kept) when the network never answered, else Failed.
     applyMessagePatch(liveMessage, sendFailurePatch(error, error.message));
+    if (sourceIndex != null) oweSpendingNoticeIfUnknown(error, contact, { amountSompi: kasTextToSompi(amountKas) }, sourceAccount.owner); // K 01f71184 C5
     conversationEntry.updatedAt = Date.now();
     persistState();
     if (activeConversationId === conversationEntry.id) renderMessages(conversationEntry);
@@ -21177,6 +21221,7 @@ async function sendTipNow(tipSompi) {
     }
     // Not confirmed (txid kept) when the network never answered, else Failed.
     applyMessagePatch(liveMessage, sendFailurePatch(error, error.message));
+    if (tip.fundingAddress) oweSpendingNoticeIfUnknown(error, contact, { amountSompi: requestedSompi, memo }, tipAccount.owner); // K 01f71184 C5
     conversationEntry.updatedAt = Date.now();
     persistState();
     if (activeConversationId === conversationEntry.id) renderMessages(conversationEntry);
@@ -24864,6 +24909,8 @@ async function settleUnconfirmedSends(conversationEntry, contact, now = Date.now
       confirmations: Math.max(1, Number(message.confirmations || 0)),
       note: paid ? "Kaspa payment verified at recipient output." : "The network has this transaction.",
     });
+    // From a spending address: the notice it owes goes now (K 01f71184 C5)
+    if (contact) sendOwedSpendingNoticeIfAny(conversationEntry, contact, txid);
     changed = true;
   }
   return changed;
@@ -25095,6 +25142,7 @@ async function sendKasPayment(conversationId, rawAmount, { note = "", onSubmitte
       }
       // Not confirmed (txid kept) when the network never answered, else Failed.
       applyMessagePatch(liveMessage, sendFailurePatch(error, error.message));
+      if (spendingFunded) oweSpendingNoticeIfUnknown(error, contact, { amountSompi: requestedSompi, memo }, paymentOwner); // K 01f71184 C5
       conversationEntry.updatedAt = Date.now();
       persistState();
       if (activeConversationId === conversationEntry.id) renderMessages(conversationEntry);
@@ -31753,6 +31801,8 @@ initWebPush({
       if (data.channel && engine.address) fetchRoomBeforePushBanner(data.channel, data.txId).catch(() => {});
       return;
     }
+    // a chat or group push: the sweep reads that kind at once, whatever its push-aware pace
+    pushPollGate.pushed(data.type);
     if (pushFetchTimer || !engine.address) return;
     pushFetchTimer = window.setTimeout(() => {
       pushFetchTimer = 0;
@@ -31764,6 +31814,29 @@ initWebPush({
   onRoomPush: (data = {}) => (engine.address && data.channel ? fetchRoomBeforePushBanner(data.channel, data.txId) : false),
 });
 routePendingNotificationClick();
+// Push-aware polling (ui/push-poll-gate.js, K 01f71184 B4/B5): rooms, the group pass and the inbox
+// slow down only while Web Push is on, registered and proven by a 1:1 message's push arriving.
+pushPollGate.configure({
+  operational: () => pushNotificationsEnabled() && webPushStatus()?.state === "on",
+  account: () => engine.address || "",
+  arrived: (txId) => pushArrivedRecently(txId),
+  // every group and member is in the push registration (webPushGroupStreams), within its cap
+  pushCoversGroups: () => {
+    const me = engine.address || "";
+    let streams = 0;
+    for (const group of getGroupManager()?.listGroups?.() || []) {
+      if (getGroupNotify(group.groupId) === "muted") return false;
+      for (const member of group.members || []) {
+        if (!member?.address || member.address === me) continue;
+        if (isGroupMemberMuted(group.groupId, member.address) || isGroupMemberHidden(group.groupId, member.address)) return false;
+        streams += 1;
+      }
+    }
+    return streams <= PUSH_LIMITS.groups;
+  },
+});
+// The Chats rows' "10:15 PM" becomes "Yesterday" at midnight, not at the next change (K 01f71184 C2).
+onDayChange(() => { try { renderChats(); } catch { /* drawn with the next change */ } });
 
 document.querySelector("[data-connect-rpc]").addEventListener("click", async () => {
   await connectAndRefresh();
@@ -32351,7 +32424,7 @@ queueMicrotask(async () => {
       currencyCode: () => selectedCurrency.toUpperCase(),
       formatFiatValue,
       // The total's card: worth in your currency on mainnet only (testnet coins aren't worth anything).
-      kasFiatText: (kas, onPrice) => (IS_TESTNET ? null : kasFiatTextNow(kas, onPrice)),
+      kasFiatText: (kas, onPrice) => (IS_TESTNET ? null : kasFiatTextNow(kas, onPrice, { decimals: 2 })),
       // A receive switch flipped or an address hidden: the closed-app push list follows.
       onWatchedAddressesChanged: () => { try { scheduleWebPushSync(); } catch { /* not started yet */ } },
     });
@@ -37403,6 +37476,9 @@ function keepChatPinnedWhileGrowing(area) {
 }
 keepChatPinnedWhileGrowing(messageArea);
 keepChatPinnedWhileGrowing(groupMessageArea);
+// A public room too: a link preview landing after the first scroll left a room opened for the
+// first time a few messages short of its newest (K 01f71184 T1).
+keepChatPinnedWhileGrowing(document.querySelector("[data-broadcast-room-body]"));
 
 // Scroll-to-latest for the 1:1 thread (iOS scrollToBottomButton): appears when scrolled up,
 // and counts the incoming messages that landed since you last sat at the bottom.
@@ -37443,7 +37519,8 @@ keepChatPinnedWhileGrowing(groupMessageArea);
     queued = true;
     window.requestAnimationFrame(() => { queued = false; update(); });
   };
-  btn.addEventListener("click", () => messageArea.scrollTo({ top: messageArea.scrollHeight, behavior: "smooth" }));
+  // far up (after "jump to start"): lands a screen short first, then glides (K 01f71184 C6)
+  btn.addEventListener("click", () => jumpToLatest(messageArea));
   messageArea.addEventListener("scroll", queueUpdate, { passive: true });
   new MutationObserver(queueUpdate).observe(messageArea, { childList: true });
 })();
@@ -37457,7 +37534,7 @@ keepChatPinnedWhileGrowing(groupMessageArea);
   btn.setAttribute("aria-label", "Scroll to latest");
   btn.hidden = true;
   btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
-  btn.addEventListener("click", () => groupMessageArea.scrollTo({ top: groupMessageArea.scrollHeight, behavior: "smooth" }));
+  btn.addEventListener("click", () => jumpToLatest(groupMessageArea));
   groupMessageArea.parentElement.appendChild(btn);
   groupMessageArea.addEventListener("scroll", () => {
     btn.hidden = groupMessageArea.scrollHeight - groupMessageArea.scrollTop - groupMessageArea.clientHeight < 120;

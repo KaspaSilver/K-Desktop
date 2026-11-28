@@ -417,8 +417,8 @@ export function removeAddressBookForWallet(wallet) {
 
 export const ADDRESS_BOOK_EXPORT_TYPE = "kachat-address-book";
 export const ADDRESS_BOOK_EXPORT_VERSION = 1;
-// Contacts in the text since KaChat bc3e1ff3 (the Address Book until then).
-export const ADDRESS_BOOK_IMPORT_NOT_AN_EXPORT = "That file isn't a KaChat contacts export.";
+// Contacts in the text since KaChat bc3e1ff3 (the Address Book until then); "K" since K 01f71184.
+export const ADDRESS_BOOK_IMPORT_NOT_AN_EXPORT = "That file isn't a K contacts export.";
 export const ADDRESS_BOOK_IMPORT_EMPTY = "That contacts export has no contacts.";
 
 /** iOS's file-name time: ISO8601DateFormatter (UTC, whole seconds, "Z") with ":" made "-",
@@ -427,11 +427,11 @@ export function addressBookFileStamp(ms) {
   return addressBookIso(ms).replace(/:/g, "-");
 }
 
-/** "KaChat Contacts 2026-10-08T18-37-50Z.json" - the time keeps exports from overwriting each
- *  other. "KaChat Address Book …" until KaChat bc3e1ff3 / KaPay 8118f09; an import goes by the
- *  file's `type`, never its name, so those old files still import. */
+/** "K Contacts 2026-10-08T18-37-50Z.json" - the time keeps exports from overwriting each other.
+ *  "KaChat Contacts …" until K 01f71184, "KaChat Address Book …" until KaChat bc3e1ff3 / KaPay
+ *  8118f09; an import goes by the file's `type`, never its name, so those old files still import. */
 export function addressBookExportFileName(ms = config.now()) {
-  return `KaChat Contacts ${addressBookFileStamp(ms)}.json`;
+  return `K Contacts ${addressBookFileStamp(ms)}.json`;
 }
 
 /** This wallet's book as the export object (keys in sorted order). */

@@ -28,6 +28,19 @@ export function pageHasPosterReply(replies, posterAddress) {
 }
 
 /**
+ * Which thread your sent reply to your own post continues (K 01f71184 extendSelfThreadChain,
+ * release audit T4): the root whose chain ends at `parentId`, or `parentId` itself when it has no
+ * chain yet. Null when it answers a post in the middle of a chain (that's a comment). `chains` is
+ * the Map root id -> [segment posts].
+ */
+export function selfThreadChainRoot(chains, parentId) {
+  for (const [rootId, chain] of chains || []) {
+    if (chain?.length && chain[chain.length - 1]?.id === parentId) return rootId;
+  }
+  return (chains?.get?.(parentId) || []).length ? null : parentId;
+}
+
+/**
  * Replies in X's order (K commentsExcludingThread): the poster's own first, then yours, then people
  * you follow, then everyone else; within each the most liked first, then the oldest.
  * `isFollowing(address)` answers for the reader.

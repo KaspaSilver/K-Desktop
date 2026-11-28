@@ -131,12 +131,14 @@ await check("§11: Manage Addresses keeps every kUSDT-listed address", () => {
   assert.equal(W.KUSDT_LISTED_ALERT_TITLE, "Shown for kUSDT");
 });
 
-await check("the poll runs only while the page shows, signed in, Address Activity on, for an account that uses kUSDT", () => {
-  assert.equal(W.shouldPoll({ visible: true, account: chatting, notificationsEnabled: true, usesTokens: true }), true);
-  for (const off of ["visible", "account", "notificationsEnabled", "usesTokens"]) {
-    assert.equal(W.shouldPoll({ visible: true, account: chatting, notificationsEnabled: true, usesTokens: true, [off]: off === "account" ? "" : false }), false, off);
+await check("the poll runs only while the page shows, signed in, for an account that uses kUSDT; every 5 minutes with Address Activity off (K 01f71184)", () => {
+  assert.equal(W.shouldPoll({ visible: true, account: chatting, usesTokens: true }), true);
+  for (const off of ["visible", "account", "usesTokens"]) {
+    assert.equal(W.shouldPoll({ visible: true, account: chatting, usesTokens: true, [off]: off === "account" ? "" : false }), false, off);
   }
   assert.equal(W.KUSDT_POLL_MS, 30_000);
+  assert.equal(W.pollMaxAgeMs(true), W.KUSDT_POLL_MAX_AGE_MS);
+  assert.equal(W.pollMaxAgeMs(false), 290_000);
 });
 
 await check("receive notes, word for word (§10)", () => {
@@ -325,11 +327,15 @@ await check("Received: never on the first look; a payment from someone else afte
   // no block time known: it counts as now, so it rings (K 961fc05a)
   assert.deepEqual(notes, [{ title: "Received 12.50 kUSDT", body: "", ring: true, happenedAtMs: null }], "no notice came: the wallet says it, amount only");
   assert.equal(wallet.activity()[0].kind, "received");
-  const quiet = makeWallet(w, { notificationsEnabled: () => false });
+  const quiet = makeWallet(w, { notificationsEnabled: () => false, now: () => clock });
   await quiet.wallet.refresh();
   w.coins[chatting].push({ n: 5, index: 0, units: 1_000_000n });
   await quiet.wallet.refresh();
-  assert.deepEqual(quiet.notes, [], "Address Activity off: no notification");
+  assert.deepEqual(quiet.notes, [], "waiting for a chat notice with Address Activity off too");
+  clock += W.KUSDT_NOTICE_WAIT_MS + 1000;
+  await quiet.wallet.refresh();
+  // K 01f71184: the bell always gets it; Address Activity off only stops the ping
+  assert.deepEqual(quiet.notes, [{ title: "Received 1.00 kUSDT", body: "", ring: false, happenedAtMs: null }], "Address Activity off: the bell only");
   assert.equal(quiet.wallet.activity().some((r) => r.kind === "received"), true, "still in the history");
 });
 

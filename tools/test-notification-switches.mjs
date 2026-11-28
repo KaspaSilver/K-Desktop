@@ -181,9 +181,10 @@ test(".kachat reminders follow Push Notifications and Play sound", () => {
 });
 
 // ---- receives while a switch is off ------------------------------------------------------------------
-test("a receive while its switch is off moves its floor, so it is never announced later", () => {
+test("a receive while its switch is off goes in the bell, quietly (K 01f71184), its floor moving with its look", () => {
   const check = app.slice(app.indexOf("async function runAddressActivityCheck()"), app.indexOf("function makeOutputAddressLookup()"));
-  assert.match(check, /\} else if \(!isFirstRun && balance > previousSompi\) \{[\s\S]{0,400}saveActivityFloor\(address, Date\.now\(\)\);/);
+  assert.match(check, /if \(!isFirstRun && balance > previousSompi\) \{[\s\S]{0,400}const rings = addressActivityFeatureEnabled\(\) && watched\.has\(address\);/);
+  assert.doesNotMatch(check, /\} else if \(!isFirstRun && balance > previousSompi\) \{/);
   // the muted addresses' balances are still read, so their baselines keep up
   assert.match(check, /const addresses = \[\.\.\.watched\.keys\(\), \.\.\.muted\];/);
 });

@@ -292,9 +292,9 @@ test("Remove Contact Photos: every wallet, entries marked edited", () => {
 
 test("export file: name, format, photo attached", () => {
   fresh({ start: Date.parse("2026-10-08T18:37:50.123Z") });
-  // "KaChat Contacts …" since KaChat bc3e1ff3 / KaPay 8118f09 ("KaChat Address Book …" before).
-  assert.equal(addressBookExportFileName(), "KaChat Contacts 2026-10-08T18-37-50Z.json", "iOS's ISO8601DateFormatter time, \":\" made \"-\"");
-  assert.equal(addressBookExportFileName(Date.parse("2026-01-02T03:04:05Z")), "KaChat Contacts 2026-01-02T03-04-05Z.json");
+  // "K Contacts …" since K 01f71184 ("KaChat Contacts …" since KaChat bc3e1ff3, "KaChat Address Book …" before).
+  assert.equal(addressBookExportFileName(), "K Contacts 2026-10-08T18-37-50Z.json", "iOS's ISO8601DateFormatter time, \":\" made \"-\"");
+  assert.equal(addressBookExportFileName(Date.parse("2026-01-02T03:04:05Z")), "K Contacts 2026-01-02T03-04-05Z.json");
   saveAddressBookEntry({ address: BOB, name: "Bob", note: "work" });
   saveAddressBookEntry({ address: ALICE, name: "Alice", photo: PHOTO });
   const text = addressBookExportJson();
@@ -401,7 +401,7 @@ test("importing a contact deleted here stamps it now, so the server's older tomb
 
 test("import refuses: not an export, wrong type or version, no addresses, no wallet", () => {
   fresh();
-  const NOT = /: That file isn't a KaChat contacts export\.$/;
+  const NOT = /: That file isn't a K contacts export\.$/;
   const ok = { type: "kachat-address-book", version: 1, exportedAt: iso(clock), entries: [{ address: ALICE, name: "Alice", createdAt: iso(clock), updatedAt: iso(clock) }] };
   assert.throws(() => importAddressBookExport("not json"), NOT);
   assert.throws(() => importAddressBookExport("[]"), NOT);

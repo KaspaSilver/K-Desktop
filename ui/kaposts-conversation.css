@@ -113,3 +113,8 @@
 .kaposts-thread-replies-host > .kaposts-thread-replies > .kaposts-thread-reply { padding-left: 0; }
 .kaposts-thread-replies-host > .kaposts-thread-replies > .kaposts-thread-reply::before { content: none; }
 .kaposts-thread-replies-host > .kaposts-thread-replies > .kaposts-thread-reply + .kaposts-thread-reply { border-top: 1px solid var(--line); }
+
+/* --- A repost of a repost (K 01f71184 KaPostQuotedEmbed) ------------------------------------------ */
+/* The quote card looks up the post a plain repost reposted; meanwhile a small spinner stands where
+   its words go. */
+.kaposts-quote-embed > span.kaposts-quote-looking { display: flex; align-items: center; min-height: 18px; }

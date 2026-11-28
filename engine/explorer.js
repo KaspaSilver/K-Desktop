@@ -7,7 +7,7 @@
 // covenants they touch (`classifyTransaction`, K's ExplorerAPI.classify). Amounts are sompi as
 // Numbers: kaspa.stream's JSON numbers are doubles already, and nothing here is spent.
 
-import { KUSDT_DEPLOYMENTS } from "./kusdt.js";
+import { KUSDT_DEPLOYMENTS, KUSDT_DECIMALS, formatKusdt } from "./kusdt.js";
 import { ARENA_CHANNEL } from "./chess-tournament.js";
 import { CHESS_BOTS_CHANNEL } from "./chess-bot.js";
 
@@ -24,10 +24,10 @@ export function explorerApiBase(networkId) {
 /** Every kind, with K's title, plural (K Activity), explanation and glyph. Order is K's. */
 export const TX_KINDS = Object.freeze({
   payment: { title: "Payment", plural: "Payments", icon: "arrows", explanation: "Kaspa sent from one address to another." },
-  kachatMessage: { title: "KaChat Message", plural: "KaChat Messages", icon: "lock", explanation: "An end-to-end encrypted KaChat message. Only the two people in the chat can read it." },
+  kachatMessage: { title: "K Message", plural: "K Messages", icon: "lock", explanation: "An end-to-end encrypted KaChat message. Only the two people in the chat can read it." },
   handshake: { title: "Handshake", plural: "Handshakes", icon: "wave", explanation: "Opens an encrypted KaChat chat between two addresses." },
   paymentNotice: { title: "Payment Notice", plural: "Payment Notices", icon: "bell", explanation: "Tells a chat about a payment made from another address." },
-  kapost: { title: "KaPost", plural: "KaPosts", icon: "post", explanation: "A public post on KaPost, signed by its author." },
+  kapost: { title: "Post", plural: "Posts", icon: "post", explanation: "A public post on KaPost, signed by its author." },
   publicChat: { title: "Public Chat", plural: "Public Chat Messages", icon: "hash", explanation: "A message in a public chat room, readable by anyone." },
   kachatName: { title: "Username", plural: "Username Actions", icon: "at", explanation: "A .kachat username registered, renewed or traded on the registry." },
   kusdtTransfer: { title: "kUSDT Transfer", plural: "kUSDT Transfers", icon: "dollar", explanation: "kUSDT, a dollar token on Kaspa, moved between addresses." },
@@ -429,10 +429,26 @@ export function compactKas(sompi, unit = "KAS") {
   return `${compact(2).format((Number(sompi) || 0) / 1e8)} ${unit}`;
 }
 
-/** A row's amount: "1.25 KAS", "12.3K KAS". */
+/** A row's amount: "1.25 KAS", "12.3K KAS". Under 0.01 KAS by its first digits ("0.0001 KAS",
+ *  K 01f71184 ExplorerFormat.shortKAS): a post's or handshake's net is only its fee, which read
+ *  "−0 KAS". */
+const significant = new Intl.NumberFormat("en-US", { minimumSignificantDigits: 1, maximumSignificantDigits: 3 });
 export function shortKas(sompi, unit = "KAS") {
   const kas = (Number(sompi) || 0) / 1e8;
-  return `${kas >= 1000 ? compact(1).format(kas) : fraction(0, 2).format(kas)} ${unit}`;
+  const text = kas >= 1000 ? compact(1).format(kas) : kas > 0 && kas < 0.01 ? significant.format(kas) : fraction(0, 2).format(kas);
+  return `${text} ${unit}`;
+}
+
+/** kUSDT to the cent ("2.66 kUSDT"), as the app's dollar amounts read; an amount under a cent keeps
+ *  its digits rather than reading 0 (K 01f71184 ExplorerFormat.kusdt: "2.659812" before). Half a
+ *  cent rounds up. */
+export function explorerKusdt(units) {
+  let u;
+  try { u = BigInt(units ?? 0); } catch { return formatKusdt(0n); }
+  if (KUSDT_DECIMALS <= 2) return formatKusdt(u);
+  const step = 10n ** BigInt(KUSDT_DECIMALS - 2);
+  const cents = u / step + (u % step >= step / 2n ? 1n : 0n);
+  return cents > 0n ? formatKusdt(cents * step) : formatKusdt(u);
 }
 
 /** Sompi in full, up to eight decimals: "1,234.5 KAS" (K KaspaUnit.amount). */

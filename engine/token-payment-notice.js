@@ -135,8 +135,9 @@ const field = (o, snake, camel) => (o?.[snake] ?? o?.[camel]);
  *   and for an input that spends a token coin (any input that isn't a Schnorr key address), the
  *   owner key in that coin's state may not be ours or another contact's either - else a contact
  *   could claim our own Combine Coins, or another contact's send, whose inputs are coin P2SHs;
- * - the coin carries kUSDT's covenant id: the explorer's `covenant_id`, else the node's while the
- *   coin is unspent (`readNodeUtxos(address)` -> node UTXOs as engine.getUtxosWithCovenants gives).
+ * - the coin carries kUSDT's covenant id: the node's while the coin is unspent (`readNodeUtxos(address)`
+ *   -> node UTXOs as engine.getUtxosWithCovenants gives), the explorer's `covenant_id` only once it
+ *   is spent (K 01f71184 C7); an explorer id that isn't kUSDT's is refused at once.
  * `tx`: the REST transaction (`/transactions/{txId}?resolve_previous_outpoints=light`), or null when
  * it didn't answer. `payer`: the contact's chatting address.
  */
@@ -195,21 +196,26 @@ export async function checkTokenNoticeOnChain({
     if (coinOwner !== payerKey && otherKeys.has(coinOwner)) return { status: "invalid", reason: "it spends another contact's coin" };
   }
 
-  // the real token: its covenant id, from the explorer or else the node
+  // The real token: its covenant id. The node decides while the coin is unspent; the explorer's id
+  // is only a hint (K 01f71184 audit C7: a user-set REST server could name kUSDT's id on a
+  // look-alike). An explorer id that isn't kUSDT's is refused at once.
+  const notToken = { status: "invalid", reason: `the coin isn't ${NOTICE_TOKENS[notice.token].symbol}` };
   const covenant = String(field(output, "covenant_id", "covenantId") || "").trim().toLowerCase();
-  if (covenant) {
-    return covenant === deployment.covenantId ? { status: "valid" } : { status: "invalid", reason: `the coin isn't ${NOTICE_TOKENS[notice.token].symbol}` };
-  }
+  if (covenant && covenant !== deployment.covenantId) return notToken;
   if (typeof readNodeUtxos !== "function") return { status: "unknown", reason: "no node to ask" };
   let utxos;
   try { utxos = await readNodeUtxos(at); } catch { return { status: "unknown", reason: "the node didn't answer" }; }
-  const coin = (Array.isArray(utxos) ? utxos : []).find((u) => String(u?.outpoint?.transactionId || "").toLowerCase() === txId
+  if (!Array.isArray(utxos)) return { status: "unknown", reason: "the node didn't answer" };
+  const coin = utxos.find((u) => String(u?.outpoint?.transactionId || "").toLowerCase() === txId
     && Number(u?.outpoint?.index) === index);
-  // spent since, or no node answer: can't tell it from a look-alike
-  if (!coin) return { status: "unknown", reason: "the coin isn't on the node" };
-  if (String(coin.scriptPublicKey || "").toLowerCase() !== hex(script) || Number(coin.scriptVersion ?? 0) !== 0
-    || String(coin.covenantId || "").toLowerCase() !== deployment.covenantId) {
-    return { status: "invalid", reason: `the coin isn't ${NOTICE_TOKENS[notice.token].symbol}` };
+  if (coin) {
+    if (String(coin.scriptPublicKey || "").toLowerCase() !== hex(script) || Number(coin.scriptVersion ?? 0) !== 0
+      || String(coin.covenantId || "").toLowerCase() !== deployment.covenantId) {
+      return notToken;
+    }
+    return { status: "valid" };
   }
-  return { status: "valid" };
+  // Spent since (a notice read back later, or the payee moved it first): the node can't show it any
+  // more, so the explorer's matching id is all there is to go on; without one, can't tell.
+  return covenant ? { status: "valid" } : { status: "unknown", reason: "the coin isn't on the node" };
 }

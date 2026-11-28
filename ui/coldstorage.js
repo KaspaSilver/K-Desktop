@@ -43,8 +43,9 @@ import { quantumSpentFromHistory } from "../engine/quantum.js";
 import {
   sortColdEntries, coldUsageState, coldQuantumTone, coldDiscoverySummary, coldAccountRenameValue,
   coldAlertsToast, coldHideRefusal, mergeColdAccountsById, coldFundedHiddenIndexes, coldShownEntries,
-  coldTotalSompi, coldScreenName, coldClipboardStillHolds,
+  coldTotalSompi, coldScreenName, coldClipboardStillHolds, coldUsedRecheck, coldActivityReloader,
 } from "./cold-cards.js";
+import { addressCardKasText } from "./wallet-balance.js";
 import { closeActiveScanner, scanKaspaAddress, scanQrCode } from "./qr-scan.js";
 import { transactionBelongsInHistory } from "../engine/sync.js";
 import {
@@ -657,9 +658,10 @@ function repaintIfShowing(screen) {
   if (rootEl?.isConnected && currentColdScreen() === screen) render();
 }
 
-/** A card's amount: exact, with the unit, or "--" while it isn't known yet. */
+/** A card's amount: exact, with the unit, "0 KAS" when empty (K 01f71184
+ *  ManagedAddressCardAmount, not "0.00000000 KAS"), or "--" while it isn't known yet. */
 function cardAmountText(sompi) {
-  return sompi === undefined || sompi === null ? `-- ${KAS_UNIT}` : `${fmtKasExact(sompi)} ${KAS_UNIT}`;
+  return sompi === undefined || sompi === null ? `-- ${KAS_UNIT}` : addressCardKasText(Number(sompi) / 1e8, KAS_UNIT);
 }
 
 /** A card's worth in your currency (mainnet only), as Manage Addresses' cards show it. */
@@ -2451,6 +2453,8 @@ function sendRecipientStatusHtml() {
     resolvedAddress: send.resolvedAddress,
     resolvedName: send.resolvedDomain,
     valid: send.validAddress,
+    // the card (sendRecipientCardHtml) shows the name and address: no "Resolved: …" again (K 01f71184)
+    cardShown: Boolean(deps.addressCardHtml),
   });
 }
 
@@ -3608,6 +3612,8 @@ async function loadDetail({ useCache = true } = {}) {
     ...quantum.map((address, position) => seeded(COLD_QUANTUM_INDEX_BASE + position, address)),
   ];
   const all = [...derived, ...quantum];
+  // the balances shown before this read: a row whose balance moves is asked about Used again
+  const balanceBefore = new Map(detailEntries.map((e) => [e.address, e.balanceSompi]));
   detailLoading = true;
   render();
 
@@ -3646,7 +3652,7 @@ async function loadDetail({ useCache = true } = {}) {
       if (entry.balanceSompi === undefined) continue;
       balanceCache.set(entry.address, entry.balanceSompi);
       const cell = rootEl?.querySelector(`[data-cold-balance-cell="${entry.index}"]`);
-      if (cell) cell.textContent = `${fmtKasExact(entry.balanceSompi)} ${KAS_UNIT}`;
+      if (cell) cell.textContent = cardAmountText(entry.balanceSompi);
     }
   }
   if (detailToken !== token) return;
@@ -3671,7 +3677,10 @@ async function loadDetail({ useCache = true } = {}) {
   // `POST /addresses/active` answers, and it is the same question this used to ask one address at
   // a time through `full-transactions?limit=1` - four in flight at a time, which still crawled on
   // a big account. Falls back to the per-address requests only where the bulk route is absent.
-  const pending = detailEntries.filter((e) => (e.balanceSompi || 0) === 0 && e.everUsed === undefined);
+  // The earlier answers carry over (no used-but-empty row drops into Unused); a row never asked, or
+  // whose last check failed, or whose balance moved since, is asked; one that held coins before was
+  // used (K 01f71184 C1 / L1).
+  const { heldBefore, toProbe: pending } = coldUsedRecheck(detailEntries, balanceBefore);
   // A failed probe (null) leaves the row's "Checking" up rather than claiming "Unused" (iOS
   // unknownUsedAddresses).
   let usageChanged = false;
@@ -3685,6 +3694,7 @@ async function loadDetail({ useCache = true } = {}) {
     cell.className = `address-card-usage ${state}`;
     cell.textContent = state === "used" ? "Used" : state === "unused" ? "Unused" : "Checking";
   };
+  for (const entry of heldBefore) markUsed(entry, true);
   let bulkActive = null;
   if (pending.length) {
     try { bulkActive = await fetchActiveAddresses(pending.map((e) => e.address)); }
@@ -4325,8 +4335,13 @@ export function refreshColdStorage() {
 /// manual refresh. Cached figures paint first, so the list does not blank.
 export function refreshColdStorageOnActivity() {
   if (!deps || !activeAccountId || showingVisibility || detailBusy) return;
-  loadDetail();
+  coldReloadAfterActivity();
 }
+/// One reload a second after the last notice, never cutting short one in progress (K 01f71184 C4).
+const coldReloadAfterActivity = coldActivityReloader(async () => {
+  if (!deps || !activeAccountId || showingVisibility || detailBusy) return;
+  await loadDetail();
+});
 
 export function resetColdStorageForAccount() {
   closeActiveScanner();

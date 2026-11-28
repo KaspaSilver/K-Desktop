@@ -128,12 +128,15 @@ export function nameNotFoundText(typed, results = []) {
 }
 
 /** The line under the recipient saying what the input resolved to (iOS SendRecipientCard
- *  statusLine). Empty while nothing is typed. */
-export function recipientStatusHtml({ input = "", resolving = false, error = null, resolvedAddress = null, resolvedName = null, valid = false } = {}) {
+ *  statusLine). Empty while nothing is typed. `cardShown`: the screen draws the resolved address's
+ *  card (name and address) above this line, so a resolved name says nothing more here - "Resolved:
+ *  name" under the card said the name twice (K 01f71184, release audit). */
+export function recipientStatusHtml({ input = "", resolving = false, error = null, resolvedAddress = null, resolvedName = null, valid = false, cardShown = false } = {}) {
   const trimmed = String(input || "").trim();
   if (!trimmed) return "";
   if (resolving) return '<p class="sk-status muted"><span class="sk-spinner" aria-hidden="true"></span>Looking up username...</p>';
   if (error) return `<p class="sk-status bad">✕ ${esc(error)}</p>`;
+  if (resolvedAddress && cardShown) return "";
   if (resolvedAddress) {
     return `<p class="sk-status good">✓ Resolved: ${esc(resolvedName || "")}</p>
       <p class="sk-status mono">${esc(resolvedAddress)}</p>`;
@@ -489,6 +492,26 @@ export function usedTagHtml(used) {
   return '<span class="sk-used-tag checking">Checking</span>';
 }
 
+/** A quantum row's tag on Choose an Address (K 01f71184 OwnAddressList, release audit: the quantum
+ *  #0 showed beside the regular #0 with nothing to tell them apart), as Manage Addresses' cards say
+ *  it: "Quantum Protected" (green) until a spend from this device put its key on chain, then "Not
+ *  Quantum Protected", orange while it holds Kaspa. A regular address gets none. */
+export function ownAddressQuantumTagHtml({ quantum, spent = false, funded = false } = {}) {
+  if (!quantum) return "";
+  const tone = !spent ? "safe" : funded ? "warn" : "plain";
+  return `<span class="quantum-tag ${tone}">${!spent ? "Quantum Protected" : "Not Quantum Protected"}</span>`;
+}
+
+/** Choose an Address' spending rows: regular ones by number, then the quantum ones by number (K
+ *  01f71184; the quantum chain's numbers start at QUANTUM_INDEX_BASE, so they also sort last). */
+export function ownAddressSpendingOrder(entries) {
+  return [...(entries || [])].sort((a, b) => {
+    const aq = isQuantumIndex(a.index) ? 1 : 0;
+    const bq = isQuantumIndex(b.index) ? 1 : 0;
+    return aq !== bq ? aq - bq : a.index - b.index;
+  });
+}
+
 /**
  * The address list itself (iOS OwnAddressList), in `list`: on a screen (a send's "Where are you
  * sending from?", Request Payment's "Where do you want to be paid?"). Your addresses: the chatting
@@ -501,10 +524,11 @@ export function usedTagHtml(used) {
  * label, balanceSompi, hidden }] }. A row's click calls `onPick({ kind: "chatting", address })` or
  * `onPick({ kind: "spending", index, address, label })`. `excludeQuantum`: leave the quantum-safe
  * (KIP-22) addresses out - the .kachat market signs its funding inputs as plain P2PK, which a
- * quantum-safe address can't be (iOS bba1b1e OwnAddressPicker). Returns { setSelected(address) }
- * to move the check without loading again.
+ * quantum-safe address can't be (iOS bba1b1e OwnAddressPicker). `quantumSpent(address)`: whether a
+ * quantum address's key is on chain (its tag). Returns { setSelected(address) } to move the check
+ * without loading again.
  */
-export function mountOwnAddressList(list, { selectedAddress = null, loadEntries, cachedUsed, probeUsed, kasUnit = "KAS", onPick, excludeQuantum = false } = {}) {
+export function mountOwnAddressList(list, { selectedAddress = null, loadEntries, cachedUsed, probeUsed, kasUnit = "KAS", onPick, excludeQuantum = false, quantumSpent = null } = {}) {
   if (!list) return { setSelected() {} };
   let rows = [];
   let selected = selectedAddress;
@@ -534,6 +558,7 @@ export function mountOwnAddressList(list, { selectedAddress = null, loadEntries,
       <button type="button" class="sk-source-row${current ? " current" : ""}" role="option" aria-selected="${current ? "true" : "false"}" data-sk-source-key="${esc(r.key)}" data-sk-source-address="${esc(r.address)}">
         <span class="sk-source-copy">
           <span class="sk-source-name">${esc(r.title)}<span data-sk-used="${esc(r.key)}">${usedTagHtml(used.get(r.address))}</span></span>
+          ${r.quantumTag || ""}
           <code class="sk-source-address">${esc(shortSendAddress(r.address))}</code>
         </span>
         <span class="sk-source-balance${funded ? "" : " empty"}">${esc(formatSompiPlain(r.balanceSompi || 0))} ${esc(kasUnit)}</span>
@@ -553,14 +578,20 @@ export function mountOwnAddressList(list, { selectedAddress = null, loadEntries,
         key: "chatting", title: "Chatting Address", address: loaded.chatting.address,
         balanceSompi: loaded.chatting.balanceSompi || 0, source: { kind: "chatting", address: loaded.chatting.address },
       }] : [];
-      const spending = (loaded?.spending || [])
+      const spendingShown = (loaded?.spending || [])
         .filter((e) => !e.hidden || BigInt(e.balanceSompi || 0) > 0n)
-        .filter((e) => !excludeQuantum || !isQuantumIndex(e.index))
-        .sort((a, b) => a.index - b.index)
-        .map((e) => ({
-          key: `spending-${e.index}`, title: e.label || spendingIndexTitle(e.index), address: e.address,
-          balanceSompi: e.balanceSompi || 0, source: { kind: "spending", index: e.index, address: e.address, label: e.label || spendingIndexTitle(e.index) },
-        }));
+        .filter((e) => !excludeQuantum || !isQuantumIndex(e.index));
+      const spending = ownAddressSpendingOrder(spendingShown)
+        .map((e) => {
+          const quantum = isQuantumIndex(e.index);
+          let spent = false;
+          if (quantum) { try { spent = Boolean(quantumSpent?.(e.address)); } catch { spent = false; } }
+          return {
+            key: `spending-${e.index}`, title: e.label || spendingIndexTitle(e.index), address: e.address,
+            balanceSompi: e.balanceSompi || 0, source: { kind: "spending", index: e.index, address: e.address, label: e.label || spendingIndexTitle(e.index) },
+            quantumTag: ownAddressQuantumTagHtml({ quantum, spent, funded: BigInt(e.balanceSompi || 0) > 0n }),
+          };
+        });
       rows = [...chatting, ...spending];
       // Used: a balance means used, else the cached answer; the rest are looked up below.
       const toProbe = [];

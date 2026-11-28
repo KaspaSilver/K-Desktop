@@ -268,6 +268,7 @@ await test("#26: the chain feed's block handler goes when the fallback goes inac
   let removed = 0;
   const engine = { addBlockScanClient: () => { added += 1; return () => { removed += 1; }; } };
   const feed = createKaPostLiveFeed();
+  feed.setOnScreen(true); // it streams only with Posts on screen (K 01f71184 B1)
   feed.setActive(engine, true);
   assert.equal(added, 1);
   feed.setActive(engine, true);

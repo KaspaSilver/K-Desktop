@@ -333,7 +333,7 @@ test("anything iOS's decode refuses throws and changes nothing", () => {
     kapayFile({ entries: [good], deleted: "none" }),
   ];
   for (const text of bad) {
-    assert.throws(() => mergeSharedContactsFile(text), /isn't a KaChat contacts export/, `refused: ${text.slice(0, 60)}`);
+    assert.throws(() => mergeSharedContactsFile(text), /isn't a K contacts export/, `refused: ${text.slice(0, 60)}`);
     assert.equal(JSON.stringify(addressBookEntries()), before);
   }
 });

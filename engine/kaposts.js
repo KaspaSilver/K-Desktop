@@ -252,7 +252,7 @@ async function kapostFetch(url, timeoutMs, onAnswer) {
 async function kapostGet(path, query = {}, { savedFor = null } = {}) {
   // Testnet has no KaPost indexer yet: blank means none, never the mainnet one.
   const base = kapostBaseUrl();
-  if (!base) throw new Error("KaPost isn't available on Testnet yet.");
+  if (!base) throw new Error("Posts isn't available on Testnet yet.");
   const url = new URL(`${base}/${path}`);
   for (const [key, value] of Object.entries(query)) {
     if (value !== null && value !== undefined && value !== "") url.searchParams.set(key, String(value));

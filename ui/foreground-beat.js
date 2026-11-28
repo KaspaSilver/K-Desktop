@@ -4,7 +4,9 @@
 // sleeps to the same wall-clock beat (every 30 s, 60 s on an expensive connection: cellular or
 // Save-Data) and they run a second or two apart, so the network wakes once per beat instead of
 // whenever each timer happens to fire. A new background poll uses it, not its own interval. The
-// open chat (2 s), the open room (8 s) and the 1:1 sweep keep their own cadence, as in K.
+// open chat (2 s), the open room (8 s) and the 1:1 sweep keep their own cadence. (K 01f71184 put its
+// 1:1 sweep on the beat too; Desktop's 5 s sweep is its 1:1 live path and keeps its pace, and only
+// its inbox read and group pass slow down with Web Push proven: ui/push-poll-gate.js.)
 //
 // No DOM at import: tools/test-foreground-beat.mjs and the kUSDT tests load it in node.
 

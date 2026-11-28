@@ -361,6 +361,8 @@ function harness({ execute = () => ({ result: { txid: "a".repeat(64), amountOut:
       outpointsOf: async () => [...present],
       secretFor: () => { log.push("key"); return key; },
       noteSpentOutpoints: (keys) => h.spent.push(...keys),
+      // what this page still holds back (K 01f71184): the coins noted above, unless a reload dropped them
+      heldOutpoints: () => new Set(h.reloaded ? [] : h.spent.map((k) => String(k).toLowerCase())),
       markOwnTransaction: (txid) => log.push(`own:${txid.slice(0, 4)}`),
       afterTrade: () => log.push("after"),
     }),

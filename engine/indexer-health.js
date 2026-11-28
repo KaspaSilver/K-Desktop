@@ -159,11 +159,29 @@ export async function checkIndexerNow(baseUrl, { fetchImpl = (...args) => global
 
 const browserIsOffline =() => globalThis.navigator?.onLine === false;
 
+/** A timeout or dropped connection this soon after the network changed is the handoff, not the
+ *  indexer (K 01f71184 KaPostsIndexerHealth.networkChangeGrace, release audit B1: timeouts on a
+ *  network switch turned the outage's block stream on). An HTTP answer still counts. */
+export const INDEXER_NETWORK_CHANGE_GRACE_MS = 30_000;
+let lastNetworkChangeAt = -Infinity;
+/** The connection changed (online/offline, or navigator.connection's change event). */
+export function noteNetworkChange(at = Date.now()) { lastNetworkChangeAt = at; }
+export const msSinceNetworkChange = (at = Date.now()) => at - lastNetworkChangeAt;
+try {
+  if (typeof globalThis.addEventListener === "function") {
+    globalThis.addEventListener("online", () => noteNetworkChange());
+    globalThis.addEventListener("offline", () => noteNetworkChange());
+  }
+  globalThis.navigator?.connection?.addEventListener?.("change", () => noteNetworkChange());
+} catch { /* no events here (node, a worker) */ }
+
 /** What one finished fetch says about the indexer: "answered", "down" or "inconclusive".
- *  `relayLimited`: a 429 from the app's own relay, which says nothing about the indexer. */
-export function indexerFetchOutcome({ response = null, error = null, elapsedMs = 0, relayLimited = false, offline = browserIsOffline() } = {}) {
+ *  `relayLimited`: a 429 from the app's own relay, which says nothing about the indexer.
+ *  `sinceNetworkChangeMs`: a failed request within 30 s of a network change says nothing either. */
+export function indexerFetchOutcome({ response = null, error = null, elapsedMs = 0, relayLimited = false, offline = browserIsOffline(), sinceNetworkChangeMs = msSinceNetworkChange() } = {}) {
   if (offline || relayLimited) return "inconclusive";
   if (error) {
+    if (sinceNetworkChangeMs < INDEXER_NETWORK_CHANGE_GRACE_MS) return "inconclusive";
     if (error?.name === "AbortError") return elapsedMs >= INDEXER_TIMEOUT_ABORT_MS ? "down" : "inconclusive";
     return "down";
   }

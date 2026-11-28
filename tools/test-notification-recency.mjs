@@ -95,13 +95,14 @@ await test("KaPost activity rings only within ten minutes; the bell lists it dat
 
 await test("Received KAS from the catch-up rings within three minutes of its block time; older is the bell's, dated then", () => {
   const body = between(app, "async function attributeAndNotifyAddressActivity(", "// Where a tapped address-activity notification goes");
-  assert.match(body, /const happenedAt = txBlockTimeMs\(tx\);\n\s*if \(isRecentForBanner\(happenedAt\)\) postDesktopNotification\(\{/);
+  // a quiet address (Address Activity or its switch off) never rings (K 01f71184)
+  assert.match(body, /const happenedAt = txBlockTimeMs\(tx\);\n\s*if \(rings && isRecentForBanner\(happenedAt\)\) postDesktopNotification\(\{/);
   assert.match(body, /timestamp: bellTimestamp\(happenedAt\),/);
   // "Balance increased": the bell only, never a banner
   const fallback = body.slice(body.indexOf("if (!attributed && mayFallBack) {"));
   assert.ok(!fallback.includes("postDesktopNotification("), "Balance increased never rings");
   assert.match(fallback, /recordGlobalNotification\(\{\n\s*id: `wallet-bal-/);
-  assert.match(body, /catchUpCandidates\(recentTxs, loadActivityFloor\(address\), \{ chatting: isChatting, belongsInHistory: transactionBelongsInHistory \}\)/);
+  assert.match(body, /catchUpLook\(recentTxs, loadActivityFloor\(address\), \{ chatting: isChatting, rings, belongsInHistory: transactionBelongsInHistory \}\)/);
 });
 
 await test("the catch-up skips block rewards the network didn't accept, and its floor waits below a recent one (audit C1)", () => {

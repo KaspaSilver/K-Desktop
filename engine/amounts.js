@@ -214,6 +214,22 @@ export function checkedUtxoAnswer(response) {
   return response;
 }
 
+/** The sum of REST output amounts, in BigInt sompi (K 01f71184 audit R6: overflow-checked adds).
+ *  A user-set REST server answers these, so an amount that is negative or past u64, or a sum past
+ *  u64, makes the whole transaction unreadable: null, and the caller skips it rather than show or
+ *  compare a sum that can't be real. An amount that isn't a whole number pays nothing, as before. */
+export function checkedSompiSum(values) {
+  let total = 0n;
+  for (const raw of values || []) {
+    let value;
+    try { value = BigInt(raw ?? 0); } catch { continue; }
+    if (value < 0n || value > MAX_U64) return null;
+    total += value;
+    if (total > MAX_U64) return null;
+  }
+  return total;
+}
+
 /** A node-supplied UTXO amount as BigInt sompi, or null when it is not a whole number in (0, u64]. */
 export function utxoAmountSompi(entry) {
   const raw = entry?.amount ?? entry?.value ?? null;
